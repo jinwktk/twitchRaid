@@ -1,4 +1,4 @@
-# monst
+# TwitchRaid
 
 pip install -r requirements.txt
 
