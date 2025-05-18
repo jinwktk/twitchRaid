@@ -14,13 +14,20 @@ import time
 import sys
 import subprocess
 import threading
+from logging.handlers import RotatingFileHandler
 
 # ログ設定
+log_handler = RotatingFileHandler(
+    "./bot_log.txt",
+    maxBytes=5*1024*1024,  # 5MB
+    backupCount=3,  # 3つのバックアップファイルを保持
+    encoding="utf-8"
+)
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,  # DEBUGからINFOに変更
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
-        logging.FileHandler("./bot_log.txt", encoding="utf-8"),
+        log_handler,
         logging.StreamHandler()
     ]
 )
@@ -64,7 +71,7 @@ def auto_update():
 
 def auto_update_watcher():
     while True:
-        time.sleep(300)  # 5分ごと
+        time.sleep(1800)  # 30分ごと
         subprocess.run(["git", "fetch"])
         print("更新確認中...")
         # mainブランチ前提。develop等の場合は適宜変更
@@ -76,7 +83,7 @@ def auto_update_watcher():
 
 def restart_watcher():
     while True:
-        time.sleep(60)  # 1分ごとにチェック
+        time.sleep(300)  # 5分ごとにチェック
         if should_restart():
             print("1日経過したので再起動します")
             os.execv(sys.executable, [sys.executable] + sys.argv)
@@ -132,7 +139,7 @@ class Bot(commands.Bot):
                         self.stream_live = False
             except Exception as e:
                 logging.error(f"⚠️ 配信状態チェックエラー: {e}")
-            await asyncio.sleep(60)  # 60秒ごとにチェック
+            await asyncio.sleep(180)  # 180秒ごとにチェック
 
     def send_discord_notification(self, message):
         """ Discord Webhook で通知を送る """
