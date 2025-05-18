@@ -12,6 +12,8 @@ import asyncio
 import random
 import time
 import sys
+import subprocess
+import threading
 
 # ログ設定
 logging.basicConfig(
@@ -35,6 +37,50 @@ TWITCH_BROADCASTER_ID = env_values.get("TWITCH_BROADCASTER_ID", "")
 TWITCH_MODERATOR_ID = env_values.get("TWITCH_MODERATOR_ID", "")
 DISCORD_WEBHOOK_URL = env_values.get("DISCORD_WEBHOOK_URL", "")
 LAST_CLIP_TIME = float(env_values.get("LAST_CLIP_TIME", 0.0))
+
+# --- 1日おき自動再起動＆自動アップデート ---
+RESTART_INTERVAL = 60 * 60 * 24  # 1日（秒）
+RESTART_FILE = "last_restart.txt"
+
+def should_restart():
+    now = time.time()
+    try:
+        with open(RESTART_FILE, "r") as f:
+            last = float(f.read())
+    except:
+        last = 0
+    if now - last > RESTART_INTERVAL:
+        with open(RESTART_FILE, "w") as f:
+            f.write(str(now))
+        return True
+    return False
+
+def auto_update():
+    result = subprocess.run(["git", "pull"], capture_output=True, text=True)
+    print(result.stdout)
+    if "Already up to date" not in result.stdout:
+        print("更新があったので再起動します")
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+def auto_update_watcher():
+    while True:
+        time.sleep(300)  # 5分ごと
+        subprocess.run(["git", "fetch"])
+        # mainブランチ前提。develop等の場合は適宜変更
+        result = subprocess.run(["git", "rev-list", "HEAD...origin/main", "--count"], capture_output=True, text=True)
+        if result.stdout.strip() != "0":
+            print("リモートに更新があるのでpullして再起動します")
+            subprocess.run(["git", "pull"])
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+
+# 起動時に1回pull
+auto_update()
+# 監視スレッド起動
+threading.Thread(target=auto_update_watcher, daemon=True).start()
+if should_restart():
+    print("1日経過したので再起動します")
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+# --- ここまで追加 ---
 
 # Twitch Bot クラスの定義
 class Bot(commands.Bot):
