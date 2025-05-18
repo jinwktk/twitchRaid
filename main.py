@@ -66,6 +66,7 @@ def auto_update_watcher():
     while True:
         time.sleep(300)  # 5分ごと
         subprocess.run(["git", "fetch"])
+        print("更新確認中...")
         # mainブランチ前提。develop等の場合は適宜変更
         result = subprocess.run(["git", "rev-list", "HEAD...origin/main", "--count"], capture_output=True, text=True)
         if result.stdout.strip() != "0":
