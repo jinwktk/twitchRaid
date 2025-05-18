@@ -39,8 +39,7 @@ DISCORD_WEBHOOK_URL = env_values.get("DISCORD_WEBHOOK_URL", "")
 LAST_CLIP_TIME = float(env_values.get("LAST_CLIP_TIME", 0.0))
 
 # --- 1日おき自動再起動＆自動アップデート ---
-# RESTART_INTERVAL = 60 * 60 * 24  # 1日（秒）
-RESTART_INTERVAL = 10
+RESTART_INTERVAL = 60 * 60 * 24  # 1日（秒）
 RESTART_FILE = "last_restart.txt"
 
 def should_restart():
