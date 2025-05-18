@@ -74,14 +74,18 @@ def auto_update_watcher():
             subprocess.run(["git", "pull"])
             os.execv(sys.executable, [sys.executable] + sys.argv)
 
+def restart_watcher():
+    while True:
+        time.sleep(60)  # 1分ごとにチェック
+        if should_restart():
+            print("1日経過したので再起動します")
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+
 # 起動時に1回pull
 auto_update()
 # 監視スレッド起動
 threading.Thread(target=auto_update_watcher, daemon=True).start()
-if should_restart():
-    print("1日経過したので再起動します")
-    os.execv(sys.executable, [sys.executable] + sys.argv)
-# --- ここまで追加 ---
+threading.Thread(target=restart_watcher, daemon=True).start()
 
 # Twitch Bot クラスの定義
 class Bot(commands.Bot):
