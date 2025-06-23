@@ -70,29 +70,82 @@ def auto_update():
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
 def auto_update_watcher():
+    """GitHub更新監視機能 - 10分ごとにチェック"""
     while True:
-        time.sleep(1800)  # 30分ごと
-        subprocess.run(["git", "fetch"])
-        print("更新確認中...")
-        # mainブランチ前提。develop等の場合は適宜変更
-        result = subprocess.run(["git", "rev-list", "HEAD...origin/main", "--count"], capture_output=True, text=True)
-        if result.stdout.strip() != "0":
-            print("リモートに更新があるのでpullして再起動します")
-            subprocess.run(["git", "pull"])
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+        try:
+            time.sleep(600)  # 10分ごと（高頻度でチェック）
+            logging.info("GitHub更新確認中...")
+            
+            # リモートの最新情報を取得
+            fetch_result = subprocess.run(["git", "fetch"], capture_output=True, text=True)
+            if fetch_result.returncode != 0:
+                logging.error(f"git fetch エラー: {fetch_result.stderr}")
+                continue
+            
+            # リモートとローカルの差分を確認
+            result = subprocess.run(
+                ["git", "rev-list", "HEAD...origin/main", "--count"], 
+                capture_output=True, text=True
+            )
+            
+            if result.returncode != 0:
+                logging.error(f"git rev-list エラー: {result.stderr}")
+                continue
+            
+            updates_count = result.stdout.strip()
+            if updates_count != "0":
+                logging.info(f"リモートに {updates_count} 件の更新があります。プルして再起動します...")
+                
+                # プルを実行
+                pull_result = subprocess.run(["git", "pull"], capture_output=True, text=True)
+                if pull_result.returncode == 0:
+                    logging.info("プル成功。再起動します...")
+                    logging.info(f"プル結果: {pull_result.stdout}")
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
+                else:
+                    logging.error(f"プルエラー: {pull_result.stderr}")
+            else:
+                logging.info("更新なし - 最新状態です")
+                
+        except Exception as e:
+            logging.error(f"GitHub更新監視エラー: {e}")
+            time.sleep(300)  # エラー時は5分待機してリトライ
 
 def restart_watcher():
+    """定期再起動監視機能 - より安全な再起動処理"""
     while True:
-        time.sleep(300)  # 5分ごとにチェック
-        if should_restart():
-            print("1日経過したので再起動します")
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+        try:
+            time.sleep(300)  # 5分ごとにチェック
+            if should_restart():
+                logging.info("1日経過したので再起動を開始します...")
+                
+                # 現在の状態をログに記録
+                logging.info("再起動前の最終ログ - プロセス終了")
+                
+                # 安全な再起動処理
+                # 実行中のタスクを適切に終了させるための待機
+                time.sleep(5)
+                
+                # プロセス再起動
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+                
+        except Exception as e:
+            logging.error(f"再起動監視エラー: {e}")
+            time.sleep(300)  # エラー時は5分待機してリトライ
 
-# 起動時に1回pull
+# 起動時の処理
+logging.info("=== TwitchRaid Bot Starting ===")
+logging.info("GitHub更新チェックを実行中...")
 auto_update()
+
 # 監視スレッド起動
+logging.info("GitHub更新監視スレッドを開始...")
 threading.Thread(target=auto_update_watcher, daemon=True).start()
+
+logging.info("定期再起動監視スレッドを開始...")
 threading.Thread(target=restart_watcher, daemon=True).start()
+
+logging.info("全ての監視スレッドが開始されました。")
 
 # Twitch Bot クラスの定義
 class Bot(commands.Bot):
