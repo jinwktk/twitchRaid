@@ -5,7 +5,7 @@ echo Starting services...
 start "" "C:\Users\mlove\AppData\Local\Programs\VOICEVOX\VOICEVOX.exe"
 
 :: RVCの起動
-start cmd /k "cd /d E:\RVC1006Nvidia\RVC1006Nvidia && python infer-web.py"
+start cmd /k "cd /d E:\RVC1006Nvidia\RVC1006Nvidia && rvc_env\Scripts\activate && python infer-web.py"
 
 :: TwitchRaidの起動
 start cmd /k "cd /d E:\twitchRaid && python main.py"
