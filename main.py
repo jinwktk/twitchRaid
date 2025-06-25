@@ -165,7 +165,7 @@ class GitManager:
         """プロセスを再起動"""
         logging.info("プロセスを再起動します...")
         time.sleep(5)  # 安全な待機時間
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        os.execv("python", ["python"] + sys.argv)
 
 class SystemWatcher:
     """システム監視クラス"""
