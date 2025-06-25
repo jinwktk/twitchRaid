@@ -5,23 +5,14 @@ echo Starting services...
 start "" "C:\Users\mlove\AppData\Local\Programs\VOICEVOX\VOICEVOX.exe"
 
 :: RVCの起動
-start cmd /k "cd /d E:\RVC1006Nvidia\RVC1006Nvidia && python infer-web.py"
+start cmd /k "cd /d E:\RVC1006Nvidia && go-web.bat"
 
 :: TwitchRaidの起動
-start cmd /k "cd /d C:\Users\mlove\Documents\Python Plactice\twitchRaid && python main.py"
+start cmd /k "cd /d E:\twitchRaid && python.exe main.py"
 
 :: Whisperサーバーの起動
-start cmd /k "cd /d C:\Users\mlove\Documents\Python Plactice\yomiage-bot-ts && python whisper_server.py"
+start cmd /k "cd /d E:\yomiage-bot-ts && python.exe whisper_server.py"
 
-:: RVCの起動を確認
-echo Waiting for RVC to start...
-powershell -ExecutionPolicy Bypass -File "%~dp0check_rvc.ps1"
-if %ERRORLEVEL% NEQ 0 (
-    echo RVC failed to start properly
-    exit /b 1
-)
-
-:: 1分待機してからyomiage-bot-tsを起動
-start cmd /k "cd /d C:\Users\mlove\Documents\Python Plactice\yomiage-bot-ts && npm run dev"
+start cmd /k "cd /d E:\yomiage-bot-ts && npm run dev"
 
 echo All services have been started. 

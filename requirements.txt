@@ -1,3 +1,6 @@
 requests
 twitchio
-dotenv
+python-dotenv
+aiofiles
+twitchAPI
+discord-webhook
