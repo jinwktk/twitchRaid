@@ -39,7 +39,7 @@ class Config:
         self.env_file = env_file
         
         # Twitch設定
-        self.LOGIN_CHANNEL = "nyme_ia2"
+        self.LOGIN_CHANNEL = "rukalun"
         self.COMMAND_PREFIX = "!"
         self.TWITCH_CLIENT_ID = self.env_values.get("TWITCH_CLIENT_ID", "")
         self.TWITCH_ACCESS_TOKEN = self.env_values.get("TWITCH_ACCESS_TOKEN", "")
