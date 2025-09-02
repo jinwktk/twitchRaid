@@ -1,6 +1,9 @@
 requests
-twitchio
+twitchio==2.9.0
 python-dotenv
 aiofiles
-twitchAPI
+twitchAPI==4.2.1
 discord-webhook
+
+# .env設定例:
+# CLIP_SPECIAL_USERS=nyme_ia,rukalun,moderator1
