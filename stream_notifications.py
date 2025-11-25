@@ -12,9 +12,11 @@ class StreamTitleNotifier:
     def __init__(self, config, login_channel: str):
         self.config = config
         self.login_channel = login_channel
-        self._last_notified_title = self._normalize_title(
-            getattr(self.config, "LAST_STREAM_TITLE", "")
-        )
+
+    def _stored_last_title(self) -> str:
+        if hasattr(self.config, "get_last_stream_title"):
+            return self._normalize_title(self.config.get_last_stream_title())
+        return self._normalize_title(getattr(self.config, "LAST_STREAM_TITLE", ""))
     def _normalize_title(self, title: str | None) -> str:
         return (title or "").strip()
 
@@ -28,7 +30,7 @@ class StreamTitleNotifier:
         normalized = self._normalize_title(stream_title)
         if not normalized:
             return False
-        return normalized != self._last_notified_title
+        return normalized != self._stored_last_title()
 
     def notify_if_needed(self, stream_title: str | None, sender: Callable[[str], None]) -> bool:
         """新規タイトルの場合のみ通知を実行する"""
@@ -43,7 +45,6 @@ class StreamTitleNotifier:
             return False
 
         sender(self.build_message(normalized))
-        self._last_notified_title = normalized
         if hasattr(self.config, "update_last_stream_title"):
             self.config.update_last_stream_title(normalized)
         else:
