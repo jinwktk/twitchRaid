@@ -4,6 +4,7 @@ python-dotenv
 aiofiles
 twitchAPI==4.2.1
 discord-webhook
+pytest
 
 # .env設定例:
 # CLIP_SPECIAL_USERS=nyme_ia,rukalun,moderator1

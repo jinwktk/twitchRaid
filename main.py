@@ -18,6 +18,7 @@ from logging.handlers import RotatingFileHandler
 from datetime import datetime, date
 import requests
 import json
+from stream_notifications import StreamTitleNotifier
 
 # ログディレクトリとファイル設定
 import os
@@ -88,6 +89,7 @@ class Config:
         
         # システム設定
         self.LAST_CLIP_TIME = float(self.env_values.get("LAST_CLIP_TIME", 0.0))
+        self.LAST_STREAM_TITLE = self.env_values.get("LAST_STREAM_TITLE", "")
         self.RESTART_INTERVAL = 60 * 60 * 24  # 1日（秒）
         self.RESTART_FILE = "last_restart.txt"
         self.UPDATE_CHECK_INTERVAL = 600  # 10分（秒）
@@ -129,6 +131,13 @@ class Config:
                     env_file.write(line)
             if not updated:
                 env_file.write(f"LAST_CLIP_TIME={timestamp}\n")
+    
+    def update_last_stream_title(self, title: str):
+        """最新の配信タイトルを記録"""
+        normalized = title.strip()
+        self.LAST_STREAM_TITLE = normalized
+        os.environ["LAST_STREAM_TITLE"] = normalized
+        set_key(self.env_file, "LAST_STREAM_TITLE", normalized)
 
 class GitManager:
     """Git操作管理クラス"""
@@ -204,7 +213,33 @@ class GitManager:
         """プロセスを再起動"""
         logging.info("プロセスを再起動します...")
         time.sleep(5)  # 安全な待機時間
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        
+        try:
+            # より安全な再起動方法：subprocess + os._exit
+            logging.info(f"🔄 Python実行パス: {sys.executable}")
+            logging.info(f"🔄 起動引数: {sys.argv}")
+            
+            # 新しいプロセスを起動
+            subprocess.Popen([sys.executable] + sys.argv, 
+                           cwd=os.getcwd(),
+                           creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0)
+            
+            logging.info("✅ 新プロセス起動完了。現プロセスを終了します...")
+            time.sleep(2)
+            
+            # 現在のプロセスを即座に終了
+            os._exit(0)
+            
+        except Exception as e:
+            logging.error(f"❌ プロセス再起動失敗: {e}")
+            # フォールバック: 従来のos.execv方式
+            try:
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+            except Exception as exec_error:
+                logging.error(f"❌ execv再起動も失敗: {exec_error}")
+                # 最後の手段: プロセス終了のみ
+                logging.error("🚨 強制終了します。手動で再起動してください。")
+                os._exit(1)
 
 class SystemWatcher:
     """システム監視クラス"""
@@ -263,6 +298,9 @@ class Bot(commands.Bot):
         self.reconnect_attempts = 0
         self.max_reconnect_attempts = 10
         self.reconnect_delay = 30  # 初期再接続待機時間（秒）
+        self.last_activity_time = time.time()  # アクティビティ追跡用
+        self._reconnecting = False  # 再接続状態フラグ
+        self.stream_notifier = StreamTitleNotifier(self.config, self.config.LOGIN_CHANNEL)
         try:
             super().__init__(
                 token=token,
@@ -272,6 +310,7 @@ class Bot(commands.Bot):
             )
             self.twitch = Twitch(self.config.TWITCH_CLIENT_ID, self.config.TWITCH_SECRET_TOKEN)
             self.stream_live = True
+            
         except TwitchAuthorizationException:
             logging.error("❌ 無効なリフレッシュトークン。新しい認証を開始します。")
             asyncio.create_task(refresh_access_token_advanced(self.config))
@@ -300,9 +339,7 @@ class Bot(commands.Bot):
                         stream_title = streams[0].title
                         logging.info(f"🎥 配信が開始されました！タイトル: {stream_title}")
                         self.stream_live = True
-                        self.send_discord_notification(
-                            f"{stream_title}\n🔴 配信URL: https://www.twitch.tv/{self.config.LOGIN_CHANNEL}"
-                        )
+                        self.stream_notifier.notify_if_needed(stream_title, self.send_discord_notification)
                 else:
                     if self.stream_live:
                         logging.info("📢 配信が終了しました！")
@@ -396,6 +433,9 @@ class Bot(commands.Bot):
 
     async def event_message(self, message):
         """メッセージ受信イベント - デバッグ用"""
+        # アクティビティタイムスタンプを更新
+        self.last_activity_time = time.time()
+        
         # 詳細なデバッグ情報を出力
         logging.info(f"[DEBUG] メッセージ受信: echo={message.echo}, content='{message.content}', author={message.author.name if message.author else 'None'}")
         
@@ -543,94 +583,161 @@ class Bot(commands.Bot):
     
     async def event_error(self, error: Exception, data=None):
         """エラーイベントのハンドリング"""
-        # EventErrorPayloadオブジェクトの場合、詳細情報を取得
-        if hasattr(error, '__dict__'):
-            error_details = error.__dict__
-            logging.error(f"詳細なエラー情報: {error_details}")
+        error_str = str(error)
         
-        # TwitchIOのEventErrorPayloadの場合、特別な処理
-        if hasattr(error, 'data') and hasattr(error, 'exception'):
-            logging.error(f"TwitchIO Error - Data: {getattr(error, 'data', None)}, Exception: {getattr(error, 'exception', None)}")
+        # WebSocket切断エラーの詳細検出
+        websocket_errors = [
+            "Websocket connection was closed",
+            "Connection reset by peer", 
+            "Connection aborted",
+            "Connection lost",
+            "WebSocket connection lost",
+            "Connection closed"
+        ]
         
-        # その他の属性もチェック
-        for attr in ['message', 'error', 'raw', 'content']:
-            if hasattr(error, attr):
-                value = getattr(error, attr, None)
-                if value:
-                    logging.error(f"Error attribute '{attr}': {value}")
+        is_websocket_error = any(ws_error in error_str for ws_error in websocket_errors)
         
-        if isinstance(error, ConnectionError) or "Websocket connection was closed" in str(error):
-            logging.warning(f"WebSocket接続エラーを検出: {error}")
-            await self.handle_reconnect()
+        if is_websocket_error or isinstance(error, ConnectionError):
+            logging.warning(f"🔌 WebSocket接続問題を検出: {error_str}")
+            # 即座に再接続を試行せず、少し待ってから処理
+            asyncio.create_task(self.delayed_reconnect())
         else:
-            logging.error(f"予期しないエラー: {error} (型: {type(error)})")
+            logging.error(f"❌ その他のエラー: {error_str} (型: {type(error).__name__})")
+            # 詳細なエラー情報を取得
+            if hasattr(error, '__dict__') and error.__dict__:
+                logging.error(f"エラー詳細: {error.__dict__}")
     
-    async def handle_reconnect(self):
-        """WebSocket再接続処理"""
-        if self.reconnect_attempts >= self.max_reconnect_attempts:
-            logging.error(f"最大再接続試行回数（{self.max_reconnect_attempts}回）に達しました。プロセスを再起動します。")
-            git_manager.restart_process()
+    async def delayed_reconnect(self):
+        """遅延再接続処理 - WebSocket切断エラー専用"""
+        # 5秒待ってから再接続判定
+        await asyncio.sleep(5)
+        
+        # 既に再接続処理中なら重複実行を避ける
+        if hasattr(self, '_reconnecting') and self._reconnecting:
             return
-        
-        self.reconnect_attempts += 1
-        wait_time = min(self.reconnect_delay * (2 ** (self.reconnect_attempts - 1)), 300)  # 最大5分
-        
-        logging.info(f"再接続を試行します（{self.reconnect_attempts}/{self.max_reconnect_attempts}）。{wait_time}秒待機...")
-        await asyncio.sleep(wait_time)
+            
+        self._reconnecting = True
         
         try:
-            # トークンを再検証
+            if self.reconnect_attempts >= self.max_reconnect_attempts:
+                logging.error(f"🚨 最大再接続試行回数（{self.max_reconnect_attempts}回）到達。プロセス再起動を実行...")
+                git_manager.restart_process()
+                return
+            
+            self.reconnect_attempts += 1
+            wait_time = min(15 + (self.reconnect_attempts * 5), 60)  # 15-60秒の範囲で段階的に増加
+            
+            logging.info(f"🔄 WebSocket再接続開始 ({self.reconnect_attempts}/{self.max_reconnect_attempts}) - {wait_time}秒待機...")
+            await asyncio.sleep(wait_time)
+            
+            # 完全な再起動アプローチ
+            logging.info("🔧 ボット接続を完全リセット中...")
+            
+            # 既存接続を強制クローズ
+            try:
+                if hasattr(self, '_connection') and self._connection:
+                    await self._connection.close()
+                if hasattr(self, 'loop'):
+                    self.loop.stop()
+            except:
+                pass  # クローズエラーは無視
+                
+            await asyncio.sleep(10)  # 完全なクリーンアップ待機
+            
+            # トークン再検証
             valid_token = await get_valid_access_token(self.config)
-            if valid_token:
-                await self.close()
-                await asyncio.sleep(5)  # 完全にクローズするまで待機
-                await self.start()
-                logging.info("✅ 再接続に成功しました")
-            else:
-                logging.error("トークンの再取得に失敗しました")
-                await self.handle_reconnect()
+            if not valid_token:
+                logging.error("❌ トークン検証失敗。再試行をスケジュール...")
+                self._reconnecting = False
+                asyncio.create_task(self.delayed_reconnect())
+                return
+            
+            # 新しいBotインスタンスで再起動
+            logging.info("🚀 新しい接続で再起動中...")
+            await self._restart_with_new_connection(valid_token)
+            
         except Exception as e:
-            logging.error(f"再接続中にエラー: {e}")
-            await self.handle_reconnect()
+            logging.error(f"❌ 再接続処理中の致命的エラー: {e}")
+            self._reconnecting = False
+            # 致命的エラーの場合は短時間後に再試行
+            if self.reconnect_attempts < self.max_reconnect_attempts:
+                await asyncio.sleep(30)
+                asyncio.create_task(self.delayed_reconnect())
+            else:
+                git_manager.restart_process()
+    
+    async def _restart_with_new_connection(self, token):
+        """新しい接続でボットを再起動"""
+        try:
+            # 新しいBotインスタンス作成は危険なので、プロセス再起動を推奨
+            logging.info("🔄 安全のためプロセス全体を再起動します...")
+            git_manager.restart_process()
+            
+        except Exception as e:
+            logging.error(f"❌ 接続再起動中にエラー: {e}")
+            git_manager.restart_process()
     
     async def keep_alive(self):
-        """接続をキープアライブするための定期的なping送信と自動トークン更新"""
-        token_refresh_interval = 3600 * 3  # 3時間ごとにトークンをリフレッシュ
+        """改善されたキープアライブとヘルスチェック"""
+        token_refresh_interval = 3600 * 2  # 2時間ごとにトークンをリフレッシュ
         last_token_refresh = time.time()
+        connection_check_interval = 45  # 45秒ごとに接続チェック
+        last_activity_time = time.time()
         
         while True:
             try:
-                # 60秒ごとにping的な軽量操作を実行
-                await asyncio.sleep(60)
-                
-                # WebSocket接続が生きているか確認
-                if hasattr(self, '_connection') and self._connection:
-                    if self._connection.is_alive:
-                        logging.debug("WebSocket接続は正常です")
-                    else:
-                        logging.warning("WebSocket接続が切断されています。再接続を試みます...")
-                        await self.handle_reconnect()
-                
-                # 定期的なトークンリフレッシュ（3時間ごと）
+                await asyncio.sleep(connection_check_interval)
                 current_time = time.time()
+                
+                # 接続状態の詳細チェック
+                connection_ok = True
+                
+                # WebSocket接続状態をチェック
+                if hasattr(self, '_connection') and self._connection:
+                    if not self._connection.is_alive:
+                        connection_ok = False
+                        logging.warning("🔌 WebSocket接続が非アクティブです")
+                else:
+                    connection_ok = False
+                    logging.warning("🔌 WebSocket接続オブジェクトが見つかりません")
+                
+                # 長時間活動がない場合の検出
+                if current_time - last_activity_time > 300:  # 5分間活動なし
+                    logging.warning("⚠️ 5分間メッセージやイベントが無く、接続が停止している可能性があります")
+                    connection_ok = False
+                
+                # 接続問題が検出された場合の対処
+                if not connection_ok:
+                    if not (hasattr(self, '_reconnecting') and self._reconnecting):
+                        logging.info("🔄 予防的再接続を開始...")
+                        asyncio.create_task(self.delayed_reconnect())
+                
+                # 定期的なトークンリフレッシュ（2時間ごと）
                 if current_time - last_token_refresh > token_refresh_interval:
                     logging.info("⏰ 定期トークンリフレッシュを実行...")
                     new_token = await refresh_access_token_advanced(self.config)
                     if new_token:
                         last_token_refresh = current_time
                         logging.info("✅ 定期トークンリフレッシュ完了")
-                        # Twitchクライアントを再初期化
-                        await self.twitch.set_user_authentication(
-                            self.config.TWITCH_ACCESS_TOKEN,
-                            [AuthScope.CHAT_EDIT, AuthScope.CHAT_READ, AuthScope.MODERATOR_MANAGE_SHOUTOUTS],
-                            self.config.TWITCH_REFRESH_TOKEN
-                        )
+                        try:
+                            await self.twitch.set_user_authentication(
+                                self.config.TWITCH_ACCESS_TOKEN,
+                                [AuthScope.CHAT_EDIT, AuthScope.CHAT_READ, AuthScope.MODERATOR_MANAGE_SHOUTOUTS],
+                                self.config.TWITCH_REFRESH_TOKEN
+                            )
+                        except Exception as auth_error:
+                            logging.warning(f"認証更新中にエラー: {auth_error}")
                     else:
                         logging.warning("⚠️ 定期トークンリフレッシュ失敗。次回再試行します。")
                 
+                # アクティビティタイムスタンプ更新（メッセージ受信時に更新される想定）
+                if connection_ok:
+                    self.last_activity_time = current_time
+                    last_activity_time = current_time
+                
             except Exception as e:
-                logging.error(f"キープアライブ中にエラー: {e}")
-                await asyncio.sleep(60)
+                logging.error(f"❌ キープアライブ中にエラー: {e}")
+                await asyncio.sleep(30)  # エラー時は短めの待機時間
 
 
 async def validate_access_token(config):
