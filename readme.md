@@ -7,7 +7,7 @@
 ## 配信通知仕様
 - 配信開始検知時に Discord Webhook へ通知
 - 直前に通知したタイトルと同一 (`LAST_STREAM_TITLE`) の場合は通知をスキップ
-- 最新のタイトルは自動で `.env` の `LAST_STREAM_TITLE` に書き戻される
+- 最新のタイトルは自動で `.env` の `LAST_STREAM_TITLE` に書き戻され、次回判定時に `.env` から再読込される
 
 ## テスト
 - `python3 -m pytest -q`

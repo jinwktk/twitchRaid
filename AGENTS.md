@@ -41,3 +41,4 @@
 - `stream_notifications.py` と `Config.update_last_stream_title` でタイトル永続化と通知判定を実装
 - `main.py` の配信開始処理は `StreamTitleNotifier` を利用して通知重複を防止
 - `requirements.txt` に `pytest` を追加し、`readme.md` へ `LAST_STREAM_TITLE` 設定とテスト実行手順を追記
+- `.env` の `LAST_STREAM_TITLE` を都度読み書きするよう `StreamTitleNotifier` と `Config.get_last_stream_title` を強化

@@ -138,6 +138,18 @@ class Config:
         self.LAST_STREAM_TITLE = normalized
         os.environ["LAST_STREAM_TITLE"] = normalized
         set_key(self.env_file, "LAST_STREAM_TITLE", normalized)
+    
+    def get_last_stream_title(self) -> str:
+        """`.env` から最新の配信タイトルを取得"""
+        try:
+            values = dotenv_values(self.env_file)
+            stored = values.get("LAST_STREAM_TITLE", "")
+        except Exception as exc:
+            logging.error(f"⚠️ LAST_STREAM_TITLE 読み込み失敗: {exc}")
+            stored = self.LAST_STREAM_TITLE
+        normalized = stored.strip()
+        self.LAST_STREAM_TITLE = normalized
+        return normalized
 
 class GitManager:
     """Git操作管理クラス"""
