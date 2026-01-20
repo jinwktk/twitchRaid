@@ -21,6 +21,7 @@ import json
 from stream_notifications import StreamTitleNotifier
 from clip_recast_notifier import ClipRecastNotifier
 from comment_speed_meter import CommentSpeedMeter
+from message_filters import is_command_message
 
 # ログディレクトリとファイル設定
 import os
@@ -486,7 +487,7 @@ class Bot(commands.Bot):
         logging.info(f"✅ メッセージ受信: {message.author.name}: {message.content}")
         
         # コマンドかどうかをチェック
-        is_command = message.content.startswith(self.config.COMMAND_PREFIX)
+        is_command = is_command_message(message.content, self.config.COMMAND_PREFIX)
         if is_command:
             logging.info(f"🤖 コマンド検出: {message.content}")
         else:
