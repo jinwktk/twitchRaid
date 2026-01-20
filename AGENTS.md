@@ -54,6 +54,9 @@
 - README にコマンド除外の詳細を追記
 - `tests/test_comment_count_formatter.py` を追加し、累計コメント件数の表示文言をTDDで定義
 - README に `!commentcount` コマンドの説明を追記
+- `comment_count_formatter.py` を追加して累計コメント件数の表示文言を実装
+- `main.py` に `!commentcount` コマンドを追加し、配信開始からの累計コメント件数を返すよう対応
+- README に `!commentcount` の表示例を追記
 
 ## 2025-11-25 作業ログ
 - 要望: 同一配信タイトル時のDiscord通知抑止

@@ -21,6 +21,7 @@ import json
 from stream_notifications import StreamTitleNotifier
 from clip_recast_notifier import ClipRecastNotifier
 from comment_speed_meter import CommentSpeedMeter
+from comment_count_formatter import format_total_comment_count
 from message_filters import is_command_message
 
 # ログディレクトリとファイル設定
@@ -609,6 +610,12 @@ class Bot(commands.Bot):
             f"コメント風速: 直近60秒 {rate}/分 ({count}件) / "
             f"配信全体 {total_rate}/分 ({total_count}件)"
         )
+
+    @commands.command(name='commentcount')
+    async def commentcount_command(self, ctx):
+        await validate_access_token(self.config)
+        total_count = self.comment_speed_meter.total_count()
+        await ctx.send(format_total_comment_count(total_count))
 
     async def get_clips_info(self):
         try:
