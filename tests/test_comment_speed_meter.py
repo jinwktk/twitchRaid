@@ -26,3 +26,28 @@ def test_rate_zero_when_empty():
     meter.record(0)
 
     assert meter.rate_per_minute(61) == 0
+
+
+def test_total_rate_from_stream_start():
+    meter = CommentSpeedMeter(window_seconds=60)
+    meter.start_stream(0)
+    meter.record(0)
+    meter.record(30)
+
+    assert meter.total_count() == 2
+    assert meter.total_rate_per_minute(60) == 2
+
+
+def test_start_stream_resets_counts():
+    meter = CommentSpeedMeter(window_seconds=60)
+    meter.start_stream(0)
+    meter.record(0)
+    meter.record(10)
+
+    meter.start_stream(100)
+
+    assert meter.total_count() == 0
+    assert meter.count(100) == 0
+
+    meter.record(100)
+    assert meter.total_count() == 1

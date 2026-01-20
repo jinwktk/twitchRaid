@@ -358,11 +358,14 @@ class Bot(commands.Bot):
                     if not self.stream_live:
                         stream_title = streams[0].title
                         logging.info(f"🎥 配信が開始されました！タイトル: {stream_title}")
+                        self.comment_speed_meter.start_stream(time.time())
                         self.stream_live = True
                         self.stream_notifier.notify_if_needed(stream_title, self.send_discord_notification)
+                    self.comment_speed_meter.ensure_stream_started(time.time())
                 else:
                     if self.stream_live:
                         logging.info("📢 配信が終了しました！")
+                        self.comment_speed_meter.reset_stream()
                         self.stream_live = False
                 
                 error_count = 0  # 成功したらエラーカウントをリセット
@@ -599,7 +602,12 @@ class Bot(commands.Bot):
         current_time = time.time()
         rate = self.comment_speed_meter.rate_per_minute(current_time)
         count = self.comment_speed_meter.count(current_time)
-        await ctx.send(f"コメント風速: {rate}/分 (直近60秒 {count}件)")
+        total_rate = self.comment_speed_meter.total_rate_per_minute(current_time)
+        total_count = self.comment_speed_meter.total_count()
+        await ctx.send(
+            f"コメント風速: 直近60秒 {rate}/分 ({count}件) / "
+            f"配信全体 {total_rate}/分 ({total_count}件)"
+        )
 
     async def get_clips_info(self):
         try:
