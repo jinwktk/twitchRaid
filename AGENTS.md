@@ -58,6 +58,10 @@
 - `main.py` に `!commentcount` コマンドを追加し、配信開始からの累計コメント件数を返すよう対応
 - README に `!commentcount` の表示例を追記
 - コメント件数の永続化テスト `tests/test_comment_state_store.py` を追加
+- `comment_state_store.py` を追加し、`.env` に累計コメント件数と配信開始時刻を保存する仕組みを実装
+- `comment_speed_meter.py` に状態復元用の `set_state` を追加
+- `main.py` で配信開始/終了とコメント受信時にコメント件数を保存し、再起動後も引き継ぐよう対応
+- README に累計コメント件数の引き継ぎ仕様を追記
 
 ## 2025-11-25 作業ログ
 - 要望: 同一配信タイトル時のDiscord通知抑止

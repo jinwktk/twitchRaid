@@ -15,6 +15,15 @@ class CommentSpeedMeter:
         self._stream_started_at: float | None = None
         self._total_count = 0
 
+    def set_state(self, stream_started_at: float, total_count: int) -> None:
+        """配信開始時刻と累計件数を復元する。"""
+        self._timestamps.clear()
+        if stream_started_at > 0:
+            self._stream_started_at = stream_started_at
+        else:
+            self._stream_started_at = None
+        self._total_count = max(0, total_count)
+
     def start_stream(self, started_at: float) -> None:
         """配信開始時刻を設定し、計測状態をリセットする。"""
         self._stream_started_at = started_at
@@ -26,6 +35,10 @@ class CommentSpeedMeter:
         self._stream_started_at = None
         self._timestamps.clear()
         self._total_count = 0
+
+    def stream_started_at(self) -> float | None:
+        """配信開始時刻を返す。"""
+        return self._stream_started_at
 
     def ensure_stream_started(self, started_at: float) -> None:
         """配信開始時刻が未設定の場合のみ設定する。"""
