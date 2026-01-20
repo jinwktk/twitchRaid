@@ -52,6 +52,8 @@
 - `message_filters.py` を追加し、コマンド判定を切り出して先頭空白も含めて除外
 - `main.py` の風速計測は `message_filters.is_command_message` を使うよう更新
 - README にコマンド除外の詳細を追記
+- `tests/test_comment_count_formatter.py` を追加し、累計コメント件数の表示文言をTDDで定義
+- README に `!commentcount` コマンドの説明を追記
 
 ## 2025-11-25 作業ログ
 - 要望: 同一配信タイトル時のDiscord通知抑止
