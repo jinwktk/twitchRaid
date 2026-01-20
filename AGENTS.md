@@ -35,6 +35,16 @@
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`set_key` で反映。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
+## 2026-01-03 作業ログ
+- README に `clip` コマンドの復旧状況と特別ユーザー設定 (`CLIP_SPECIAL_USERS`) を共有するメモを追加し、りきゃさん復帰時の周知事項として明記
+- 一般ユーザーの `clip` コマンド使用後に 30 分経過すると Bot が自動で「リキャスト復帰」をコメントする仕組みを実装。`ClipRecastNotifier` のユニットテスト (`tests/test_clip_recast_notifier.py`) を追加し、`PYTHONPATH=. pytest -q` で全テストを通過確認
+
+## 2026-01-20 作業ログ
+- コメント風速（コメント/分）算出のため、`tests/test_comment_speed_meter.py` を追加し TDD の失敗確認まで実施
+- `comment_speed_meter.py` を追加し、`!speed` コマンドで直近 60 秒のコメント/分を返すように実装
+- `main.py` のメッセージ受信でコマンド以外のコメントを計測対象に追加
+- README にコメント風速コマンドの説明を追記
+
 ## 2025-11-25 作業ログ
 - 要望: 同一配信タイトル時のDiscord通知抑止
 - `tests/test_stream_notifications.py` を追加し、タイトル比較ロジックのTDDテストを作成
