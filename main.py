@@ -19,6 +19,8 @@ from datetime import datetime, date
 import requests
 import json
 from stream_notifications import StreamTitleNotifier
+from clip_recast_notifier import ClipRecastNotifier
+from comment_speed_meter import CommentSpeedMeter
 
 # ログディレクトリとファイル設定
 import os
@@ -313,6 +315,12 @@ class Bot(commands.Bot):
         self.last_activity_time = time.time()  # アクティビティ追跡用
         self._reconnecting = False  # 再接続状態フラグ
         self.stream_notifier = StreamTitleNotifier(self.config, self.config.LOGIN_CHANNEL)
+        self.clip_recast_notifier = ClipRecastNotifier(
+            cooldown_seconds=1800,
+            ready_message="⏱️ `clip` コマンドのリキャストが戻りました！もう一度 `!clip` でクリップできます。"
+        )
+        self.clip_recast_channel_name = self.config.LOGIN_CHANNEL
+        self.comment_speed_meter = CommentSpeedMeter(window_seconds=60)
         try:
             super().__init__(
                 token=token,
@@ -431,6 +439,18 @@ class Bot(commands.Bot):
         asyncio.create_task(self.monitor_stream_status())
         asyncio.create_task(self.keep_alive())  # キープアライブタスクを開始
         self.last_clip_time = self.config.LAST_CLIP_TIME
+        cooldown_elapsed = time.time() - self.last_clip_time if self.last_clip_time else None
+        if self.last_clip_time and cooldown_elapsed is not None:
+            if cooldown_elapsed < self.clip_recast_notifier.cooldown_seconds:
+                self.clip_recast_notifier.arm(
+                    started_at=self.last_clip_time,
+                    send_coroutine=self._default_clip_sender()
+                )
+                logging.info("⏱️ Clipコマンドのリキャスト監視を再開しました。")
+            else:
+                self.clip_recast_notifier.disarm()
+        else:
+            self.clip_recast_notifier.disarm()
         
         # 接続状態の詳細をログ出力 - 属性名を安全にチェック
         channels = getattr(self, 'initial_channels', None) or getattr(self, '_initial_channels', None) or [self.config.LOGIN_CHANNEL]
@@ -463,11 +483,41 @@ class Bot(commands.Bot):
         logging.info(f"✅ メッセージ受信: {message.author.name}: {message.content}")
         
         # コマンドかどうかをチェック
-        if message.content.startswith(self.config.COMMAND_PREFIX):
+        is_command = message.content.startswith(self.config.COMMAND_PREFIX)
+        if is_command:
             logging.info(f"🤖 コマンド検出: {message.content}")
+        else:
+            self.comment_speed_meter.record(time.time())
         
         # 親クラスのメッセージ処理を呼び出し
         await self.handle_commands(message)
+
+    def _default_clip_sender(self):
+        """Clipリキャスト通知を送るための送信関数を生成"""
+        channel_name = self.clip_recast_channel_name or self.config.LOGIN_CHANNEL
+
+        async def sender(message: str):
+            channel = None
+            try:
+                channel = self.get_channel(channel_name)
+            except Exception as exc:
+                logging.warning(f"Clipリキャスト通知のチャンネル取得に失敗: {exc}")
+
+            if channel is None:
+                connected = getattr(self, "connected_channels", None)
+                if connected:
+                    channel = connected[0]
+
+            if channel is None:
+                logging.warning(f"Clipリキャスト通知: チャンネル '{channel_name}' が未接続のため通知できませんでした。")
+                return
+
+            try:
+                await channel.send(message)
+            except Exception as send_error:
+                logging.error(f"Clipリキャスト通知送信に失敗: {send_error}")
+
+        return sender
 
 
     async def send_shoutout(self, to_broadcaster_id, retry=False):
@@ -543,6 +593,14 @@ class Bot(commands.Bot):
         food = random.choice(foods)
         await ctx.send(f"今日のおすすめ：{food}")
 
+    @commands.command(name='speed')
+    async def speed_command(self, ctx):
+        await validate_access_token(self.config)
+        current_time = time.time()
+        rate = self.comment_speed_meter.rate_per_minute(current_time)
+        count = self.comment_speed_meter.count(current_time)
+        await ctx.send(f"コメント風速: {rate}/分 (直近60秒 {count}件)")
+
     async def get_clips_info(self):
         try:
             clips = [clip async for clip in self.twitch.get_clips(
@@ -563,13 +621,22 @@ class Bot(commands.Bot):
     async def clip_command(self, ctx):
         # .envで設定された特別ユーザーはクールダウン無しで実行可能
         is_special_user = ctx.author.name.lower() in self.config.CLIP_SPECIAL_USERS
-        
+        self.clip_recast_channel_name = getattr(ctx.channel, "name", self.config.LOGIN_CHANNEL)
+
         current_time = time.time()
 
         # 一般ユーザーは30分クールダウンをチェック
-        if not is_special_user and current_time - self.last_clip_time < 1800:
+        if (
+            not is_special_user
+            and self.last_clip_time
+            and current_time - self.last_clip_time < 1800
+        ):
             remaining_time = int(1800 - (current_time - self.last_clip_time))
             await ctx.send(f"⚠️ `clip` コマンドは 30分に1回のみ使用できます。あと {remaining_time // 60}分 {remaining_time % 60}秒 待ってください。")
+            self.clip_recast_notifier.arm(
+                started_at=self.last_clip_time,
+                send_coroutine=ctx.send
+            )
             return
 
         await validate_access_token(self.config)
@@ -581,6 +648,10 @@ class Bot(commands.Bot):
             if not is_special_user:
                 self.last_clip_time = current_time
                 self.config.update_last_clip_time(current_time)
+                self.clip_recast_notifier.arm(
+                    started_at=current_time,
+                    send_coroutine=ctx.send
+                )
         else:
             await ctx.send("⚠️ クリップが見つかりませんでした。")
 
@@ -746,6 +817,11 @@ class Bot(commands.Bot):
                 if connection_ok:
                     self.last_activity_time = current_time
                     last_activity_time = current_time
+
+                try:
+                    await self.clip_recast_notifier.notify_if_ready(current_time)
+                except Exception as notifier_error:
+                    logging.error(f"Clipリキャスト通知処理中にエラー: {notifier_error}")
                 
             except Exception as e:
                 logging.error(f"❌ キープアライブ中にエラー: {e}")
