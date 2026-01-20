@@ -22,6 +22,7 @@ from stream_notifications import StreamTitleNotifier
 from clip_recast_notifier import ClipRecastNotifier
 from comment_speed_meter import CommentSpeedMeter
 from comment_count_formatter import format_total_comment_count
+from comment_state_store import load_comment_state, save_comment_state
 from message_filters import is_command_message
 
 # ログディレクトリとファイル設定
@@ -323,6 +324,8 @@ class Bot(commands.Bot):
         )
         self.clip_recast_channel_name = self.config.LOGIN_CHANNEL
         self.comment_speed_meter = CommentSpeedMeter(window_seconds=60)
+        total_count, stream_started_at = load_comment_state(self.config.env_file)
+        self.comment_speed_meter.set_state(stream_started_at, total_count)
         try:
             super().__init__(
                 token=token,
@@ -360,14 +363,24 @@ class Bot(commands.Bot):
                     if not self.stream_live:
                         stream_title = streams[0].title
                         logging.info(f"🎥 配信が開始されました！タイトル: {stream_title}")
-                        self.comment_speed_meter.start_stream(time.time())
+                        started_at = time.time()
+                        self.comment_speed_meter.start_stream(started_at)
+                        save_comment_state(self.config.env_file, 0, started_at)
                         self.stream_live = True
                         self.stream_notifier.notify_if_needed(stream_title, self.send_discord_notification)
-                    self.comment_speed_meter.ensure_stream_started(time.time())
+                    if self.comment_speed_meter.stream_started_at() is None:
+                        started_at = time.time()
+                        self.comment_speed_meter.ensure_stream_started(started_at)
+                        save_comment_state(
+                            self.config.env_file,
+                            self.comment_speed_meter.total_count(),
+                            started_at,
+                        )
                 else:
                     if self.stream_live:
                         logging.info("📢 配信が終了しました！")
                         self.comment_speed_meter.reset_stream()
+                        save_comment_state(self.config.env_file, 0, 0.0)
                         self.stream_live = False
                 
                 error_count = 0  # 成功したらエラーカウントをリセット
@@ -493,6 +506,12 @@ class Bot(commands.Bot):
             logging.info(f"🤖 コマンド検出: {message.content}")
         else:
             self.comment_speed_meter.record(time.time())
+            started_at = self.comment_speed_meter.stream_started_at() or 0.0
+            save_comment_state(
+                self.config.env_file,
+                self.comment_speed_meter.total_count(),
+                started_at,
+            )
         
         # 親クラスのメッセージ処理を呼び出し
         await self.handle_commands(message)
