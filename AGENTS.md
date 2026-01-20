@@ -49,6 +49,9 @@
 - `main.py` の配信状態監視で風速計測の開始/終了を同期し、`!speed` の出力を直近/全体の2段表示に変更
 - README の `!speed` 説明を配信全体平均の表示に更新
 - コマンド判定のユニットテスト `tests/test_message_filters.py` を追加
+- `message_filters.py` を追加し、コマンド判定を切り出して先頭空白も含めて除外
+- `main.py` の風速計測は `message_filters.is_command_message` を使うよう更新
+- README にコマンド除外の詳細を追記
 
 ## 2025-11-25 作業ログ
 - 要望: 同一配信タイトル時のDiscord通知抑止
