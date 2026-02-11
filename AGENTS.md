@@ -32,7 +32,8 @@
 
 ## 設定とセキュリティ Tips
 - `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `LAST_CLIP_TIME` を定義。更新は `Config.update_*` が担当。
-- 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`set_key` で反映。
+- 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
+- `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-02-11 作業ログ
@@ -40,6 +41,9 @@
 - 既存の `COMMENT_TOTAL_COUNT` と `STREAM_STARTED_AT` の値は保持し、他キーは空欄/既定値で追記
 - ユーザー手元の控えから `.env` の Twitch/Discord 設定と `LAST_CLIP_TIME` を再反映
 - `.env` 更新の安全化に向けて `tests/test_env_store.py` を追加し、`python3 -m pytest -q` で失敗を確認
+- `env_store.py` を追加し、`.env` 更新をバックアップ付きのアトミック書き込みに統一
+- `comment_state_store.py` と `main.py` の `.env` 更新処理を `env_store.update_env_file` に切り替え
+- `python3 -m pytest -q` で全テスト通過を確認
 
 ## 2026-01-03 作業ログ
 - README に `clip` コマンドの復旧状況と特別ユーザー設定 (`CLIP_SPECIAL_USERS`) を共有するメモを追加し、りきゃさん復帰時の周知事項として明記

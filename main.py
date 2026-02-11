@@ -1,7 +1,7 @@
 import logging
 import os
 import aiofiles
-from dotenv import dotenv_values, set_key
+from dotenv import dotenv_values
 from twitchAPI.twitch import Twitch
 from twitchAPI.oauth import UserAuthenticator, validate_token
 from twitchAPI.helper import AuthScope
@@ -24,6 +24,7 @@ from comment_speed_meter import CommentSpeedMeter
 from comment_count_formatter import format_total_comment_count
 from comment_state_store import load_comment_state, save_comment_state
 from message_filters import is_command_message
+from env_store import update_env_file
 
 # ログディレクトリとファイル設定
 import os
@@ -114,8 +115,13 @@ class Config:
         os.environ["TWITCH_REFRESH_TOKEN"] = refresh_token
         
         # .envファイルを更新
-        set_key(self.env_file, "TWITCH_ACCESS_TOKEN", access_token)
-        set_key(self.env_file, "TWITCH_REFRESH_TOKEN", refresh_token)
+        update_env_file(
+            self.env_file,
+            {
+                "TWITCH_ACCESS_TOKEN": access_token,
+                "TWITCH_REFRESH_TOKEN": refresh_token,
+            },
+        )
     
     def update_last_clip_time(self, timestamp):
         """最新のクリップ時間を更新"""
@@ -123,26 +129,14 @@ class Config:
         os.environ["LAST_CLIP_TIME"] = str(timestamp)
         
         # .envファイルを更新
-        with open(self.env_file, "r", encoding="utf-8") as env_file:
-            lines = env_file.readlines()
-        
-        with open(self.env_file, "w", encoding="utf-8") as env_file:
-            updated = False
-            for line in lines:
-                if line.startswith("LAST_CLIP_TIME="):
-                    env_file.write(f"LAST_CLIP_TIME={timestamp}\n")
-                    updated = True
-                else:
-                    env_file.write(line)
-            if not updated:
-                env_file.write(f"LAST_CLIP_TIME={timestamp}\n")
+        update_env_file(self.env_file, {"LAST_CLIP_TIME": str(timestamp)})
     
     def update_last_stream_title(self, title: str):
         """最新の配信タイトルを記録"""
         normalized = title.strip()
         self.LAST_STREAM_TITLE = normalized
         os.environ["LAST_STREAM_TITLE"] = normalized
-        set_key(self.env_file, "LAST_STREAM_TITLE", normalized)
+        update_env_file(self.env_file, {"LAST_STREAM_TITLE": normalized})
     
     def get_last_stream_title(self) -> str:
         """`.env` から最新の配信タイトルを取得"""

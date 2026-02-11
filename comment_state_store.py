@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Tuple
 
-from dotenv import dotenv_values, set_key
+from dotenv import dotenv_values
+
+from env_store import update_env_file
 
 
 def load_comment_state(env_file: str) -> Tuple[int, float]:
@@ -23,5 +25,10 @@ def load_comment_state(env_file: str) -> Tuple[int, float]:
 
 def save_comment_state(env_file: str, total_count: int, stream_started_at: float) -> None:
     """.env にコメント件数と配信開始時刻を書き込む。"""
-    set_key(env_file, "COMMENT_TOTAL_COUNT", str(total_count))
-    set_key(env_file, "STREAM_STARTED_AT", str(stream_started_at))
+    update_env_file(
+        env_file,
+        {
+            "COMMENT_TOTAL_COUNT": str(total_count),
+            "STREAM_STARTED_AT": str(stream_started_at),
+        },
+    )

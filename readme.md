@@ -4,6 +4,10 @@
 - `pip install -r requirements.txt`
 - `.env` に Twitch/Discord 認証情報と `LAST_STREAM_TITLE` を設定
 
+## .env保護
+- `.env` の更新は `env_store.py` で実行し、更新前に `.env.bak` を作成
+- `.env` が空になった場合は `.env.bak` を基準に復旧して追記
+
 ## 配信通知仕様
 - 配信開始検知時に Discord Webhook へ通知
 - 直前に通知したタイトルと同一 (`LAST_STREAM_TITLE`) の場合は通知をスキップ
