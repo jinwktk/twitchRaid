@@ -7,6 +7,7 @@
 ## .env保護
 - `.env` の更新は `env_store.py` で実行し、更新前に `.env.bak` を作成
 - `.env` が空になった場合は `.env.bak` を基準に復旧して追記
+- `.env.bak` と `.env.tmp` はバックアップ/一時ファイルのため Git 管理外
 
 ## 配信通知仕様
 - 配信開始検知時に Discord Webhook へ通知
