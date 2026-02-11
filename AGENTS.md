@@ -44,6 +44,7 @@
 - `env_store.py` を追加し、`.env` 更新をバックアップ付きのアトミック書き込みに統一
 - `comment_state_store.py` と `main.py` の `.env` 更新処理を `env_store.update_env_file` に切り替え
 - `python3 -m pytest -q` で全テスト通過を確認
+- `.env.bak` と `.env.tmp` を `.gitignore` に追加
 
 ## 2026-01-03 作業ログ
 - README に `clip` コマンドの復旧状況と特別ユーザー設定 (`CLIP_SPECIAL_USERS`) を共有するメモを追加し、りきゃさん復帰時の周知事項として明記
