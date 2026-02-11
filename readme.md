@@ -26,6 +26,7 @@
 
 ## テスト
 - `PYTHONPATH=. pytest -q`
+- `.env` 更新安全化のテスト: `tests/test_env_store.py`
 
 ## 実行
 - `python main.py`

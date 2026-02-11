@@ -35,6 +35,12 @@
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`set_key` で反映。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
+## 2026-02-11 作業ログ
+- `.env` の内容が `COMMENT_TOTAL_COUNT` と `STREAM_STARTED_AT` のみになっていたため、必要キー一覧を復旧用テンプレートとして再生成
+- 既存の `COMMENT_TOTAL_COUNT` と `STREAM_STARTED_AT` の値は保持し、他キーは空欄/既定値で追記
+- ユーザー手元の控えから `.env` の Twitch/Discord 設定と `LAST_CLIP_TIME` を再反映
+- `.env` 更新の安全化に向けて `tests/test_env_store.py` を追加し、`python3 -m pytest -q` で失敗を確認
+
 ## 2026-01-03 作業ログ
 - README に `clip` コマンドの復旧状況と特別ユーザー設定 (`CLIP_SPECIAL_USERS`) を共有するメモを追加し、りきゃさん復帰時の周知事項として明記
 - 一般ユーザーの `clip` コマンド使用後に 30 分経過すると Bot が自動で「リキャスト復帰」をコメントする仕組みを実装。`ClipRecastNotifier` のユニットテスト (`tests/test_clip_recast_notifier.py`) を追加し、`PYTHONPATH=. pytest -q` で全テストを通過確認
