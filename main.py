@@ -25,6 +25,7 @@ from comment_count_formatter import format_total_comment_count
 from comment_state_store import load_comment_state, save_comment_state
 from message_filters import is_command_message
 from env_store import update_env_file
+from clip_selector import select_clip
 
 # ログディレクトリとファイル設定
 import os
@@ -630,24 +631,18 @@ class Bot(commands.Bot):
         total_count = self.comment_speed_meter.total_count()
         await ctx.send(format_total_comment_count(total_count))
 
-    async def get_clips_info(self):
+    async def get_clips_info(self, creator_id=None, creator_name=None):
         try:
-            clips = [clip async for clip in self.twitch.get_clips(
+            return await select_clip(
+                twitch=self.twitch,
                 broadcaster_id=self.config.TWITCH_BROADCASTER_ID,
-                first=100
-            )]
-            
-            if clips:
-                selected_clip = random.choice(clips)  # ランダムに1つ選択
-                return selected_clip    
-            else:
-                logging.info("⚠️ No clips found.")
-        
+                creator_id=creator_id,
+                creator_name=creator_name,
+            )
         except Exception as e:
             logging.error(f"❌ Failed to fetch clips: {e}")
-    
-    @commands.command(name='clip')
-    async def clip_command(self, ctx):
+
+    async def _handle_clip_command(self, ctx, command_name, creator_id=None, creator_name=None):
         # .envで設定された特別ユーザーはクールダウン無しで実行可能
         is_special_user = ctx.author.name.lower() in self.config.CLIP_SPECIAL_USERS
         self.clip_recast_channel_name = getattr(ctx.channel, "name", self.config.LOGIN_CHANNEL)
@@ -661,7 +656,10 @@ class Bot(commands.Bot):
             and current_time - self.last_clip_time < 1800
         ):
             remaining_time = int(1800 - (current_time - self.last_clip_time))
-            await ctx.send(f"⚠️ `clip` コマンドは 30分に1回のみ使用できます。あと {remaining_time // 60}分 {remaining_time % 60}秒 待ってください。")
+            await ctx.send(
+                f"⚠️ `{command_name}` コマンドは 30分に1回のみ使用できます。"
+                f"あと {remaining_time // 60}分 {remaining_time % 60}秒 待ってください。"
+            )
             self.clip_recast_notifier.arm(
                 started_at=self.last_clip_time,
                 send_coroutine=ctx.send
@@ -669,7 +667,7 @@ class Bot(commands.Bot):
             return
 
         await validate_access_token(self.config)
-        clip = await self.get_clips_info()
+        clip = await self.get_clips_info(creator_id=creator_id, creator_name=creator_name)
         if clip:
             await ctx.send(clip.url)
 
@@ -682,7 +680,25 @@ class Bot(commands.Bot):
                     send_coroutine=ctx.send
                 )
         else:
-            await ctx.send("⚠️ クリップが見つかりませんでした。")
+            if creator_id is not None or creator_name:
+                await ctx.send("⚠️ あなたが作成したクリップが見つかりませんでした。")
+            else:
+                await ctx.send("⚠️ クリップが見つかりませんでした。")
+    
+    @commands.command(name='clip')
+    async def clip_command(self, ctx):
+        await self._handle_clip_command(ctx, command_name="clip")
+
+    @commands.command(name='myclip')
+    async def myclip_command(self, ctx):
+        requester_id = getattr(ctx.author, "id", None)
+        requester_name = getattr(ctx.author, "name", None)
+        await self._handle_clip_command(
+            ctx,
+            command_name="myclip",
+            creator_id=requester_id,
+            creator_name=requester_name,
+        )
 
 
     async def event_raw_usernotice(self, channel, tags):
