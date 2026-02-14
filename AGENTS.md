@@ -60,6 +60,7 @@
 - 既存の `COMMENT_TOTAL_COUNT` と `STREAM_STARTED_AT` の値は保持し、他キーは空欄/既定値で追記
 - ユーザー手元の控えから `.env` の Twitch/Discord 設定と `LAST_CLIP_TIME` を再反映
 - `.env` 更新の安全化に向けて `tests/test_env_store.py` を追加し、`python3 -m pytest -q` で失敗を確認
+- 定期再起動の判定ロジックを分離するため `tests/test_restart_state_store.py` を追加し、`python3 -m pytest -q` で失敗を確認
 - `env_store.py` を追加し、`.env` 更新をバックアップ付きのアトミック書き込みに統一
 - `comment_state_store.py` と `main.py` の `.env` 更新処理を `env_store.update_env_file` に切り替え
 - `python3 -m pytest -q` で全テスト通過を確認
