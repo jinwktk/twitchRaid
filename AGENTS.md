@@ -65,6 +65,9 @@
 - `comment_state_store.py` と `main.py` の `.env` 更新処理を `env_store.update_env_file` に切り替え
 - `python3 -m pytest -q` で全テスト通過を確認
 - `.env.bak` と `.env.tmp` を `.gitignore` に追加
+- 再起動間隔の判定を `restart_state_store.py` に分離し、初回/欠損時の即時再起動を抑止
+- GitHub更新による再起動もクールダウン対象にして保留→次回再起動で反映
+- `python3 -m pytest -q` で全テスト通過を確認
 
 ## 2026-01-03 作業ログ
 - README に `clip` コマンドの復旧状況と特別ユーザー設定 (`CLIP_SPECIAL_USERS`) を共有するメモを追加し、りきゃさん復帰時の周知事項として明記
