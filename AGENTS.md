@@ -3,11 +3,13 @@
 ## プロジェクト構成とモジュール配置
 - `main.py`: Twitch 配信監視と Discord 通知を統括するエントリーポイント。Bot 設定、ログ収集、Git 自動更新を内包。
 - `clip_selector.py`: クリップ一覧取得と、必要に応じた作成者絞り込み後のランダム選択を担当。
+- `command_cooldown_state.py`: `clip` / `myclip` のクールダウン時刻をコマンド別に管理。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
 - `.env` (未コミット想定): Twitch と Discord の認証情報および内部ステート (`LAST_CLIP_TIME` 等) を保持。
 - `CLAUDE.md` と `AGENTS.md`: 作業手順と変更履歴を日次で更新し、ドキュメントの重複を避ける。
 - `tests/test_clip_selector.py`: クリップ選択ロジック（作成者絞り込み含む）のユニットテスト。
+- `tests/test_command_cooldown_state.py`: コマンド別クールダウン独立性のユニットテスト。
 
 ## ビルド・テスト・開発コマンド
 - `python -m venv venv && source venv/bin/activate`: Linux/Mac の仮想環境作成と有効化。Windows は `venv\Scripts\activate` を使用。
@@ -33,7 +35,7 @@
 - main へ直接 push しない。レビュー向けには小さな論理単位でブランチを切り、CI テスト (将来導入) の結果を添付。
 
 ## 設定とセキュリティ Tips
-- `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `LAST_CLIP_TIME` を定義。更新は `Config.update_*` が担当。
+- `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME` を定義。更新は `Config.update_*` が担当。
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
@@ -46,6 +48,12 @@
 - `main.py` の `clip` 処理を共通化し、`!myclip` コマンドを追加
 - ドキュメント更新: `readme.md` に `!myclip` の仕様と API 制約（最大100件から抽出）を追記
 - 検証: `PYTHONPATH=. pytest -q` で 23 件すべて通過
+- 要望: `!clip` と `!myclip` のリキャストを独立管理に変更
+- TDD: `tests/test_command_cooldown_state.py` を先に追加し、`ModuleNotFoundError` の失敗確認
+- 実装: `command_cooldown_state.py` を追加し、コマンド別の最終実行時刻を管理
+- 実装: `main.py` に `LAST_MYCLIP_TIME` の保存処理と、`clip` / `myclip` 別のリキャスト通知管理を追加
+- ドキュメント更新: `readme.md` に `clip` / `myclip` の独立リキャスト仕様を追記
+- 検証: `PYTHONPATH=. pytest -q` で 26 件すべて通過
 
 ## 2026-02-11 作業ログ
 - `.env` の内容が `COMMENT_TOTAL_COUNT` と `STREAM_STARTED_AT` のみになっていたため、必要キー一覧を復旧用テンプレートとして再生成
