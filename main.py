@@ -26,6 +26,7 @@ from comment_state_store import load_comment_state, save_comment_state
 from message_filters import is_command_message
 from env_store import update_env_file
 from clip_selector import select_clip
+from command_cooldown_state import CommandCooldownState
 
 # ログディレクトリとファイル設定
 import os
@@ -96,6 +97,7 @@ class Config:
         
         # システム設定
         self.LAST_CLIP_TIME = float(self.env_values.get("LAST_CLIP_TIME", 0.0))
+        self.LAST_MYCLIP_TIME = float(self.env_values.get("LAST_MYCLIP_TIME", 0.0))
         self.LAST_STREAM_TITLE = self.env_values.get("LAST_STREAM_TITLE", "")
         self.RESTART_INTERVAL = 60 * 60 * 24  # 1日（秒）
         self.RESTART_FILE = "last_restart.txt"
@@ -131,6 +133,12 @@ class Config:
         
         # .envファイルを更新
         update_env_file(self.env_file, {"LAST_CLIP_TIME": str(timestamp)})
+
+    def update_last_myclip_time(self, timestamp):
+        """最新のmyclip時間を更新"""
+        self.LAST_MYCLIP_TIME = timestamp
+        os.environ["LAST_MYCLIP_TIME"] = str(timestamp)
+        update_env_file(self.env_file, {"LAST_MYCLIP_TIME": str(timestamp)})
     
     def update_last_stream_title(self, title: str):
         """最新の配信タイトルを記録"""
@@ -313,11 +321,26 @@ class Bot(commands.Bot):
         self.last_activity_time = time.time()  # アクティビティ追跡用
         self._reconnecting = False  # 再接続状態フラグ
         self.stream_notifier = StreamTitleNotifier(self.config, self.config.LOGIN_CHANNEL)
-        self.clip_recast_notifier = ClipRecastNotifier(
-            cooldown_seconds=1800,
-            ready_message="⏱️ `clip` コマンドのリキャストが戻りました！もう一度 `!clip` でクリップできます。"
+        self.recast_notifier_by_command = {
+            "clip": ClipRecastNotifier(
+                cooldown_seconds=1800,
+                ready_message="⏱️ `clip` コマンドのリキャストが戻りました！もう一度 `!clip` でクリップできます。",
+            ),
+            "myclip": ClipRecastNotifier(
+                cooldown_seconds=1800,
+                ready_message="⏱️ `myclip` コマンドのリキャストが戻りました！もう一度 `!myclip` でクリップできます。",
+            ),
+        }
+        self.recast_channel_by_command = {
+            "clip": self.config.LOGIN_CHANNEL,
+            "myclip": self.config.LOGIN_CHANNEL,
+        }
+        self.command_cooldown_state = CommandCooldownState(
+            {
+                "clip": self.config.LAST_CLIP_TIME,
+                "myclip": self.config.LAST_MYCLIP_TIME,
+            }
         )
-        self.clip_recast_channel_name = self.config.LOGIN_CHANNEL
         self.comment_speed_meter = CommentSpeedMeter(window_seconds=60)
         total_count, stream_started_at = load_comment_state(self.config.env_file)
         self.comment_speed_meter.set_state(stream_started_at, total_count)
@@ -451,19 +474,8 @@ class Bot(commands.Bot):
 
         asyncio.create_task(self.monitor_stream_status())
         asyncio.create_task(self.keep_alive())  # キープアライブタスクを開始
-        self.last_clip_time = self.config.LAST_CLIP_TIME
-        cooldown_elapsed = time.time() - self.last_clip_time if self.last_clip_time else None
-        if self.last_clip_time and cooldown_elapsed is not None:
-            if cooldown_elapsed < self.clip_recast_notifier.cooldown_seconds:
-                self.clip_recast_notifier.arm(
-                    started_at=self.last_clip_time,
-                    send_coroutine=self._default_clip_sender()
-                )
-                logging.info("⏱️ Clipコマンドのリキャスト監視を再開しました。")
-            else:
-                self.clip_recast_notifier.disarm()
-        else:
-            self.clip_recast_notifier.disarm()
+        self._restore_recast_notifier_state("clip")
+        self._restore_recast_notifier_state("myclip")
         
         # 接続状態の詳細をログ出力 - 属性名を安全にチェック
         channels = getattr(self, 'initial_channels', None) or getattr(self, '_initial_channels', None) or [self.config.LOGIN_CHANNEL]
@@ -511,16 +523,40 @@ class Bot(commands.Bot):
         # 親クラスのメッセージ処理を呼び出し
         await self.handle_commands(message)
 
-    def _default_clip_sender(self):
-        """Clipリキャスト通知を送るための送信関数を生成"""
-        channel_name = self.clip_recast_channel_name or self.config.LOGIN_CHANNEL
+    def _restore_recast_notifier_state(self, command_name: str):
+        notifier = self.recast_notifier_by_command[command_name]
+        last_used_at = self.command_cooldown_state.last_used(command_name)
+        cooldown_elapsed = time.time() - last_used_at if last_used_at else None
+        if last_used_at and cooldown_elapsed is not None:
+            if cooldown_elapsed < notifier.cooldown_seconds:
+                notifier.arm(
+                    started_at=last_used_at,
+                    send_coroutine=self._default_clip_sender(command_name),
+                )
+                logging.info(f"⏱️ {command_name}コマンドのリキャスト監視を再開しました。")
+            else:
+                notifier.disarm()
+        else:
+            notifier.disarm()
+
+    def _persist_command_cooldown(self, command_name: str, timestamp: float):
+        if command_name == "clip":
+            self.config.update_last_clip_time(timestamp)
+        elif command_name == "myclip":
+            self.config.update_last_myclip_time(timestamp)
+        else:
+            raise ValueError(f"unknown command: {command_name}")
+
+    def _default_clip_sender(self, command_name: str):
+        """コマンド別リキャスト通知を送るための送信関数を生成"""
+        channel_name = self.recast_channel_by_command[command_name] or self.config.LOGIN_CHANNEL
 
         async def sender(message: str):
             channel = None
             try:
                 channel = self.get_channel(channel_name)
             except Exception as exc:
-                logging.warning(f"Clipリキャスト通知のチャンネル取得に失敗: {exc}")
+                logging.warning(f"{command_name}リキャスト通知のチャンネル取得に失敗: {exc}")
 
             if channel is None:
                 connected = getattr(self, "connected_channels", None)
@@ -528,13 +564,13 @@ class Bot(commands.Bot):
                     channel = connected[0]
 
             if channel is None:
-                logging.warning(f"Clipリキャスト通知: チャンネル '{channel_name}' が未接続のため通知できませんでした。")
+                logging.warning(f"{command_name}リキャスト通知: チャンネル '{channel_name}' が未接続のため通知できませんでした。")
                 return
 
             try:
                 await channel.send(message)
             except Exception as send_error:
-                logging.error(f"Clipリキャスト通知送信に失敗: {send_error}")
+                logging.error(f"{command_name}リキャスト通知送信に失敗: {send_error}")
 
         return sender
 
@@ -643,25 +679,28 @@ class Bot(commands.Bot):
             logging.error(f"❌ Failed to fetch clips: {e}")
 
     async def _handle_clip_command(self, ctx, command_name, creator_id=None, creator_name=None):
+        notifier = self.recast_notifier_by_command[command_name]
+
         # .envで設定された特別ユーザーはクールダウン無しで実行可能
         is_special_user = ctx.author.name.lower() in self.config.CLIP_SPECIAL_USERS
-        self.clip_recast_channel_name = getattr(ctx.channel, "name", self.config.LOGIN_CHANNEL)
+        self.recast_channel_by_command[command_name] = getattr(ctx.channel, "name", self.config.LOGIN_CHANNEL)
 
         current_time = time.time()
+        remaining_time = self.command_cooldown_state.remaining_seconds(
+            command_name,
+            current_time=current_time,
+            cooldown_seconds=1800,
+        )
 
         # 一般ユーザーは30分クールダウンをチェック
-        if (
-            not is_special_user
-            and self.last_clip_time
-            and current_time - self.last_clip_time < 1800
-        ):
-            remaining_time = int(1800 - (current_time - self.last_clip_time))
+        if not is_special_user and remaining_time > 0:
+            last_used_at = self.command_cooldown_state.last_used(command_name)
             await ctx.send(
                 f"⚠️ `{command_name}` コマンドは 30分に1回のみ使用できます。"
                 f"あと {remaining_time // 60}分 {remaining_time % 60}秒 待ってください。"
             )
-            self.clip_recast_notifier.arm(
-                started_at=self.last_clip_time,
+            notifier.arm(
+                started_at=last_used_at,
                 send_coroutine=ctx.send
             )
             return
@@ -673,9 +712,9 @@ class Bot(commands.Bot):
 
             # 特別ユーザー以外の場合のみクールダウン時間を更新
             if not is_special_user:
-                self.last_clip_time = current_time
-                self.config.update_last_clip_time(current_time)
-                self.clip_recast_notifier.arm(
+                self.command_cooldown_state.mark_used(command_name, current_time)
+                self._persist_command_cooldown(command_name, current_time)
+                notifier.arm(
                     started_at=current_time,
                     send_coroutine=ctx.send
                 )
@@ -863,10 +902,11 @@ class Bot(commands.Bot):
                     self.last_activity_time = current_time
                     last_activity_time = current_time
 
-                try:
-                    await self.clip_recast_notifier.notify_if_ready(current_time)
-                except Exception as notifier_error:
-                    logging.error(f"Clipリキャスト通知処理中にエラー: {notifier_error}")
+                for command_name, notifier in self.recast_notifier_by_command.items():
+                    try:
+                        await notifier.notify_if_ready(current_time)
+                    except Exception as notifier_error:
+                        logging.error(f"{command_name}リキャスト通知処理中にエラー: {notifier_error}")
                 
             except Exception as e:
                 logging.error(f"❌ キープアライブ中にエラー: {e}")
