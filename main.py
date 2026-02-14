@@ -1,5 +1,6 @@
 import logging
 import os
+from pathlib import Path
 import aiofiles
 from dotenv import dotenv_values
 from twitchAPI.twitch import Twitch
@@ -25,8 +26,11 @@ from comment_count_formatter import format_total_comment_count
 from comment_state_store import load_comment_state, save_comment_state
 from message_filters import is_command_message
 from env_store import update_env_file
+from restart_state_store import load_last_restart, save_last_restart, evaluate_restart
 from clip_selector import select_clip
 from command_cooldown_state import CommandCooldownState
+
+BASE_DIR = Path(__file__).resolve().parent
 
 # ログディレクトリとファイル設定
 import os
@@ -100,7 +104,7 @@ class Config:
         self.LAST_MYCLIP_TIME = float(self.env_values.get("LAST_MYCLIP_TIME", 0.0))
         self.LAST_STREAM_TITLE = self.env_values.get("LAST_STREAM_TITLE", "")
         self.RESTART_INTERVAL = 60 * 60 * 24  # 1日（秒）
-        self.RESTART_FILE = "last_restart.txt"
+        self.RESTART_FILE = str(BASE_DIR / "last_restart.txt")
         self.UPDATE_CHECK_INTERVAL = 600  # 10分（秒）
         self.RESTART_CHECK_INTERVAL = 300  # 5分（秒）
         
@@ -163,20 +167,30 @@ class GitManager:
     """Git操作管理クラス"""
     def __init__(self, config):
         self.config = config
+        self.restart_pending = False
     
     def should_restart(self):
         """再起動が必要かどうかを判定"""
         now = time.time()
-        try:
-            with open(self.config.RESTART_FILE, "r") as f:
-                last = float(f.read())
-        except:
-            last = 0
-        
-        if now - last > self.config.RESTART_INTERVAL:
-            with open(self.config.RESTART_FILE, "w") as f:
-                f.write(str(now))
+        last = load_last_restart(self.config.RESTART_FILE)
+        should_restart, next_stamp = evaluate_restart(
+            now,
+            last,
+            self.config.RESTART_INTERVAL,
+        )
+        if next_stamp != last:
+            save_last_restart(self.config.RESTART_FILE, next_stamp)
+        return should_restart
+
+    def restart_with_cooldown(self, reason: str) -> bool:
+        """再起動クールダウンを考慮して再起動する。"""
+        if self.should_restart():
+            self.restart_pending = False
+            logging.info(reason)
+            self.restart_process()
             return True
+        self.restart_pending = True
+        logging.info("再起動クールダウン中のため保留します。")
         return False
     
     def pull_and_restart_if_updated(self):
@@ -185,8 +199,7 @@ class GitManager:
         logging.info(f"Git pull結果: {result.stdout}")
         
         if "Already up to date" not in result.stdout:
-            logging.info("更新があったので再起動します")
-            self.restart_process()
+            self.restart_with_cooldown("更新があったので再起動します")
     
     def check_for_updates(self):
         """リモートの更新をチェック"""
@@ -214,9 +227,9 @@ class GitManager:
                 # プルを実行
                 pull_result = subprocess.run(["git", "pull"], capture_output=True, text=True)
                 if pull_result.returncode == 0:
-                    logging.info("プル成功。再起動します...")
+                    logging.info("プル成功。再起動判定に進みます...")
                     logging.info(f"プル結果: {pull_result.stdout}")
-                    self.restart_process()
+                    self.restart_with_cooldown("更新があったので再起動します")
                     return True
                 else:
                     logging.error(f"プルエラー: {pull_result.stderr}")
@@ -283,8 +296,13 @@ class SystemWatcher:
         while True:
             try:
                 time.sleep(self.git_manager.config.RESTART_CHECK_INTERVAL)
-                if self.git_manager.should_restart():
-                    logging.info("1日経過したので再起動を開始します...")
+                should_restart = self.git_manager.should_restart()
+                if should_restart:
+                    if self.git_manager.restart_pending:
+                        logging.info("保留中の更新があるため再起動します...")
+                        self.git_manager.restart_pending = False
+                    else:
+                        logging.info("1日経過したので再起動を開始します...")
                     logging.info("再起動前の最終ログ - プロセス終了")
                     self.git_manager.restart_process()
                     
