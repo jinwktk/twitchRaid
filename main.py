@@ -35,6 +35,7 @@ from chat_message_response import get_sent_message_id
 from message_delete_tracker import PendingDeleteTracker
 from auth_scope_sets import REQUIRED_AUTH_SCOPES, REAUTH_AUTH_SCOPES
 from scope_policy import missing_scope_values
+from token_refresh_policy import should_try_fallback
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -1225,15 +1226,23 @@ async def refresh_access_token_advanced(config):
                     validate_data = validate_response.json()
                     logging.info(f"✨ トークン検証完了: User={validate_data.get('login')}, Expires={validate_data.get('expires_in')}秒")
                     return new_access_token
-        
-        elif response.status_code == 400:
-            error_data = response.json()
-            if "Invalid refresh token" in str(error_data):
-                logging.warning("⚠️ リフレッシュトークン無効。フォールバック処理を実行...")
-                # フォールバック: 従来の方法を試す
-                return await refresh_access_token_fallback(config)
-        
-        logging.error(f"❌ トークンリフレッシュ失敗: {response.status_code}")
+
+        response_body = ""
+        try:
+            response_body = response.text
+        except Exception:
+            response_body = "<レスポンス本文取得失敗>"
+
+        logging.error(
+            "❌ トークンリフレッシュ失敗: %s body=%s",
+            response.status_code,
+            response_body[:500]
+        )
+
+        if should_try_fallback(response.status_code):
+            logging.info("🔄 高度リフレッシュ失敗。フォールバック再認可を実行します...")
+            return await refresh_access_token_fallback(config)
+
         return None
         
     except Exception as e:
