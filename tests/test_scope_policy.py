@@ -1,6 +1,10 @@
 from twitchAPI.helper import AuthScope
 
-from scope_policy import active_auth_scopes_from_granted, missing_scope_values
+from scope_policy import (
+    active_auth_scopes_from_granted,
+    missing_scope_values,
+    normalize_scope_values,
+)
 
 
 def test_missing_scope_values_returns_missing_only():
@@ -39,3 +43,19 @@ def test_active_auth_scopes_from_granted_falls_back_to_default():
     result = active_auth_scopes_from_granted(granted, default_scopes)
 
     assert result == default_scopes
+
+
+def test_normalize_scope_values_sorts_and_deduplicates():
+    scopes = ["chat:read", "chat:edit", "chat:read"]
+
+    result = normalize_scope_values(scopes)
+
+    assert result == ["chat:edit", "chat:read"]
+
+
+def test_normalize_scope_values_accepts_authscope():
+    scopes = [AuthScope.USER_WRITE_CHAT, AuthScope.CHAT_EDIT]
+
+    result = normalize_scope_values(scopes)
+
+    assert result == ["chat:edit", "user:write:chat"]

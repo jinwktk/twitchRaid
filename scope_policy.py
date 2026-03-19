@@ -19,3 +19,11 @@ def active_auth_scopes_from_granted(granted_scopes, default_scopes):
     if resolved:
         return resolved
     return list(default_scopes)
+
+
+def normalize_scope_values(scopes):
+    """スコープ配列を表示用の重複なしソート済み文字列配列へ変換する。"""
+    values = []
+    for scope in scopes or []:
+        values.append(getattr(scope, "value", str(scope)))
+    return sorted(set(values))
