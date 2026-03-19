@@ -53,6 +53,13 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-03-20 作業ログ
+- 不具合報告: 再認可成功後も `manga返信のAPI送信失敗: No authorization with correct scope set!` が継続
+- 原因: `set_user_authentication` に常に最小スコープを渡しており、再認可で取得した追加スコープが認証コンテキストに反映されていない
+- 修正: `Config.ACTIVE_AUTH_SCOPES` を導入し、検証結果に応じて最小/拡張スコープを動的切替
+- 修正: `set_user_authentication` の全呼び出しを `ACTIVE_AUTH_SCOPES` 使用へ変更
+- 修正: 再認可成功時は `REAUTH_AUTH_SCOPES` を有効化し、失敗時は `REQUIRED_AUTH_SCOPES` に戻す
+- ドキュメント更新: `readme.md` に再認可後の拡張スコープ反映を追記
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
 - 要望: スコープ不足時に再取得（再認可）できるようにする
 - TDD: `tests/test_scope_policy.py` を先に作成し、`ModuleNotFoundError` で失敗確認
 - 実装: `scope_policy.py` を追加し、不足スコープ判定を実装
