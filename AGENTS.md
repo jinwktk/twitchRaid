@@ -7,6 +7,7 @@
 - `manga_selector.py`: DLsite がるまに日間ランキングから作品タイトルを抽出し、ランダム選択するロジックを担当。
 - `manga_command_control.py`: `manga` コマンドの管理者判定と ON/OFF フラグ変換を担当。
 - `chat_message_response.py`: `send_chat_message` の返却値から `message_id` を取り出す検証ロジックを担当。
+- `message_delete_tracker.py`: `ctx.send` フォールバック時の削除予約（message_id突合）を担当。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
 - `.env` (未コミット想定): Twitch と Discord の認証情報および内部ステート (`LAST_CLIP_TIME` 等) を保持。
@@ -16,6 +17,7 @@
 - `tests/test_manga_selector.py`: DLsiteランキングHTMLからのタイトル抽出とランダム選択のユニットテスト。
 - `tests/test_manga_command_control.py`: `manga` 管理者判定と ON/OFF フラグ変換のユニットテスト。
 - `tests/test_chat_message_response.py`: `send_chat_message` 返却値の `is_sent` / `message_id` 検証ユニットテスト。
+- `tests/test_message_delete_tracker.py`: `ctx.send` フォールバック時の削除予約一致判定ユニットテスト。
 
 ## ビルド・テスト・開発コマンド
 - `python -m venv venv && source venv/bin/activate`: Linux/Mac の仮想環境作成と有効化。Windows は `venv\Scripts\activate` を使用。
@@ -47,6 +49,16 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-03-20 作業ログ
+- 要望: `!manga` 返信の自動削除を 10 秒から 5 秒へ短縮
+- 実装: `main.py` に `MANGA_DELETE_DELAY_SECONDS = 5` を追加し、API送信時/`ctx.send`フォールバック時の削除予約秒数を統一
+- ドキュメント更新: `readme.md` の `manga` 削除タイミング説明を 5 秒へ更新
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
+- 不具合報告: `send_chat_message` 権限不足時に `ctx.send` フォールバックされ、`!manga` 返信が削除されない
+- 修正: `message_delete_tracker.py` を再導入し、`ctx.send` フォールバック時の削除予約を保持
+- 修正: `event_message` の `echo` で `message_id` を拾い、10秒後に `/delete <message_id>` を実行するフォールバック経路を追加
+- 修正: API削除失敗時も `/delete` コマンドへ自動フォールバック
+- ドキュメント更新: `readme.md` に `ctx.send` フォールバック時の `/delete` 試行仕様を追記
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
 - 不具合報告: `given token is missing scope moderator:manage:chat_messages`
 - 原因: `REQUIRED_AUTH_SCOPES` に削除用スコープを必須化していたため、既存トークンで起動時認証が失敗
 - 修正: 必須スコープから `MODERATOR_MANAGE_CHAT_MESSAGES` / `USER_WRITE_CHAT` を除外して起動を優先

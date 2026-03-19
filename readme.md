@@ -43,8 +43,8 @@
 - `!manga` は `MANGA_COMMAND_ENABLED` が `1` のときのみ有効
 - `!mangaon` / `!mangaoff` で `!manga` の有効/無効を切り替え（管理者のみ）
 - 管理者判定: モデレーター/配信者、または `.env` の `MANGA_ADMIN_USERS` に含まれるユーザー
-- `!manga` は `send_chat_message` が使える場合のみ返却 `message_id` で 10 秒後自動削除（`user:write:chat` と `moderator:manage:chat_messages` が必要）
-- 上記スコープがない場合は `ctx.send` にフォールバックし、返信は削除しません（Bot起動は継続）
+- `!manga` は `send_chat_message` が使える場合のみ返却 `message_id` で 5 秒後自動削除（`user:write:chat` と `moderator:manage:chat_messages` が必要）
+- 上記スコープがない場合は `ctx.send` にフォールバックし、`echo` の `message_id` を使って `/delete` コマンドで5秒後削除を試行（権限不足時は削除不可）
 
 ## テスト
 - `PYTHONPATH=. pytest -q`
