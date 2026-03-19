@@ -34,7 +34,11 @@ from manga_command_control import is_manga_admin, parse_enabled_flag, to_env_fla
 from chat_message_response import get_sent_message_id
 from message_delete_tracker import PendingDeleteTracker
 from auth_scope_sets import REQUIRED_AUTH_SCOPES, REAUTH_AUTH_SCOPES
-from scope_policy import active_auth_scopes_from_granted, missing_scope_values
+from scope_policy import (
+    active_auth_scopes_from_granted,
+    missing_scope_values,
+    normalize_scope_values,
+)
 from token_refresh_policy import should_try_fallback
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -130,6 +134,7 @@ class Config:
             if user.strip()
         ]
         self._scope_reauth_attempted_for_tokens = set()
+        self._scope_echoed_for_tokens = set()
         self.ACTIVE_AUTH_SCOPES = list(REQUIRED_AUTH_SCOPES)
     
     def update_access_token(self, access_token, refresh_token):
@@ -137,6 +142,7 @@ class Config:
         self.TWITCH_ACCESS_TOKEN = access_token
         self.TWITCH_REFRESH_TOKEN = refresh_token
         self._scope_reauth_attempted_for_tokens.clear()
+        self._scope_echoed_for_tokens.clear()
         
         # 環境変数を更新
         os.environ["TWITCH_ACCESS_TOKEN"] = access_token
@@ -156,6 +162,12 @@ class Config:
 
     def mark_scope_reauth_attempted(self, token: str):
         self._scope_reauth_attempted_for_tokens.add(token)
+
+    def has_scope_echoed(self, token: str) -> bool:
+        return token in self._scope_echoed_for_tokens
+
+    def mark_scope_echoed(self, token: str):
+        self._scope_echoed_for_tokens.add(token)
 
     def set_active_auth_scopes(self, scopes):
         self.ACTIVE_AUTH_SCOPES = list(scopes)
@@ -1164,6 +1176,14 @@ async def validate_access_token(config):
             )
             config.set_active_auth_scopes(active_scopes)
             missing_required = missing_scope_values(granted_scopes, REQUIRED_AUTH_SCOPES)
+            current_token = config.TWITCH_ACCESS_TOKEN
+            if current_token and not config.has_scope_echoed(current_token):
+                scope_values = normalize_scope_values(granted_scopes)
+                logging.info(
+                    "[ECHO] 起動時トークンスコープ: %s",
+                    ", ".join(scope_values) if scope_values else "(none)",
+                )
+                config.mark_scope_echoed(current_token)
             if missing_required:
                 logging.warning(
                     "⚠️ 必須スコープ不足のため一部APIは利用不可です（トークン無効時のみ再取得）: "
@@ -1223,6 +1243,13 @@ async def refresh_access_token_advanced(config):
                 
                 if validate_response.status_code == 200:
                     validate_data = validate_response.json()
+                    scope_values = normalize_scope_values(validate_data.get("scopes", []))
+                    logging.info(
+                        "[ECHO] 再取得トークンスコープ(advanced): %s",
+                        ", ".join(scope_values) if scope_values else "(none)",
+                    )
+                    if config.TWITCH_ACCESS_TOKEN:
+                        config.mark_scope_echoed(config.TWITCH_ACCESS_TOKEN)
                     logging.info(f"✨ トークン検証完了: User={validate_data.get('login')}, Expires={validate_data.get('expires_in')}秒")
                     return new_access_token
 
@@ -1274,6 +1301,15 @@ async def refresh_access_token_fallback(config):
             config.TWITCH_REFRESH_TOKEN
         )
         config.set_active_auth_scopes(REAUTH_AUTH_SCOPES)
+        validate_data = await validate_token(config.TWITCH_ACCESS_TOKEN)
+        if isinstance(validate_data, dict):
+            scope_values = normalize_scope_values(validate_data.get("scopes", []))
+            logging.info(
+                "[ECHO] 再取得トークンスコープ(fallback): %s",
+                ", ".join(scope_values) if scope_values else "(none)",
+            )
+            if config.TWITCH_ACCESS_TOKEN:
+                config.mark_scope_echoed(config.TWITCH_ACCESS_TOKEN)
 
         logging.info("✅ フォールバック成功！新しいアクセストークンを取得しました！")
         return config.TWITCH_ACCESS_TOKEN

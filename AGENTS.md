@@ -9,8 +9,7 @@
 - `chat_message_response.py`: `send_chat_message` の返却値から `message_id` を取り出す検証ロジックを担当。
 - `message_delete_tracker.py`: `ctx.send` フォールバック時の削除予約（message_id突合）を担当。
 - `auth_scope_sets.py`: 実行時必須スコープと再認可要求スコープ（manga削除用追加分）を定義。
-- `scope_policy.py`: 付与済みスコープから不足スコープを判定するロジックを担当。
-- `scope_policy.py`: 付与済みスコープから不足スコープ判定と、実際に適用する認可スコープ解決を担当。
+- `scope_policy.py`: 付与済みスコープから不足スコープ判定・適用スコープ解決・ログ表示用正規化を担当。
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
@@ -161,6 +160,14 @@
 - ドキュメント更新: `readme.md` のトークン運用方針を「401時のみ再取得」に更新
 - 検証: `PYTHONPATH=. pytest -q tests/test_scope_policy.py` で 4 件通過
 - 検証: `PYTHONPATH=. pytest -q` で 61 件すべて通過
+- 要望: 起動時とトークン再取得時に、付与済みスコープをECHO表示する
+- TDD: `tests/test_scope_policy.py` に `normalize_scope_values` の期待値テストを先に追加し、`ImportError` で失敗確認
+- 実装: `scope_policy.py` に `normalize_scope_values` を追加し、スコープ文字列の重複排除・ソートを実装
+- 実装: `main.py` の `validate_access_token` で `[ECHO] 起動時トークンスコープ` を出力（同一トークンは1回のみ）
+- 実装: `refresh_access_token_advanced` / `refresh_access_token_fallback` 成功時に `[ECHO] 再取得トークンスコープ` を出力
+- ドキュメント更新: `readme.md` にスコープECHOログ仕様を追記
+- 検証: `PYTHONPATH=. pytest -q tests/test_scope_policy.py` で 6 件通過
+- 検証: `PYTHONPATH=. pytest -q` で 63 件すべて通過
 
 ## 2026-02-14 作業ログ
 - 要望: `!myclip` コマンドを `!clip` と同仕様で追加し、作成者をコマンド実行者に限定
