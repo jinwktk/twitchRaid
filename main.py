@@ -567,18 +567,30 @@ class Bot(commands.Bot):
         """送信済みメッセージに紐づく削除予約を処理する。"""
         message_id = getattr(message, "id", None)
         channel = getattr(message, "channel", None)
-        channel_name = getattr(channel, "name", "") if channel else ""
-        if not message_id or not channel_name:
+        channel_name = (getattr(channel, "name", "") if channel else "").strip().lower()
+        if not channel_name:
             return
 
+        message_content = (message.content or "").strip()
         matched = self.pending_delete_tracker.pop_matched(
-            content=message.content,
+            content=message_content,
             channel_name=channel_name,
             now=time.time(),
         )
         if matched is None:
+            # Twitch側で本文が変換されるケースを考慮し、同一チャンネル先頭予約でフォールバック
+            matched = self.pending_delete_tracker.pop_first_for_channel(
+                channel_name=channel_name,
+                now=time.time(),
+            )
+        if matched is None:
             return
 
+        if not message_id:
+            logging.warning("⚠️ 削除対象メッセージIDが取得できず、自動削除をスキップしました。")
+            return
+
+        logging.info(f"🗑️ 10秒後にmanga返信を削除予約: message_id={message_id}")
         asyncio.create_task(
             self._delete_message_later(
                 message_id=message_id,
@@ -601,13 +613,15 @@ class Bot(commands.Bot):
     async def _send_manga_reply(self, ctx, content):
         """mangaコマンド返信を送信し、10秒後削除を予約する。"""
         channel_name = getattr(ctx.channel, "name", self.config.LOGIN_CHANNEL)
+        normalized_content = (content or "").strip()
+        normalized_channel = (channel_name or "").strip().lower()
         self.pending_delete_tracker.add(
-            content=content,
-            channel_name=channel_name,
+            content=normalized_content,
+            channel_name=normalized_channel,
             delete_after_seconds=10,
             now=time.time(),
         )
-        await ctx.send(content)
+        await ctx.send(normalized_content)
 
     def _restore_recast_notifier_state(self, command_name: str):
         notifier = self.recast_notifier_by_command[command_name]

@@ -31,6 +31,13 @@ class PendingDeleteTracker:
                 return self._entries.pop(idx)
         return None
 
+    def pop_first_for_channel(self, channel_name, now):
+        self._prune(now)
+        for idx, entry in enumerate(self._entries):
+            if entry.channel_name == channel_name:
+                return self._entries.pop(idx)
+        return None
+
     def _prune(self, now):
         now = float(now)
         self._entries = [
