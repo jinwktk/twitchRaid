@@ -29,6 +29,8 @@ from env_store import update_env_file
 from restart_state_store import load_last_restart, save_last_restart, evaluate_restart
 from clip_selector import select_clip
 from command_cooldown_state import CommandCooldownState
+from manga_selector import fetch_random_manga_title
+from manga_command_control import is_manga_admin, parse_enabled_flag, to_env_flag
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -111,6 +113,15 @@ class Config:
         # 特別ユーザー設定（Clipコマンドクールダウン無し）
         special_users_str = self.env_values.get("CLIP_SPECIAL_USERS", "nyme_ia,rukalun")
         self.CLIP_SPECIAL_USERS = [user.strip().lower() for user in special_users_str.split(",") if user.strip()]
+        self.MANGA_COMMAND_ENABLED = parse_enabled_flag(
+            self.env_values.get("MANGA_COMMAND_ENABLED", "0")
+        )
+        manga_admin_users_str = self.env_values.get("MANGA_ADMIN_USERS", "rukalun")
+        self.MANGA_ADMIN_USERS = [
+            user.strip().lower()
+            for user in manga_admin_users_str.split(",")
+            if user.strip()
+        ]
     
     def update_access_token(self, access_token, refresh_token):
         """アクセストークンを更新"""
@@ -150,6 +161,13 @@ class Config:
         self.LAST_STREAM_TITLE = normalized
         os.environ["LAST_STREAM_TITLE"] = normalized
         update_env_file(self.env_file, {"LAST_STREAM_TITLE": normalized})
+
+    def update_manga_command_enabled(self, enabled: bool):
+        """mangaコマンドの有効/無効状態を更新"""
+        self.MANGA_COMMAND_ENABLED = bool(enabled)
+        env_value = to_env_flag(self.MANGA_COMMAND_ENABLED)
+        os.environ["MANGA_COMMAND_ENABLED"] = env_value
+        update_env_file(self.env_file, {"MANGA_COMMAND_ENABLED": env_value})
     
     def get_last_stream_title(self) -> str:
         """`.env` から最新の配信タイトルを取得"""
@@ -500,6 +518,7 @@ class Bot(commands.Bot):
         prefix = getattr(self, 'prefix', None) or getattr(self, '_prefix', None) or self.config.COMMAND_PREFIX
         logging.info(f"🔗 接続詳細: チャンネル={channels}, プレフィックス='{prefix}'")
         logging.info(f"⚙️ Clip特別ユーザー: {self.config.CLIP_SPECIAL_USERS}")
+        logging.info(f"⚙️ Mangaコマンド状態: {'ON' if self.config.MANGA_COMMAND_ENABLED else 'OFF'}")
 
     async def event_join(self, channel, user):
         """チャンネル参加イベント"""
@@ -592,6 +611,14 @@ class Bot(commands.Bot):
 
         return sender
 
+    def _is_manga_admin(self, author):
+        return is_manga_admin(
+            user_name=getattr(author, "name", None),
+            admin_users=self.config.MANGA_ADMIN_USERS,
+            is_mod=bool(getattr(author, "is_mod", False)),
+            is_broadcaster=bool(getattr(author, "is_broadcaster", False)),
+        )
+
 
     async def send_shoutout(self, to_broadcaster_id, retry=False):
         try:
@@ -665,6 +692,46 @@ class Bot(commands.Bot):
                 "ラザニア", "ニョッキ", "カルボナーラ", "ペペロンチーノ", "ボロネーゼ"]
         food = random.choice(foods)
         await ctx.send(f"今日のおすすめ：{food}")
+
+    @commands.command(name='manga')
+    async def manga_command(self, ctx):
+        if not self.config.MANGA_COMMAND_ENABLED:
+            await ctx.send("⚠️ `manga` コマンドは現在OFFです。")
+            return
+
+        await validate_access_token(self.config)
+        try:
+            manga = await asyncio.to_thread(fetch_random_manga_title)
+            await ctx.send(f"今日のおすすめ漫画：{manga}")
+        except (requests.RequestException, ValueError) as e:
+            logging.error(f"❌ mangaランキング取得失敗: {e}")
+            await ctx.send("⚠️ 漫画ランキングの取得に失敗しました。時間をおいて再試行してください。")
+
+    @commands.command(name='mangaon')
+    async def mangaon_command(self, ctx):
+        if not self._is_manga_admin(ctx.author):
+            await ctx.send("⚠️ `mangaon` は管理者のみ実行できます。")
+            return
+
+        if self.config.MANGA_COMMAND_ENABLED:
+            await ctx.send("ℹ️ `manga` コマンドはすでにONです。")
+            return
+
+        self.config.update_manga_command_enabled(True)
+        await ctx.send("✅ `manga` コマンドをONにしました。")
+
+    @commands.command(name='mangaoff')
+    async def mangaoff_command(self, ctx):
+        if not self._is_manga_admin(ctx.author):
+            await ctx.send("⚠️ `mangaoff` は管理者のみ実行できます。")
+            return
+
+        if not self.config.MANGA_COMMAND_ENABLED:
+            await ctx.send("ℹ️ `manga` コマンドはすでにOFFです。")
+            return
+
+        self.config.update_manga_command_enabled(False)
+        await ctx.send("✅ `manga` コマンドをOFFにしました。")
 
     @commands.command(name='speed')
     async def speed_command(self, ctx):
