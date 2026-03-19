@@ -53,6 +53,13 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-03-20 作業ログ
+- 要望: 最初からフル権限でトークン取得する
+- 実装: `auth_scope_sets.py` の `REAUTH_AUTH_SCOPES` を `list(AuthScope)` に変更し、再認可時に全スコープ要求へ更新
+- 実装: `validate_access_token` の不足判定を manga追加2スコープから全スコープへ拡張
+- 実装: 不足検知ログ文言を「フル権限スコープ不足」に更新
+- テスト: `tests/test_auth_scope_sets.py` に `REAUTH_AUTH_SCOPES` が `AuthScope` 全体を網羅することを追加
+- ドキュメント更新: `readme.md` の再認可方針を全スコープ要求に更新
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
 - 不具合報告: 再認可成功後も `manga返信のAPI送信失敗: No authorization with correct scope set!` が継続
 - 原因: `set_user_authentication` に常に最小スコープを渡しており、再認可で取得した追加スコープが認証コンテキストに反映されていない
 - 修正: `Config.ACTIVE_AUTH_SCOPES` を導入し、検証結果に応じて最小/拡張スコープを動的切替

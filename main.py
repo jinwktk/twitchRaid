@@ -33,7 +33,7 @@ from manga_selector import fetch_random_manga_title
 from manga_command_control import is_manga_admin, parse_enabled_flag, to_env_flag
 from chat_message_response import get_sent_message_id
 from message_delete_tracker import PendingDeleteTracker
-from auth_scope_sets import REQUIRED_AUTH_SCOPES, REAUTH_AUTH_SCOPES, MANGA_EXTRA_REAUTH_SCOPES
+from auth_scope_sets import REQUIRED_AUTH_SCOPES, REAUTH_AUTH_SCOPES
 from scope_policy import missing_scope_values
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -1158,18 +1158,18 @@ async def validate_access_token(config):
         if user_name:
             logging.info(f"✅ アクセストークンは有効: {user_name} (Client ID: {client_id})")
             granted_scopes = token_data.get("scopes", [])
-            missing_manga_scopes = missing_scope_values(granted_scopes, MANGA_EXTRA_REAUTH_SCOPES)
-            if missing_manga_scopes:
+            missing_reauth_scopes = missing_scope_values(granted_scopes, REAUTH_AUTH_SCOPES)
+            if missing_reauth_scopes:
                 config.set_active_auth_scopes(REQUIRED_AUTH_SCOPES)
             else:
                 config.set_active_auth_scopes(REAUTH_AUTH_SCOPES)
-            if missing_manga_scopes:
+            if missing_reauth_scopes:
                 current_token = config.TWITCH_ACCESS_TOKEN
                 if not config.has_scope_reauth_attempted(current_token):
                     config.mark_scope_reauth_attempted(current_token)
                     logging.warning(
-                        "⚠️ manga送信に必要なスコープが不足しています。再認可を試行します: "
-                        + ", ".join(missing_manga_scopes)
+                        "⚠️ フル権限スコープが不足しています。再認可を試行します: "
+                        + ", ".join(missing_reauth_scopes)
                     )
                     reauthed_token = await refresh_access_token_fallback(config)
                     if reauthed_token:

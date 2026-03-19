@@ -23,6 +23,10 @@ def test_reauth_scopes_keep_required_scopes_and_are_unique():
     assert len(REAUTH_AUTH_SCOPES) == len(set(REAUTH_AUTH_SCOPES))
 
 
+def test_reauth_scopes_cover_all_authscope_values():
+    assert set(REAUTH_AUTH_SCOPES) == set(AuthScope)
+
+
 def test_manga_extra_scope_set_is_expected():
     assert MANGA_EXTRA_REAUTH_SCOPES == [
         AuthScope.USER_WRITE_CHAT,
