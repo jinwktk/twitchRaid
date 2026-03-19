@@ -5,8 +5,8 @@
 - `.env` に Twitch/Discord 認証情報と `LAST_STREAM_TITLE` を設定
 - Twitch認証は Bot 動作に必要な最小スコープのみ要求（`chat` / `shoutout` / `chat message delete` 系）
 - 再認可フロー（`UserAuthenticator`）では最初から `AuthScope` 全スコープを要求します
-- トークン検証時に全スコープ不足を検知した場合、Bot は一度だけ再認可フローを自動実行します
-- 再認可で追加スコープ取得に成功した場合、以降の `set_user_authentication` には拡張スコープ集合を適用します
+- トークン検証時は 401 Unauthorized の場合のみ再取得を実行します（スコープ不足だけでは再取得しません）
+- `set_user_authentication` には `validate_token` の付与済みスコープを反映し、過剰なスコープ要求による認可不一致を避けます
 - 高度リフレッシュ（`refresh_token` API）が `200` 以外を返した場合、レスポンス本文を記録してフォールバック再認可へ自動移行します
 
 ## .env保護
@@ -54,6 +54,7 @@
 - `PYTHONPATH=. pytest -q`
 - `.env` 更新安全化のテスト: `tests/test_env_store.py`
 - 再起動間隔のテスト: `tests/test_restart_state_store.py`
+- 付与済みスコープ反映ロジックのテスト: `tests/test_scope_policy.py`
 - トークン刷新フォールバック判定のテスト: `tests/test_token_refresh_policy.py`
 
 ## 実行

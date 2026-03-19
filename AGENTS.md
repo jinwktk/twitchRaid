@@ -10,6 +10,7 @@
 - `message_delete_tracker.py`: `ctx.send` フォールバック時の削除予約（message_id突合）を担当。
 - `auth_scope_sets.py`: 実行時必須スコープと再認可要求スコープ（manga削除用追加分）を定義。
 - `scope_policy.py`: 付与済みスコープから不足スコープを判定するロジックを担当。
+- `scope_policy.py`: 付与済みスコープから不足スコープ判定と、実際に適用する認可スコープ解決を担当。
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
@@ -152,6 +153,14 @@
 - ドキュメント更新: `readme.md` に「高度リフレッシュ非200時は自動でフォールバック再認可」仕様を追記
 - 検証: `PYTHONPATH=. pytest -q tests/test_token_refresh_policy.py` で 3 件通過
 - 検証: `PYTHONPATH=. pytest -q` で 59 件すべて通過
+- 要望: トークンが使えなくなった時だけ再取得したい
+- TDD: `tests/test_scope_policy.py` に、付与済みスコープから有効スコープ集合を解決するテストを先に追加し、`ImportError` で失敗確認
+- 実装: `scope_policy.py` に `active_auth_scopes_from_granted` を追加
+- 実装: `main.py` の `validate_access_token` を更新し、401時のみ再取得・それ以外は付与済みスコープを `ACTIVE_AUTH_SCOPES` へ反映
+- 実装: 全スコープ不足を理由にした自動再認可トリガーを停止し、不要な再取得ループを解消
+- ドキュメント更新: `readme.md` のトークン運用方針を「401時のみ再取得」に更新
+- 検証: `PYTHONPATH=. pytest -q tests/test_scope_policy.py` で 4 件通過
+- 検証: `PYTHONPATH=. pytest -q` で 61 件すべて通過
 
 ## 2026-02-14 作業ログ
 - 要望: `!myclip` コマンドを `!clip` と同仕様で追加し、作成者をコマンド実行者に限定

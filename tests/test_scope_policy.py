@@ -1,6 +1,6 @@
 from twitchAPI.helper import AuthScope
 
-from scope_policy import missing_scope_values
+from scope_policy import active_auth_scopes_from_granted, missing_scope_values
 
 
 def test_missing_scope_values_returns_missing_only():
@@ -19,3 +19,23 @@ def test_missing_scope_values_returns_empty_when_all_present():
     result = missing_scope_values(granted, required)
 
     assert result == []
+
+
+def test_active_auth_scopes_from_granted_uses_granted_scopes():
+    granted = ["chat:edit", "chat:read", "user:write:chat"]
+    default_scopes = [AuthScope.CHAT_EDIT]
+
+    result = active_auth_scopes_from_granted(granted, default_scopes)
+
+    assert AuthScope.CHAT_EDIT in result
+    assert AuthScope.USER_WRITE_CHAT in result
+    assert len(result) == 3
+
+
+def test_active_auth_scopes_from_granted_falls_back_to_default():
+    granted = []
+    default_scopes = [AuthScope.CHAT_EDIT, AuthScope.CHAT_READ]
+
+    result = active_auth_scopes_from_granted(granted, default_scopes)
+
+    assert result == default_scopes
