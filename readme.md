@@ -6,6 +6,7 @@
 - Twitch認証は Bot 動作に必要な最小スコープのみ要求（`chat` / `shoutout` / `chat message delete` 系）
 - 再認可フロー（`UserAuthenticator`）では `user:write:chat` と `moderator:manage:chat_messages` も要求し、`manga` 自動削除の有効化を狙います
 - トークン検証時に上記2スコープ不足を検知した場合、Bot は一度だけ再認可フローを自動実行します
+- 再認可で追加スコープ取得に成功した場合、以降の `set_user_authentication` には拡張スコープ集合を適用します
 
 ## .env保護
 - `.env` の更新は `env_store.py` で実行し、更新前に `.env.bak` を作成

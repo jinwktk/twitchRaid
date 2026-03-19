@@ -129,6 +129,7 @@ class Config:
             if user.strip()
         ]
         self._scope_reauth_attempted_for_tokens = set()
+        self.ACTIVE_AUTH_SCOPES = list(REQUIRED_AUTH_SCOPES)
     
     def update_access_token(self, access_token, refresh_token):
         """アクセストークンを更新"""
@@ -154,6 +155,9 @@ class Config:
 
     def mark_scope_reauth_attempted(self, token: str):
         self._scope_reauth_attempted_for_tokens.add(token)
+
+    def set_active_auth_scopes(self, scopes):
+        self.ACTIVE_AUTH_SCOPES = list(scopes)
     
     def update_last_clip_time(self, timestamp):
         """最新のクリップ時間を更新"""
@@ -416,7 +420,7 @@ class Bot(commands.Bot):
             await refresh_access_token_advanced(self.config)
         await self.twitch.set_user_authentication(
             self.config.TWITCH_ACCESS_TOKEN,
-            REQUIRED_AUTH_SCOPES,
+            self.config.ACTIVE_AUTH_SCOPES,
             self.config.TWITCH_REFRESH_TOKEN
         )
 
@@ -465,7 +469,7 @@ class Bot(commands.Bot):
                         # Twitchクライアントを再初期化
                         await self.twitch.set_user_authentication(
                             self.config.TWITCH_ACCESS_TOKEN,
-                            REQUIRED_AUTH_SCOPES,
+                            self.config.ACTIVE_AUTH_SCOPES,
                             self.config.TWITCH_REFRESH_TOKEN
                         )
                         error_count = 0
@@ -1110,7 +1114,7 @@ class Bot(commands.Bot):
                         try:
                             await self.twitch.set_user_authentication(
                                 self.config.TWITCH_ACCESS_TOKEN,
-                                REQUIRED_AUTH_SCOPES,
+                                self.config.ACTIVE_AUTH_SCOPES,
                                 self.config.TWITCH_REFRESH_TOKEN
                             )
                         except Exception as auth_error:
@@ -1155,6 +1159,10 @@ async def validate_access_token(config):
             logging.info(f"✅ アクセストークンは有効: {user_name} (Client ID: {client_id})")
             granted_scopes = token_data.get("scopes", [])
             missing_manga_scopes = missing_scope_values(granted_scopes, MANGA_EXTRA_REAUTH_SCOPES)
+            if missing_manga_scopes:
+                config.set_active_auth_scopes(REQUIRED_AUTH_SCOPES)
+            else:
+                config.set_active_auth_scopes(REAUTH_AUTH_SCOPES)
             if missing_manga_scopes:
                 current_token = config.TWITCH_ACCESS_TOKEN
                 if not config.has_scope_reauth_attempted(current_token):
@@ -1254,15 +1262,17 @@ async def refresh_access_token_fallback(config):
         # Twitchの認証情報を更新
         await twitch.set_user_authentication(
             config.TWITCH_ACCESS_TOKEN,
-            REQUIRED_AUTH_SCOPES,
+            REAUTH_AUTH_SCOPES,
             config.TWITCH_REFRESH_TOKEN
         )
+        config.set_active_auth_scopes(REAUTH_AUTH_SCOPES)
 
         logging.info("✅ フォールバック成功！新しいアクセストークンを取得しました！")
         return config.TWITCH_ACCESS_TOKEN
 
     except Exception as e:
         logging.error(f"❌ フォールバックも失敗: {e}")
+        config.set_active_auth_scopes(REQUIRED_AUTH_SCOPES)
         return None
 
 async def refresh_access_token(config):
