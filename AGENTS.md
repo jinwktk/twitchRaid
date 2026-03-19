@@ -47,6 +47,12 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-03-20 作業ログ
+- 不具合報告: `given token is missing scope moderator:manage:chat_messages`
+- 原因: `REQUIRED_AUTH_SCOPES` に削除用スコープを必須化していたため、既存トークンで起動時認証が失敗
+- 修正: 必須スコープから `MODERATOR_MANAGE_CHAT_MESSAGES` / `USER_WRITE_CHAT` を除外して起動を優先
+- 修正: `manga` はAPI送信失敗時に `ctx.send` へフォールバックし、削除はスキップする仕様を明記
+- ドキュメント更新: `readme.md` の `manga` セクションをフォールバック仕様へ更新
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
 - 不具合報告: `given token is missing scope analytics:read:extensions`
 - 原因: 認証スコープを全要求 (`list(AuthScope)`) にしたことで、既存トークン検証が失敗
 - 修正: `REQUIRED_AUTH_SCOPES` を Bot 実行に必要な最小セットへ戻し、不要スコープ依存を解消
