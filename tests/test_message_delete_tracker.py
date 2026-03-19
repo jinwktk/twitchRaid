@@ -41,3 +41,17 @@ def test_duplicate_content_is_popped_in_fifo_order():
     assert second is not None
     assert first.delete_after_seconds == 10
     assert second.delete_after_seconds == 20
+
+
+def test_pop_first_for_channel_is_used_as_fallback():
+    tracker = PendingDeleteTracker(stale_seconds=60)
+    tracker.add(content="A", channel_name="rukalun", delete_after_seconds=10, now=100.0)
+    tracker.add(content="B", channel_name="rukalun", delete_after_seconds=20, now=101.0)
+
+    first = tracker.pop_first_for_channel(channel_name="rukalun", now=102.0)
+    second = tracker.pop_first_for_channel(channel_name="rukalun", now=103.0)
+
+    assert first is not None
+    assert second is not None
+    assert first.content == "A"
+    assert second.content == "B"

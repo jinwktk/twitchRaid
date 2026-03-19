@@ -47,6 +47,12 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-03-20 作業ログ
+- 要望: `!manga` の返信が10秒後に消えない問題を修正
+- 原因調査: `echo` 受信時の本文完全一致に依存しており、本文差異で削除予約が取りこぼされる可能性を確認
+- 実装: `message_delete_tracker.py` にチャンネル単位フォールバック一致 (`pop_first_for_channel`) を追加
+- 実装: `main.py` の削除予約処理で本文一致失敗時に同一チャンネル先頭予約へフォールバックし、削除予約ログを追加
+- テスト: `tests/test_message_delete_tracker.py` にフォールバック一致のテストを追加
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
 - 要望: `!manga` の返答を 10 秒後に削除
 - TDD: `tests/test_message_delete_tracker.py` を先に作成し、`ModuleNotFoundError` で失敗確認
 - 実装: `message_delete_tracker.py` を追加し、削除予約メッセージの追跡ロジックを実装
