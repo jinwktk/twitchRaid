@@ -12,13 +12,5 @@ MANGA_EXTRA_REAUTH_SCOPES = [
     AuthScope.MODERATOR_MANAGE_CHAT_MESSAGES,
 ]
 
-
-def _merge_scopes(primary, secondary):
-    merged = list(primary)
-    for scope in secondary:
-        if scope not in merged:
-            merged.append(scope)
-    return merged
-
-
-REAUTH_AUTH_SCOPES = _merge_scopes(REQUIRED_AUTH_SCOPES, MANGA_EXTRA_REAUTH_SCOPES)
+# 再認可時は最初から全スコープを要求する
+REAUTH_AUTH_SCOPES = list(AuthScope)
