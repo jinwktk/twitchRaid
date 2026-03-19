@@ -29,7 +29,6 @@ from env_store import update_env_file
 from restart_state_store import load_last_restart, save_last_restart, evaluate_restart
 from clip_selector import select_clip
 from command_cooldown_state import CommandCooldownState
-from manga_selector import fetch_random_manga_title
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -666,16 +665,6 @@ class Bot(commands.Bot):
                 "ラザニア", "ニョッキ", "カルボナーラ", "ペペロンチーノ", "ボロネーゼ"]
         food = random.choice(foods)
         await ctx.send(f"今日のおすすめ：{food}")
-
-    @commands.command(name='manga')
-    async def manga_command(self, ctx):
-        await validate_access_token(self.config)
-        try:
-            manga = await asyncio.to_thread(fetch_random_manga_title)
-            await ctx.send(f"今日のおすすめ漫画：{manga}")
-        except (requests.RequestException, ValueError) as e:
-            logging.error(f"❌ mangaランキング取得失敗: {e}")
-            await ctx.send("⚠️ 漫画ランキングの取得に失敗しました。時間をおいて再試行してください。")
 
     @commands.command(name='speed')
     async def speed_command(self, ctx):
