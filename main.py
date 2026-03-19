@@ -67,8 +67,6 @@ REQUIRED_AUTH_SCOPES = [
     AuthScope.CHAT_EDIT,
     AuthScope.CHAT_READ,
     AuthScope.MODERATOR_MANAGE_SHOUTOUTS,
-    AuthScope.MODERATOR_MANAGE_CHAT_MESSAGES,
-    AuthScope.USER_WRITE_CHAT,
 ]
 
 def calculate_age():
