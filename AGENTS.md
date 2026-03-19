@@ -9,6 +9,7 @@
 - `chat_message_response.py`: `send_chat_message` の返却値から `message_id` を取り出す検証ロジックを担当。
 - `message_delete_tracker.py`: `ctx.send` フォールバック時の削除予約（message_id突合）を担当。
 - `auth_scope_sets.py`: 実行時必須スコープと再認可要求スコープ（manga削除用追加分）を定義。
+- `scope_policy.py`: 付与済みスコープから不足スコープを判定するロジックを担当。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
 - `.env` (未コミット想定): Twitch と Discord の認証情報および内部ステート (`LAST_CLIP_TIME` 等) を保持。
@@ -20,6 +21,7 @@
 - `tests/test_chat_message_response.py`: `send_chat_message` 返却値の `is_sent` / `message_id` 検証ユニットテスト。
 - `tests/test_message_delete_tracker.py`: `ctx.send` フォールバック時の削除予約一致判定ユニットテスト。
 - `tests/test_auth_scope_sets.py`: 実行時必須スコープと再認可スコープ集合の妥当性テスト。
+- `tests/test_scope_policy.py`: 不足スコープ判定ロジックのユニットテスト。
 
 ## ビルド・テスト・開発コマンド
 - `python -m venv venv && source venv/bin/activate`: Linux/Mac の仮想環境作成と有効化。Windows は `venv\Scripts\activate` を使用。
@@ -51,6 +53,13 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-03-20 作業ログ
+- 要望: スコープ不足時に再取得（再認可）できるようにする
+- TDD: `tests/test_scope_policy.py` を先に作成し、`ModuleNotFoundError` で失敗確認
+- 実装: `scope_policy.py` を追加し、不足スコープ判定を実装
+- 実装: `main.py` の `validate_access_token` で manga追加スコープ不足を検知した場合、同一トークンにつき1回だけ `refresh_access_token_fallback` を自動実行
+- 実装: `Config` にスコープ再認可試行済みトークン管理を追加し、過剰な再認可ループを抑止
+- ドキュメント更新: `readme.md` に不足スコープ検知時の自動再認可フローを追記
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
 - 要望: 再認可フローで `user:write:chat` / `moderator:manage:chat_messages` を確実に要求
 - TDD: `tests/test_auth_scope_sets.py` を先に追加し、`ModuleNotFoundError` で失敗確認
 - 実装: `auth_scope_sets.py` を追加し、`REQUIRED_AUTH_SCOPES` と `REAUTH_AUTH_SCOPES` を分離
