@@ -7,6 +7,7 @@
 - 再認可フロー（`UserAuthenticator`）では最初から `AuthScope` 全スコープを要求します
 - トークン検証時に全スコープ不足を検知した場合、Bot は一度だけ再認可フローを自動実行します
 - 再認可で追加スコープ取得に成功した場合、以降の `set_user_authentication` には拡張スコープ集合を適用します
+- 高度リフレッシュ（`refresh_token` API）が `200` 以外を返した場合、レスポンス本文を記録してフォールバック再認可へ自動移行します
 
 ## .env保護
 - `.env` の更新は `env_store.py` で実行し、更新前に `.env.bak` を作成
@@ -53,6 +54,7 @@
 - `PYTHONPATH=. pytest -q`
 - `.env` 更新安全化のテスト: `tests/test_env_store.py`
 - 再起動間隔のテスト: `tests/test_restart_state_store.py`
+- トークン刷新フォールバック判定のテスト: `tests/test_token_refresh_policy.py`
 
 ## 実行
 - `python main.py`

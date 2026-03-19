@@ -10,6 +10,7 @@
 - `message_delete_tracker.py`: `ctx.send` フォールバック時の削除予約（message_id突合）を担当。
 - `auth_scope_sets.py`: 実行時必須スコープと再認可要求スコープ（manga削除用追加分）を定義。
 - `scope_policy.py`: 付与済みスコープから不足スコープを判定するロジックを担当。
+- `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
 - `.env` (未コミット想定): Twitch と Discord の認証情報および内部ステート (`LAST_CLIP_TIME` 等) を保持。
@@ -22,6 +23,7 @@
 - `tests/test_message_delete_tracker.py`: `ctx.send` フォールバック時の削除予約一致判定ユニットテスト。
 - `tests/test_auth_scope_sets.py`: 実行時必須スコープと再認可スコープ集合の妥当性テスト。
 - `tests/test_scope_policy.py`: 不足スコープ判定ロジックのユニットテスト。
+- `tests/test_token_refresh_policy.py`: トークンリフレッシュ失敗時のフォールバック判定テスト。
 
 ## ビルド・テスト・開発コマンド
 - `python -m venv venv && source venv/bin/activate`: Linux/Mac の仮想環境作成と有効化。Windows は `venv\Scripts\activate` を使用。
@@ -143,6 +145,13 @@
 - 実装: `manga_selector.py` と `tests/test_manga_selector.py` を削除
 - ドキュメント更新: `readme.md` の `!manga` 説明と、構成欄の manga 関連記述を整理
 - 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
+- 不具合報告: 起動時トークン検証で `refresh_access_token_advanced` が `400` を返すと、フォールバック再認可に進まず終了する
+- TDD: `tests/test_token_refresh_policy.py` を先に追加し、`ModuleNotFoundError` で失敗確認
+- 実装: `token_refresh_policy.py` を追加し、`200` 以外はフォールバック再認可対象とする `should_try_fallback` を実装
+- 実装: `main.py` の `refresh_access_token_advanced` を更新し、非200時はレスポンス本文をログして `refresh_access_token_fallback` を実行
+- ドキュメント更新: `readme.md` に「高度リフレッシュ非200時は自動でフォールバック再認可」仕様を追記
+- 検証: `PYTHONPATH=. pytest -q tests/test_token_refresh_policy.py` で 3 件通過
+- 検証: `PYTHONPATH=. pytest -q` で 59 件すべて通過
 
 ## 2026-02-14 作業ログ
 - 要望: `!myclip` コマンドを `!clip` と同仕様で追加し、作成者をコマンド実行者に限定
