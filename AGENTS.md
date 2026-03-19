@@ -47,6 +47,10 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-03-20 作業ログ
+- 要望: すべてのスコープでトークン取得するよう変更
+- 実装: `main.py` の `REQUIRED_AUTH_SCOPES` を `list(AuthScope)` に変更し、認証時に全スコープを要求する設定へ更新
+- ドキュメント更新: `readme.md` に全スコープ要求の注意点を追記
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
 - 要望: `!manga` 返信の `message_id` を `send_chat_message` 返却値から直接取得
 - TDD: `tests/test_chat_message_response.py` を先に作成し、`ModuleNotFoundError` で失敗確認
 - 実装: `chat_message_response.py` を追加し、`send_chat_message` 結果の妥当性検証と `message_id` 抽出を実装
