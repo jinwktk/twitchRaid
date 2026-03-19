@@ -33,6 +33,7 @@ from manga_selector import fetch_random_manga_title
 from manga_command_control import is_manga_admin, parse_enabled_flag, to_env_flag
 from chat_message_response import get_sent_message_id
 from message_delete_tracker import PendingDeleteTracker
+from auth_scope_sets import REQUIRED_AUTH_SCOPES, REAUTH_AUTH_SCOPES
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -64,11 +65,6 @@ logging.basicConfig(
     ]
 )
 
-REQUIRED_AUTH_SCOPES = [
-    AuthScope.CHAT_EDIT,
-    AuthScope.CHAT_READ,
-    AuthScope.MODERATOR_MANAGE_SHOUTOUTS,
-]
 MANGA_DELETE_DELAY_SECONDS = 5
 
 def calculate_age():
@@ -1221,7 +1217,7 @@ async def refresh_access_token_fallback(config):
         twitch = Twitch(config.TWITCH_CLIENT_ID, config.TWITCH_SECRET_TOKEN)
         auth = UserAuthenticator(
             twitch, 
-            REQUIRED_AUTH_SCOPES
+            REAUTH_AUTH_SCOPES
         )
         token_data = await auth.authenticate()
 
