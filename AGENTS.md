@@ -4,12 +4,14 @@
 - `main.py`: Twitch 配信監視と Discord 通知を統括するエントリーポイント。Bot 設定、ログ収集、Git 自動更新を内包。
 - `clip_selector.py`: クリップ一覧取得と、必要に応じた作成者絞り込み後のランダム選択を担当。
 - `command_cooldown_state.py`: `clip` / `myclip` のクールダウン時刻をコマンド別に管理。
+- `manga_selector.py`: DLsite がるまに日間ランキングから作品タイトルを抽出し、ランダム選択するロジックを担当。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
 - `.env` (未コミット想定): Twitch と Discord の認証情報および内部ステート (`LAST_CLIP_TIME` 等) を保持。
 - `CLAUDE.md` と `AGENTS.md`: 作業手順と変更履歴を日次で更新し、ドキュメントの重複を避ける。
 - `tests/test_clip_selector.py`: クリップ選択ロジック（作成者絞り込み含む）のユニットテスト。
 - `tests/test_command_cooldown_state.py`: コマンド別クールダウン独立性のユニットテスト。
+- `tests/test_manga_selector.py`: DLsiteランキングHTMLからのタイトル抽出とランダム選択のユニットテスト。
 
 ## ビルド・テスト・開発コマンド
 - `python -m venv venv && source venv/bin/activate`: Linux/Mac の仮想環境作成と有効化。Windows は `venv\Scripts\activate` を使用。
@@ -39,6 +41,14 @@
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
+
+## 2026-03-20 作業ログ
+- 要望: `!manga` コマンドを追加し、`https://www.dlsite.com/girls/ranking/day` からランダムでタイトルを返す仕様に変更
+- TDD: `tests/test_manga_selector.py` を先に作成し、`ImportError` で失敗確認
+- 実装: `manga_selector.py` を追加し、`dt.work_name` 配下のタイトル抽出 (`extract_manga_titles`) とランダム選択を実装
+- 実装: `main.py` に `!manga` コマンドを追加し、`asyncio.to_thread` でランキング取得、失敗時メッセージ返却を実装
+- ドキュメント更新: `readme.md` に `!manga` の取得元URLと失敗時挙動を追記
+- 検証: `PYTHONPATH=. pytest -q tests/test_manga_selector.py` で 4 件すべて通過
 
 ## 2026-02-14 作業ログ
 - 要望: `!myclip` コマンドを `!clip` と同仕様で追加し、作成者をコマンド実行者に限定
