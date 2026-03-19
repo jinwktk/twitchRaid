@@ -31,7 +31,7 @@ from clip_selector import select_clip
 from command_cooldown_state import CommandCooldownState
 from manga_selector import fetch_random_manga_title
 from manga_command_control import is_manga_admin, parse_enabled_flag, to_env_flag
-from message_delete_tracker import PendingDeleteTracker
+from chat_message_response import get_sent_message_id
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -62,6 +62,14 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+
+REQUIRED_AUTH_SCOPES = [
+    AuthScope.CHAT_EDIT,
+    AuthScope.CHAT_READ,
+    AuthScope.MODERATOR_MANAGE_SHOUTOUTS,
+    AuthScope.MODERATOR_MANAGE_CHAT_MESSAGES,
+    AuthScope.USER_WRITE_CHAT,
+]
 
 def calculate_age():
     """誕生日（8月14日）から現在の年齢を計算"""
@@ -379,7 +387,6 @@ class Bot(commands.Bot):
             }
         )
         self.comment_speed_meter = CommentSpeedMeter(window_seconds=60)
-        self.pending_delete_tracker = PendingDeleteTracker(stale_seconds=90)
         total_count, stream_started_at = load_comment_state(self.config.env_file)
         self.comment_speed_meter.set_state(stream_started_at, total_count)
         try:
@@ -403,7 +410,7 @@ class Bot(commands.Bot):
             await refresh_access_token_advanced(self.config)
         await self.twitch.set_user_authentication(
             self.config.TWITCH_ACCESS_TOKEN,
-            [AuthScope.CHAT_EDIT, AuthScope.CHAT_READ, AuthScope.MODERATOR_MANAGE_SHOUTOUTS],
+            REQUIRED_AUTH_SCOPES,
             self.config.TWITCH_REFRESH_TOKEN
         )
 
@@ -452,7 +459,7 @@ class Bot(commands.Bot):
                         # Twitchクライアントを再初期化
                         await self.twitch.set_user_authentication(
                             self.config.TWITCH_ACCESS_TOKEN,
-                            [AuthScope.CHAT_EDIT, AuthScope.CHAT_READ, AuthScope.MODERATOR_MANAGE_SHOUTOUTS],
+                            REQUIRED_AUTH_SCOPES,
                             self.config.TWITCH_REFRESH_TOKEN
                         )
                         error_count = 0
@@ -537,7 +544,6 @@ class Bot(commands.Bot):
         
         # echoやbotの自分のメッセージをスキップしないで全て処理
         if message.echo:
-            self._schedule_pending_delete_if_needed(message)
             logging.info("[DEBUG] 自分のメッセージなのでスキップ")
             return
             
@@ -563,65 +569,44 @@ class Bot(commands.Bot):
         # 親クラスのメッセージ処理を呼び出し
         await self.handle_commands(message)
 
-    def _schedule_pending_delete_if_needed(self, message):
-        """送信済みメッセージに紐づく削除予約を処理する。"""
-        message_id = getattr(message, "id", None)
-        channel = getattr(message, "channel", None)
-        channel_name = (getattr(channel, "name", "") if channel else "").strip().lower()
-        if not channel_name:
-            return
-
-        message_content = (message.content or "").strip()
-        matched = self.pending_delete_tracker.pop_matched(
-            content=message_content,
-            channel_name=channel_name,
-            now=time.time(),
-        )
-        if matched is None:
-            # Twitch側で本文が変換されるケースを考慮し、同一チャンネル先頭予約でフォールバック
-            matched = self.pending_delete_tracker.pop_first_for_channel(
-                channel_name=channel_name,
-                now=time.time(),
-            )
-        if matched is None:
-            return
-
-        if not message_id:
-            logging.warning("⚠️ 削除対象メッセージIDが取得できず、自動削除をスキップしました。")
-            return
-
-        logging.info(f"🗑️ 10秒後にmanga返信を削除予約: message_id={message_id}")
-        asyncio.create_task(
-            self._delete_message_later(
-                message_id=message_id,
-                delay_seconds=matched.delete_after_seconds,
-            )
-        )
-
     async def _delete_message_later(self, message_id: str, delay_seconds: int):
         """指定秒後にTwitchチャットメッセージを削除する。"""
         await asyncio.sleep(delay_seconds)
+        moderator_id = self.config.TWITCH_MODERATOR_ID or self.config.TWITCH_BROADCASTER_ID
+        if not moderator_id:
+            logging.warning("⚠️ MODERATOR_ID/BROADCASTER_ID が未設定のためメッセージ削除をスキップしました。")
+            return
         try:
             await self.twitch.delete_chat_message(
                 broadcaster_id=self.config.TWITCH_BROADCASTER_ID,
-                moderator_id=self.config.TWITCH_MODERATOR_ID,
+                moderator_id=moderator_id,
                 message_id=message_id,
             )
         except Exception as e:
             logging.error(f"❌ メッセージ削除失敗 (id={message_id}): {e}")
 
     async def _send_manga_reply(self, ctx, content):
-        """mangaコマンド返信を送信し、10秒後削除を予約する。"""
-        channel_name = getattr(ctx.channel, "name", self.config.LOGIN_CHANNEL)
+        """mangaコマンド返信をAPI送信し、10秒後削除する。"""
         normalized_content = (content or "").strip()
-        normalized_channel = (channel_name or "").strip().lower()
-        self.pending_delete_tracker.add(
-            content=normalized_content,
-            channel_name=normalized_channel,
-            delete_after_seconds=10,
-            now=time.time(),
-        )
-        await ctx.send(normalized_content)
+        sender_id = self.config.TWITCH_MODERATOR_ID or self.config.TWITCH_BROADCASTER_ID
+
+        if not self.config.TWITCH_BROADCASTER_ID or not sender_id:
+            logging.warning("⚠️ BROADCASTER_ID/MODERATOR_ID が未設定のため ctx.send にフォールバックします。")
+            await ctx.send(normalized_content)
+            return
+
+        try:
+            send_result = await self.twitch.send_chat_message(
+                broadcaster_id=self.config.TWITCH_BROADCASTER_ID,
+                sender_id=sender_id,
+                message=normalized_content,
+            )
+            message_id = get_sent_message_id(send_result)
+            logging.info(f"🗑️ 10秒後にmanga返信を削除予約: message_id={message_id}")
+            asyncio.create_task(self._delete_message_later(message_id=message_id, delay_seconds=10))
+        except Exception as e:
+            logging.error(f"❌ manga返信のAPI送信失敗。ctx.sendへフォールバック: {e}")
+            await ctx.send(normalized_content)
 
     def _restore_recast_notifier_state(self, command_name: str):
         notifier = self.recast_notifier_by_command[command_name]
@@ -1037,7 +1022,7 @@ class Bot(commands.Bot):
                         try:
                             await self.twitch.set_user_authentication(
                                 self.config.TWITCH_ACCESS_TOKEN,
-                                [AuthScope.CHAT_EDIT, AuthScope.CHAT_READ, AuthScope.MODERATOR_MANAGE_SHOUTOUTS],
+                                REQUIRED_AUTH_SCOPES,
                                 self.config.TWITCH_REFRESH_TOKEN
                             )
                         except Exception as auth_error:
@@ -1153,7 +1138,7 @@ async def refresh_access_token_fallback(config):
         twitch = Twitch(config.TWITCH_CLIENT_ID, config.TWITCH_SECRET_TOKEN)
         auth = UserAuthenticator(
             twitch, 
-            [AuthScope.CHAT_EDIT, AuthScope.CHAT_READ, AuthScope.MODERATOR_MANAGE_SHOUTOUTS]
+            REQUIRED_AUTH_SCOPES
         )
         token_data = await auth.authenticate()
 
@@ -1167,7 +1152,7 @@ async def refresh_access_token_fallback(config):
         # Twitchの認証情報を更新
         await twitch.set_user_authentication(
             config.TWITCH_ACCESS_TOKEN,
-            [AuthScope.CHAT_EDIT, AuthScope.CHAT_READ, AuthScope.MODERATOR_MANAGE_SHOUTOUTS],
+            REQUIRED_AUTH_SCOPES,
             config.TWITCH_REFRESH_TOKEN
         )
 

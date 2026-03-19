@@ -6,7 +6,7 @@
 - `command_cooldown_state.py`: `clip` / `myclip` のクールダウン時刻をコマンド別に管理。
 - `manga_selector.py`: DLsite がるまに日間ランキングから作品タイトルを抽出し、ランダム選択するロジックを担当。
 - `manga_command_control.py`: `manga` コマンドの管理者判定と ON/OFF フラグ変換を担当。
-- `message_delete_tracker.py`: 送信後に削除予約するメッセージの追跡（content/channel一致）を担当。
+- `chat_message_response.py`: `send_chat_message` の返却値から `message_id` を取り出す検証ロジックを担当。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
 - `.env` (未コミット想定): Twitch と Discord の認証情報および内部ステート (`LAST_CLIP_TIME` 等) を保持。
@@ -15,7 +15,7 @@
 - `tests/test_command_cooldown_state.py`: コマンド別クールダウン独立性のユニットテスト。
 - `tests/test_manga_selector.py`: DLsiteランキングHTMLからのタイトル抽出とランダム選択のユニットテスト。
 - `tests/test_manga_command_control.py`: `manga` 管理者判定と ON/OFF フラグ変換のユニットテスト。
-- `tests/test_message_delete_tracker.py`: 送信メッセージ削除予約の一致判定と期限切れ処理のユニットテスト。
+- `tests/test_chat_message_response.py`: `send_chat_message` 返却値の `is_sent` / `message_id` 検証ユニットテスト。
 
 ## ビルド・テスト・開発コマンド
 - `python -m venv venv && source venv/bin/activate`: Linux/Mac の仮想環境作成と有効化。Windows は `venv\Scripts\activate` を使用。
@@ -47,6 +47,14 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-03-20 作業ログ
+- 要望: `!manga` 返信の `message_id` を `send_chat_message` 返却値から直接取得
+- TDD: `tests/test_chat_message_response.py` を先に作成し、`ModuleNotFoundError` で失敗確認
+- 実装: `chat_message_response.py` を追加し、`send_chat_message` 結果の妥当性検証と `message_id` 抽出を実装
+- 実装: `main.py` の `manga` 返信送信を `ctx.send` から `send_chat_message` に切り替え、返却 `message_id` で10秒後削除を予約
+- 実装: 旧 `echo` / 予約トラッカー方式（`message_delete_tracker.py`）を削除
+- 実装: 認可スコープに `MODERATOR_MANAGE_CHAT_MESSAGES` と `USER_WRITE_CHAT` を追加
+- ドキュメント更新: `readme.md` の削除仕様を `message_id` 直接取得方式に更新
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
 - 要望: `!manga` の返信が10秒後に消えない問題を修正
 - 原因調査: `echo` 受信時の本文完全一致に依存しており、本文差異で削除予約が取りこぼされる可能性を確認
 - 実装: `message_delete_tracker.py` にチャンネル単位フォールバック一致 (`pop_first_for_channel`) を追加

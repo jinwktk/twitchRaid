@@ -42,8 +42,7 @@
 - `!manga` は `MANGA_COMMAND_ENABLED` が `1` のときのみ有効
 - `!mangaon` / `!mangaoff` で `!manga` の有効/無効を切り替え（管理者のみ）
 - 管理者判定: モデレーター/配信者、または `.env` の `MANGA_ADMIN_USERS` に含まれるユーザー
-- `!manga` の返信は 10 秒後に自動削除（Botがモデレーター権限を持つ前提）
-- 返信本文の差異で削除予約が外れるケースを避けるため、同一チャンネル内でフォールバック一致して削除予約を実行
+- `!manga` の返信は `send_chat_message` の返却 `message_id` を使って 10 秒後に自動削除（Botがモデレーター権限を持つ前提）
 
 ## テスト
 - `PYTHONPATH=. pytest -q`
