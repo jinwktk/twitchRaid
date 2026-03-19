@@ -168,6 +168,13 @@
 - ドキュメント更新: `readme.md` にスコープECHOログ仕様を追記
 - 検証: `PYTHONPATH=. pytest -q tests/test_scope_policy.py` で 6 件通過
 - 検証: `PYTHONPATH=. pytest -q` で 63 件すべて通過
+- 不具合報告: `[ECHO]` に存在する `chat:edit` / `chat:read` / `moderator:manage:shoutouts` が不足扱いになる
+- 原因: `scope_policy.py` で `AuthScope` を `str()` 比較しており、`chat:edit` と一致せず誤検知していた
+- TDD: `tests/test_scope_policy.py` に `AuthScope` 入力時の不足判定/有効スコープ解決テストを追加し、2件失敗を確認
+- 実装: `scope_policy.py` に `_scope_value` 正規化ヘルパーを追加し、判定処理を `AuthScope` / 文字列混在対応へ修正
+- ドキュメント更新: `readme.md` にスコープ判定の正規化比較仕様を追記
+- 検証: `PYTHONPATH=. pytest -q tests/test_scope_policy.py` で 8 件通過
+- 検証: `PYTHONPATH=. pytest -q` で 65 件すべて通過
 
 ## 2026-02-14 作業ログ
 - 要望: `!myclip` コマンドを `!clip` と同仕様で追加し、作成者をコマンド実行者に限定
