@@ -34,7 +34,7 @@ from manga_command_control import is_manga_admin, parse_enabled_flag, to_env_fla
 from chat_message_response import get_sent_message_id
 from message_delete_tracker import PendingDeleteTracker
 from auth_scope_sets import REQUIRED_AUTH_SCOPES, REAUTH_AUTH_SCOPES
-from scope_policy import missing_scope_values
+from scope_policy import active_auth_scopes_from_granted, missing_scope_values
 from token_refresh_policy import should_try_fallback
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -1157,25 +1157,24 @@ async def validate_access_token(config):
         client_id = token_data.get('client_id')
 
         if user_name:
-            logging.info(f"✅ アクセストークンは有効: {user_name} (Client ID: {client_id})")
             granted_scopes = token_data.get("scopes", [])
-            missing_reauth_scopes = missing_scope_values(granted_scopes, REAUTH_AUTH_SCOPES)
-            if missing_reauth_scopes:
-                config.set_active_auth_scopes(REQUIRED_AUTH_SCOPES)
-            else:
-                config.set_active_auth_scopes(REAUTH_AUTH_SCOPES)
-            if missing_reauth_scopes:
-                current_token = config.TWITCH_ACCESS_TOKEN
-                if not config.has_scope_reauth_attempted(current_token):
-                    config.mark_scope_reauth_attempted(current_token)
-                    logging.warning(
-                        "⚠️ フル権限スコープが不足しています。再認可を試行します: "
-                        + ", ".join(missing_reauth_scopes)
-                    )
-                    reauthed_token = await refresh_access_token_fallback(config)
-                    if reauthed_token:
-                        return reauthed_token
-                    logging.warning("⚠️ 再認可に失敗したため、現トークンで継続します。")
+            active_scopes = active_auth_scopes_from_granted(
+                granted_scopes,
+                REQUIRED_AUTH_SCOPES,
+            )
+            config.set_active_auth_scopes(active_scopes)
+            missing_required = missing_scope_values(granted_scopes, REQUIRED_AUTH_SCOPES)
+            if missing_required:
+                logging.warning(
+                    "⚠️ 必須スコープ不足のため一部APIは利用不可です（トークン無効時のみ再取得）: "
+                    + ", ".join(missing_required)
+                )
+            logging.info(
+                "✅ アクセストークンは有効: %s (Client ID: %s, active_scopes=%d)",
+                user_name,
+                client_id,
+                len(active_scopes),
+            )
             return config.TWITCH_ACCESS_TOKEN  # 有効なトークンを返す
 
         logging.warning("⚠️ 'login' キーがレスポンスに存在しません。トークンが無効の可能性があります。")
