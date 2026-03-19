@@ -33,7 +33,8 @@ from manga_selector import fetch_random_manga_title
 from manga_command_control import is_manga_admin, parse_enabled_flag, to_env_flag
 from chat_message_response import get_sent_message_id
 from message_delete_tracker import PendingDeleteTracker
-from auth_scope_sets import REQUIRED_AUTH_SCOPES, REAUTH_AUTH_SCOPES
+from auth_scope_sets import REQUIRED_AUTH_SCOPES, REAUTH_AUTH_SCOPES, MANGA_EXTRA_REAUTH_SCOPES
+from scope_policy import missing_scope_values
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -127,11 +128,13 @@ class Config:
             for user in manga_admin_users_str.split(",")
             if user.strip()
         ]
+        self._scope_reauth_attempted_for_tokens = set()
     
     def update_access_token(self, access_token, refresh_token):
         """アクセストークンを更新"""
         self.TWITCH_ACCESS_TOKEN = access_token
         self.TWITCH_REFRESH_TOKEN = refresh_token
+        self._scope_reauth_attempted_for_tokens.clear()
         
         # 環境変数を更新
         os.environ["TWITCH_ACCESS_TOKEN"] = access_token
@@ -145,6 +148,12 @@ class Config:
                 "TWITCH_REFRESH_TOKEN": refresh_token,
             },
         )
+
+    def has_scope_reauth_attempted(self, token: str) -> bool:
+        return token in self._scope_reauth_attempted_for_tokens
+
+    def mark_scope_reauth_attempted(self, token: str):
+        self._scope_reauth_attempted_for_tokens.add(token)
     
     def update_last_clip_time(self, timestamp):
         """最新のクリップ時間を更新"""
@@ -1144,6 +1153,20 @@ async def validate_access_token(config):
 
         if user_name:
             logging.info(f"✅ アクセストークンは有効: {user_name} (Client ID: {client_id})")
+            granted_scopes = token_data.get("scopes", [])
+            missing_manga_scopes = missing_scope_values(granted_scopes, MANGA_EXTRA_REAUTH_SCOPES)
+            if missing_manga_scopes:
+                current_token = config.TWITCH_ACCESS_TOKEN
+                if not config.has_scope_reauth_attempted(current_token):
+                    config.mark_scope_reauth_attempted(current_token)
+                    logging.warning(
+                        "⚠️ manga送信に必要なスコープが不足しています。再認可を試行します: "
+                        + ", ".join(missing_manga_scopes)
+                    )
+                    reauthed_token = await refresh_access_token_fallback(config)
+                    if reauthed_token:
+                        return reauthed_token
+                    logging.warning("⚠️ 再認可に失敗したため、現トークンで継続します。")
             return config.TWITCH_ACCESS_TOKEN  # 有効なトークンを返す
 
         logging.warning("⚠️ 'login' キーがレスポンスに存在しません。トークンが無効の可能性があります。")
