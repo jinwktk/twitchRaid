@@ -25,6 +25,15 @@ def test_missing_scope_values_returns_empty_when_all_present():
     assert result == []
 
 
+def test_missing_scope_values_handles_authscope_granted():
+    granted = [AuthScope.CHAT_EDIT, AuthScope.CHAT_READ, AuthScope.MODERATOR_MANAGE_SHOUTOUTS]
+    required = [AuthScope.CHAT_EDIT, AuthScope.CHAT_READ, AuthScope.MODERATOR_MANAGE_SHOUTOUTS]
+
+    result = missing_scope_values(granted, required)
+
+    assert result == []
+
+
 def test_active_auth_scopes_from_granted_uses_granted_scopes():
     granted = ["chat:edit", "chat:read", "user:write:chat"]
     default_scopes = [AuthScope.CHAT_EDIT]
@@ -43,6 +52,17 @@ def test_active_auth_scopes_from_granted_falls_back_to_default():
     result = active_auth_scopes_from_granted(granted, default_scopes)
 
     assert result == default_scopes
+
+
+def test_active_auth_scopes_from_granted_handles_authscope_values():
+    granted = [AuthScope.CHAT_EDIT, AuthScope.USER_WRITE_CHAT]
+    default_scopes = [AuthScope.CHAT_READ]
+
+    result = active_auth_scopes_from_granted(granted, default_scopes)
+
+    assert AuthScope.CHAT_EDIT in result
+    assert AuthScope.USER_WRITE_CHAT in result
+    assert AuthScope.CHAT_READ not in result
 
 
 def test_normalize_scope_values_sorts_and_deduplicates():
