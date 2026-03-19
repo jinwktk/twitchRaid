@@ -31,6 +31,7 @@ from clip_selector import select_clip
 from command_cooldown_state import CommandCooldownState
 from manga_selector import fetch_random_manga_title
 from manga_command_control import is_manga_admin, parse_enabled_flag, to_env_flag
+from message_delete_tracker import PendingDeleteTracker
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -378,6 +379,7 @@ class Bot(commands.Bot):
             }
         )
         self.comment_speed_meter = CommentSpeedMeter(window_seconds=60)
+        self.pending_delete_tracker = PendingDeleteTracker(stale_seconds=90)
         total_count, stream_started_at = load_comment_state(self.config.env_file)
         self.comment_speed_meter.set_state(stream_started_at, total_count)
         try:
@@ -535,6 +537,7 @@ class Bot(commands.Bot):
         
         # echoやbotの自分のメッセージをスキップしないで全て処理
         if message.echo:
+            self._schedule_pending_delete_if_needed(message)
             logging.info("[DEBUG] 自分のメッセージなのでスキップ")
             return
             
@@ -559,6 +562,52 @@ class Bot(commands.Bot):
         
         # 親クラスのメッセージ処理を呼び出し
         await self.handle_commands(message)
+
+    def _schedule_pending_delete_if_needed(self, message):
+        """送信済みメッセージに紐づく削除予約を処理する。"""
+        message_id = getattr(message, "id", None)
+        channel = getattr(message, "channel", None)
+        channel_name = getattr(channel, "name", "") if channel else ""
+        if not message_id or not channel_name:
+            return
+
+        matched = self.pending_delete_tracker.pop_matched(
+            content=message.content,
+            channel_name=channel_name,
+            now=time.time(),
+        )
+        if matched is None:
+            return
+
+        asyncio.create_task(
+            self._delete_message_later(
+                message_id=message_id,
+                delay_seconds=matched.delete_after_seconds,
+            )
+        )
+
+    async def _delete_message_later(self, message_id: str, delay_seconds: int):
+        """指定秒後にTwitchチャットメッセージを削除する。"""
+        await asyncio.sleep(delay_seconds)
+        try:
+            await self.twitch.delete_chat_message(
+                broadcaster_id=self.config.TWITCH_BROADCASTER_ID,
+                moderator_id=self.config.TWITCH_MODERATOR_ID,
+                message_id=message_id,
+            )
+        except Exception as e:
+            logging.error(f"❌ メッセージ削除失敗 (id={message_id}): {e}")
+
+    async def _send_manga_reply(self, ctx, content):
+        """mangaコマンド返信を送信し、10秒後削除を予約する。"""
+        channel_name = getattr(ctx.channel, "name", self.config.LOGIN_CHANNEL)
+        self.pending_delete_tracker.add(
+            content=content,
+            channel_name=channel_name,
+            delete_after_seconds=10,
+            now=time.time(),
+        )
+        await ctx.send(content)
 
     def _restore_recast_notifier_state(self, command_name: str):
         notifier = self.recast_notifier_by_command[command_name]
@@ -696,16 +745,16 @@ class Bot(commands.Bot):
     @commands.command(name='manga')
     async def manga_command(self, ctx):
         if not self.config.MANGA_COMMAND_ENABLED:
-            await ctx.send("⚠️ `manga` コマンドは現在OFFです。")
+            await self._send_manga_reply(ctx, "⚠️ `manga` コマンドは現在OFFです。")
             return
 
         await validate_access_token(self.config)
         try:
             manga = await asyncio.to_thread(fetch_random_manga_title)
-            await ctx.send(f"今日のおすすめ漫画：{manga}")
+            await self._send_manga_reply(ctx, f"今日のおすすめ漫画：{manga}")
         except (requests.RequestException, ValueError) as e:
             logging.error(f"❌ mangaランキング取得失敗: {e}")
-            await ctx.send("⚠️ 漫画ランキングの取得に失敗しました。時間をおいて再試行してください。")
+            await self._send_manga_reply(ctx, "⚠️ 漫画ランキングの取得に失敗しました。時間をおいて再試行してください。")
 
     @commands.command(name='mangaon')
     async def mangaon_command(self, ctx):
