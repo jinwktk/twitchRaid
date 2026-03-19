@@ -37,6 +37,12 @@
 - 表示例: `配信開始からの累計コメント: 123件`
 - 再起動が発生しても `.env` の状態を使って累計を引き継ぐ
 
+## 漫画コマンド
+- `!manga` で `https://www.dlsite.com/girls/ranking/day` の日間ランキングから作品タイトルを抽出し、ランダムに1作品表示
+- `!manga` は `MANGA_COMMAND_ENABLED` が `1` のときのみ有効
+- `!mangaon` / `!mangaoff` で `!manga` の有効/無効を切り替え（管理者のみ）
+- 管理者判定: モデレーター/配信者、または `.env` の `MANGA_ADMIN_USERS` に含まれるユーザー
+
 ## テスト
 - `PYTHONPATH=. pytest -q`
 - `.env` 更新安全化のテスト: `tests/test_env_store.py`
