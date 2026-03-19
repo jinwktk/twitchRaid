@@ -47,6 +47,11 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-03-20 作業ログ
+- 不具合報告: `given token is missing scope analytics:read:extensions`
+- 原因: 認証スコープを全要求 (`list(AuthScope)`) にしたことで、既存トークン検証が失敗
+- 修正: `REQUIRED_AUTH_SCOPES` を Bot 実行に必要な最小セットへ戻し、不要スコープ依存を解消
+- ドキュメント更新: `readme.md` の認証スコープ説明を最小スコープ方針へ修正
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
 - 要望: すべてのスコープでトークン取得するよう変更
 - 実装: `main.py` の `REQUIRED_AUTH_SCOPES` を `list(AuthScope)` に変更し、認証時に全スコープを要求する設定へ更新
 - ドキュメント更新: `readme.md` に全スコープ要求の注意点を追記

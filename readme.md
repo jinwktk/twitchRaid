@@ -3,7 +3,7 @@
 ## セットアップ
 - `pip install -r requirements.txt`
 - `.env` に Twitch/Discord 認証情報と `LAST_STREAM_TITLE` を設定
-- Twitch認証は `AuthScope` の全スコープを要求する設定（再認可時は確認画面の許可範囲が広くなります）
+- Twitch認証は Bot 動作に必要な最小スコープのみ要求（`chat` / `shoutout` / `chat message delete` 系）
 
 ## .env保護
 - `.env` の更新は `env_store.py` で実行し、更新前に `.env.bak` を作成
