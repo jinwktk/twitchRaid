@@ -34,6 +34,7 @@ from manga_command_control import is_manga_admin, parse_enabled_flag, to_env_fla
 from chat_message_response import get_sent_message_id
 from message_delete_tracker import PendingDeleteTracker
 from auth_scope_sets import REQUIRED_AUTH_SCOPES, REAUTH_AUTH_SCOPES
+from process_restart import restart_process_in_place
 from scope_policy import (
     active_auth_scopes_from_granted,
     missing_scope_values,
@@ -295,33 +296,13 @@ class GitManager:
         """プロセスを再起動"""
         logging.info("プロセスを再起動します...")
         time.sleep(5)  # 安全な待機時間
-        
-        try:
-            # より安全な再起動方法：subprocess + os._exit
-            logging.info(f"🔄 Python実行パス: {sys.executable}")
-            logging.info(f"🔄 起動引数: {sys.argv}")
-            
-            # 新しいプロセスを起動
-            subprocess.Popen([sys.executable] + sys.argv, 
-                           cwd=os.getcwd(),
-                           creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0)
-            
-            logging.info("✅ 新プロセス起動完了。現プロセスを終了します...")
-            time.sleep(2)
-            
-            # 現在のプロセスを即座に終了
-            os._exit(0)
-            
-        except Exception as e:
-            logging.error(f"❌ プロセス再起動失敗: {e}")
-            # フォールバック: 従来のos.execv方式
-            try:
-                os.execv(sys.executable, [sys.executable] + sys.argv)
-            except Exception as exec_error:
-                logging.error(f"❌ execv再起動も失敗: {exec_error}")
-                # 最後の手段: プロセス終了のみ
-                logging.error("🚨 強制終了します。手動で再起動してください。")
-                os._exit(1)
+
+        restart_process_in_place(
+            executable=sys.executable,
+            argv=sys.argv,
+            cwd=os.getcwd(),
+            logger=logging,
+        )
 
 class SystemWatcher:
     """システム監視クラス"""
