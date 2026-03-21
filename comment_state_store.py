@@ -13,12 +13,12 @@ def load_comment_state(env_file: str) -> Tuple[int, float]:
     raw_count = values.get("COMMENT_TOTAL_COUNT", "0")
     raw_started_at = values.get("STREAM_STARTED_AT", "0")
     try:
-        total_count = int(raw_count) if raw_count not in (None, "") else 0
-    except (TypeError, ValueError):
+        total_count = int(raw_count) if raw_count else 0
+    except ValueError:
         total_count = 0
     try:
-        stream_started_at = float(raw_started_at) if raw_started_at not in (None, "") else 0.0
-    except (TypeError, ValueError):
+        stream_started_at = float(raw_started_at) if raw_started_at else 0.0
+    except ValueError:
         stream_started_at = 0.0
     return total_count, stream_started_at
 

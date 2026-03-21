@@ -44,10 +44,6 @@ from token_refresh_policy import should_try_fallback
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# ログディレクトリとファイル設定
-import os
-from datetime import datetime
-
 # ログディレクトリを作成
 log_dir = "./logs"
 os.makedirs(log_dir, exist_ok=True)
@@ -95,8 +91,9 @@ def calculate_age():
     return age
 
 class Config:
-    """設定管理クラス"""
+    """設定管理クラス（スレッドセーフ）"""
     def __init__(self, env_file=".env"):
+        self._lock = threading.Lock()
         self.env_values = dotenv_values(env_file)
         self.env_file = env_file
         
@@ -139,24 +136,25 @@ class Config:
         self.ACTIVE_AUTH_SCOPES = list(REQUIRED_AUTH_SCOPES)
     
     def update_access_token(self, access_token, refresh_token):
-        """アクセストークンを更新"""
-        self.TWITCH_ACCESS_TOKEN = access_token
-        self.TWITCH_REFRESH_TOKEN = refresh_token
-        self._scope_reauth_attempted_for_tokens.clear()
-        self._scope_echoed_for_tokens.clear()
-        
-        # 環境変数を更新
-        os.environ["TWITCH_ACCESS_TOKEN"] = access_token
-        os.environ["TWITCH_REFRESH_TOKEN"] = refresh_token
-        
-        # .envファイルを更新
-        update_env_file(
-            self.env_file,
-            {
-                "TWITCH_ACCESS_TOKEN": access_token,
-                "TWITCH_REFRESH_TOKEN": refresh_token,
-            },
-        )
+        """アクセストークンを更新（スレッドセーフ）"""
+        with self._lock:
+            self.TWITCH_ACCESS_TOKEN = access_token
+            self.TWITCH_REFRESH_TOKEN = refresh_token
+            self._scope_reauth_attempted_for_tokens.clear()
+            self._scope_echoed_for_tokens.clear()
+
+            # 環境変数を更新
+            os.environ["TWITCH_ACCESS_TOKEN"] = access_token
+            os.environ["TWITCH_REFRESH_TOKEN"] = refresh_token
+
+            # .envファイルを更新
+            update_env_file(
+                self.env_file,
+                {
+                    "TWITCH_ACCESS_TOKEN": access_token,
+                    "TWITCH_REFRESH_TOKEN": refresh_token,
+                },
+            )
 
     def has_scope_reauth_attempted(self, token: str) -> bool:
         return token in self._scope_reauth_attempted_for_tokens
@@ -171,47 +169,51 @@ class Config:
         self._scope_echoed_for_tokens.add(token)
 
     def set_active_auth_scopes(self, scopes):
-        self.ACTIVE_AUTH_SCOPES = list(scopes)
+        with self._lock:
+            self.ACTIVE_AUTH_SCOPES = list(scopes)
     
     def update_last_clip_time(self, timestamp):
-        """最新のクリップ時間を更新"""
-        self.LAST_CLIP_TIME = timestamp
-        os.environ["LAST_CLIP_TIME"] = str(timestamp)
-        
-        # .envファイルを更新
-        update_env_file(self.env_file, {"LAST_CLIP_TIME": str(timestamp)})
+        """最新のクリップ時間を更新（スレッドセーフ）"""
+        with self._lock:
+            self.LAST_CLIP_TIME = timestamp
+            os.environ["LAST_CLIP_TIME"] = str(timestamp)
+            update_env_file(self.env_file, {"LAST_CLIP_TIME": str(timestamp)})
 
     def update_last_myclip_time(self, timestamp):
-        """最新のmyclip時間を更新"""
-        self.LAST_MYCLIP_TIME = timestamp
-        os.environ["LAST_MYCLIP_TIME"] = str(timestamp)
-        update_env_file(self.env_file, {"LAST_MYCLIP_TIME": str(timestamp)})
-    
+        """最新のmyclip時間を更新（スレッドセーフ）"""
+        with self._lock:
+            self.LAST_MYCLIP_TIME = timestamp
+            os.environ["LAST_MYCLIP_TIME"] = str(timestamp)
+            update_env_file(self.env_file, {"LAST_MYCLIP_TIME": str(timestamp)})
+
     def update_last_stream_title(self, title: str):
-        """最新の配信タイトルを記録"""
+        """最新の配信タイトルを記録（スレッドセーフ）"""
         normalized = title.strip()
-        self.LAST_STREAM_TITLE = normalized
-        os.environ["LAST_STREAM_TITLE"] = normalized
-        update_env_file(self.env_file, {"LAST_STREAM_TITLE": normalized})
+        with self._lock:
+            self.LAST_STREAM_TITLE = normalized
+            os.environ["LAST_STREAM_TITLE"] = normalized
+            update_env_file(self.env_file, {"LAST_STREAM_TITLE": normalized})
 
     def update_manga_command_enabled(self, enabled: bool):
-        """mangaコマンドの有効/無効状態を更新"""
-        self.MANGA_COMMAND_ENABLED = bool(enabled)
-        env_value = to_env_flag(self.MANGA_COMMAND_ENABLED)
-        os.environ["MANGA_COMMAND_ENABLED"] = env_value
-        update_env_file(self.env_file, {"MANGA_COMMAND_ENABLED": env_value})
+        """mangaコマンドの有効/無効状態を更新（スレッドセーフ）"""
+        with self._lock:
+            self.MANGA_COMMAND_ENABLED = bool(enabled)
+            env_value = to_env_flag(self.MANGA_COMMAND_ENABLED)
+            os.environ["MANGA_COMMAND_ENABLED"] = env_value
+            update_env_file(self.env_file, {"MANGA_COMMAND_ENABLED": env_value})
     
     def get_last_stream_title(self) -> str:
-        """`.env` から最新の配信タイトルを取得"""
-        try:
-            values = dotenv_values(self.env_file)
-            stored = values.get("LAST_STREAM_TITLE", "")
-        except Exception as exc:
-            logging.error(f"⚠️ LAST_STREAM_TITLE 読み込み失敗: {exc}")
-            stored = self.LAST_STREAM_TITLE
-        normalized = stored.strip()
-        self.LAST_STREAM_TITLE = normalized
-        return normalized
+        """`.env` から最新の配信タイトルを取得（スレッドセーフ）"""
+        with self._lock:
+            try:
+                values = dotenv_values(self.env_file)
+                stored = values.get("LAST_STREAM_TITLE", "")
+            except Exception as exc:
+                logging.error(f"⚠️ LAST_STREAM_TITLE 読み込み失敗: {exc}")
+                stored = self.LAST_STREAM_TITLE
+            normalized = stored.strip()
+            self.LAST_STREAM_TITLE = normalized
+            return normalized
 
 class GitManager:
     """Git操作管理クラス"""
@@ -1025,7 +1027,7 @@ class Bot(commands.Bot):
                     await self._connection.close()
                 if hasattr(self, 'loop'):
                     self.loop.stop()
-            except:
+            except Exception:
                 pass  # クローズエラーは無視
                 
             await asyncio.sleep(10)  # 完全なクリーンアップ待機
@@ -1068,7 +1070,6 @@ class Bot(commands.Bot):
         token_refresh_interval = 3600 * 2  # 2時間ごとにトークンをリフレッシュ
         last_token_refresh = time.time()
         connection_check_interval = 45  # 45秒ごとに接続チェック
-        last_activity_time = time.time()
         
         while True:
             try:
@@ -1088,7 +1089,7 @@ class Bot(commands.Bot):
                     logging.warning("🔌 WebSocket接続オブジェクトが見つかりません")
                 
                 # 長時間活動がない場合の検出
-                if current_time - last_activity_time > 300:  # 5分間活動なし
+                if current_time - self.last_activity_time > 300:  # 5分間活動なし
                     logging.warning("⚠️ 5分間メッセージやイベントが無く、接続が停止している可能性があります")
                     connection_ok = False
                 
@@ -1119,7 +1120,6 @@ class Bot(commands.Bot):
                 # アクティビティタイムスタンプ更新（メッセージ受信時に更新される想定）
                 if connection_ok:
                     self.last_activity_time = current_time
-                    last_activity_time = current_time
 
                 for command_name, notifier in self.recast_notifier_by_command.items():
                     try:

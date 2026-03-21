@@ -13,4 +13,5 @@ MANGA_EXTRA_REAUTH_SCOPES = [
 ]
 
 # 再認可時は最初から全スコープを要求する
-REAUTH_AUTH_SCOPES = list(AuthScope)
+# AuthScope の有効メンバーのみ抽出（value が文字列のもの）
+REAUTH_AUTH_SCOPES = [s for s in AuthScope if isinstance(s.value, str)]
