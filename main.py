@@ -20,10 +20,6 @@ import requests
 import json
 from stream_notifications import StreamTitleNotifier
 
-# ログディレクトリとファイル設定
-import os
-from datetime import datetime
-
 # ログディレクトリを作成
 log_dir = "./logs"
 os.makedirs(log_dir, exist_ok=True)
@@ -116,21 +112,7 @@ class Config:
         """最新のクリップ時間を更新"""
         self.LAST_CLIP_TIME = timestamp
         os.environ["LAST_CLIP_TIME"] = str(timestamp)
-        
-        # .envファイルを更新
-        with open(self.env_file, "r", encoding="utf-8") as env_file:
-            lines = env_file.readlines()
-        
-        with open(self.env_file, "w", encoding="utf-8") as env_file:
-            updated = False
-            for line in lines:
-                if line.startswith("LAST_CLIP_TIME="):
-                    env_file.write(f"LAST_CLIP_TIME={timestamp}\n")
-                    updated = True
-                else:
-                    env_file.write(line)
-            if not updated:
-                env_file.write(f"LAST_CLIP_TIME={timestamp}\n")
+        set_key(self.env_file, "LAST_CLIP_TIME", str(timestamp))
     
     def update_last_stream_title(self, title: str):
         """最新の配信タイトルを記録"""
@@ -162,7 +144,7 @@ class GitManager:
         try:
             with open(self.config.RESTART_FILE, "r") as f:
                 last = float(f.read())
-        except:
+        except (FileNotFoundError, ValueError):
             last = 0
         
         if now - last > self.config.RESTART_INTERVAL:
@@ -311,6 +293,8 @@ class Bot(commands.Bot):
         self.max_reconnect_attempts = 10
         self.reconnect_delay = 30  # 初期再接続待機時間（秒）
         self.last_activity_time = time.time()  # アクティビティ追跡用
+        self._token_validated_at = 0  # トークン検証キャッシュ用タイムスタンプ
+        self._token_cache_ttl = 300  # 5分間はトークン再検証をスキップ
         self._reconnecting = False  # 再接続状態フラグ
         self.stream_notifier = StreamTitleNotifier(self.config, self.config.LOGIN_CHANNEL)
         try:
@@ -321,11 +305,20 @@ class Bot(commands.Bot):
                 heartbeat=30
             )
             self.twitch = Twitch(self.config.TWITCH_CLIENT_ID, self.config.TWITCH_SECRET_TOKEN)
-            self.stream_live = True
+            self.stream_live = False
             
         except TwitchAuthorizationException:
             logging.error("❌ 無効なリフレッシュトークン。新しい認証を開始します。")
             asyncio.create_task(refresh_access_token_advanced(self.config))
+
+    async def ensure_token_valid(self):
+        """キャッシュ付きトークン検証（5分間は再検証をスキップ）"""
+        now = time.time()
+        if now - self._token_validated_at < self._token_cache_ttl:
+            return
+        result = await validate_access_token(self.config)
+        if result:
+            self._token_validated_at = now
 
     async def initialize(self):
         """ 非同期初期化メソッド """
@@ -385,7 +378,7 @@ class Bot(commands.Bot):
             await asyncio.sleep(180)  # 180秒ごとにチェック
 
     def send_discord_notification(self, message):
-        """ Discord Webhook で通知を送る """
+        """ Discord Webhook で通知を送る（StreamTitleNotifierコールバック互換のため同期） """
         if not self.config.DISCORD_WEBHOOK_URL:
             logging.warning("⚠️ DISCORD_WEBHOOK_URL が設定されていません。")
             return
@@ -409,7 +402,7 @@ class Bot(commands.Bot):
 
     # Botが起動した時に実行されるイベント
     async def event_ready(self):
-        await validate_access_token(self.config)
+        await self.ensure_token_valid()
         logging.info("✅ 全てのチャンネルにログインしました。")
         # TwitchIO 3.xでは属性名が変更されている可能性があるため、安全にチェック
         if hasattr(self, 'user_id'):
@@ -440,31 +433,25 @@ class Bot(commands.Bot):
 
     async def event_join(self, channel, user):
         """チャンネル参加イベント"""
-        logging.info(f"📥 ユーザー参加: {user.name} が {channel.name} に参加")
+        logging.debug(f"ユーザー参加: {user.name} が {channel.name} に参加")
 
 
     async def event_message(self, message):
-        """メッセージ受信イベント - デバッグ用"""
+        """メッセージ受信イベント"""
         # アクティビティタイムスタンプを更新
         self.last_activity_time = time.time()
-        
-        # 詳細なデバッグ情報を出力
-        logging.info(f"[DEBUG] メッセージ受信: echo={message.echo}, content='{message.content}', author={message.author.name if message.author else 'None'}")
-        
-        # echoやbotの自分のメッセージをスキップしないで全て処理
+
+        logging.debug(f"メッセージ受信: echo={message.echo}, content='{message.content}', author={message.author.name if message.author else 'None'}")
+
         if message.echo:
-            logging.info("[DEBUG] 自分のメッセージなのでスキップ")
             return
-            
+
         if not message.content:
-            logging.info("[DEBUG] 空のメッセージなのでスキップ")
             return
-        
-        logging.info(f"✅ メッセージ受信: {message.author.name}: {message.content}")
-        
-        # コマンドかどうかをチェック
+
+        # コマンドのみINFOレベルでログ出力
         if message.content.startswith(self.config.COMMAND_PREFIX):
-            logging.info(f"🤖 コマンド検出: {message.content}")
+            logging.info(f"🤖 コマンド検出: {message.author.name}: {message.content}")
         
         # 親クラスのメッセージ処理を呼び出し
         await self.handle_commands(message)
@@ -490,32 +477,27 @@ class Bot(commands.Bot):
 
     @commands.command(name='age')
     async def age_command(self, ctx):
-        await validate_access_token(self.config)
         age = calculate_age()
         await ctx.send(str(age))
 
     @commands.command(name='goods')
     async def goods_command(self, ctx):
-        await validate_access_token(self.config)
         await ctx.send("https://rukalun.booth.pm")
         
     @commands.command(name='weight')
     async def weight_command(self, ctx):
-        await validate_access_token(self.config)
         # 面白さ重視で桁外れも含む幅広い範囲（15-200kg）でランダム生成
         weight = random.randint(15, 200)
         await ctx.send(f"{weight}kg")
 
     @commands.command(name='height')
     async def height_command(self, ctx):
-        await validate_access_token(self.config)
         # 身長をランダム生成（120-220cm）
         height = random.randint(120, 220)
         await ctx.send(f"{height}cm")
 
     @commands.command(name='mood')
     async def mood_command(self, ctx):
-        await validate_access_token(self.config)
         # 今日の気分をランダム選択
         moods = ["絶好調！", "眠い...", "お腹すいた", "やる気MAX", "ダルい", 
                 "ハッピー♪", "ちょっと疲れた", "最高の気分", "普通", "テンション低め",
@@ -525,7 +507,6 @@ class Bot(commands.Bot):
 
     @commands.command(name='menu')
     async def menu_command(self, ctx):
-        await validate_access_token(self.config)
         # おすすめメニュー
         foods = ["ラーメン", "カレー", "寿司", "ピザ", "ハンバーガー", "パスタ", 
                 "うどん", "そば", "焼肉", "唐揚げ", "オムライス", "チャーハン",
@@ -533,7 +514,7 @@ class Bot(commands.Bot):
                 "しゃぶしゃぶ", "餃子", "麻婆豆腐", "牛丼", "豚丼", "かつ丼",
                 "海鮮丼", "中華丼", "ステーキ", "ハンバーグ", "生姜焼き", "回鍋肉",
                 "青椒肉絲", "酢豚", "エビチリ", "麻婆茄子", "八宝菜", "春巻き",
-                "小籠包", "焼き鳥", "刺身", "寿司", "海鮮丼", "鉄火丼",
+                "小籠包", "焼き鳥", "刺身", "鉄火丼",
                 "ちらし寿司", "握り寿司", "海苔巻き", "いなり寿司", "手巻き寿司",
                 "煮物", "肉じゃが", "筑前煮", "角煮", "手羽先", "鶏の照り焼き",
                 "魚の煮付け", "刺身定食", "焼き魚定食", "とんかつ", "チキンカツ",
@@ -558,7 +539,8 @@ class Bot(commands.Bot):
         
         except Exception as e:
             logging.error(f"❌ Failed to fetch clips: {e}")
-    
+        return None
+
     @commands.command(name='clip')
     async def clip_command(self, ctx):
         # .envで設定された特別ユーザーはクールダウン無しで実行可能
@@ -572,7 +554,7 @@ class Bot(commands.Bot):
             await ctx.send(f"⚠️ `clip` コマンドは 30分に1回のみ使用できます。あと {remaining_time // 60}分 {remaining_time % 60}秒 待ってください。")
             return
 
-        await validate_access_token(self.config)
+        await self.ensure_token_valid()
         clip = await self.get_clips_info()
         if clip:
             await ctx.send(clip.url)
@@ -651,7 +633,7 @@ class Bot(commands.Bot):
                     await self._connection.close()
                 if hasattr(self, 'loop'):
                     self.loop.stop()
-            except:
+            except Exception:
                 pass  # クローズエラーは無視
                 
             await asyncio.sleep(10)  # 完全なクリーンアップ待機
@@ -795,7 +777,7 @@ async def refresh_access_token_advanced(config):
         }
         
         logging.info("📡 Twitch APIに直接リクエスト送信中...")
-        response = await asyncio.get_event_loop().run_in_executor(
+        response = await asyncio.get_running_loop().run_in_executor(
             None, 
             lambda: requests.post(token_url, data=data, timeout=10)
         )
@@ -812,7 +794,7 @@ async def refresh_access_token_advanced(config):
                 # トークン検証
                 validate_url = "https://id.twitch.tv/oauth2/validate"
                 headers = {"Authorization": f"OAuth {new_access_token}"}
-                validate_response = await asyncio.get_event_loop().run_in_executor(
+                validate_response = await asyncio.get_running_loop().run_in_executor(
                     None,
                     lambda: requests.get(validate_url, headers=headers, timeout=5)
                 )
