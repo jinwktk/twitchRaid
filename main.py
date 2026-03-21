@@ -486,7 +486,11 @@ class Bot(commands.Bot):
 
     @commands.command(name='goods')
     async def goods_command(self, ctx):
-        await ctx.send("https://rukalun.booth.pm")
+        try:
+            await ctx.send("グッズはこちら→ https://rukalun.booth.pm")
+            logging.info(f"✅ goodsコマンド実行: {ctx.author.name}")
+        except Exception as e:
+            logging.error(f"❌ goodsコマンドエラー: {e}")
         
     @commands.command(name='weight')
     async def weight_command(self, ctx):
