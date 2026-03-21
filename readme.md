@@ -81,5 +81,15 @@
 ## 実行
 - `python main.py`
 
+## ドキュメント
+
+詳細な仕様は `docs/` ディレクトリを参照:
+
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - アーキテクチャ概要（クラス構成、スレッド設計、データフロー）
+- [COMMANDS.md](docs/COMMANDS.md) - コマンド仕様書（全コマンド詳細、クールダウン、権限）
+- [TECH_STACK.md](docs/TECH_STACK.md) - 技術スタック・運用環境（ライブラリ、.env設定、認証フロー）
+- [DESIGN_PATTERNS.md](docs/DESIGN_PATTERNS.md) - 設計パターン（DI、SRP、エラーハンドリング、ファイル構成）
+
 ## 更新履歴
+- **2026-03-22**: 仕様ドキュメント作成（docs/ディレクトリに4ファイル追加）
 - **2026-03-21**: パフォーマンスチューニング＆コードレビュー修正（トークンキャッシュ、ログ最適化、非推奨API修正等）
