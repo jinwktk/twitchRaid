@@ -126,7 +126,7 @@ python -m py_compile main.py
 - 認証エラーが継続する場合は手動でトークンを再生成
 
 ### 監視システム
-- GitHub更新監視：10分間隔（UPDATE_CHECK_INTERVAL）
+- GitHub更新監視：10分間隔（UPDATE_CHECK_INTERVAL）、現在のブランチを動的検出
 - 定期再起動監視：5分間隔（RESTART_CHECK_INTERVAL）
 - 自動再起動：24時間間隔（RESTART_INTERVAL）
 

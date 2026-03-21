@@ -2,10 +2,30 @@
 
 ## プロジェクト構成とモジュール配置
 - `main.py`: Twitch 配信監視と Discord 通知を統括するエントリーポイント。Bot 設定、ログ収集、Git 自動更新を内包。
+- `clip_selector.py`: クリップ一覧取得と、必要に応じた作成者絞り込み後のランダム選択を担当。
+- `command_cooldown_state.py`: `clip` / `myclip` のクールダウン時刻をコマンド別に管理。
+- `manga_selector.py`: DLsite がるまに日間ランキングから作品タイトルを抽出し、ランダム選択するロジックを担当。
+- `manga_command_control.py`: `manga` コマンドの管理者判定と ON/OFF フラグ変換を担当。
+- `chat_message_response.py`: `send_chat_message` の返却値から `message_id` を取り出す検証ロジックを担当。
+- `message_delete_tracker.py`: `ctx.send` フォールバック時の削除予約（message_id突合）を担当。
+- `auth_scope_sets.py`: 実行時必須スコープと再認可要求スコープ（manga削除用追加分）を定義。
+- `scope_policy.py`: 付与済みスコープから不足スコープ判定・適用スコープ解決・ログ表示用正規化を担当。
+- `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
+- `process_restart.py`: 同一コンソール内でのプロセス再起動と、`execv` 失敗時フォールバック起動を担当。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
 - `.env` (未コミット想定): Twitch と Discord の認証情報および内部ステート (`LAST_CLIP_TIME` 等) を保持。
 - `CLAUDE.md` と `AGENTS.md`: 作業手順と変更履歴を日次で更新し、ドキュメントの重複を避ける。
+- `tests/test_clip_selector.py`: クリップ選択ロジック（作成者絞り込み含む）のユニットテスト。
+- `tests/test_command_cooldown_state.py`: コマンド別クールダウン独立性のユニットテスト。
+- `tests/test_manga_selector.py`: DLsiteランキングHTMLからのタイトル抽出とランダム選択のユニットテスト。
+- `tests/test_manga_command_control.py`: `manga` 管理者判定と ON/OFF フラグ変換のユニットテスト。
+- `tests/test_chat_message_response.py`: `send_chat_message` 返却値の `is_sent` / `message_id` 検証ユニットテスト。
+- `tests/test_message_delete_tracker.py`: `ctx.send` フォールバック時の削除予約一致判定ユニットテスト。
+- `tests/test_auth_scope_sets.py`: 実行時必須スコープと再認可スコープ集合の妥当性テスト。
+- `tests/test_scope_policy.py`: 不足スコープ判定ロジックのユニットテスト。
+- `tests/test_token_refresh_policy.py`: トークンリフレッシュ失敗時のフォールバック判定テスト。
+- `tests/test_process_restart.py`: 同一コンソール再起動とフォールバック経路のユニットテスト。
 
 ## ビルド・テスト・開発コマンド
 - `python -m venv venv && source venv/bin/activate`: Linux/Mac の仮想環境作成と有効化。Windows は `venv\Scripts\activate` を使用。
@@ -31,9 +51,197 @@
 - main へ直接 push しない。レビュー向けには小さな論理単位でブランチを切り、CI テスト (将来導入) の結果を添付。
 
 ## 設定とセキュリティ Tips
-- `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `LAST_CLIP_TIME` を定義。更新は `Config.update_*` が担当。
-- 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`set_key` で反映。
+- `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS` を定義。更新は `Config.update_*` が担当。
+- 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
+- `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
+
+## 2026-03-21 作業ログ
+- 要望: 再起動時に別窓を開かず、同じ窓で再実行したい
+- TDD: `tests/test_process_restart.py` を先に追加し、`ModuleNotFoundError` で失敗確認
+- 実装: `process_restart.py` を追加し、`os.execv` 優先・失敗時のみ同一コンソール継続の `subprocess.Popen` へフォールバックする再起動処理を分離
+- 実装: `main.py` の `restart_process` は `process_restart.restart_process_in_place` を利用するよう変更し、`CREATE_NEW_CONSOLE` を除去
+- ドキュメント更新: `readme.md` に同一コンソール再起動方針を追記
+- 検証: `PYTHONPATH=. pytest -q` で 69 件すべて通過を確認
+
+## 2026-03-20 作業ログ
+- 要望: 最初からフル権限でトークン取得する
+- 実装: `auth_scope_sets.py` の `REAUTH_AUTH_SCOPES` を `list(AuthScope)` に変更し、再認可時に全スコープ要求へ更新
+- 実装: `validate_access_token` の不足判定を manga追加2スコープから全スコープへ拡張
+- 実装: 不足検知ログ文言を「フル権限スコープ不足」に更新
+- テスト: `tests/test_auth_scope_sets.py` に `REAUTH_AUTH_SCOPES` が `AuthScope` 全体を網羅することを追加
+- ドキュメント更新: `readme.md` の再認可方針を全スコープ要求に更新
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
+- 不具合報告: 再認可成功後も `manga返信のAPI送信失敗: No authorization with correct scope set!` が継続
+- 原因: `set_user_authentication` に常に最小スコープを渡しており、再認可で取得した追加スコープが認証コンテキストに反映されていない
+- 修正: `Config.ACTIVE_AUTH_SCOPES` を導入し、検証結果に応じて最小/拡張スコープを動的切替
+- 修正: `set_user_authentication` の全呼び出しを `ACTIVE_AUTH_SCOPES` 使用へ変更
+- 修正: 再認可成功時は `REAUTH_AUTH_SCOPES` を有効化し、失敗時は `REQUIRED_AUTH_SCOPES` に戻す
+- ドキュメント更新: `readme.md` に再認可後の拡張スコープ反映を追記
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
+- 要望: スコープ不足時に再取得（再認可）できるようにする
+- TDD: `tests/test_scope_policy.py` を先に作成し、`ModuleNotFoundError` で失敗確認
+- 実装: `scope_policy.py` を追加し、不足スコープ判定を実装
+- 実装: `main.py` の `validate_access_token` で manga追加スコープ不足を検知した場合、同一トークンにつき1回だけ `refresh_access_token_fallback` を自動実行
+- 実装: `Config` にスコープ再認可試行済みトークン管理を追加し、過剰な再認可ループを抑止
+- ドキュメント更新: `readme.md` に不足スコープ検知時の自動再認可フローを追記
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
+- 要望: 再認可フローで `user:write:chat` / `moderator:manage:chat_messages` を確実に要求
+- TDD: `tests/test_auth_scope_sets.py` を先に追加し、`ModuleNotFoundError` で失敗確認
+- 実装: `auth_scope_sets.py` を追加し、`REQUIRED_AUTH_SCOPES` と `REAUTH_AUTH_SCOPES` を分離
+- 実装: `main.py` は通常起動で最小スコープを使い、`UserAuthenticator`（再認可）で `REAUTH_AUTH_SCOPES` を要求するよう変更
+- ドキュメント更新: `readme.md` に再認可時の追加2スコープ要求を追記
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
+- 要望: `!manga` 返信の自動削除を 10 秒から 5 秒へ短縮
+- 実装: `main.py` に `MANGA_DELETE_DELAY_SECONDS = 5` を追加し、API送信時/`ctx.send`フォールバック時の削除予約秒数を統一
+- ドキュメント更新: `readme.md` の `manga` 削除タイミング説明を 5 秒へ更新
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
+- 不具合報告: `send_chat_message` 権限不足時に `ctx.send` フォールバックされ、`!manga` 返信が削除されない
+- 修正: `message_delete_tracker.py` を再導入し、`ctx.send` フォールバック時の削除予約を保持
+- 修正: `event_message` の `echo` で `message_id` を拾い、10秒後に `/delete <message_id>` を実行するフォールバック経路を追加
+- 修正: API削除失敗時も `/delete` コマンドへ自動フォールバック
+- ドキュメント更新: `readme.md` に `ctx.send` フォールバック時の `/delete` 試行仕様を追記
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
+- 不具合報告: `given token is missing scope moderator:manage:chat_messages`
+- 原因: `REQUIRED_AUTH_SCOPES` に削除用スコープを必須化していたため、既存トークンで起動時認証が失敗
+- 修正: 必須スコープから `MODERATOR_MANAGE_CHAT_MESSAGES` / `USER_WRITE_CHAT` を除外して起動を優先
+- 修正: `manga` はAPI送信失敗時に `ctx.send` へフォールバックし、削除はスキップする仕様を明記
+- ドキュメント更新: `readme.md` の `manga` セクションをフォールバック仕様へ更新
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
+- 不具合報告: `given token is missing scope analytics:read:extensions`
+- 原因: 認証スコープを全要求 (`list(AuthScope)`) にしたことで、既存トークン検証が失敗
+- 修正: `REQUIRED_AUTH_SCOPES` を Bot 実行に必要な最小セットへ戻し、不要スコープ依存を解消
+- ドキュメント更新: `readme.md` の認証スコープ説明を最小スコープ方針へ修正
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
+- 要望: すべてのスコープでトークン取得するよう変更
+- 実装: `main.py` の `REQUIRED_AUTH_SCOPES` を `list(AuthScope)` に変更し、認証時に全スコープを要求する設定へ更新
+- ドキュメント更新: `readme.md` に全スコープ要求の注意点を追記
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
+- 要望: `!manga` 返信の `message_id` を `send_chat_message` 返却値から直接取得
+- TDD: `tests/test_chat_message_response.py` を先に作成し、`ModuleNotFoundError` で失敗確認
+- 実装: `chat_message_response.py` を追加し、`send_chat_message` 結果の妥当性検証と `message_id` 抽出を実装
+- 実装: `main.py` の `manga` 返信送信を `ctx.send` から `send_chat_message` に切り替え、返却 `message_id` で10秒後削除を予約
+- 実装: 旧 `echo` / 予約トラッカー方式（`message_delete_tracker.py`）を削除
+- 実装: 認可スコープに `MODERATOR_MANAGE_CHAT_MESSAGES` と `USER_WRITE_CHAT` を追加
+- ドキュメント更新: `readme.md` の削除仕様を `message_id` 直接取得方式に更新
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
+- 要望: `!manga` の返信が10秒後に消えない問題を修正
+- 原因調査: `echo` 受信時の本文完全一致に依存しており、本文差異で削除予約が取りこぼされる可能性を確認
+- 実装: `message_delete_tracker.py` にチャンネル単位フォールバック一致 (`pop_first_for_channel`) を追加
+- 実装: `main.py` の削除予約処理で本文一致失敗時に同一チャンネル先頭予約へフォールバックし、削除予約ログを追加
+- テスト: `tests/test_message_delete_tracker.py` にフォールバック一致のテストを追加
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
+- 要望: `!manga` の返答を 10 秒後に削除
+- TDD: `tests/test_message_delete_tracker.py` を先に作成し、`ModuleNotFoundError` で失敗確認
+- 実装: `message_delete_tracker.py` を追加し、削除予約メッセージの追跡ロジックを実装
+- 実装: `main.py` の `event_message` で自分の `echo` メッセージIDを取得し、`delete_chat_message` を 10 秒後に実行
+- 実装: `manga` 返信を `_send_manga_reply` に統一し、自動削除予約を追加
+- ドキュメント更新: `readme.md` に `!manga` 返信の 10 秒後自動削除を追記
+- 検証: `PYTHONPATH=. pytest -q tests/test_message_delete_tracker.py tests/test_manga_selector.py tests/test_manga_command_control.py` で 13 件すべて通過
+- 要望: `mangaon` / `mangaoff` を追加し、管理者のみ実行可能に変更
+- TDD: `tests/test_manga_selector.py` と `tests/test_manga_command_control.py` を先に作成し、`ModuleNotFoundError` で失敗確認
+- 実装: `manga_selector.py` と `manga_command_control.py` を追加
+- 実装: `main.py` に `!manga`, `!mangaon`, `!mangaoff` を追加し、管理者判定と `.env` 永続化 (`MANGA_COMMAND_ENABLED`) を実装
+- ドキュメント更新: `readme.md` に `manga` 系コマンド仕様と管理者条件を追記
+- 検証: `PYTHONPATH=. pytest -q tests/test_manga_selector.py tests/test_manga_command_control.py` で 9 件すべて通過
+- 要望: `!manga` コマンドを追加し、`https://www.dlsite.com/girls/ranking/day` からランダムでタイトルを返す仕様に変更
+- TDD: `tests/test_manga_selector.py` を先に作成し、`ImportError` で失敗確認
+- 実装: `manga_selector.py` を追加し、`dt.work_name` 配下のタイトル抽出 (`extract_manga_titles`) とランダム選択を実装
+- 実装: `main.py` に `!manga` コマンドを追加し、`asyncio.to_thread` でランキング取得、失敗時メッセージ返却を実装
+- ドキュメント更新: `readme.md` に `!manga` の取得元URLと失敗時挙動を追記
+- 検証: `PYTHONPATH=. pytest -q tests/test_manga_selector.py` で 4 件すべて通過
+- 要望: `!manga` コマンド廃止
+- 実装: `main.py` から `manga` コマンドと `manga_selector` import を削除
+- 実装: `manga_selector.py` と `tests/test_manga_selector.py` を削除
+- ドキュメント更新: `readme.md` の `!manga` 説明と、構成欄の manga 関連記述を整理
+- 検証: `PYTHONPATH=. pytest -q` で全テスト通過を確認
+- 不具合報告: 起動時トークン検証で `refresh_access_token_advanced` が `400` を返すと、フォールバック再認可に進まず終了する
+- TDD: `tests/test_token_refresh_policy.py` を先に追加し、`ModuleNotFoundError` で失敗確認
+- 実装: `token_refresh_policy.py` を追加し、`200` 以外はフォールバック再認可対象とする `should_try_fallback` を実装
+- 実装: `main.py` の `refresh_access_token_advanced` を更新し、非200時はレスポンス本文をログして `refresh_access_token_fallback` を実行
+- ドキュメント更新: `readme.md` に「高度リフレッシュ非200時は自動でフォールバック再認可」仕様を追記
+- 検証: `PYTHONPATH=. pytest -q tests/test_token_refresh_policy.py` で 3 件通過
+- 検証: `PYTHONPATH=. pytest -q` で 59 件すべて通過
+- 要望: トークンが使えなくなった時だけ再取得したい
+- TDD: `tests/test_scope_policy.py` に、付与済みスコープから有効スコープ集合を解決するテストを先に追加し、`ImportError` で失敗確認
+- 実装: `scope_policy.py` に `active_auth_scopes_from_granted` を追加
+- 実装: `main.py` の `validate_access_token` を更新し、401時のみ再取得・それ以外は付与済みスコープを `ACTIVE_AUTH_SCOPES` へ反映
+- 実装: 全スコープ不足を理由にした自動再認可トリガーを停止し、不要な再取得ループを解消
+- ドキュメント更新: `readme.md` のトークン運用方針を「401時のみ再取得」に更新
+- 検証: `PYTHONPATH=. pytest -q tests/test_scope_policy.py` で 4 件通過
+- 検証: `PYTHONPATH=. pytest -q` で 61 件すべて通過
+- 要望: 起動時とトークン再取得時に、付与済みスコープをECHO表示する
+- TDD: `tests/test_scope_policy.py` に `normalize_scope_values` の期待値テストを先に追加し、`ImportError` で失敗確認
+- 実装: `scope_policy.py` に `normalize_scope_values` を追加し、スコープ文字列の重複排除・ソートを実装
+- 実装: `main.py` の `validate_access_token` で `[ECHO] 起動時トークンスコープ` を出力（同一トークンは1回のみ）
+- 実装: `refresh_access_token_advanced` / `refresh_access_token_fallback` 成功時に `[ECHO] 再取得トークンスコープ` を出力
+- ドキュメント更新: `readme.md` にスコープECHOログ仕様を追記
+- 検証: `PYTHONPATH=. pytest -q tests/test_scope_policy.py` で 6 件通過
+- 検証: `PYTHONPATH=. pytest -q` で 63 件すべて通過
+- 不具合報告: `[ECHO]` に存在する `chat:edit` / `chat:read` / `moderator:manage:shoutouts` が不足扱いになる
+- 原因: `scope_policy.py` で `AuthScope` を `str()` 比較しており、`chat:edit` と一致せず誤検知していた
+- TDD: `tests/test_scope_policy.py` に `AuthScope` 入力時の不足判定/有効スコープ解決テストを追加し、2件失敗を確認
+- 実装: `scope_policy.py` に `_scope_value` 正規化ヘルパーを追加し、判定処理を `AuthScope` / 文字列混在対応へ修正
+- ドキュメント更新: `readme.md` にスコープ判定の正規化比較仕様を追記
+- 検証: `PYTHONPATH=. pytest -q tests/test_scope_policy.py` で 8 件通過
+- 検証: `PYTHONPATH=. pytest -q` で 65 件すべて通過
+
+## 2026-02-14 作業ログ
+- 要望: `!myclip` コマンドを `!clip` と同仕様で追加し、作成者をコマンド実行者に限定
+- 事前調査: Twitch API `Get Clips` は作成者をクエリで直接絞れないため、Bot 側で取得結果から作成者一致を抽出する方針を採用
+- TDD: `tests/test_clip_selector.py` を先に追加し、`ModuleNotFoundError` で失敗確認
+- 実装: `clip_selector.py` を追加し、作成者ID優先・作成者名フォールバックで絞り込み後にランダム選択
+- `main.py` の `clip` 処理を共通化し、`!myclip` コマンドを追加
+- ドキュメント更新: `readme.md` に `!myclip` の仕様と API 制約（最大100件から抽出）を追記
+- 検証: `PYTHONPATH=. pytest -q` で 23 件すべて通過
+- 要望: `!clip` と `!myclip` のリキャストを独立管理に変更
+- TDD: `tests/test_command_cooldown_state.py` を先に追加し、`ModuleNotFoundError` の失敗確認
+- 実装: `command_cooldown_state.py` を追加し、コマンド別の最終実行時刻を管理
+- 実装: `main.py` に `LAST_MYCLIP_TIME` の保存処理と、`clip` / `myclip` 別のリキャスト通知管理を追加
+- ドキュメント更新: `readme.md` に `clip` / `myclip` の独立リキャスト仕様を追記
+- 検証: `PYTHONPATH=. pytest -q` で 26 件すべて通過
+
+## 2026-02-11 作業ログ
+- `.env` の内容が `COMMENT_TOTAL_COUNT` と `STREAM_STARTED_AT` のみになっていたため、必要キー一覧を復旧用テンプレートとして再生成
+- 既存の `COMMENT_TOTAL_COUNT` と `STREAM_STARTED_AT` の値は保持し、他キーは空欄/既定値で追記
+- ユーザー手元の控えから `.env` の Twitch/Discord 設定と `LAST_CLIP_TIME` を再反映
+- `.env` 更新の安全化に向けて `tests/test_env_store.py` を追加し、`python3 -m pytest -q` で失敗を確認
+- 定期再起動の判定ロジックを分離するため `tests/test_restart_state_store.py` を追加し、`python3 -m pytest -q` で失敗を確認
+- `env_store.py` を追加し、`.env` 更新をバックアップ付きのアトミック書き込みに統一
+- `comment_state_store.py` と `main.py` の `.env` 更新処理を `env_store.update_env_file` に切り替え
+- `python3 -m pytest -q` で全テスト通過を確認
+- `.env.bak` と `.env.tmp` を `.gitignore` に追加
+- 再起動間隔の判定を `restart_state_store.py` に分離し、初回/欠損時の即時再起動を抑止
+- GitHub更新による再起動もクールダウン対象にして保留→次回再起動で反映
+- `python3 -m pytest -q` で全テスト通過を確認
+
+## 2026-01-03 作業ログ
+- README に `clip` コマンドの復旧状況と特別ユーザー設定 (`CLIP_SPECIAL_USERS`) を共有するメモを追加し、りきゃさん復帰時の周知事項として明記
+- 一般ユーザーの `clip` コマンド使用後に 30 分経過すると Bot が自動で「リキャスト復帰」をコメントする仕組みを実装。`ClipRecastNotifier` のユニットテスト (`tests/test_clip_recast_notifier.py`) を追加し、`PYTHONPATH=. pytest -q` で全テストを通過確認
+
+## 2026-01-20 作業ログ
+- コメント風速（コメント/分）算出のため、`tests/test_comment_speed_meter.py` を追加し TDD の失敗確認まで実施
+- `comment_speed_meter.py` を追加し、`!speed` コマンドで直近 60 秒のコメント/分を返すように実装
+- `main.py` のメッセージ受信でコマンド以外のコメントを計測対象に追加
+- README にコメント風速コマンドの説明を追記
+- 配信全体の平均コメント/分を算出するため、`comment_speed_meter.py` に配信開始/終了のリセットと総数カウントを追加
+- `tests/test_comment_speed_meter.py` に配信全体の風速とリセット動作のテストを追記し、`PYTHONPATH=. pytest -q` で通過確認
+- `main.py` の配信状態監視で風速計測の開始/終了を同期し、`!speed` の出力を直近/全体の2段表示に変更
+- README の `!speed` 説明を配信全体平均の表示に更新
+- コマンド判定のユニットテスト `tests/test_message_filters.py` を追加
+- `message_filters.py` を追加し、コマンド判定を切り出して先頭空白も含めて除外
+- `main.py` の風速計測は `message_filters.is_command_message` を使うよう更新
+- README にコマンド除外の詳細を追記
+- `tests/test_comment_count_formatter.py` を追加し、累計コメント件数の表示文言をTDDで定義
+- README に `!commentcount` コマンドの説明を追記
+- `comment_count_formatter.py` を追加して累計コメント件数の表示文言を実装
+- `main.py` に `!commentcount` コマンドを追加し、配信開始からの累計コメント件数を返すよう対応
+- README に `!commentcount` の表示例を追記
+- コメント件数の永続化テスト `tests/test_comment_state_store.py` を追加
+- `comment_state_store.py` を追加し、`.env` に累計コメント件数と配信開始時刻を保存する仕組みを実装
+- `comment_speed_meter.py` に状態復元用の `set_state` を追加
+- `main.py` で配信開始/終了とコメント受信時にコメント件数を保存し、再起動後も引き継ぐよう対応
+- README に累計コメント件数の引き継ぎ仕様を追記
 
 ## 2025-11-25 作業ログ
 - 要望: 同一配信タイトル時のDiscord通知抑止
