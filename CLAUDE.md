@@ -138,6 +138,16 @@ python -m py_compile main.py
   - 接続キープアライブ機能の実装（60秒ごとに接続状態を確認）
   - ハートビート間隔を30秒に設定
   - メインループに再試行ロジックを追加
+- **パフォーマンスチューニング＆コードレビュー修正（2026-03-21）**
+  - トークン検証キャッシュ導入（5分TTL）でコマンド応答速度向上
+  - event_message/event_joinのログレベルをDEBUGに最適化
+  - asyncio.get_event_loop()→get_running_loop()に修正
+  - update_last_clip_timeをset_keyに統一
+  - keep_alive内のlast_activity_time同期バグ修正
+  - send_discord_notification呼び出しをrun_in_executorで非同期化
+  - __init__内の無効なasyncio.create_task削除
+  - event_raw_usernoticeのKeyError防止
+  - 未使用import/関数削除、bare except修正、stream_live初期値修正
 
 ### 開発プロセス改善
 - テスト駆動開発（TDD）アプローチの採用

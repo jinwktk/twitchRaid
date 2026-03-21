@@ -1,6 +1,5 @@
 import logging
 import os
-import aiofiles
 from dotenv import dotenv_values, set_key
 from twitchAPI.twitch import Twitch
 from twitchAPI.oauth import UserAuthenticator, validate_token
@@ -17,7 +16,6 @@ import threading
 from logging.handlers import RotatingFileHandler
 from datetime import datetime, date
 import requests
-import json
 from stream_notifications import StreamTitleNotifier
 
 # ログディレクトリを作成
@@ -308,8 +306,7 @@ class Bot(commands.Bot):
             self.stream_live = False
             
         except TwitchAuthorizationException:
-            logging.error("❌ 無効なリフレッシュトークン。新しい認証を開始します。")
-            asyncio.create_task(refresh_access_token_advanced(self.config))
+            logging.error("❌ 無効なリフレッシュトークン。initialize()で再認証します。")
 
     async def ensure_token_valid(self):
         """キャッシュ付きトークン検証（5分間は再検証をスキップ）"""
@@ -344,7 +341,14 @@ class Bot(commands.Bot):
                         stream_title = streams[0].title
                         logging.info(f"🎥 配信が開始されました！タイトル: {stream_title}")
                         self.stream_live = True
-                        self.stream_notifier.notify_if_needed(stream_title, self.send_discord_notification)
+                        # notify_if_neededは同期コールバックを使うためrun_in_executorでブロッキング回避
+                        loop = asyncio.get_running_loop()
+                        await loop.run_in_executor(
+                            None,
+                            self.stream_notifier.notify_if_needed,
+                            stream_title,
+                            self.send_discord_notification
+                        )
                 else:
                     if self.stream_live:
                         logging.info("📢 配信が終了しました！")
@@ -569,7 +573,7 @@ class Bot(commands.Bot):
 
     async def event_raw_usernotice(self, channel, tags):
         logging.debug(f"Raw USERNOTICE tags: {tags}")
-        if tags['msg-id'] == 'raid':
+        if tags.get('msg-id') == 'raid':
             raider_name = tags.get('msg-param-login')
             raider_id = tags.get('user-id')
             logging.info(f"Raid detected from {raider_name}. Sending shoutout.")
@@ -607,7 +611,7 @@ class Bot(commands.Bot):
         await asyncio.sleep(5)
         
         # 既に再接続処理中なら重複実行を避ける
-        if hasattr(self, '_reconnecting') and self._reconnecting:
+        if self._reconnecting:
             return
             
         self._reconnecting = True
@@ -662,30 +666,23 @@ class Bot(commands.Bot):
     
     async def _restart_with_new_connection(self, token):
         """新しい接続でボットを再起動"""
-        try:
-            # 新しいBotインスタンス作成は危険なので、プロセス再起動を推奨
-            logging.info("🔄 安全のためプロセス全体を再起動します...")
-            git_manager.restart_process()
-            
-        except Exception as e:
-            logging.error(f"❌ 接続再起動中にエラー: {e}")
-            git_manager.restart_process()
+        logging.info("🔄 安全のためプロセス全体を再起動します...")
+        git_manager.restart_process()
     
     async def keep_alive(self):
         """改善されたキープアライブとヘルスチェック"""
         token_refresh_interval = 3600 * 2  # 2時間ごとにトークンをリフレッシュ
         last_token_refresh = time.time()
         connection_check_interval = 45  # 45秒ごとに接続チェック
-        last_activity_time = time.time()
-        
+
         while True:
             try:
                 await asyncio.sleep(connection_check_interval)
                 current_time = time.time()
-                
+
                 # 接続状態の詳細チェック
                 connection_ok = True
-                
+
                 # WebSocket接続状態をチェック
                 if hasattr(self, '_connection') and self._connection:
                     if not self._connection.is_alive:
@@ -694,24 +691,25 @@ class Bot(commands.Bot):
                 else:
                     connection_ok = False
                     logging.warning("🔌 WebSocket接続オブジェクトが見つかりません")
-                
-                # 長時間活動がない場合の検出
-                if current_time - last_activity_time > 300:  # 5分間活動なし
+
+                # 長時間活動がない場合の検出（event_messageで更新されるself.last_activity_timeを参照）
+                if current_time - self.last_activity_time > 300:  # 5分間活動なし
                     logging.warning("⚠️ 5分間メッセージやイベントが無く、接続が停止している可能性があります")
                     connection_ok = False
-                
+
                 # 接続問題が検出された場合の対処
                 if not connection_ok:
-                    if not (hasattr(self, '_reconnecting') and self._reconnecting):
+                    if not self._reconnecting:
                         logging.info("🔄 予防的再接続を開始...")
                         asyncio.create_task(self.delayed_reconnect())
-                
+
                 # 定期的なトークンリフレッシュ（2時間ごと）
                 if current_time - last_token_refresh > token_refresh_interval:
                     logging.info("⏰ 定期トークンリフレッシュを実行...")
                     new_token = await refresh_access_token_advanced(self.config)
                     if new_token:
                         last_token_refresh = current_time
+                        self._token_validated_at = current_time  # キャッシュも更新
                         logging.info("✅ 定期トークンリフレッシュ完了")
                         try:
                             await self.twitch.set_user_authentication(
@@ -723,12 +721,7 @@ class Bot(commands.Bot):
                             logging.warning(f"認証更新中にエラー: {auth_error}")
                     else:
                         logging.warning("⚠️ 定期トークンリフレッシュ失敗。次回再試行します。")
-                
-                # アクティビティタイムスタンプ更新（メッセージ受信時に更新される想定）
-                if connection_ok:
-                    self.last_activity_time = current_time
-                    last_activity_time = current_time
-                
+
             except Exception as e:
                 logging.error(f"❌ キープアライブ中にエラー: {e}")
                 await asyncio.sleep(30)  # エラー時は短めの待機時間
@@ -752,7 +745,7 @@ async def validate_access_token(config):
         client_id = token_data.get('client_id')
 
         if user_name:
-            logging.info(f"✅ アクセストークンは有効: {user_name} (Client ID: {client_id})")
+            logging.debug(f"アクセストークンは有効: {user_name} (Client ID: {client_id})")
             return config.TWITCH_ACCESS_TOKEN  # 有効なトークンを返す
 
         logging.warning("⚠️ 'login' キーがレスポンスに存在しません。トークンが無効の可能性があります。")
@@ -850,11 +843,6 @@ async def refresh_access_token_fallback(config):
     except Exception as e:
         logging.error(f"❌ フォールバックも失敗: {e}")
         return None
-
-async def refresh_access_token(config):
-    """ 後方互換性のためのラッパー関数 """
-    return await refresh_access_token_advanced(config)
-
 
 async def get_valid_access_token(config):
     """ 有効なTwitchアクセストークンを取得し、必要ならリフレッシュ """

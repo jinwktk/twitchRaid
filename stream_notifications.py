@@ -17,6 +17,7 @@ class StreamTitleNotifier:
         if hasattr(self.config, "get_last_stream_title"):
             return self._normalize_title(self.config.get_last_stream_title())
         return self._normalize_title(getattr(self.config, "LAST_STREAM_TITLE", ""))
+
     def _normalize_title(self, title: str | None) -> str:
         return (title or "").strip()
 
