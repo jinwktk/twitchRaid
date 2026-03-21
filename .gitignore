@@ -1,5 +1,7 @@
 # 環境設定ファイル
 .env
+.env.bak
+.env.tmp
 
 # ログファイル
 logs/

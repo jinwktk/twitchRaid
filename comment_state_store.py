@@ -1,0 +1,34 @@
+from __future__ import annotations
+
+from typing import Tuple
+
+from dotenv import dotenv_values
+
+from env_store import update_env_file
+
+
+def load_comment_state(env_file: str) -> Tuple[int, float]:
+    """.env からコメント件数と配信開始時刻を読み込む。"""
+    values = dotenv_values(env_file)
+    raw_count = values.get("COMMENT_TOTAL_COUNT", "0")
+    raw_started_at = values.get("STREAM_STARTED_AT", "0")
+    try:
+        total_count = int(raw_count) if raw_count else 0
+    except ValueError:
+        total_count = 0
+    try:
+        stream_started_at = float(raw_started_at) if raw_started_at else 0.0
+    except ValueError:
+        stream_started_at = 0.0
+    return total_count, stream_started_at
+
+
+def save_comment_state(env_file: str, total_count: int, stream_started_at: float) -> None:
+    """.env にコメント件数と配信開始時刻を書き込む。"""
+    update_env_file(
+        env_file,
+        {
+            "COMMENT_TOTAL_COUNT": str(total_count),
+            "STREAM_STARTED_AT": str(stream_started_at),
+        },
+    )

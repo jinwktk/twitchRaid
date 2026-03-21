@@ -1,6 +1,8 @@
 import logging
 import os
-from dotenv import dotenv_values, set_key
+from pathlib import Path
+import aiofiles
+from dotenv import dotenv_values
 from twitchAPI.twitch import Twitch
 from twitchAPI.oauth import UserAuthenticator, validate_token
 from twitchAPI.helper import AuthScope
@@ -16,7 +18,31 @@ import threading
 from logging.handlers import RotatingFileHandler
 from datetime import datetime, date
 import requests
+import json
 from stream_notifications import StreamTitleNotifier
+from clip_recast_notifier import ClipRecastNotifier
+from comment_speed_meter import CommentSpeedMeter
+from comment_count_formatter import format_total_comment_count
+from comment_state_store import load_comment_state, save_comment_state
+from message_filters import is_command_message
+from env_store import update_env_file
+from restart_state_store import load_last_restart, save_last_restart, evaluate_restart
+from clip_selector import select_clip
+from command_cooldown_state import CommandCooldownState
+from manga_selector import fetch_random_manga_title
+from manga_command_control import is_manga_admin, parse_enabled_flag, to_env_flag
+from chat_message_response import get_sent_message_id
+from message_delete_tracker import PendingDeleteTracker
+from auth_scope_sets import REQUIRED_AUTH_SCOPES, REAUTH_AUTH_SCOPES
+from process_restart import restart_process_in_place
+from scope_policy import (
+    active_auth_scopes_from_granted,
+    missing_scope_values,
+    normalize_scope_values,
+)
+from token_refresh_policy import should_try_fallback
+
+BASE_DIR = Path(__file__).resolve().parent
 
 # ログディレクトリを作成
 log_dir = "./logs"
@@ -42,6 +68,8 @@ logging.basicConfig(
     ]
 )
 
+MANGA_DELETE_DELAY_SECONDS = 5
+
 def calculate_age():
     """誕生日（8月14日）から現在の年齢を計算"""
     today = date.today()
@@ -63,8 +91,9 @@ def calculate_age():
     return age
 
 class Config:
-    """設定管理クラス"""
+    """設定管理クラス（スレッドセーフ）"""
     def __init__(self, env_file=".env"):
+        self._lock = threading.Lock()
         self.env_values = dotenv_values(env_file)
         self.env_file = env_file
         
@@ -83,72 +112,137 @@ class Config:
         
         # システム設定
         self.LAST_CLIP_TIME = float(self.env_values.get("LAST_CLIP_TIME", 0.0))
+        self.LAST_MYCLIP_TIME = float(self.env_values.get("LAST_MYCLIP_TIME", 0.0))
         self.LAST_STREAM_TITLE = self.env_values.get("LAST_STREAM_TITLE", "")
         self.RESTART_INTERVAL = 60 * 60 * 24  # 1日（秒）
-        self.RESTART_FILE = "last_restart.txt"
+        self.RESTART_FILE = str(BASE_DIR / "last_restart.txt")
         self.UPDATE_CHECK_INTERVAL = 600  # 10分（秒）
         self.RESTART_CHECK_INTERVAL = 300  # 5分（秒）
         
         # 特別ユーザー設定（Clipコマンドクールダウン無し）
         special_users_str = self.env_values.get("CLIP_SPECIAL_USERS", "nyme_ia,rukalun")
         self.CLIP_SPECIAL_USERS = [user.strip().lower() for user in special_users_str.split(",") if user.strip()]
+        self.MANGA_COMMAND_ENABLED = parse_enabled_flag(
+            self.env_values.get("MANGA_COMMAND_ENABLED", "0")
+        )
+        manga_admin_users_str = self.env_values.get("MANGA_ADMIN_USERS", "rukalun")
+        self.MANGA_ADMIN_USERS = [
+            user.strip().lower()
+            for user in manga_admin_users_str.split(",")
+            if user.strip()
+        ]
+        self._scope_reauth_attempted_for_tokens = set()
+        self._scope_echoed_for_tokens = set()
+        self.ACTIVE_AUTH_SCOPES = list(REQUIRED_AUTH_SCOPES)
     
     def update_access_token(self, access_token, refresh_token):
-        """アクセストークンを更新"""
-        self.TWITCH_ACCESS_TOKEN = access_token
-        self.TWITCH_REFRESH_TOKEN = refresh_token
-        
-        # 環境変数を更新
-        os.environ["TWITCH_ACCESS_TOKEN"] = access_token
-        os.environ["TWITCH_REFRESH_TOKEN"] = refresh_token
-        
-        # .envファイルを更新
-        set_key(self.env_file, "TWITCH_ACCESS_TOKEN", access_token)
-        set_key(self.env_file, "TWITCH_REFRESH_TOKEN", refresh_token)
+        """アクセストークンを更新（スレッドセーフ）"""
+        with self._lock:
+            self.TWITCH_ACCESS_TOKEN = access_token
+            self.TWITCH_REFRESH_TOKEN = refresh_token
+            self._scope_reauth_attempted_for_tokens.clear()
+            self._scope_echoed_for_tokens.clear()
+
+            # 環境変数を更新
+            os.environ["TWITCH_ACCESS_TOKEN"] = access_token
+            os.environ["TWITCH_REFRESH_TOKEN"] = refresh_token
+
+            # .envファイルを更新
+            update_env_file(
+                self.env_file,
+                {
+                    "TWITCH_ACCESS_TOKEN": access_token,
+                    "TWITCH_REFRESH_TOKEN": refresh_token,
+                },
+            )
+
+    def has_scope_reauth_attempted(self, token: str) -> bool:
+        return token in self._scope_reauth_attempted_for_tokens
+
+    def mark_scope_reauth_attempted(self, token: str):
+        self._scope_reauth_attempted_for_tokens.add(token)
+
+    def has_scope_echoed(self, token: str) -> bool:
+        return token in self._scope_echoed_for_tokens
+
+    def mark_scope_echoed(self, token: str):
+        self._scope_echoed_for_tokens.add(token)
+
+    def set_active_auth_scopes(self, scopes):
+        with self._lock:
+            self.ACTIVE_AUTH_SCOPES = list(scopes)
     
     def update_last_clip_time(self, timestamp):
-        """最新のクリップ時間を更新"""
-        self.LAST_CLIP_TIME = timestamp
-        os.environ["LAST_CLIP_TIME"] = str(timestamp)
-        set_key(self.env_file, "LAST_CLIP_TIME", str(timestamp))
-    
+        """最新のクリップ時間を更新（スレッドセーフ）"""
+        with self._lock:
+            self.LAST_CLIP_TIME = timestamp
+            os.environ["LAST_CLIP_TIME"] = str(timestamp)
+            update_env_file(self.env_file, {"LAST_CLIP_TIME": str(timestamp)})
+
+    def update_last_myclip_time(self, timestamp):
+        """最新のmyclip時間を更新（スレッドセーフ）"""
+        with self._lock:
+            self.LAST_MYCLIP_TIME = timestamp
+            os.environ["LAST_MYCLIP_TIME"] = str(timestamp)
+            update_env_file(self.env_file, {"LAST_MYCLIP_TIME": str(timestamp)})
+
     def update_last_stream_title(self, title: str):
-        """最新の配信タイトルを記録"""
+        """最新の配信タイトルを記録（スレッドセーフ）"""
         normalized = title.strip()
-        self.LAST_STREAM_TITLE = normalized
-        os.environ["LAST_STREAM_TITLE"] = normalized
-        set_key(self.env_file, "LAST_STREAM_TITLE", normalized)
+        with self._lock:
+            self.LAST_STREAM_TITLE = normalized
+            os.environ["LAST_STREAM_TITLE"] = normalized
+            update_env_file(self.env_file, {"LAST_STREAM_TITLE": normalized})
+
+    def update_manga_command_enabled(self, enabled: bool):
+        """mangaコマンドの有効/無効状態を更新（スレッドセーフ）"""
+        with self._lock:
+            self.MANGA_COMMAND_ENABLED = bool(enabled)
+            env_value = to_env_flag(self.MANGA_COMMAND_ENABLED)
+            os.environ["MANGA_COMMAND_ENABLED"] = env_value
+            update_env_file(self.env_file, {"MANGA_COMMAND_ENABLED": env_value})
     
     def get_last_stream_title(self) -> str:
-        """`.env` から最新の配信タイトルを取得"""
-        try:
-            values = dotenv_values(self.env_file)
-            stored = values.get("LAST_STREAM_TITLE", "")
-        except Exception as exc:
-            logging.error(f"⚠️ LAST_STREAM_TITLE 読み込み失敗: {exc}")
-            stored = self.LAST_STREAM_TITLE
-        normalized = stored.strip()
-        self.LAST_STREAM_TITLE = normalized
-        return normalized
+        """`.env` から最新の配信タイトルを取得（スレッドセーフ）"""
+        with self._lock:
+            try:
+                values = dotenv_values(self.env_file)
+                stored = values.get("LAST_STREAM_TITLE", "")
+            except Exception as exc:
+                logging.error(f"⚠️ LAST_STREAM_TITLE 読み込み失敗: {exc}")
+                stored = self.LAST_STREAM_TITLE
+            normalized = stored.strip()
+            self.LAST_STREAM_TITLE = normalized
+            return normalized
 
 class GitManager:
     """Git操作管理クラス"""
     def __init__(self, config):
         self.config = config
+        self.restart_pending = False
     
     def should_restart(self):
         """再起動が必要かどうかを判定"""
         now = time.time()
-        try:
-            with open(self.config.RESTART_FILE, "r") as f:
-                last = float(f.read())
-        except (FileNotFoundError, ValueError):
-            last = 0
-        
-        if now - last > self.config.RESTART_INTERVAL:
-            with open(self.config.RESTART_FILE, "w") as f:
-                f.write(str(now))
+        last = load_last_restart(self.config.RESTART_FILE)
+        should_restart, next_stamp = evaluate_restart(
+            now,
+            last,
+            self.config.RESTART_INTERVAL,
+        )
+        if next_stamp != last:
+            save_last_restart(self.config.RESTART_FILE, next_stamp)
+        return should_restart
+
+    def restart_with_cooldown(self, reason: str) -> bool:
+        """再起動クールダウンを考慮して再起動する。"""
+        if self.should_restart():
+            self.restart_pending = False
+            logging.info(reason)
+            self.restart_process()
             return True
+        self.restart_pending = True
+        logging.info("再起動クールダウン中のため保留します。")
         return False
     
     def pull_and_restart_if_updated(self):
@@ -157,21 +251,34 @@ class GitManager:
         logging.info(f"Git pull結果: {result.stdout}")
         
         if "Already up to date" not in result.stdout:
-            logging.info("更新があったので再起動します")
-            self.restart_process()
+            self.restart_with_cooldown("更新があったので再起動します")
     
+    def _current_branch(self):
+        """現在のGitブランチ名を取得"""
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except Exception:
+            pass
+        return "main"
+
     def check_for_updates(self):
         """リモートの更新をチェック"""
         try:
+            branch = self._current_branch()
             # リモートの最新情報を取得
             fetch_result = subprocess.run(["git", "fetch"], capture_output=True, text=True)
             if fetch_result.returncode != 0:
                 logging.error(f"git fetch エラー: {fetch_result.stderr}")
                 return False
-            
+
             # リモートとローカルの差分を確認
             result = subprocess.run(
-                ["git", "rev-list", "HEAD...origin/main", "--count"], 
+                ["git", "rev-list", f"HEAD...origin/{branch}", "--count"],
                 capture_output=True, text=True
             )
             
@@ -186,9 +293,9 @@ class GitManager:
                 # プルを実行
                 pull_result = subprocess.run(["git", "pull"], capture_output=True, text=True)
                 if pull_result.returncode == 0:
-                    logging.info("プル成功。再起動します...")
+                    logging.info("プル成功。再起動判定に進みます...")
                     logging.info(f"プル結果: {pull_result.stdout}")
-                    self.restart_process()
+                    self.restart_with_cooldown("更新があったので再起動します")
                     return True
                 else:
                     logging.error(f"プルエラー: {pull_result.stderr}")
@@ -205,33 +312,13 @@ class GitManager:
         """プロセスを再起動"""
         logging.info("プロセスを再起動します...")
         time.sleep(5)  # 安全な待機時間
-        
-        try:
-            # より安全な再起動方法：subprocess + os._exit
-            logging.info(f"🔄 Python実行パス: {sys.executable}")
-            logging.info(f"🔄 起動引数: {sys.argv}")
-            
-            # 新しいプロセスを起動
-            subprocess.Popen([sys.executable] + sys.argv, 
-                           cwd=os.getcwd(),
-                           creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0)
-            
-            logging.info("✅ 新プロセス起動完了。現プロセスを終了します...")
-            time.sleep(2)
-            
-            # 現在のプロセスを即座に終了
-            os._exit(0)
-            
-        except Exception as e:
-            logging.error(f"❌ プロセス再起動失敗: {e}")
-            # フォールバック: 従来のos.execv方式
-            try:
-                os.execv(sys.executable, [sys.executable] + sys.argv)
-            except Exception as exec_error:
-                logging.error(f"❌ execv再起動も失敗: {exec_error}")
-                # 最後の手段: プロセス終了のみ
-                logging.error("🚨 強制終了します。手動で再起動してください。")
-                os._exit(1)
+
+        restart_process_in_place(
+            executable=sys.executable,
+            argv=sys.argv,
+            cwd=os.getcwd(),
+            logger=logging,
+        )
 
 class SystemWatcher:
     """システム監視クラス"""
@@ -255,8 +342,13 @@ class SystemWatcher:
         while True:
             try:
                 time.sleep(self.git_manager.config.RESTART_CHECK_INTERVAL)
-                if self.git_manager.should_restart():
-                    logging.info("1日経過したので再起動を開始します...")
+                should_restart = self.git_manager.should_restart()
+                if should_restart:
+                    if self.git_manager.restart_pending:
+                        logging.info("保留中の更新があるため再起動します...")
+                        self.git_manager.restart_pending = False
+                    else:
+                        logging.info("1日経過したので再起動を開始します...")
                     logging.info("再起動前の最終ログ - プロセス終了")
                     self.git_manager.restart_process()
                     
@@ -291,10 +383,32 @@ class Bot(commands.Bot):
         self.max_reconnect_attempts = 10
         self.reconnect_delay = 30  # 初期再接続待機時間（秒）
         self.last_activity_time = time.time()  # アクティビティ追跡用
-        self._token_validated_at = 0  # トークン検証キャッシュ用タイムスタンプ
-        self._token_cache_ttl = 300  # 5分間はトークン再検証をスキップ
         self._reconnecting = False  # 再接続状態フラグ
         self.stream_notifier = StreamTitleNotifier(self.config, self.config.LOGIN_CHANNEL)
+        self.recast_notifier_by_command = {
+            "clip": ClipRecastNotifier(
+                cooldown_seconds=1800,
+                ready_message="⏱️ `clip` コマンドのリキャストが戻りました！もう一度 `!clip` でクリップできます。",
+            ),
+            "myclip": ClipRecastNotifier(
+                cooldown_seconds=1800,
+                ready_message="⏱️ `myclip` コマンドのリキャストが戻りました！もう一度 `!myclip` でクリップできます。",
+            ),
+        }
+        self.recast_channel_by_command = {
+            "clip": self.config.LOGIN_CHANNEL,
+            "myclip": self.config.LOGIN_CHANNEL,
+        }
+        self.command_cooldown_state = CommandCooldownState(
+            {
+                "clip": self.config.LAST_CLIP_TIME,
+                "myclip": self.config.LAST_MYCLIP_TIME,
+            }
+        )
+        self.comment_speed_meter = CommentSpeedMeter(window_seconds=60)
+        self.pending_delete_tracker = PendingDeleteTracker(stale_seconds=90)
+        total_count, stream_started_at = load_comment_state(self.config.env_file)
+        self.comment_speed_meter.set_state(stream_started_at, total_count)
         try:
             super().__init__(
                 token=token,
@@ -303,19 +417,11 @@ class Bot(commands.Bot):
                 heartbeat=30
             )
             self.twitch = Twitch(self.config.TWITCH_CLIENT_ID, self.config.TWITCH_SECRET_TOKEN)
-            self.stream_live = False
+            self.stream_live = True
             
         except TwitchAuthorizationException:
-            logging.error("❌ 無効なリフレッシュトークン。initialize()で再認証します。")
-
-    async def ensure_token_valid(self):
-        """キャッシュ付きトークン検証（5分間は再検証をスキップ）"""
-        now = time.time()
-        if now - self._token_validated_at < self._token_cache_ttl:
-            return
-        result = await validate_access_token(self.config)
-        if result:
-            self._token_validated_at = now
+            logging.error("❌ 無効なリフレッシュトークン。新しい認証を開始します。")
+            asyncio.create_task(refresh_access_token_advanced(self.config))
 
     async def initialize(self):
         """ 非同期初期化メソッド """
@@ -324,7 +430,7 @@ class Bot(commands.Bot):
             await refresh_access_token_advanced(self.config)
         await self.twitch.set_user_authentication(
             self.config.TWITCH_ACCESS_TOKEN,
-            [AuthScope.CHAT_EDIT, AuthScope.CHAT_READ, AuthScope.MODERATOR_MANAGE_SHOUTOUTS],
+            self.config.ACTIVE_AUTH_SCOPES,
             self.config.TWITCH_REFRESH_TOKEN
         )
 
@@ -340,18 +446,24 @@ class Bot(commands.Bot):
                     if not self.stream_live:
                         stream_title = streams[0].title
                         logging.info(f"🎥 配信が開始されました！タイトル: {stream_title}")
+                        started_at = time.time()
+                        self.comment_speed_meter.start_stream(started_at)
+                        save_comment_state(self.config.env_file, 0, started_at)
                         self.stream_live = True
-                        # notify_if_neededは同期コールバックを使うためrun_in_executorでブロッキング回避
-                        loop = asyncio.get_running_loop()
-                        await loop.run_in_executor(
-                            None,
-                            self.stream_notifier.notify_if_needed,
-                            stream_title,
-                            self.send_discord_notification
+                        self.stream_notifier.notify_if_needed(stream_title, self.send_discord_notification)
+                    if self.comment_speed_meter.stream_started_at() is None:
+                        started_at = time.time()
+                        self.comment_speed_meter.ensure_stream_started(started_at)
+                        save_comment_state(
+                            self.config.env_file,
+                            self.comment_speed_meter.total_count(),
+                            started_at,
                         )
                 else:
                     if self.stream_live:
                         logging.info("📢 配信が終了しました！")
+                        self.comment_speed_meter.reset_stream()
+                        save_comment_state(self.config.env_file, 0, 0.0)
                         self.stream_live = False
                 
                 error_count = 0  # 成功したらエラーカウントをリセット
@@ -367,7 +479,7 @@ class Bot(commands.Bot):
                         # Twitchクライアントを再初期化
                         await self.twitch.set_user_authentication(
                             self.config.TWITCH_ACCESS_TOKEN,
-                            [AuthScope.CHAT_EDIT, AuthScope.CHAT_READ, AuthScope.MODERATOR_MANAGE_SHOUTOUTS],
+                            self.config.ACTIVE_AUTH_SCOPES,
                             self.config.TWITCH_REFRESH_TOKEN
                         )
                         error_count = 0
@@ -382,7 +494,7 @@ class Bot(commands.Bot):
             await asyncio.sleep(180)  # 180秒ごとにチェック
 
     def send_discord_notification(self, message):
-        """ Discord Webhook で通知を送る（StreamTitleNotifierコールバック互換のため同期） """
+        """ Discord Webhook で通知を送る """
         if not self.config.DISCORD_WEBHOOK_URL:
             logging.warning("⚠️ DISCORD_WEBHOOK_URL が設定されていません。")
             return
@@ -406,7 +518,7 @@ class Bot(commands.Bot):
 
     # Botが起動した時に実行されるイベント
     async def event_ready(self):
-        await self.ensure_token_valid()
+        await validate_access_token(self.config)
         logging.info("✅ 全てのチャンネルにログインしました。")
         # TwitchIO 3.xでは属性名が変更されている可能性があるため、安全にチェック
         if hasattr(self, 'user_id'):
@@ -427,38 +539,235 @@ class Bot(commands.Bot):
 
         asyncio.create_task(self.monitor_stream_status())
         asyncio.create_task(self.keep_alive())  # キープアライブタスクを開始
-        self.last_clip_time = self.config.LAST_CLIP_TIME
+        self._restore_recast_notifier_state("clip")
+        self._restore_recast_notifier_state("myclip")
         
         # 接続状態の詳細をログ出力 - 属性名を安全にチェック
         channels = getattr(self, 'initial_channels', None) or getattr(self, '_initial_channels', None) or [self.config.LOGIN_CHANNEL]
         prefix = getattr(self, 'prefix', None) or getattr(self, '_prefix', None) or self.config.COMMAND_PREFIX
         logging.info(f"🔗 接続詳細: チャンネル={channels}, プレフィックス='{prefix}'")
         logging.info(f"⚙️ Clip特別ユーザー: {self.config.CLIP_SPECIAL_USERS}")
+        logging.info(f"⚙️ Mangaコマンド状態: {'ON' if self.config.MANGA_COMMAND_ENABLED else 'OFF'}")
 
     async def event_join(self, channel, user):
         """チャンネル参加イベント"""
-        logging.debug(f"ユーザー参加: {user.name} が {channel.name} に参加")
+        logging.info(f"📥 ユーザー参加: {user.name} が {channel.name} に参加")
 
 
     async def event_message(self, message):
-        """メッセージ受信イベント"""
+        """メッセージ受信イベント - デバッグ用"""
         # アクティビティタイムスタンプを更新
         self.last_activity_time = time.time()
-
-        logging.debug(f"メッセージ受信: echo={message.echo}, content='{message.content}', author={message.author.name if message.author else 'None'}")
-
+        
+        # 詳細なデバッグ情報を出力
+        logging.info(f"[DEBUG] メッセージ受信: echo={message.echo}, content='{message.content}', author={message.author.name if message.author else 'None'}")
+        
+        # echoやbotの自分のメッセージをスキップしないで全て処理
         if message.echo:
+            self._schedule_pending_delete_if_needed(message)
+            logging.info("[DEBUG] 自分のメッセージなのでスキップ")
             return
-
+            
         if not message.content:
+            logging.info("[DEBUG] 空のメッセージなのでスキップ")
             return
-
-        # コマンドのみINFOレベルでログ出力
-        if message.content.startswith(self.config.COMMAND_PREFIX):
-            logging.info(f"🤖 コマンド検出: {message.author.name}: {message.content}")
+        
+        logging.info(f"✅ メッセージ受信: {message.author.name}: {message.content}")
+        
+        # コマンドかどうかをチェック
+        is_command = is_command_message(message.content, self.config.COMMAND_PREFIX)
+        if is_command:
+            logging.info(f"🤖 コマンド検出: {message.content}")
+        else:
+            self.comment_speed_meter.record(time.time())
+            started_at = self.comment_speed_meter.stream_started_at() or 0.0
+            save_comment_state(
+                self.config.env_file,
+                self.comment_speed_meter.total_count(),
+                started_at,
+            )
         
         # 親クラスのメッセージ処理を呼び出し
         await self.handle_commands(message)
+
+    def _schedule_pending_delete_if_needed(self, message):
+        """ctx.sendで送ったmanga返信に対応する削除予約を処理する。"""
+        channel = getattr(message, "channel", None)
+        channel_name = (getattr(channel, "name", "") if channel else "").strip().lower()
+        if not channel_name:
+            return
+
+        message_content = (message.content or "").strip()
+        matched = self.pending_delete_tracker.pop_matched(
+            content=message_content,
+            channel_name=channel_name,
+            now=time.time(),
+        )
+        if matched is None:
+            matched = self.pending_delete_tracker.pop_first_for_channel(
+                channel_name=channel_name,
+                now=time.time(),
+            )
+        if matched is None:
+            return
+
+        message_id = getattr(message, "id", None)
+        if not message_id:
+            logging.warning("⚠️ 削除対象メッセージIDが取得できず、自動削除をスキップしました。")
+            return
+
+        logging.info(f"🗑️ {matched.delete_after_seconds}秒後にmanga返信を削除予約: message_id={message_id}")
+        asyncio.create_task(
+            self._delete_message_later(
+                message_id=message_id,
+                delay_seconds=matched.delete_after_seconds,
+                channel_name=channel_name,
+            )
+        )
+
+    async def _send_delete_command(self, channel_name: str, message_id: str):
+        """/delete コマンドでメッセージ削除を試行する。"""
+        channel = None
+        try:
+            channel = self.get_channel(channel_name)
+        except Exception:
+            channel = None
+
+        if channel is None:
+            connected = getattr(self, "connected_channels", None)
+            if connected:
+                channel = connected[0]
+
+        if channel is None:
+            logging.warning(f"⚠️ /delete送信先チャンネルが見つかりません: {channel_name}")
+            return
+
+        try:
+            await channel.send(f"/delete {message_id}")
+            logging.info(f"✅ /delete 実行: message_id={message_id}")
+        except Exception as delete_cmd_error:
+            logging.error(f"❌ /delete 実行失敗 (id={message_id}): {delete_cmd_error}")
+
+    async def _delete_message_later(self, message_id: str, delay_seconds: int, channel_name: str | None = None):
+        """指定秒後にTwitchチャットメッセージを削除する。"""
+        await asyncio.sleep(delay_seconds)
+        moderator_id = self.config.TWITCH_MODERATOR_ID or self.config.TWITCH_BROADCASTER_ID
+        if not moderator_id:
+            logging.warning("⚠️ MODERATOR_ID/BROADCASTER_ID が未設定のためメッセージ削除をスキップしました。")
+            if channel_name:
+                await self._send_delete_command(channel_name, message_id)
+            return
+        try:
+            await self.twitch.delete_chat_message(
+                broadcaster_id=self.config.TWITCH_BROADCASTER_ID,
+                moderator_id=moderator_id,
+                message_id=message_id,
+            )
+        except Exception as e:
+            logging.error(f"❌ メッセージ削除失敗 (id={message_id}): {e}")
+            if channel_name:
+                await self._send_delete_command(channel_name, message_id)
+
+    async def _send_manga_reply(self, ctx, content):
+        """mangaコマンド返信をAPI送信し、10秒後削除する。"""
+        normalized_content = (content or "").strip()
+        channel_name = (getattr(ctx.channel, "name", self.config.LOGIN_CHANNEL) or "").strip().lower()
+        sender_id = self.config.TWITCH_MODERATOR_ID or self.config.TWITCH_BROADCASTER_ID
+
+        if not self.config.TWITCH_BROADCASTER_ID or not sender_id:
+            logging.warning("⚠️ BROADCASTER_ID/MODERATOR_ID が未設定のため ctx.send にフォールバックします。")
+            self.pending_delete_tracker.add(
+                content=normalized_content,
+                channel_name=channel_name,
+                delete_after_seconds=MANGA_DELETE_DELAY_SECONDS,
+                now=time.time(),
+            )
+            await ctx.send(normalized_content)
+            return
+
+        try:
+            send_result = await self.twitch.send_chat_message(
+                broadcaster_id=self.config.TWITCH_BROADCASTER_ID,
+                sender_id=sender_id,
+                message=normalized_content,
+            )
+            message_id = get_sent_message_id(send_result)
+            logging.info(f"🗑️ {MANGA_DELETE_DELAY_SECONDS}秒後にmanga返信を削除予約: message_id={message_id}")
+            asyncio.create_task(
+                self._delete_message_later(
+                    message_id=message_id,
+                    delay_seconds=MANGA_DELETE_DELAY_SECONDS,
+                    channel_name=channel_name,
+                )
+            )
+        except Exception as e:
+            logging.error(f"❌ manga返信のAPI送信失敗。ctx.sendへフォールバック: {e}")
+            self.pending_delete_tracker.add(
+                content=normalized_content,
+                channel_name=channel_name,
+                delete_after_seconds=MANGA_DELETE_DELAY_SECONDS,
+                now=time.time(),
+            )
+            await ctx.send(normalized_content)
+
+    def _restore_recast_notifier_state(self, command_name: str):
+        notifier = self.recast_notifier_by_command[command_name]
+        last_used_at = self.command_cooldown_state.last_used(command_name)
+        cooldown_elapsed = time.time() - last_used_at if last_used_at else None
+        if last_used_at and cooldown_elapsed is not None:
+            if cooldown_elapsed < notifier.cooldown_seconds:
+                notifier.arm(
+                    started_at=last_used_at,
+                    send_coroutine=self._default_clip_sender(command_name),
+                )
+                logging.info(f"⏱️ {command_name}コマンドのリキャスト監視を再開しました。")
+            else:
+                notifier.disarm()
+        else:
+            notifier.disarm()
+
+    def _persist_command_cooldown(self, command_name: str, timestamp: float):
+        if command_name == "clip":
+            self.config.update_last_clip_time(timestamp)
+        elif command_name == "myclip":
+            self.config.update_last_myclip_time(timestamp)
+        else:
+            raise ValueError(f"unknown command: {command_name}")
+
+    def _default_clip_sender(self, command_name: str):
+        """コマンド別リキャスト通知を送るための送信関数を生成"""
+        channel_name = self.recast_channel_by_command[command_name] or self.config.LOGIN_CHANNEL
+
+        async def sender(message: str):
+            channel = None
+            try:
+                channel = self.get_channel(channel_name)
+            except Exception as exc:
+                logging.warning(f"{command_name}リキャスト通知のチャンネル取得に失敗: {exc}")
+
+            if channel is None:
+                connected = getattr(self, "connected_channels", None)
+                if connected:
+                    channel = connected[0]
+
+            if channel is None:
+                logging.warning(f"{command_name}リキャスト通知: チャンネル '{channel_name}' が未接続のため通知できませんでした。")
+                return
+
+            try:
+                await channel.send(message)
+            except Exception as send_error:
+                logging.error(f"{command_name}リキャスト通知送信に失敗: {send_error}")
+
+        return sender
+
+    def _is_manga_admin(self, author):
+        return is_manga_admin(
+            user_name=getattr(author, "name", None),
+            admin_users=self.config.MANGA_ADMIN_USERS,
+            is_mod=bool(getattr(author, "is_mod", False)),
+            is_broadcaster=bool(getattr(author, "is_broadcaster", False)),
+        )
 
 
     async def send_shoutout(self, to_broadcaster_id, retry=False):
@@ -481,31 +790,32 @@ class Bot(commands.Bot):
 
     @commands.command(name='age')
     async def age_command(self, ctx):
+        await validate_access_token(self.config)
         age = calculate_age()
         await ctx.send(str(age))
 
     @commands.command(name='goods')
     async def goods_command(self, ctx):
-        try:
-            await ctx.send("グッズはこちら→ https://rukalun.booth.pm")
-            logging.info(f"✅ goodsコマンド実行: {ctx.author.name}")
-        except Exception as e:
-            logging.error(f"❌ goodsコマンドエラー: {e}")
+        await validate_access_token(self.config)
+        await ctx.send("https://rukalun.booth.pm")
         
     @commands.command(name='weight')
     async def weight_command(self, ctx):
+        await validate_access_token(self.config)
         # 面白さ重視で桁外れも含む幅広い範囲（15-200kg）でランダム生成
         weight = random.randint(15, 200)
         await ctx.send(f"{weight}kg")
 
     @commands.command(name='height')
     async def height_command(self, ctx):
+        await validate_access_token(self.config)
         # 身長をランダム生成（120-220cm）
         height = random.randint(120, 220)
         await ctx.send(f"{height}cm")
 
     @commands.command(name='mood')
     async def mood_command(self, ctx):
+        await validate_access_token(self.config)
         # 今日の気分をランダム選択
         moods = ["絶好調！", "眠い...", "お腹すいた", "やる気MAX", "ダルい", 
                 "ハッピー♪", "ちょっと疲れた", "最高の気分", "普通", "テンション低め",
@@ -515,6 +825,7 @@ class Bot(commands.Bot):
 
     @commands.command(name='menu')
     async def menu_command(self, ctx):
+        await validate_access_token(self.config)
         # おすすめメニュー
         foods = ["ラーメン", "カレー", "寿司", "ピザ", "ハンバーガー", "パスタ", 
                 "うどん", "そば", "焼肉", "唐揚げ", "オムライス", "チャーハン",
@@ -522,7 +833,7 @@ class Bot(commands.Bot):
                 "しゃぶしゃぶ", "餃子", "麻婆豆腐", "牛丼", "豚丼", "かつ丼",
                 "海鮮丼", "中華丼", "ステーキ", "ハンバーグ", "生姜焼き", "回鍋肉",
                 "青椒肉絲", "酢豚", "エビチリ", "麻婆茄子", "八宝菜", "春巻き",
-                "小籠包", "焼き鳥", "刺身", "鉄火丼",
+                "小籠包", "焼き鳥", "刺身", "寿司", "海鮮丼", "鉄火丼",
                 "ちらし寿司", "握り寿司", "海苔巻き", "いなり寿司", "手巻き寿司",
                 "煮物", "肉じゃが", "筑前煮", "角煮", "手羽先", "鶏の照り焼き",
                 "魚の煮付け", "刺身定食", "焼き魚定食", "とんかつ", "チキンカツ",
@@ -532,52 +843,141 @@ class Bot(commands.Bot):
         food = random.choice(foods)
         await ctx.send(f"今日のおすすめ：{food}")
 
-    async def get_clips_info(self):
-        try:
-            clips = [clip async for clip in self.twitch.get_clips(
-                broadcaster_id=self.config.TWITCH_BROADCASTER_ID,
-                first=100
-            )]
-            
-            if clips:
-                selected_clip = random.choice(clips)  # ランダムに1つ選択
-                return selected_clip    
-            else:
-                logging.info("⚠️ No clips found.")
-        
-        except Exception as e:
-            logging.error(f"❌ Failed to fetch clips: {e}")
-        return None
-
-    @commands.command(name='clip')
-    async def clip_command(self, ctx):
-        # .envで設定された特別ユーザーはクールダウン無しで実行可能
-        is_special_user = ctx.author.name.lower() in self.config.CLIP_SPECIAL_USERS
-        
-        current_time = time.time()
-
-        # 一般ユーザーは30分クールダウンをチェック
-        if not is_special_user and current_time - self.last_clip_time < 1800:
-            remaining_time = int(1800 - (current_time - self.last_clip_time))
-            await ctx.send(f"⚠️ `clip` コマンドは 30分に1回のみ使用できます。あと {remaining_time // 60}分 {remaining_time % 60}秒 待ってください。")
+    @commands.command(name='manga')
+    async def manga_command(self, ctx):
+        if not self.config.MANGA_COMMAND_ENABLED:
+            await self._send_manga_reply(ctx, "⚠️ `manga` コマンドは現在OFFです。")
             return
 
-        await self.ensure_token_valid()
-        clip = await self.get_clips_info()
+        await validate_access_token(self.config)
+        try:
+            manga = await asyncio.to_thread(fetch_random_manga_title)
+            await self._send_manga_reply(ctx, f"今日のおすすめ漫画：{manga}")
+        except (requests.RequestException, ValueError) as e:
+            logging.error(f"❌ mangaランキング取得失敗: {e}")
+            await self._send_manga_reply(ctx, "⚠️ 漫画ランキングの取得に失敗しました。時間をおいて再試行してください。")
+
+    @commands.command(name='mangaon')
+    async def mangaon_command(self, ctx):
+        if not self._is_manga_admin(ctx.author):
+            await ctx.send("⚠️ `mangaon` は管理者のみ実行できます。")
+            return
+
+        if self.config.MANGA_COMMAND_ENABLED:
+            await ctx.send("ℹ️ `manga` コマンドはすでにONです。")
+            return
+
+        self.config.update_manga_command_enabled(True)
+        await ctx.send("✅ `manga` コマンドをONにしました。")
+
+    @commands.command(name='mangaoff')
+    async def mangaoff_command(self, ctx):
+        if not self._is_manga_admin(ctx.author):
+            await ctx.send("⚠️ `mangaoff` は管理者のみ実行できます。")
+            return
+
+        if not self.config.MANGA_COMMAND_ENABLED:
+            await ctx.send("ℹ️ `manga` コマンドはすでにOFFです。")
+            return
+
+        self.config.update_manga_command_enabled(False)
+        await ctx.send("✅ `manga` コマンドをOFFにしました。")
+
+    @commands.command(name='speed')
+    async def speed_command(self, ctx):
+        await validate_access_token(self.config)
+        current_time = time.time()
+        rate = self.comment_speed_meter.rate_per_minute(current_time)
+        count = self.comment_speed_meter.count(current_time)
+        total_rate = self.comment_speed_meter.total_rate_per_minute(current_time)
+        total_count = self.comment_speed_meter.total_count()
+        await ctx.send(
+            f"コメント風速: 直近60秒 {rate}/分 ({count}件) / "
+            f"配信全体 {total_rate}/分 ({total_count}件)"
+        )
+
+    @commands.command(name='commentcount')
+    async def commentcount_command(self, ctx):
+        await validate_access_token(self.config)
+        total_count = self.comment_speed_meter.total_count()
+        await ctx.send(format_total_comment_count(total_count))
+
+    async def get_clips_info(self, creator_id=None, creator_name=None):
+        try:
+            return await select_clip(
+                twitch=self.twitch,
+                broadcaster_id=self.config.TWITCH_BROADCASTER_ID,
+                creator_id=creator_id,
+                creator_name=creator_name,
+            )
+        except Exception as e:
+            logging.error(f"❌ Failed to fetch clips: {e}")
+
+    async def _handle_clip_command(self, ctx, command_name, creator_id=None, creator_name=None):
+        notifier = self.recast_notifier_by_command[command_name]
+
+        # .envで設定された特別ユーザーはクールダウン無しで実行可能
+        is_special_user = ctx.author.name.lower() in self.config.CLIP_SPECIAL_USERS
+        self.recast_channel_by_command[command_name] = getattr(ctx.channel, "name", self.config.LOGIN_CHANNEL)
+
+        current_time = time.time()
+        remaining_time = self.command_cooldown_state.remaining_seconds(
+            command_name,
+            current_time=current_time,
+            cooldown_seconds=1800,
+        )
+
+        # 一般ユーザーは30分クールダウンをチェック
+        if not is_special_user and remaining_time > 0:
+            last_used_at = self.command_cooldown_state.last_used(command_name)
+            await ctx.send(
+                f"⚠️ `{command_name}` コマンドは 30分に1回のみ使用できます。"
+                f"あと {remaining_time // 60}分 {remaining_time % 60}秒 待ってください。"
+            )
+            notifier.arm(
+                started_at=last_used_at,
+                send_coroutine=ctx.send
+            )
+            return
+
+        await validate_access_token(self.config)
+        clip = await self.get_clips_info(creator_id=creator_id, creator_name=creator_name)
         if clip:
             await ctx.send(clip.url)
 
             # 特別ユーザー以外の場合のみクールダウン時間を更新
             if not is_special_user:
-                self.last_clip_time = current_time
-                self.config.update_last_clip_time(current_time)
+                self.command_cooldown_state.mark_used(command_name, current_time)
+                self._persist_command_cooldown(command_name, current_time)
+                notifier.arm(
+                    started_at=current_time,
+                    send_coroutine=ctx.send
+                )
         else:
-            await ctx.send("⚠️ クリップが見つかりませんでした。")
+            if creator_id is not None or creator_name:
+                await ctx.send("⚠️ あなたが作成したクリップが見つかりませんでした。")
+            else:
+                await ctx.send("⚠️ クリップが見つかりませんでした。")
+    
+    @commands.command(name='clip')
+    async def clip_command(self, ctx):
+        await self._handle_clip_command(ctx, command_name="clip")
+
+    @commands.command(name='myclip')
+    async def myclip_command(self, ctx):
+        requester_id = getattr(ctx.author, "id", None)
+        requester_name = getattr(ctx.author, "name", None)
+        await self._handle_clip_command(
+            ctx,
+            command_name="myclip",
+            creator_id=requester_id,
+            creator_name=requester_name,
+        )
 
 
     async def event_raw_usernotice(self, channel, tags):
         logging.debug(f"Raw USERNOTICE tags: {tags}")
-        if tags.get('msg-id') == 'raid':
+        if tags['msg-id'] == 'raid':
             raider_name = tags.get('msg-param-login')
             raider_id = tags.get('user-id')
             logging.info(f"Raid detected from {raider_name}. Sending shoutout.")
@@ -615,7 +1015,7 @@ class Bot(commands.Bot):
         await asyncio.sleep(5)
         
         # 既に再接続処理中なら重複実行を避ける
-        if self._reconnecting:
+        if hasattr(self, '_reconnecting') and self._reconnecting:
             return
             
         self._reconnecting = True
@@ -670,23 +1070,29 @@ class Bot(commands.Bot):
     
     async def _restart_with_new_connection(self, token):
         """新しい接続でボットを再起動"""
-        logging.info("🔄 安全のためプロセス全体を再起動します...")
-        git_manager.restart_process()
+        try:
+            # 新しいBotインスタンス作成は危険なので、プロセス再起動を推奨
+            logging.info("🔄 安全のためプロセス全体を再起動します...")
+            git_manager.restart_process()
+            
+        except Exception as e:
+            logging.error(f"❌ 接続再起動中にエラー: {e}")
+            git_manager.restart_process()
     
     async def keep_alive(self):
         """改善されたキープアライブとヘルスチェック"""
         token_refresh_interval = 3600 * 2  # 2時間ごとにトークンをリフレッシュ
         last_token_refresh = time.time()
         connection_check_interval = 45  # 45秒ごとに接続チェック
-
+        
         while True:
             try:
                 await asyncio.sleep(connection_check_interval)
                 current_time = time.time()
-
+                
                 # 接続状態の詳細チェック
                 connection_ok = True
-
+                
                 # WebSocket接続状態をチェック
                 if hasattr(self, '_connection') and self._connection:
                     if not self._connection.is_alive:
@@ -695,37 +1101,46 @@ class Bot(commands.Bot):
                 else:
                     connection_ok = False
                     logging.warning("🔌 WebSocket接続オブジェクトが見つかりません")
-
-                # 長時間活動がない場合の検出（event_messageで更新されるself.last_activity_timeを参照）
+                
+                # 長時間活動がない場合の検出
                 if current_time - self.last_activity_time > 300:  # 5分間活動なし
                     logging.warning("⚠️ 5分間メッセージやイベントが無く、接続が停止している可能性があります")
                     connection_ok = False
-
+                
                 # 接続問題が検出された場合の対処
                 if not connection_ok:
-                    if not self._reconnecting:
+                    if not (hasattr(self, '_reconnecting') and self._reconnecting):
                         logging.info("🔄 予防的再接続を開始...")
                         asyncio.create_task(self.delayed_reconnect())
-
+                
                 # 定期的なトークンリフレッシュ（2時間ごと）
                 if current_time - last_token_refresh > token_refresh_interval:
                     logging.info("⏰ 定期トークンリフレッシュを実行...")
                     new_token = await refresh_access_token_advanced(self.config)
                     if new_token:
                         last_token_refresh = current_time
-                        self._token_validated_at = current_time  # キャッシュも更新
                         logging.info("✅ 定期トークンリフレッシュ完了")
                         try:
                             await self.twitch.set_user_authentication(
                                 self.config.TWITCH_ACCESS_TOKEN,
-                                [AuthScope.CHAT_EDIT, AuthScope.CHAT_READ, AuthScope.MODERATOR_MANAGE_SHOUTOUTS],
+                                self.config.ACTIVE_AUTH_SCOPES,
                                 self.config.TWITCH_REFRESH_TOKEN
                             )
                         except Exception as auth_error:
                             logging.warning(f"認証更新中にエラー: {auth_error}")
                     else:
                         logging.warning("⚠️ 定期トークンリフレッシュ失敗。次回再試行します。")
+                
+                # アクティビティタイムスタンプ更新（メッセージ受信時に更新される想定）
+                if connection_ok:
+                    self.last_activity_time = current_time
 
+                for command_name, notifier in self.recast_notifier_by_command.items():
+                    try:
+                        await notifier.notify_if_ready(current_time)
+                    except Exception as notifier_error:
+                        logging.error(f"{command_name}リキャスト通知処理中にエラー: {notifier_error}")
+                
             except Exception as e:
                 logging.error(f"❌ キープアライブ中にエラー: {e}")
                 await asyncio.sleep(30)  # エラー時は短めの待機時間
@@ -749,7 +1164,32 @@ async def validate_access_token(config):
         client_id = token_data.get('client_id')
 
         if user_name:
-            logging.debug(f"アクセストークンは有効: {user_name} (Client ID: {client_id})")
+            granted_scopes = token_data.get("scopes", [])
+            active_scopes = active_auth_scopes_from_granted(
+                granted_scopes,
+                REQUIRED_AUTH_SCOPES,
+            )
+            config.set_active_auth_scopes(active_scopes)
+            missing_required = missing_scope_values(granted_scopes, REQUIRED_AUTH_SCOPES)
+            current_token = config.TWITCH_ACCESS_TOKEN
+            if current_token and not config.has_scope_echoed(current_token):
+                scope_values = normalize_scope_values(granted_scopes)
+                logging.info(
+                    "[ECHO] 起動時トークンスコープ: %s",
+                    ", ".join(scope_values) if scope_values else "(none)",
+                )
+                config.mark_scope_echoed(current_token)
+            if missing_required:
+                logging.warning(
+                    "⚠️ 必須スコープ不足のため一部APIは利用不可です（トークン無効時のみ再取得）: "
+                    + ", ".join(missing_required)
+                )
+            logging.info(
+                "✅ アクセストークンは有効: %s (Client ID: %s, active_scopes=%d)",
+                user_name,
+                client_id,
+                len(active_scopes),
+            )
             return config.TWITCH_ACCESS_TOKEN  # 有効なトークンを返す
 
         logging.warning("⚠️ 'login' キーがレスポンスに存在しません。トークンが無効の可能性があります。")
@@ -774,7 +1214,7 @@ async def refresh_access_token_advanced(config):
         }
         
         logging.info("📡 Twitch APIに直接リクエスト送信中...")
-        response = await asyncio.get_running_loop().run_in_executor(
+        response = await asyncio.get_event_loop().run_in_executor(
             None, 
             lambda: requests.post(token_url, data=data, timeout=10)
         )
@@ -791,24 +1231,39 @@ async def refresh_access_token_advanced(config):
                 # トークン検証
                 validate_url = "https://id.twitch.tv/oauth2/validate"
                 headers = {"Authorization": f"OAuth {new_access_token}"}
-                validate_response = await asyncio.get_running_loop().run_in_executor(
+                validate_response = await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: requests.get(validate_url, headers=headers, timeout=5)
                 )
                 
                 if validate_response.status_code == 200:
                     validate_data = validate_response.json()
+                    scope_values = normalize_scope_values(validate_data.get("scopes", []))
+                    logging.info(
+                        "[ECHO] 再取得トークンスコープ(advanced): %s",
+                        ", ".join(scope_values) if scope_values else "(none)",
+                    )
+                    if config.TWITCH_ACCESS_TOKEN:
+                        config.mark_scope_echoed(config.TWITCH_ACCESS_TOKEN)
                     logging.info(f"✨ トークン検証完了: User={validate_data.get('login')}, Expires={validate_data.get('expires_in')}秒")
                     return new_access_token
-        
-        elif response.status_code == 400:
-            error_data = response.json()
-            if "Invalid refresh token" in str(error_data):
-                logging.warning("⚠️ リフレッシュトークン無効。フォールバック処理を実行...")
-                # フォールバック: 従来の方法を試す
-                return await refresh_access_token_fallback(config)
-        
-        logging.error(f"❌ トークンリフレッシュ失敗: {response.status_code}")
+
+        response_body = ""
+        try:
+            response_body = response.text
+        except Exception:
+            response_body = "<レスポンス本文取得失敗>"
+
+        logging.error(
+            "❌ トークンリフレッシュ失敗: %s body=%s",
+            response.status_code,
+            response_body[:500]
+        )
+
+        if should_try_fallback(response.status_code):
+            logging.info("🔄 高度リフレッシュ失敗。フォールバック再認可を実行します...")
+            return await refresh_access_token_fallback(config)
+
         return None
         
     except Exception as e:
@@ -823,7 +1278,7 @@ async def refresh_access_token_fallback(config):
         twitch = Twitch(config.TWITCH_CLIENT_ID, config.TWITCH_SECRET_TOKEN)
         auth = UserAuthenticator(
             twitch, 
-            [AuthScope.CHAT_EDIT, AuthScope.CHAT_READ, AuthScope.MODERATOR_MANAGE_SHOUTOUTS]
+            REAUTH_AUTH_SCOPES
         )
         token_data = await auth.authenticate()
 
@@ -837,16 +1292,32 @@ async def refresh_access_token_fallback(config):
         # Twitchの認証情報を更新
         await twitch.set_user_authentication(
             config.TWITCH_ACCESS_TOKEN,
-            [AuthScope.CHAT_EDIT, AuthScope.CHAT_READ, AuthScope.MODERATOR_MANAGE_SHOUTOUTS],
+            REAUTH_AUTH_SCOPES,
             config.TWITCH_REFRESH_TOKEN
         )
+        config.set_active_auth_scopes(REAUTH_AUTH_SCOPES)
+        validate_data = await validate_token(config.TWITCH_ACCESS_TOKEN)
+        if isinstance(validate_data, dict):
+            scope_values = normalize_scope_values(validate_data.get("scopes", []))
+            logging.info(
+                "[ECHO] 再取得トークンスコープ(fallback): %s",
+                ", ".join(scope_values) if scope_values else "(none)",
+            )
+            if config.TWITCH_ACCESS_TOKEN:
+                config.mark_scope_echoed(config.TWITCH_ACCESS_TOKEN)
 
         logging.info("✅ フォールバック成功！新しいアクセストークンを取得しました！")
         return config.TWITCH_ACCESS_TOKEN
 
     except Exception as e:
         logging.error(f"❌ フォールバックも失敗: {e}")
+        config.set_active_auth_scopes(REQUIRED_AUTH_SCOPES)
         return None
+
+async def refresh_access_token(config):
+    """ 後方互換性のためのラッパー関数 """
+    return await refresh_access_token_advanced(config)
+
 
 async def get_valid_access_token(config):
     """ 有効なTwitchアクセストークンを取得し、必要ならリフレッシュ """
