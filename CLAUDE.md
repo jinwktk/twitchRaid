@@ -2,6 +2,29 @@
 
 このファイルは、Claude Code (claude.ai/code) がこのリポジトリで作業する際のガイダンスを提供します。
 
+## 🖥️ サブPCログ確認（SSH経由）
+
+本番BotはサブPC（192.168.0.99）で稼働中。メインPC（192.168.0.100）からSSH経由でログを確認できる。
+
+```bash
+# 今日のログ末尾50行を確認
+ssh mlove@192.168.0.99 "powershell Get-Content E:\GitHub\twitchRaid\logs\bot_$(Get-Date -Format 'yyyy-MM-dd').log -Tail 50"
+
+# 最新のログファイル末尾50行
+ssh mlove@192.168.0.99 "powershell Get-ChildItem E:\GitHub\twitchRaid\logs\*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | ForEach-Object { Get-Content $_.FullName -Tail 50 }"
+
+# ログファイル一覧（最新順）
+ssh mlove@192.168.0.99 "powershell Get-ChildItem E:\GitHub\twitchRaid\logs\*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 10 | Format-Table Name, Length, LastWriteTime"
+
+# ERRORだけ抽出（最新ログ）
+ssh mlove@192.168.0.99 "powershell Get-ChildItem E:\GitHub\twitchRaid\logs\*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | ForEach-Object { Select-String -Path $_.FullName -Pattern ERROR -SimpleMatch }"
+
+# 特定日付のログ確認（例: 2026-03-22）
+ssh mlove@192.168.0.99 "type E:\GitHub\twitchRaid\logs\bot_2026-03-22.log"
+```
+
+**接続情報**: ユーザー `mlove`、公開鍵認証設定済み（パスワード不要）
+
 ## 開発コマンド
 
 ### セットアップ
