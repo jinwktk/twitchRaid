@@ -253,18 +253,32 @@ class GitManager:
         if "Already up to date" not in result.stdout:
             self.restart_with_cooldown("更新があったので再起動します")
     
+    def _current_branch(self):
+        """現在のGitブランチ名を取得"""
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except Exception:
+            pass
+        return "main"
+
     def check_for_updates(self):
         """リモートの更新をチェック"""
         try:
+            branch = self._current_branch()
             # リモートの最新情報を取得
             fetch_result = subprocess.run(["git", "fetch"], capture_output=True, text=True)
             if fetch_result.returncode != 0:
                 logging.error(f"git fetch エラー: {fetch_result.stderr}")
                 return False
-            
+
             # リモートとローカルの差分を確認
             result = subprocess.run(
-                ["git", "rev-list", "HEAD...origin/main", "--count"], 
+                ["git", "rev-list", f"HEAD...origin/{branch}", "--count"],
                 capture_output=True, text=True
             )
             
