@@ -29,7 +29,7 @@ import {
   randomMenu,
 } from "./commands/random-commands";
 import { restartProcess } from "./utils/process-restart";
-import { fetchFirstComment } from "./commands/first-comment";
+
 
 const MANGA_DELETE_DELAY_SECONDS = 5;
 
@@ -238,9 +238,6 @@ export class Bot {
       case "mangaoff":
         await this._handleMangaToggle(channel, user, msg, false);
         break;
-      case "初コメ":
-        await this._handleFirstCommentCommand(channel, user, args);
-        break;
       default:
         break;
     }
@@ -387,52 +384,6 @@ export class Bot {
       channel,
       `✅ \`manga\` コマンドを${enable ? "ON" : "OFF"}にしました。`
     );
-  }
-
-  private async _handleFirstCommentCommand(
-    channel: string,
-    user: string,
-    args: string[]
-  ): Promise<void> {
-    if (!this.config.twitchGqlToken) {
-      await this.chatClient.say(channel, "⚠️ GQLトークンが設定されていません。");
-      return;
-    }
-
-    const targetUser = args[1] ?? user;
-    try {
-      const entry = await fetchFirstComment(
-        this.config.twitchGqlToken,
-        this.config.twitchBroadcasterId,
-        targetUser
-      );
-      if (!entry) {
-        await this.chatClient.say(
-          channel,
-          `${targetUser} のチャット履歴が見つかりませんでした。`
-        );
-        return;
-      }
-      const date = new Date(entry.sentAt);
-      const dateStr = date.toLocaleDateString("ja-JP", {
-        month: "numeric",
-        day: "numeric",
-      });
-      const timeStr = date.toLocaleTimeString("ja-JP", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-      await this.chatClient.say(
-        channel,
-        `${targetUser} の初コメ (${dateStr} ${timeStr}): ${entry.text}`
-      );
-    } catch (e) {
-      logger.error(`❌ 初コメ取得失敗: ${e}`);
-      await this.chatClient.say(
-        channel,
-        `⚠️ ${targetUser} の初コメ取得に失敗しました。`
-      );
-    }
   }
 
   private async _sendMangaReply(
