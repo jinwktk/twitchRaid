@@ -41,6 +41,7 @@ export class Bot {
   private reconnectAttempts = 0;
   private readonly maxReconnectAttempts = 10;
   private streamLive = false;
+  private botUserId = "";
 
   private readonly streamNotifier: StreamTitleNotifier;
   private readonly recastNotifiers: Record<string, ClipRecastNotifier>;
@@ -99,7 +100,7 @@ export class Bot {
       );
     });
 
-    await this.authProvider.addUserForToken(
+    this.botUserId = await this.authProvider.addUserForToken(
       {
         accessToken: this.config.twitchAccessToken,
         refreshToken: this.config.twitchRefreshToken,
@@ -109,6 +110,7 @@ export class Bot {
       },
       ["chat"]
     );
+    logger.info(`🔑 Botユーザー登録完了: userId=${this.botUserId}`);
 
     // API Client
     this.apiClient = new ApiClient({ authProvider: this.authProvider });
@@ -388,17 +390,14 @@ export class Bot {
     content: string
   ): Promise<void> {
     try {
-      const senderId =
-        this.config.twitchModeratorId || this.config.twitchBroadcasterId;
-      if (!this.config.twitchBroadcasterId || !senderId) {
+      if (!this.config.twitchBroadcasterId || !this.botUserId) {
         await this.chatClient.say(channel, content);
         return;
       }
 
-      // API経由で送信し、一定時間後に削除
-      const result = await this.apiClient.chat.sendChatMessage(
-        this.config.twitchBroadcasterId,
-        content
+      // Bot自身のユーザーコンテキストでAPI経由送信し、一定時間後に削除
+      const result = await this.apiClient.asUser(this.botUserId, async (ctx) =>
+        ctx.chat.sendChatMessage(this.config.twitchBroadcasterId, content)
       );
 
       const messageId = result?.id;
@@ -408,9 +407,11 @@ export class Bot {
         );
         setTimeout(async () => {
           try {
-            await this.apiClient.moderation.deleteChatMessages(
-              this.config.twitchBroadcasterId,
-              messageId
+            await this.apiClient.asUser(this.botUserId, async (ctx) =>
+              ctx.moderation.deleteChatMessages(
+                this.config.twitchBroadcasterId,
+                messageId
+              )
             );
           } catch (e) {
             logger.error(`❌ メッセージ削除失敗 (id=${messageId}): ${e}`);
