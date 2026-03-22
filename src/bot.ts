@@ -1,4 +1,4 @@
-import { ChatClient } from "@twurple/chat";
+import { ChatClient, ChatMessage } from "@twurple/chat";
 import { ApiClient } from "@twurple/api";
 import { RefreshingAuthProvider } from "@twurple/auth";
 import type { Config } from "./config";
@@ -40,8 +40,7 @@ export class Bot {
 
   private reconnectAttempts = 0;
   private readonly maxReconnectAttempts = 10;
-  private lastActivityTime = Date.now() / 1000;
-  private streamLive = true;
+  private streamLive = false;
 
   private readonly streamNotifier: StreamTitleNotifier;
   private readonly recastNotifiers: Record<string, ClipRecastNotifier>;
@@ -52,6 +51,10 @@ export class Bot {
   // Keep-alive timers
   private keepAliveTimer: ReturnType<typeof setInterval> | null = null;
   private streamMonitorTimer: ReturnType<typeof setInterval> | null = null;
+
+  // コメント状態保存デバウンス
+  private commentSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly commentSaveDebounceMs = 30_000; // 30秒
 
   constructor(config: Config) {
     this.config = config;
@@ -125,6 +128,9 @@ export class Bot {
   async stop(): Promise<void> {
     if (this.keepAliveTimer) clearInterval(this.keepAliveTimer);
     if (this.streamMonitorTimer) clearInterval(this.streamMonitorTimer);
+    if (this.commentSaveTimer) clearTimeout(this.commentSaveTimer);
+    // 停止前にコメント状態を即座に保存
+    this._flushCommentState();
     this.chatClient.quit();
   }
 
@@ -152,15 +158,9 @@ export class Bot {
     });
 
     this.chatClient.onMessage(async (channel, user, text, msg) => {
-      this.lastActivityTime = Date.now() / 1000;
-
-      logger.info(
-        `[DEBUG] メッセージ受信: content='${text}', author=${user}`
-      );
-
       if (!text) return;
 
-      logger.info(`✅ メッセージ受信: ${user}: ${text}`);
+      logger.debug(`メッセージ受信: ${user}: ${text}`);
 
       const isCommand = isCommandMessage(text, this.config.commandPrefix);
       if (isCommand) {
@@ -169,16 +169,12 @@ export class Bot {
       } else {
         const now = Date.now() / 1000;
         this.commentSpeedMeter.record(now);
-        saveCommentState(
-          this.config.envFile,
-          this.commentSpeedMeter.totalCount(),
-          this.commentSpeedMeter.streamStartedAt() ?? 0
-        );
+        this._debouncedSaveCommentState();
       }
     });
 
     this.chatClient.onJoin((channel, user) => {
-      logger.info(`📥 ユーザー参加: ${user} が ${channel} に参加`);
+      logger.debug(`ユーザー参加: ${user} が ${channel} に参加`);
     });
 
     // レイドイベント
@@ -194,7 +190,7 @@ export class Bot {
     channel: string,
     user: string,
     text: string,
-    msg: unknown
+    msg: ChatMessage
   ): Promise<void> {
     const args = text.slice(this.config.commandPrefix.length).split(/\s+/);
     const cmd = args[0].toLowerCase();
@@ -351,13 +347,11 @@ export class Bot {
   private async _handleMangaToggle(
     channel: string,
     user: string,
-    msg: unknown,
+    msg: ChatMessage,
     enable: boolean
   ): Promise<void> {
-    // msg からユーザー情報を取得（twurple ChatMessage）
-    const chatMsg = msg as { userInfo?: { isMod?: boolean; isBroadcaster?: boolean } };
-    const isMod = chatMsg?.userInfo?.isMod ?? false;
-    const isBroadcaster = chatMsg?.userInfo?.isBroadcaster ?? false;
+    const isMod = msg.userInfo.isMod;
+    const isBroadcaster = msg.userInfo.isBroadcaster;
 
     if (!isMangaAdmin(user, this.config.mangaAdminUsers, isMod, isBroadcaster)) {
       await this.chatClient.say(
@@ -470,6 +464,22 @@ export class Bot {
     } else if (commandName === "myclip") {
       this.config.updateLastMyclipTime(timestamp);
     }
+  }
+
+  private _debouncedSaveCommentState(): void {
+    if (this.commentSaveTimer) return; // 既にタイマーが動作中
+    this.commentSaveTimer = setTimeout(() => {
+      this.commentSaveTimer = null;
+      this._flushCommentState();
+    }, this.commentSaveDebounceMs);
+  }
+
+  private _flushCommentState(): void {
+    saveCommentState(
+      this.config.envFile,
+      this.commentSpeedMeter.totalCount(),
+      this.commentSpeedMeter.streamStartedAt() ?? 0
+    );
   }
 
   private _startKeepAlive(): void {

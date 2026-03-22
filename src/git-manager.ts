@@ -16,6 +16,14 @@ export class GitManager {
     this.config = config;
   }
 
+  get updateCheckInterval(): number {
+    return this.config.updateCheckInterval;
+  }
+
+  get restartCheckInterval(): number {
+    return this.config.restartCheckInterval;
+  }
+
   shouldRestart(): boolean {
     const now = Date.now() / 1000;
     const last = loadLastRestart(this.config.restartFile);

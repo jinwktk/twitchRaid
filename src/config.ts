@@ -155,13 +155,6 @@ export class Config {
   }
 
   getLastStreamTitle(): string {
-    try {
-      const env = dotenvConfig({ path: this.envFile }).parsed ?? {};
-      const stored = (env["LAST_STREAM_TITLE"] ?? "").trim();
-      this.lastStreamTitle = stored;
-      return stored;
-    } catch (e) {
-      return this.lastStreamTitle;
-    }
+    return this.lastStreamTitle;
   }
 }
