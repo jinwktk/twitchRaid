@@ -25,6 +25,18 @@ async function main(): Promise<void> {
   systemWatcher.startRestartWatcher();
   logger.info("全ての監視が開始されました。");
 
+  let bot: Bot | null = null;
+
+  // Graceful shutdown（一度だけ登録）
+  const shutdown = async () => {
+    logger.info("シャットダウン中...");
+    if (bot) await bot.stop();
+    systemWatcher.stop();
+    process.exit(0);
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
+
   while (retryCount < maxRetries) {
     try {
       // トークン検証
@@ -39,18 +51,7 @@ async function main(): Promise<void> {
         continue;
       }
 
-      const bot = new Bot(config);
-
-      // Graceful shutdown
-      const shutdown = async () => {
-        logger.info("シャットダウン中...");
-        await bot.stop();
-        systemWatcher.stop();
-        process.exit(0);
-      };
-      process.on("SIGINT", shutdown);
-      process.on("SIGTERM", shutdown);
-
+      bot = new Bot(config);
       await bot.start();
       break; // 正常起動
     } catch (e) {

@@ -15,7 +15,7 @@ export class SystemWatcher {
    * GitHub更新監視を開始
    */
   startUpdateWatcher(): void {
-    const interval = this.gitManager["config"].updateCheckInterval * 1000;
+    const interval = this.gitManager.updateCheckInterval * 1000;
 
     this.updateTimer = setInterval(() => {
       try {
@@ -33,7 +33,7 @@ export class SystemWatcher {
    * 定期再起動監視を開始
    */
   startRestartWatcher(): void {
-    const interval = this.gitManager["config"].restartCheckInterval * 1000;
+    const interval = this.gitManager.restartCheckInterval * 1000;
 
     this.restartTimer = setInterval(() => {
       try {
