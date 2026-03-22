@@ -29,7 +29,7 @@ import {
   randomMenu,
 } from "./commands/random-commands";
 import { restartProcess } from "./utils/process-restart";
-import { FirstCommentTracker } from "./commands/first-comment";
+import { fetchFirstComment } from "./commands/first-comment";
 
 const MANGA_DELETE_DELAY_SECONDS = 5;
 
@@ -49,7 +49,6 @@ export class Bot {
   private readonly commandCooldownState: CommandCooldownState;
   private readonly commentSpeedMeter: CommentSpeedMeter;
   private readonly pendingDeleteTracker: PendingDeleteTracker;
-  private readonly firstCommentTracker: FirstCommentTracker;
 
   // Keep-alive timers
   private keepAliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -81,7 +80,6 @@ export class Bot {
     });
     this.commentSpeedMeter = new CommentSpeedMeter(60);
     this.pendingDeleteTracker = new PendingDeleteTracker(90);
-    this.firstCommentTracker = new FirstCommentTracker();
 
     // コメント状態復元
     const [totalCount, streamStartedAt] = loadCommentState(config.envFile);
@@ -172,7 +170,6 @@ export class Bot {
         logger.info(`🤖 コマンド検出: ${text}`);
         await this._handleCommand(channel, user, text, msg);
       } else {
-        this.firstCommentTracker.record(user, text);
         const now = Date.now() / 1000;
         this.commentSpeedMeter.record(now);
         this._debouncedSaveCommentState();
@@ -397,23 +394,45 @@ export class Bot {
     user: string,
     args: string[]
   ): Promise<void> {
-    const targetUser = args[1] ?? user;
-    const entry = this.firstCommentTracker.get(targetUser);
-    if (!entry) {
-      await this.chatClient.say(
-        channel,
-        `${targetUser} の初コメはまだ記録されていません。`
-      );
+    if (!this.config.twitchGqlToken) {
+      await this.chatClient.say(channel, "⚠️ GQLトークンが設定されていません。");
       return;
     }
-    const timeStr = entry.time.toLocaleTimeString("ja-JP", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    await this.chatClient.say(
-      channel,
-      `${targetUser} の初コメ (${timeStr}): ${entry.text}`
-    );
+
+    const targetUser = args[1] ?? user;
+    try {
+      const entry = await fetchFirstComment(
+        this.config.twitchGqlToken,
+        this.config.twitchBroadcasterId,
+        targetUser
+      );
+      if (!entry) {
+        await this.chatClient.say(
+          channel,
+          `${targetUser} のチャット履歴が見つかりませんでした。`
+        );
+        return;
+      }
+      const date = new Date(entry.sentAt);
+      const dateStr = date.toLocaleDateString("ja-JP", {
+        month: "numeric",
+        day: "numeric",
+      });
+      const timeStr = date.toLocaleTimeString("ja-JP", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      await this.chatClient.say(
+        channel,
+        `${targetUser} の初コメ (${dateStr} ${timeStr}): ${entry.text}`
+      );
+    } catch (e) {
+      logger.error(`❌ 初コメ取得失敗: ${e}`);
+      await this.chatClient.say(
+        channel,
+        `⚠️ ${targetUser} の初コメ取得に失敗しました。`
+      );
+    }
   }
 
   private async _sendMangaReply(
@@ -590,7 +609,6 @@ export class Bot {
           if (this.streamLive) {
             logger.info("📢 配信が終了しました！");
             this.commentSpeedMeter.resetStream();
-            this.firstCommentTracker.reset();
             saveCommentState(this.config.envFile, 0, 0);
             this.streamLive = false;
           }
