@@ -1,0 +1,28 @@
+name: Auto Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Pull latest
+        run: |
+          cd E:\GitHub\twitchRaid
+          git pull origin main
+
+      - name: Install dependencies
+        run: |
+          cd E:\GitHub\twitchRaid
+          npm install --omit=dev
+
+      - name: Build
+        run: |
+          cd E:\GitHub\twitchRaid
+          npm run build
+
+      - name: Restart pm2
+        run: |
+          pm2 restart twitchRaid
