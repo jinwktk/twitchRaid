@@ -1,4 +1,4 @@
-import { ApiClient } from "@twurple/api";
+import { ApiClient, type HelixClip } from "@twurple/api";
 import logger from "../utils/logger";
 
 interface ClipInfo {
@@ -24,7 +24,17 @@ async function resolveUserId(
 }
 
 /**
+ * クリップ配列からランダムに1つ選択してClipInfoを返す
+ */
+function pickRandom(clips: HelixClip[]): ClipInfo | null {
+  if (clips.length === 0) return null;
+  const clip = clips[Math.floor(Math.random() * clips.length)];
+  return { url: clip.url, id: clip.id, title: clip.title };
+}
+
+/**
  * ランダムなクリップを選択する
+ * creatorName指定時はページネーションで最大500件まで検索する
  */
 export async function selectClip(
   apiClient: ApiClient,
@@ -33,8 +43,9 @@ export async function selectClip(
   creatorName?: string
 ): Promise<ClipInfo | null> {
   try {
-    // creatorNameが指定された場合、ユーザーIDに変換して比較する
-    // （Clips APIは表示名のみ返すため、ログイン名との直接比較は不確実）
+    const needsCreatorFilter = !!(creatorId || creatorName);
+
+    // creatorNameからユーザーIDを解決
     let resolvedCreatorId = creatorId;
     if (!resolvedCreatorId && creatorName) {
       resolvedCreatorId = await resolveUserId(apiClient, creatorName) ?? undefined;
@@ -43,37 +54,40 @@ export async function selectClip(
       }
     }
 
-    const clips = await apiClient.clips.getClipsForBroadcaster(broadcasterId, {
-      limit: 100,
-    });
-
-    let filtered = clips.data;
-
-    if (resolvedCreatorId || creatorName) {
-      filtered = filtered.filter((clip) => {
-        if (resolvedCreatorId && clip.creatorId === resolvedCreatorId) return true;
-        // フォールバック: ID解決できなかった場合のみ表示名で比較
-        if (
-          !resolvedCreatorId &&
-          creatorName &&
-          clip.creatorDisplayName.toLowerCase() === creatorName.toLowerCase()
-        ) {
-          return true;
-        }
-        return false;
+    // クリエイターフィルタなし: トップ100件からランダム
+    if (!needsCreatorFilter) {
+      const clips = await apiClient.clips.getClipsForBroadcaster(broadcasterId, {
+        limit: 100,
       });
+      return pickRandom(clips.data);
     }
 
-    if (filtered.length === 0) return null;
+    // クリエイターフィルタあり: ページネーションで最大500件を検索
+    const matched: HelixClip[] = [];
+    const paginator = apiClient.clips.getClipsForBroadcasterPaginated(broadcasterId);
+    let fetched = 0;
+    const maxFetch = 500;
 
-    const randomIdx = Math.floor(Math.random() * filtered.length);
-    const clip = filtered[randomIdx];
+    for await (const clip of paginator) {
+      fetched++;
+      if (resolvedCreatorId) {
+        if (clip.creatorId === resolvedCreatorId) {
+          matched.push(clip);
+        }
+      } else if (
+        creatorName &&
+        clip.creatorDisplayName.toLowerCase() === creatorName.toLowerCase()
+      ) {
+        matched.push(clip);
+      }
+      if (fetched >= maxFetch) break;
+    }
 
-    return {
-      url: clip.url,
-      id: clip.id,
-      title: clip.title,
-    };
+    logger.info(
+      `🎬 myclip検索: ${fetched}件中 ${matched.length}件がマッチ (user=${creatorName ?? creatorId})`
+    );
+
+    return pickRandom(matched);
   } catch (e) {
     logger.error(`❌ Failed to fetch clips: ${e}`);
     return null;

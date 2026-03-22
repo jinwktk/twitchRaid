@@ -55,10 +55,24 @@ export class GitManager {
       const result = execSync("git pull", { encoding: "utf-8" });
       logger.info(`Git pull結果: ${result}`);
       if (!result.includes("Already up to date")) {
+        this._buildAfterPull();
         this.restartWithCooldown("更新があったので再起動します");
       }
     } catch (e) {
       logger.error(`Git pull エラー: ${e}`);
+    }
+  }
+
+  private _buildAfterPull(): void {
+    try {
+      logger.info("📦 TypeScriptビルドを実行中...");
+      const buildResult = execSync("npm run build", {
+        encoding: "utf-8",
+        timeout: 60_000,
+      });
+      logger.info(`✅ ビルド完了: ${buildResult.trim()}`);
+    } catch (e) {
+      logger.error(`❌ ビルド失敗: ${e}`);
     }
   }
 
@@ -92,6 +106,7 @@ export class GitManager {
         );
         const pullResult = execSync("git pull", { encoding: "utf-8" });
         logger.info(`プル結果: ${pullResult}`);
+        this._buildAfterPull();
         this.restartWithCooldown("更新があったので再起動します");
         return true;
       }
