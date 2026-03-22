@@ -14,11 +14,11 @@ jobs:
           git fetch origin main
           git reset --hard origin/main
 
-      - name: Clean install dependencies
+      - name: Install dependencies
         run: |
           cd E:\GitHub\twitchRaid
-          if (Test-Path node_modules) { Remove-Item node_modules -Recurse -Force }
-          npm install
+          npm install --ignore-scripts
+          node node_modules/esbuild/install.js 2>$null; $true
 
       - name: Build
         run: |
