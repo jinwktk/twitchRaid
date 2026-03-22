@@ -1,0 +1,574 @@
+import { ChatClient } from "@twurple/chat";
+import { ApiClient } from "@twurple/api";
+import { RefreshingAuthProvider } from "@twurple/auth";
+import type { Config } from "./config";
+import logger from "./utils/logger";
+import { StreamTitleNotifier } from "./notifications/stream-notifications";
+import { ClipRecastNotifier } from "./notifications/clip-recast-notifier";
+import { sendDiscordNotification } from "./notifications/discord-webhook";
+import { CommentSpeedMeter } from "./chat/comment-speed-meter";
+import { CommandCooldownState } from "./chat/command-cooldown-state";
+import { PendingDeleteTracker } from "./chat/message-delete-tracker";
+import { isCommandMessage } from "./chat/message-filters";
+import { formatTotalCommentCount } from "./chat/comment-count-formatter";
+import {
+  loadCommentState,
+  saveCommentState,
+} from "./utils/comment-state-store";
+import { validateAccessToken, refreshAccessTokenAdvanced } from "./auth/token-manager";
+import { selectClip } from "./commands/clip";
+import { calculateAge } from "./commands/age";
+import {
+  fetchRandomMangaTitle,
+  isMangaAdmin,
+} from "./commands/manga";
+import {
+  randomWeight,
+  randomHeight,
+  randomMood,
+  randomMenu,
+} from "./commands/random-commands";
+import { restartProcess } from "./utils/process-restart";
+
+const MANGA_DELETE_DELAY_SECONDS = 5;
+
+export class Bot {
+  private readonly config: Config;
+  private chatClient!: ChatClient;
+  private apiClient!: ApiClient;
+  private authProvider!: RefreshingAuthProvider;
+
+  private reconnectAttempts = 0;
+  private readonly maxReconnectAttempts = 10;
+  private lastActivityTime = Date.now() / 1000;
+  private streamLive = true;
+
+  private readonly streamNotifier: StreamTitleNotifier;
+  private readonly recastNotifiers: Record<string, ClipRecastNotifier>;
+  private readonly commandCooldownState: CommandCooldownState;
+  private readonly commentSpeedMeter: CommentSpeedMeter;
+  private readonly pendingDeleteTracker: PendingDeleteTracker;
+
+  // Keep-alive timers
+  private keepAliveTimer: ReturnType<typeof setInterval> | null = null;
+  private streamMonitorTimer: ReturnType<typeof setInterval> | null = null;
+
+  constructor(config: Config) {
+    this.config = config;
+    this.streamNotifier = new StreamTitleNotifier(
+      config,
+      config.loginChannel
+    );
+    this.recastNotifiers = {
+      clip: new ClipRecastNotifier(
+        1800,
+        "⏱️ `clip` コマンドのリキャストが戻りました！もう一度 `!clip` でクリップできます。"
+      ),
+      myclip: new ClipRecastNotifier(
+        1800,
+        "⏱️ `myclip` コマンドのリキャストが戻りました！もう一度 `!myclip` でクリップできます。"
+      ),
+    };
+    this.commandCooldownState = new CommandCooldownState({
+      clip: config.lastClipTime,
+      myclip: config.lastMyclipTime,
+    });
+    this.commentSpeedMeter = new CommentSpeedMeter(60);
+    this.pendingDeleteTracker = new PendingDeleteTracker(90);
+
+    // コメント状態復元
+    const [totalCount, streamStartedAt] = loadCommentState(config.envFile);
+    this.commentSpeedMeter.setState(streamStartedAt, totalCount);
+  }
+
+  async start(): Promise<void> {
+    // AuthProvider設定
+    this.authProvider = new RefreshingAuthProvider({
+      clientId: this.config.twitchClientId,
+      clientSecret: this.config.twitchSecretToken,
+    });
+
+    this.authProvider.onRefresh(async (_userId, newTokenData) => {
+      logger.info("🔄 トークンが自動リフレッシュされました。");
+      this.config.updateAccessToken(
+        newTokenData.accessToken,
+        newTokenData.refreshToken ?? this.config.twitchRefreshToken
+      );
+    });
+
+    await this.authProvider.addUserForToken(
+      {
+        accessToken: this.config.twitchAccessToken,
+        refreshToken: this.config.twitchRefreshToken,
+        expiresIn: null,
+        obtainmentTimestamp: Date.now(),
+        scope: this.config.activeAuthScopes,
+      },
+      ["chat"]
+    );
+
+    // API Client
+    this.apiClient = new ApiClient({ authProvider: this.authProvider });
+
+    // Chat Client
+    this.chatClient = new ChatClient({
+      authProvider: this.authProvider,
+      channels: [this.config.loginChannel],
+    });
+
+    this._setupEventHandlers();
+    await this.chatClient.connect();
+
+    logger.info("✅ Bot起動完了。チャットに接続しました。");
+  }
+
+  async stop(): Promise<void> {
+    if (this.keepAliveTimer) clearInterval(this.keepAliveTimer);
+    if (this.streamMonitorTimer) clearInterval(this.streamMonitorTimer);
+    this.chatClient.quit();
+  }
+
+  private _setupEventHandlers(): void {
+    this.chatClient.onConnect(() => {
+      logger.info("✅ 全てのチャンネルにログインしました。");
+      this.reconnectAttempts = 0;
+      this._startKeepAlive();
+      this._startStreamMonitor();
+    });
+
+    this.chatClient.onDisconnect((_manually, reason) => {
+      logger.warn(`🔌 切断されました: ${reason ?? "不明"}`);
+      if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        this.reconnectAttempts++;
+        const delay = Math.min(15 + this.reconnectAttempts * 5, 60) * 1000;
+        logger.info(
+          `🔄 再接続試行 (${this.reconnectAttempts}/${this.maxReconnectAttempts}) - ${delay / 1000}秒後...`
+        );
+        setTimeout(() => this.chatClient.connect(), delay);
+      } else {
+        logger.error("🚨 最大再接続試行回数到達。プロセス再起動...");
+        restartProcess();
+      }
+    });
+
+    this.chatClient.onMessage(async (channel, user, text, msg) => {
+      this.lastActivityTime = Date.now() / 1000;
+
+      logger.info(
+        `[DEBUG] メッセージ受信: content='${text}', author=${user}`
+      );
+
+      if (!text) return;
+
+      logger.info(`✅ メッセージ受信: ${user}: ${text}`);
+
+      const isCommand = isCommandMessage(text, this.config.commandPrefix);
+      if (isCommand) {
+        logger.info(`🤖 コマンド検出: ${text}`);
+        await this._handleCommand(channel, user, text, msg);
+      } else {
+        const now = Date.now() / 1000;
+        this.commentSpeedMeter.record(now);
+        saveCommentState(
+          this.config.envFile,
+          this.commentSpeedMeter.totalCount(),
+          this.commentSpeedMeter.streamStartedAt() ?? 0
+        );
+      }
+    });
+
+    this.chatClient.onJoin((channel, user) => {
+      logger.info(`📥 ユーザー参加: ${user} が ${channel} に参加`);
+    });
+
+    // レイドイベント
+    this.chatClient.onRaid(async (channel, user, raidInfo) => {
+      logger.info(
+        `Raid detected from ${user}. Viewers: ${raidInfo.viewerCount}. Sending shoutout.`
+      );
+      await this._sendShoutout(user);
+    });
+  }
+
+  private async _handleCommand(
+    channel: string,
+    user: string,
+    text: string,
+    msg: unknown
+  ): Promise<void> {
+    const args = text.slice(this.config.commandPrefix.length).split(/\s+/);
+    const cmd = args[0].toLowerCase();
+
+    switch (cmd) {
+      case "age":
+        await this.chatClient.say(channel, String(calculateAge()));
+        break;
+      case "goods":
+        await this.chatClient.say(channel, "https://rukalun.booth.pm");
+        break;
+      case "weight":
+        await this.chatClient.say(channel, randomWeight());
+        break;
+      case "height":
+        await this.chatClient.say(channel, randomHeight());
+        break;
+      case "mood":
+        await this.chatClient.say(channel, randomMood());
+        break;
+      case "menu":
+        await this.chatClient.say(channel, randomMenu());
+        break;
+      case "speed":
+        await this._handleSpeedCommand(channel);
+        break;
+      case "commentcount":
+        await this._handleCommentCountCommand(channel);
+        break;
+      case "clip":
+        await this._handleClipCommand(channel, user, "clip");
+        break;
+      case "myclip":
+        await this._handleClipCommand(channel, user, "myclip", user);
+        break;
+      case "manga":
+        await this._handleMangaCommand(channel, user, msg);
+        break;
+      case "mangaon":
+        await this._handleMangaToggle(channel, user, msg, true);
+        break;
+      case "mangaoff":
+        await this._handleMangaToggle(channel, user, msg, false);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private async _handleSpeedCommand(channel: string): Promise<void> {
+    const now = Date.now() / 1000;
+    const rate = this.commentSpeedMeter.ratePerMinute(now);
+    const count = this.commentSpeedMeter.count(now);
+    const totalRate = this.commentSpeedMeter.totalRatePerMinute(now);
+    const totalCount = this.commentSpeedMeter.totalCount();
+    await this.chatClient.say(
+      channel,
+      `コメント風速: 直近60秒 ${rate}/分 (${count}件) / 配信全体 ${totalRate}/分 (${totalCount}件)`
+    );
+  }
+
+  private async _handleCommentCountCommand(channel: string): Promise<void> {
+    const totalCount = this.commentSpeedMeter.totalCount();
+    await this.chatClient.say(channel, formatTotalCommentCount(totalCount));
+  }
+
+  private async _handleClipCommand(
+    channel: string,
+    user: string,
+    commandName: string,
+    creatorName?: string
+  ): Promise<void> {
+    const notifier = this.recastNotifiers[commandName];
+    const isSpecialUser = this.config.clipSpecialUsers.includes(
+      user.toLowerCase()
+    );
+    const now = Date.now() / 1000;
+    const remaining = this.commandCooldownState.remainingSeconds(
+      commandName,
+      now,
+      1800
+    );
+
+    if (!isSpecialUser && remaining > 0) {
+      const mins = Math.floor(remaining / 60);
+      const secs = remaining % 60;
+      await this.chatClient.say(
+        channel,
+        `⚠️ \`${commandName}\` コマンドは 30分に1回のみ使用できます。あと ${mins}分 ${secs}秒 待ってください。`
+      );
+      const lastUsed = this.commandCooldownState.lastUsed(commandName);
+      if (lastUsed !== null) {
+        notifier.arm(lastUsed, (msg) => this.chatClient.say(channel, msg));
+      }
+      return;
+    }
+
+    const clip = await selectClip(
+      this.apiClient,
+      this.config.twitchBroadcasterId,
+      undefined,
+      creatorName
+    );
+
+    if (clip) {
+      await this.chatClient.say(channel, clip.url);
+      if (!isSpecialUser) {
+        this.commandCooldownState.markUsed(commandName, now);
+        this._persistCommandCooldown(commandName, now);
+        notifier.arm(now, (msg) => this.chatClient.say(channel, msg));
+      }
+    } else {
+      if (creatorName) {
+        await this.chatClient.say(
+          channel,
+          "⚠️ あなたが作成したクリップが見つかりませんでした。"
+        );
+      } else {
+        await this.chatClient.say(
+          channel,
+          "⚠️ クリップが見つかりませんでした。"
+        );
+      }
+    }
+  }
+
+  private async _handleMangaCommand(
+    channel: string,
+    user: string,
+    _msg: unknown
+  ): Promise<void> {
+    if (!this.config.mangaCommandEnabled) {
+      await this._sendMangaReply(
+        channel,
+        "⚠️ `manga` コマンドは現在OFFです。"
+      );
+      return;
+    }
+
+    try {
+      const manga = await fetchRandomMangaTitle();
+      await this._sendMangaReply(
+        channel,
+        manga ? `今日のおすすめ漫画：${manga}` : "⚠️ 漫画が見つかりませんでした。"
+      );
+    } catch {
+      await this._sendMangaReply(
+        channel,
+        "⚠️ 漫画ランキングの取得に失敗しました。時間をおいて再試行してください。"
+      );
+    }
+  }
+
+  private async _handleMangaToggle(
+    channel: string,
+    user: string,
+    msg: unknown,
+    enable: boolean
+  ): Promise<void> {
+    // msg からユーザー情報を取得（twurple ChatMessage）
+    const chatMsg = msg as { userInfo?: { isMod?: boolean; isBroadcaster?: boolean } };
+    const isMod = chatMsg?.userInfo?.isMod ?? false;
+    const isBroadcaster = chatMsg?.userInfo?.isBroadcaster ?? false;
+
+    if (!isMangaAdmin(user, this.config.mangaAdminUsers, isMod, isBroadcaster)) {
+      await this.chatClient.say(
+        channel,
+        `⚠️ \`manga${enable ? "on" : "off"}\` は管理者のみ実行できます。`
+      );
+      return;
+    }
+
+    if (enable && this.config.mangaCommandEnabled) {
+      await this.chatClient.say(
+        channel,
+        "ℹ️ `manga` コマンドはすでにONです。"
+      );
+      return;
+    }
+    if (!enable && !this.config.mangaCommandEnabled) {
+      await this.chatClient.say(
+        channel,
+        "ℹ️ `manga` コマンドはすでにOFFです。"
+      );
+      return;
+    }
+
+    this.config.updateMangaCommandEnabled(enable);
+    await this.chatClient.say(
+      channel,
+      `✅ \`manga\` コマンドを${enable ? "ON" : "OFF"}にしました。`
+    );
+  }
+
+  private async _sendMangaReply(
+    channel: string,
+    content: string
+  ): Promise<void> {
+    try {
+      const senderId =
+        this.config.twitchModeratorId || this.config.twitchBroadcasterId;
+      if (!this.config.twitchBroadcasterId || !senderId) {
+        await this.chatClient.say(channel, content);
+        return;
+      }
+
+      // API経由で送信し、一定時間後に削除
+      const result = await this.apiClient.chat.sendChatMessage(
+        this.config.twitchBroadcasterId,
+        content
+      );
+
+      const messageId = result?.id;
+      if (messageId) {
+        logger.info(
+          `🗑️ ${MANGA_DELETE_DELAY_SECONDS}秒後にmanga返信を削除予約: message_id=${messageId}`
+        );
+        setTimeout(async () => {
+          try {
+            await this.apiClient.moderation.deleteChatMessages(
+              this.config.twitchBroadcasterId,
+              messageId
+            );
+          } catch (e) {
+            logger.error(`❌ メッセージ削除失敗 (id=${messageId}): ${e}`);
+          }
+        }, MANGA_DELETE_DELAY_SECONDS * 1000);
+      }
+    } catch (e) {
+      logger.error(`❌ manga返信のAPI送信失敗。chatClient.sayへフォールバック: ${e}`);
+      await this.chatClient.say(channel, content);
+    }
+  }
+
+  private async _sendShoutout(username: string): Promise<void> {
+    try {
+      const user = await this.apiClient.users.getUserByName(username);
+      if (!user) {
+        logger.warn(`⚠️ ユーザー ${username} が見つかりません。`);
+        return;
+      }
+
+      await this.apiClient.chat.shoutoutUser(
+        this.config.twitchBroadcasterId,
+        user.id
+      );
+      logger.info(`✅ Shoutout successfully sent to ${username}`);
+    } catch (e) {
+      logger.error(`❌ Failed to send shoutout: ${e}`);
+      // リトライ: トークンリフレッシュ
+      try {
+        await refreshAccessTokenAdvanced(this.config);
+        const user = await this.apiClient.users.getUserByName(username);
+        if (user) {
+          await this.apiClient.chat.shoutoutUser(
+            this.config.twitchBroadcasterId,
+            user.id
+          );
+          logger.info(`✅ Shoutout retry success for ${username}`);
+        }
+      } catch (retryErr) {
+        logger.error(`❌ Shoutout retry failed: ${retryErr}`);
+      }
+    }
+  }
+
+  private _persistCommandCooldown(
+    commandName: string,
+    timestamp: number
+  ): void {
+    if (commandName === "clip") {
+      this.config.updateLastClipTime(timestamp);
+    } else if (commandName === "myclip") {
+      this.config.updateLastMyclipTime(timestamp);
+    }
+  }
+
+  private _startKeepAlive(): void {
+    if (this.keepAliveTimer) clearInterval(this.keepAliveTimer);
+
+    const connectionCheckInterval = 45_000;
+    const tokenRefreshInterval = 2 * 60 * 60; // 2時間（秒）
+    let lastTokenRefresh = Date.now() / 1000;
+
+    this.keepAliveTimer = setInterval(async () => {
+      try {
+        const now = Date.now() / 1000;
+
+        // 定期トークンリフレッシュ（2時間ごと）
+        if (now - lastTokenRefresh > tokenRefreshInterval) {
+          logger.info("⏰ 定期トークンリフレッシュを実行...");
+          const newToken = await refreshAccessTokenAdvanced(this.config);
+          if (newToken) {
+            lastTokenRefresh = now;
+            logger.info("✅ 定期トークンリフレッシュ完了");
+          } else {
+            logger.warn(
+              "⚠️ 定期トークンリフレッシュ失敗。次回再試行します。"
+            );
+          }
+        }
+
+        // リキャスト通知チェック
+        for (const [name, notifier] of Object.entries(this.recastNotifiers)) {
+          try {
+            await notifier.notifyIfReady(now);
+          } catch (e) {
+            logger.error(`${name}リキャスト通知処理中にエラー: ${e}`);
+          }
+        }
+      } catch (e) {
+        logger.error(`❌ キープアライブ中にエラー: ${e}`);
+      }
+    }, connectionCheckInterval);
+  }
+
+  private _startStreamMonitor(): void {
+    if (this.streamMonitorTimer) clearInterval(this.streamMonitorTimer);
+
+    let errorCount = 0;
+    const maxErrors = 5;
+
+    this.streamMonitorTimer = setInterval(async () => {
+      try {
+        const stream = await this.apiClient.streams.getStreamByUserName(
+          this.config.loginChannel
+        );
+
+        if (stream) {
+          if (!this.streamLive) {
+            logger.info(`🎥 配信が開始されました！タイトル: ${stream.title}`);
+            const startedAt = Date.now() / 1000;
+            this.commentSpeedMeter.startStream(startedAt);
+            saveCommentState(this.config.envFile, 0, startedAt);
+            this.streamLive = true;
+            this.streamNotifier.notifyIfNeeded(stream.title, (msg) =>
+              sendDiscordNotification(this.config.discordWebhookUrl, msg)
+            );
+          }
+
+          if (this.commentSpeedMeter.streamStartedAt() === null) {
+            const startedAt = Date.now() / 1000;
+            this.commentSpeedMeter.ensureStreamStarted(startedAt);
+            saveCommentState(
+              this.config.envFile,
+              this.commentSpeedMeter.totalCount(),
+              startedAt
+            );
+          }
+        } else {
+          if (this.streamLive) {
+            logger.info("📢 配信が終了しました！");
+            this.commentSpeedMeter.resetStream();
+            saveCommentState(this.config.envFile, 0, 0);
+            this.streamLive = false;
+          }
+        }
+
+        errorCount = 0;
+      } catch (e) {
+        errorCount++;
+        logger.error(
+          `⚠️ 配信状態チェックエラー (${errorCount}/${maxErrors}): ${e}`
+        );
+
+        if (errorCount >= maxErrors) {
+          logger.warn("🔄 エラーが続くため、トークンを自動更新します...");
+          const newToken = await refreshAccessTokenAdvanced(this.config);
+          if (newToken) {
+            errorCount = 0;
+            logger.info("✅ トークン更新完了。監視を継続します。");
+          }
+        }
+      }
+    }, 180_000); // 180秒ごと
+  }
+}

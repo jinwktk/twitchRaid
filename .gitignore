@@ -27,6 +27,11 @@ ENV/
 *.swp
 *.swo
 
+# Node.js関連
+node_modules/
+dist/
+*.tsbuildinfo
+
 # OS関連
 .DS_Store
 Thumbs.db
