@@ -27,13 +27,27 @@ ssh mlove@192.168.0.99 "type E:\GitHub\twitchRaid\logs\bot_2026-03-22.log"
 
 ## 開発コマンド
 
-### セットアップ
+### セットアップ（TypeScript版 v2.0）
 ```bash
-pip install -r requirements.txt
+npm install
+npm run build
 ```
 
 ### アプリケーション実行
 ```bash
+# PM2で起動（推奨）
+npm run pm2:start
+
+# 直接起動
+npm start
+
+# 開発モード
+npm run dev
+```
+
+### Python版（レガシー）
+```bash
+pip install -r requirements.txt
 python main.py
 ```
 
@@ -132,23 +146,43 @@ python -m py_compile main.py
 
 ## ファイル構成
 
-### メインファイル
-- `main.py` - アプリケーションのエントリーポイント
+### TypeScript版（v2.0 - メイン）
+- `src/` - TypeScriptソースコード
+  - `src/index.ts` - エントリーポイント
+  - `src/config.ts` - 設定管理
+  - `src/bot.ts` - Bot本体（twurple統合）
+  - `src/git-manager.ts` - Git更新検知・再起動
+  - `src/system-watcher.ts` - 定期監視
+  - `src/auth/` - OAuth認証管理
+  - `src/commands/` - チャットコマンド
+  - `src/chat/` - チャット機能
+  - `src/notifications/` - 通知機能
+  - `src/utils/` - ユーティリティ
+- `package.json` - Node.js依存関係
+- `tsconfig.json` - TypeScript設定
+- `ecosystem.config.js` - PM2設定
+
+### Python版（レガシー）
+- `main.py` - 旧エントリーポイント
 - `requirements.txt` - Python依存関係
+
+### 共通ファイル
 - `.env` - 環境変数設定（機密情報）
 - `start_services.bat` - サービス起動スクリプト
-
-### 設定・ログファイル
-- `bot_log.txt` - ボットのログファイル（自動ローテーション）
 - `last_restart.txt` - 最後の再起動時刻記録
 - `.gitignore` - Git除外設定
-
-### 開発サポート
-- `check_rvc.ps1` - RVCサービス確認スクリプト
 - `readme.md` - プロジェクト概要
 - `CLAUDE.md` - 開発ガイドライン（このファイル）
 
 ## 最新の変更履歴
+
+### TypeScript移植 + PM2管理対応（2026-03-22）
+- Python → TypeScript完全移植（twurple使用）
+- PM2プロセス管理対応（ecosystem.config.js）
+- winston + daily-rotate-fileによるログ管理
+- RefreshingAuthProviderによる自動トークンリフレッシュ
+- 全18モジュール + main.pyの機能を完全移植
+- ビルド確認済み（tsc正常通過）
 
 ### 主要な改善点
 - 大規模リファクタリング：アーキテクチャ改善とコード品質向上
