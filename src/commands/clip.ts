@@ -8,6 +8,22 @@ interface ClipInfo {
 }
 
 /**
+ * ログイン名からユーザーIDを解決する
+ */
+async function resolveUserId(
+  apiClient: ApiClient,
+  loginName: string
+): Promise<string | null> {
+  try {
+    const user = await apiClient.users.getUserByName(loginName);
+    return user?.id ?? null;
+  } catch (e) {
+    logger.error(`❌ ユーザーID解決失敗 (${loginName}): ${e}`);
+    return null;
+  }
+}
+
+/**
  * ランダムなクリップを選択する
  */
 export async function selectClip(
@@ -17,16 +33,28 @@ export async function selectClip(
   creatorName?: string
 ): Promise<ClipInfo | null> {
   try {
+    // creatorNameが指定された場合、ユーザーIDに変換して比較する
+    // （Clips APIは表示名のみ返すため、ログイン名との直接比較は不確実）
+    let resolvedCreatorId = creatorId;
+    if (!resolvedCreatorId && creatorName) {
+      resolvedCreatorId = await resolveUserId(apiClient, creatorName) ?? undefined;
+      if (!resolvedCreatorId) {
+        logger.warn(`⚠️ ユーザー ${creatorName} のID解決に失敗。表示名で検索します。`);
+      }
+    }
+
     const clips = await apiClient.clips.getClipsForBroadcaster(broadcasterId, {
       limit: 100,
     });
 
     let filtered = clips.data;
 
-    if (creatorId || creatorName) {
+    if (resolvedCreatorId || creatorName) {
       filtered = filtered.filter((clip) => {
-        if (creatorId && clip.creatorId === creatorId) return true;
+        if (resolvedCreatorId && clip.creatorId === resolvedCreatorId) return true;
+        // フォールバック: ID解決できなかった場合のみ表示名で比較
         if (
+          !resolvedCreatorId &&
           creatorName &&
           clip.creatorDisplayName.toLowerCase() === creatorName.toLowerCase()
         ) {
