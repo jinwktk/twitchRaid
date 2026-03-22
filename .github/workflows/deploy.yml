@@ -17,12 +17,12 @@ jobs:
       - name: Install dependencies
         run: |
           cd E:\GitHub\twitchRaid
-          npm install --omit=dev
+          npm install
 
       - name: Build
         run: |
           cd E:\GitHub\twitchRaid
-          npm run build
+          npx tsc
 
       - name: Restart pm2
         run: |
