@@ -37,9 +37,9 @@ export class StreamTitleNotifier {
 
   buildMessage(oldTitle: string, newTitle: string): string {
     if (!oldTitle) {
-      return `${newTitle}\n🔴配信URL: https://www.twitch.tv/${this.channelName}`;
+      return `${newTitle}\n🔴 配信URL: https://www.twitch.tv/${this.channelName}`;
     }
-    return `🔄 タイトル変更！\n旧: ${oldTitle}\n新: ${newTitle}\n🔴配信URL: https://www.twitch.tv/${this.channelName}`;
+    return `${newTitle}\n🔴 配信URL: https://www.twitch.tv/${this.channelName}`;
   }
 
   private _storedLastTitle(): string {
