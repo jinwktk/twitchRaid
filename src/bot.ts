@@ -31,7 +31,7 @@ import {
 import { restartProcess } from "./utils/process-restart";
 
 
-const MANGA_DELETE_DELAY_SECONDS = 5;
+const MANGA_DELETE_DELAY_SECONDS = 10;
 
 export class Bot {
   private readonly config: Config;
