@@ -2,27 +2,34 @@ import logger from "../utils/logger";
 
 /**
  * DLsiteランキングHTMLからマンガタイトルを抽出する
+ * product_idを含む作品リンクのみを対象にする
  */
 export function extractMangaTitles(rankingHtml: string): string[] {
-  // <a>タグの中身を抽出
-  const anchorRegex = /<a[^>]*>([^<]+)<\/a>/g;
+  // product_idを含む作品リンクのみ抽出（ナビ・ジャンル等を除外）
+  const anchorRegex = /<a\s+href="[^"]*\/product_id\/[^"]*"[^>]*>([^<]+)<\/a>/g;
   const titles: string[] = [];
   let match: RegExpExecArray | null;
 
   while ((match = anchorRegex.exec(rankingHtml)) !== null) {
-    const title = match[1]
+    const raw = match[1]
       .replace(/&amp;/g, "&")
       .replace(/&lt;/g, "<")
       .replace(/&gt;/g, ">")
       .replace(/&quot;/g, '"')
       .replace(/&#039;/g, "'")
       .trim();
-    if (title && !titles.includes(title)) {
-      titles.push(title);
+    // ボタン・レビュー件数等を除外（作品タイトルのみ）
+    if (
+      raw &&
+      !titles.includes(raw) &&
+      !raw.match(/^[\d()（）]+$/) &&
+      !["カートに追加", "お気に入りに追加", "無料サンプル"].includes(raw)
+    ) {
+      titles.push(raw);
     }
   }
 
-  return titles.sort();
+  return titles;
 }
 
 /**
