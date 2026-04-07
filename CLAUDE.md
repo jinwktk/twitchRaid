@@ -25,6 +25,40 @@ ssh mlove@192.168.0.99 "type E:\GitHub\twitchRaid\logs\bot_2026-03-22.log"
 
 **接続情報**: ユーザー `mlove`、公開鍵認証設定済み（パスワード不要）
 
+## サブエージェント運用ルール（spec-planner / spec-generator / spec-evaluator）
+
+短いアイデアから製品を自動構築するための3エージェント連携フロー。
+
+### 役割分担（厳守）
+- **spec-planner**: 1〜4行のプロンプト → `specs/<product>.md` を生成。**実装詳細（DB・ライブラリ・クラス構造）は書かない**。機能16前後・10スプリント・受け入れ基準のみ。
+- **spec-generator**: 仕様書を読み、**1スプリント=1機能**で実装。production-ready（TODO/モック禁止）。自己評価サマリを付けて evaluator に引き渡す。
+- **spec-evaluator**: Playwright MCP で**実際に操作**して検証。5基準を0-10で採点し、**1つでも閾値未満なら不合格**。再現手順付きバグ報告を返す。
+
+### 実行フロー
+1. ユーザーの短いアイデア → spec-planner を起動し `specs/<product>.md` を作成
+2. 仕様書を確認（必要なら人間がレビュー）
+3. Sprint 1 から順に以下をループ:
+   - spec-generator にスプリント番号を指定して実装依頼
+   - spec-evaluator に同スプリントの検証依頼
+   - **不合格** → 同一スプリント内で generator に修正依頼（最大3周まで）
+   - **3周しても不合格** → 人間にエスカレーション
+   - **合格** → 次スプリントへ
+4. 全スプリント合格で完了
+
+### 厳守ルール
+- **仕様書は planner 以外が書き換えない**。generator/evaluator が仕様の不備を見つけた場合は、planner への差し戻しを人間に提案する
+- **evaluator は静的レビューだけで判定しない**。必ず Playwright MCP で実操作し、スクリーンショット or コンソールログを証跡として残す
+- **generator は evaluator のフィードバックのみに従う**。勝手にスコープを広げない（YAGNI）
+- **スプリント跨ぎの修正禁止**。Sprint N の不合格は Sprint N 内で解決する
+- planner → generator → evaluator は**逐次実行**（依存があるため並列化しない）
+- 各スプリントの引き渡し情報は `specs/handoff/sprint-N.md` に追記し、状態を永続化する
+- 3つとも opus モデルで動作する前提。モデル変更時は本ルールも見直す
+
+### 失敗時のエスカレーション
+- 同一スプリントで3回不合格 → 人間に「仕様が曖昧／技術的に困難」の可能性を報告
+- evaluator が起動方法を特定できない → generator に引き渡しフォーマット再提出を依頼
+- planner の仕様に矛盾発覚 → 実装を止めて planner に差し戻す
+
 ## 開発コマンド
 
 ### セットアップ（TypeScript版 v2.0）
