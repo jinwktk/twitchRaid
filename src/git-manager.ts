@@ -90,7 +90,7 @@ export class GitManager {
     try {
       const branch = this._currentBranch();
 
-      const fetchResult = execSync("git fetch", {
+      execSync("git fetch", {
         encoding: "utf-8",
         stdio: "pipe",
       });

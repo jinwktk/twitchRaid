@@ -8,14 +8,13 @@ import { ClipRecastNotifier } from "./notifications/clip-recast-notifier";
 import { sendDiscordNotification } from "./notifications/discord-webhook";
 import { CommentSpeedMeter } from "./chat/comment-speed-meter";
 import { CommandCooldownState } from "./chat/command-cooldown-state";
-import { PendingDeleteTracker } from "./chat/message-delete-tracker";
 import { isCommandMessage } from "./chat/message-filters";
 import { formatTotalCommentCount } from "./chat/comment-count-formatter";
 import {
   loadCommentState,
   saveCommentState,
 } from "./utils/comment-state-store";
-import { validateAccessToken, refreshAccessTokenAdvanced } from "./auth/token-manager";
+import { refreshAccessTokenAdvanced } from "./auth/token-manager";
 import { selectClip } from "./commands/clip";
 import { calculateAge } from "./commands/age";
 import {
@@ -48,7 +47,6 @@ export class Bot {
   private readonly recastNotifiers: Record<string, ClipRecastNotifier>;
   private readonly commandCooldownState: CommandCooldownState;
   private readonly commentSpeedMeter: CommentSpeedMeter;
-  private readonly pendingDeleteTracker: PendingDeleteTracker;
 
   // Keep-alive timers
   private keepAliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -79,7 +77,6 @@ export class Bot {
       myclip: config.lastMyclipTime,
     });
     this.commentSpeedMeter = new CommentSpeedMeter(60);
-    this.pendingDeleteTracker = new PendingDeleteTracker(90);
 
     // コメント状態復元
     const [totalCount, streamStartedAt] = loadCommentState(config.envFile);
@@ -123,9 +120,11 @@ export class Bot {
     });
 
     this._setupEventHandlers();
-    await this.chatClient.connect();
+    // twurple v7 の ChatClient.connect() は同期的に void を返し、
+    // 接続完了は onConnect イベントで通知される。await は不要。
+    this.chatClient.connect();
 
-    logger.info("✅ Bot起動完了。チャットに接続しました。");
+    logger.info("✅ Bot起動準備完了。チャット接続を待機中...");
   }
 
   async stop(): Promise<void> {
@@ -176,12 +175,12 @@ export class Bot {
       }
     });
 
-    this.chatClient.onJoin((channel, user) => {
-      logger.debug(`ユーザー参加: ${user} が ${channel} に参加`);
+    this.chatClient.onJoin((_channel, user) => {
+      logger.debug(`ユーザー参加: ${user}`);
     });
 
     // レイドイベント
-    this.chatClient.onRaid(async (channel, user, raidInfo) => {
+    this.chatClient.onRaid(async (_channel, user, raidInfo) => {
       logger.info(
         `Raid detected from ${user}. Viewers: ${raidInfo.viewerCount}. Sending shoutout.`
       );
@@ -230,7 +229,7 @@ export class Bot {
         await this._handleClipCommand(channel, user, "myclip", user);
         break;
       case "manga":
-        await this._handleMangaCommand(channel, user, msg);
+        await this._handleMangaCommand(channel, user);
         break;
       case "mangaon":
         await this._handleMangaToggle(channel, user, msg, true);
@@ -322,8 +321,7 @@ export class Bot {
 
   private async _handleMangaCommand(
     channel: string,
-    user: string,
-    _msg: unknown
+    _user: string
   ): Promise<void> {
     if (!this.config.mangaCommandEnabled) {
       await this._sendMangaReply(
@@ -542,7 +540,7 @@ export class Bot {
             this.commentSpeedMeter.startStream(startedAt);
             saveCommentState(this.config.envFile, 0, startedAt);
             this.streamLive = true;
-            this.streamNotifier.notifyIfNeeded(stream.title, (msg) =>
+            await this.streamNotifier.notifyIfNeeded(stream.title, (msg) =>
               sendDiscordNotification(this.config.discordWebhookUrl, msg)
             );
           }

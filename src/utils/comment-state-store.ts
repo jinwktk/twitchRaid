@@ -1,5 +1,6 @@
 import { config as dotenvConfig } from "dotenv";
 import { updateEnvFile } from "./env-store";
+import logger from "./logger";
 
 /**
  * .envからコメント状態を読み込む
@@ -17,7 +18,8 @@ export function loadCommentState(envFile: string): [number, number] {
 }
 
 /**
- * コメント状態を.envに保存する
+ * コメント状態を.envに保存する（ベストエフォート）
+ * 失敗時は警告ログを残し、次回呼び出し時に再試行する
  */
 export function saveCommentState(
   envFile: string,
@@ -30,6 +32,8 @@ export function saveCommentState(
       COMMENT_STREAM_STARTED_AT: String(streamStartedAt),
     });
   } catch (e) {
-    // 保存失敗は無視（次回リトライ）
+    logger.warn(
+      `⚠️ コメント状態の保存に失敗（次回再試行）: ${e instanceof Error ? e.message : String(e)}`
+    );
   }
 }

@@ -15,11 +15,12 @@ export class StreamTitleNotifier {
 
   /**
    * タイトル変更があれば通知する
+   * sendFn は async 関数を渡せるよう Promise<void> を返す
    */
-  notifyIfNeeded(
+  async notifyIfNeeded(
     currentTitle: string,
-    sendFn: (message: string) => void
-  ): void {
+    sendFn: (message: string) => Promise<void> | void
+  ): Promise<void> {
     const normalizedCurrent = this._normalizeTitle(currentTitle);
     const storedTitle = this._storedLastTitle();
     const normalizedStored = this._normalizeTitle(storedTitle);
@@ -30,15 +31,18 @@ export class StreamTitleNotifier {
       return; // タイトル未変更
     }
 
-    const message = this.buildMessage(normalizedStored, normalizedCurrent);
-    sendFn(message);
-    this.config.updateLastStreamTitle(normalizedCurrent);
+    const message = this.buildMessage(normalizedCurrent);
+    try {
+      await sendFn(message);
+      this.config.updateLastStreamTitle(normalizedCurrent);
+    } catch (e) {
+      logger.error(
+        `❌ 配信タイトル通知の送信に失敗しました: ${e instanceof Error ? e.message : String(e)}`
+      );
+    }
   }
 
-  buildMessage(oldTitle: string, newTitle: string): string {
-    if (!oldTitle) {
-      return `${newTitle}\n🔴 配信URL: https://www.twitch.tv/${this.channelName}`;
-    }
+  buildMessage(newTitle: string): string {
     return `${newTitle}\n🔴 配信URL: https://www.twitch.tv/${this.channelName}`;
   }
 

@@ -35,3 +35,9 @@ dist/
 # OS関連
 .DS_Store
 Thumbs.db
+
+# OMC ステート管理ファイル
+.omc/
+
+# テストカバレッジ
+coverage/
