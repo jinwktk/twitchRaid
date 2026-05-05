@@ -106,7 +106,7 @@ export class Bot {
         obtainmentTimestamp: Date.now(),
         scope: this.config.activeAuthScopes,
       },
-      ["chat"]
+      ["chat", "api"]
     );
     logger.info(`🔑 Botユーザー登録完了: userId=${this.botUserId}`);
 
@@ -438,9 +438,13 @@ export class Bot {
       logger.info(`✅ Shoutout successfully sent to ${username}`);
     } catch (e) {
       logger.error(`❌ Failed to send shoutout: ${e}`);
-      // リトライ: トークンリフレッシュ
+      // リトライ: AuthProvider内部のトークンを更新（apiClientと同一インスタンス）
       try {
-        await refreshAccessTokenAdvanced(this.config);
+        if (this.botUserId) {
+          await this.authProvider.refreshAccessTokenForUser(this.botUserId);
+        } else {
+          await refreshAccessTokenAdvanced(this.config);
+        }
         const user = await this.apiClient.users.getUserByName(username);
         if (user) {
           await this.apiClient.chat.shoutoutUser(
