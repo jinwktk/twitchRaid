@@ -69,6 +69,9 @@
 - テスト整備: `tests/test_system_watcher.py` で autouse fixture が `threading.Thread` をモック化したまま実スレッド起動を検証していたため、実スレッド参照を退避して使用するよう修正
 - ドキュメント更新: `readme.md` にレイド自動シャウトアウトのユーザーコンテキスト方針を追記
 - 検証: `npm test` で 45 件すべて通過、`npm run build` 通過、`python -m pytest -q` で 106 件すべて通過
+- 追加対応: サブPC側で同エラー継続を確認。原因は修正ブランチが `main` に未反映で、自動更新対象の `origin/main` には旧直呼び実装が残っていたこと
+- 追加対応: GitHub MCP の PR 作成は認証エラーだったため、検証済みコミット `f4283c6` を `main` へ fast-forward して push
+- 運用メモ: TypeScript版は `dist/` が Git 管理外で PM2 は `dist/index.js` を実行する。`src/git-manager.ts` は pull 後に `npm run build` するが、再起動クールダウン中は新しい `dist` が生成されても実行プロセスは旧コードのままなので、即時反映には PM2 再起動が必要
 
 ## 2026-03-21 作業ログ
 - 要望: 再起動時に別窓を開かず、同じ窓で再実行したい
