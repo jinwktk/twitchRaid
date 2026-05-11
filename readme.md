@@ -68,6 +68,11 @@ npm run dev         # ts-nodeで開発実行
 - 配信開始検知時に Discord Webhook へ通知
 - 直前に通知したタイトルと同一 (`LAST_STREAM_TITLE`) の場合は通知をスキップ
 
+## レイド自動シャウトアウト
+- レイド検知時は `src/commands/shoutout.ts` でレイド元のユーザーIDを解決し、Bot/Moderator のユーザーコンテキストで `chat.shoutoutUser` を実行
+- Twurple のデフォルト挙動で broadcaster の未登録トークンを探しに行かないよう、`apiClient.asUser(botUserId, ...)` で明示的にコンテキストを切り替える
+- 送信失敗時は登録済み Bot ユーザーのトークンをリフレッシュしてから同じ経路でリトライする
+
 ## Clipコマンドメモ
 - `.env` の `CLIP_SPECIAL_USERS` (初期値: `nyme_ia,rukalun`) に含まれるユーザーはクールダウン無しで実行可能
 - 一般ユーザーは 30 分のクールダウンが適用
@@ -92,6 +97,7 @@ src/
 │   ├── age.ts
 │   ├── clip.ts
 │   ├── manga.ts
+│   ├── shoutout.ts
 │   └── random-commands.ts
 ├── chat/                 # チャット機能
 │   ├── command-cooldown-state.ts
@@ -113,6 +119,7 @@ src/
 ```
 
 ## 更新履歴
+- **2026-05-11**: レイド自動シャウトアウトを Bot/Moderator ユーザーコンテキストで実行するよう修正
 - **2026-03-22**: TypeScript移植 + PM2管理対応（v2.0）
 - **2026-03-22**: 仕様ドキュメント作成（docs/ディレクトリに4ファイル追加）
 - **2026-03-21**: パフォーマンスチューニング＆コードレビュー修正

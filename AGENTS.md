@@ -12,6 +12,7 @@
 - `scope_policy.py`: 付与済みスコープから不足スコープ判定・適用スコープ解決・ログ表示用正規化を担当。
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `process_restart.py`: 同一コンソール内でのプロセス再起動と、`execv` 失敗時フォールバック起動を担当。
+- `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトを担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
 - `.env` (未コミット想定): Twitch と Discord の認証情報および内部ステート (`LAST_CLIP_TIME` 等) を保持。
@@ -26,12 +27,15 @@
 - `tests/test_scope_policy.py`: 不足スコープ判定ロジックのユニットテスト。
 - `tests/test_token_refresh_policy.py`: トークンリフレッシュ失敗時のフォールバック判定テスト。
 - `tests/test_process_restart.py`: 同一コンソール再起動とフォールバック経路のユニットテスト。
+- `tests/commands/shoutout.test.ts`: TypeScript版シャウトアウトが Bot/Moderator ユーザーコンテキストで実行されることを検証。
 
 ## ビルド・テスト・開発コマンド
 - `python -m venv venv && source venv/bin/activate`: Linux/Mac の仮想環境作成と有効化。Windows は `venv\Scripts\activate` を使用。
 - `pip install -r requirements.txt`: 依存パッケージをローカル環境に導入。
 - `python main.py`: Bot を前景で起動。手動停止時は `Ctrl+C`。
 - `pytest -q`: テストが追加された後の標準実行。CI 導入前でもローカルで失敗確認を徹底。
+- `npm test`: TypeScript版の Vitest ユニットテストを実行。
+- `npm run build`: TypeScript版を `dist/` へビルドし、型エラーを確認。
 
 ## コーディングスタイルと命名規約
 - Python 3 系、PEP 8 準拠、インデントはスペース 4 個。関数名・変数名は `snake_case`、クラス名は `PascalCase`。
@@ -55,6 +59,16 @@
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
+
+## 2026-05-11 作業ログ
+- 不具合報告: Raid 検知後の自動 shoutout で `Tried to make an API call with a user context for user ID ... but no token was found` が発生し、自動リフレッシュ後のリトライでも同じエラーになる
+- 原因: TypeScript版 `src/bot.ts` の `apiClient.chat.shoutoutUser` 直呼びが Twurple のデフォルト挙動により broadcaster ID のユーザーコンテキストを要求していたが、登録済みトークンは Bot ユーザー側だけだった
+- TDD: `tests/commands/shoutout.test.ts` を先に追加し、`src/commands/shoutout` 未存在による失敗を確認
+- 実装: `src/commands/shoutout.ts` を追加し、レイド元ユーザーID解決後に `apiClient.asUser(botUserId, ...)` で Bot/Moderator コンテキストへ切り替えて `chat.shoutoutUser` を実行
+- 実装: `src/bot.ts` の通常送信・リトライ送信を `sendShoutout` ヘルパー経由へ変更
+- テスト整備: `tests/test_system_watcher.py` で autouse fixture が `threading.Thread` をモック化したまま実スレッド起動を検証していたため、実スレッド参照を退避して使用するよう修正
+- ドキュメント更新: `readme.md` にレイド自動シャウトアウトのユーザーコンテキスト方針を追記
+- 検証: `npm test` で 45 件すべて通過、`npm run build` 通過、`python -m pytest -q` で 106 件すべて通過
 
 ## 2026-03-21 作業ログ
 - 要望: 再起動時に別窓を開かず、同じ窓で再実行したい

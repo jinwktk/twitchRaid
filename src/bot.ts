@@ -16,6 +16,7 @@ import {
 } from "./utils/comment-state-store";
 import { refreshAccessTokenAdvanced } from "./auth/token-manager";
 import { selectClip } from "./commands/clip";
+import { sendShoutout } from "./commands/shoutout";
 import { calculateAge } from "./commands/age";
 import {
   fetchRandomMangaTitle,
@@ -425,16 +426,21 @@ export class Bot {
 
   private async _sendShoutout(username: string): Promise<void> {
     try {
-      const user = await this.apiClient.users.getUserByName(username);
-      if (!user) {
+      if (!this.botUserId) {
+        logger.warn("⚠️ BotユーザーID未取得のためshoutoutをスキップします。");
+        return;
+      }
+
+      const sent = await sendShoutout(this.apiClient, {
+        broadcasterId: this.config.twitchBroadcasterId,
+        moderatorUserId: this.botUserId,
+        targetUsername: username,
+      });
+      if (!sent) {
         logger.warn(`⚠️ ユーザー ${username} が見つかりません。`);
         return;
       }
 
-      await this.apiClient.chat.shoutoutUser(
-        this.config.twitchBroadcasterId,
-        user.id
-      );
       logger.info(`✅ Shoutout successfully sent to ${username}`);
     } catch (e) {
       logger.error(`❌ Failed to send shoutout: ${e}`);
@@ -445,13 +451,15 @@ export class Bot {
         } else {
           await refreshAccessTokenAdvanced(this.config);
         }
-        const user = await this.apiClient.users.getUserByName(username);
-        if (user) {
-          await this.apiClient.chat.shoutoutUser(
-            this.config.twitchBroadcasterId,
-            user.id
-          );
+        const sent = await sendShoutout(this.apiClient, {
+          broadcasterId: this.config.twitchBroadcasterId,
+          moderatorUserId: this.botUserId,
+          targetUsername: username,
+        });
+        if (sent) {
           logger.info(`✅ Shoutout retry success for ${username}`);
+        } else {
+          logger.warn(`⚠️ ユーザー ${username} が見つかりません。`);
         }
       } catch (retryErr) {
         logger.error(`❌ Shoutout retry failed: ${retryErr}`);
