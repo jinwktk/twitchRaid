@@ -11,6 +11,9 @@ import unittest.mock as mock
 import pytest
 
 
+_REAL_THREAD = threading.Thread
+
+
 @pytest.fixture(autouse=True)
 def _isolate_main():
     with mock.patch("subprocess.run"), mock.patch("threading.Thread"):
@@ -181,8 +184,15 @@ def test_watcher_runs_in_thread(_isolate_main, config):
         executed.set()
         raise _StopLoop()
 
+    def run_watcher_once():
+        try:
+            sw.update_watcher()
+        except _StopLoop:
+            pass
+
     with mock.patch.object(gm, "check_for_updates", side_effect=fake_check):
         with mock.patch("main.time.sleep"):
-            t = threading.Thread(target=sw.update_watcher, daemon=True)
+            t = _REAL_THREAD(target=run_watcher_once, daemon=True)
             t.start()
             assert executed.wait(timeout=5)
+            t.join(timeout=5)
