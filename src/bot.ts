@@ -16,7 +16,11 @@ import {
 } from "./utils/comment-state-store";
 import { refreshAccessTokenAdvanced } from "./auth/token-manager";
 import { selectClip } from "./commands/clip";
-import { sendShoutout } from "./commands/shoutout";
+import {
+  isShoutoutAdmin,
+  normalizeShoutoutTarget,
+  sendShoutout,
+} from "./commands/shoutout";
 import { calculateAge } from "./commands/age";
 import {
   fetchRandomMangaTitle,
@@ -238,6 +242,9 @@ export class Bot {
       case "mangaoff":
         await this._handleMangaToggle(channel, user, msg, false);
         break;
+      case "shoutout":
+        await this._handleShoutoutCommand(channel, user, args[1], msg);
+        break;
       default:
         break;
     }
@@ -385,6 +392,46 @@ export class Bot {
     );
   }
 
+  private async _handleShoutoutCommand(
+    channel: string,
+    user: string,
+    rawTarget: string | undefined,
+    msg: ChatMessage
+  ): Promise<void> {
+    const isMod = msg.userInfo.isMod;
+    const isBroadcaster = msg.userInfo.isBroadcaster;
+
+    if (
+      !isShoutoutAdmin(
+        user,
+        this.config.shoutoutAdminUsers,
+        isMod,
+        isBroadcaster
+      )
+    ) {
+      await this.chatClient.say(
+        channel,
+        "⚠️ `shoutout` は管理者のみ実行できます。"
+      );
+      return;
+    }
+
+    const target = normalizeShoutoutTarget(rawTarget);
+    if (!target) {
+      await this.chatClient.say(channel, "⚠️ 使い方: !shoutout <ユーザー名>");
+      return;
+    }
+
+    logger.info(`手動shoutout実行: operator=${user}, target=${target}`);
+    const sent = await this._sendShoutout(target);
+    await this.chatClient.say(
+      channel,
+      sent
+        ? `✅ @${target} をshoutoutしました。`
+        : `⚠️ @${target} のshoutoutに失敗しました。ログを確認してください。`
+    );
+  }
+
   private async _sendMangaReply(
     channel: string,
     content: string
@@ -424,11 +471,11 @@ export class Bot {
     }
   }
 
-  private async _sendShoutout(username: string): Promise<void> {
+  private async _sendShoutout(username: string): Promise<boolean> {
     try {
       if (!this.botUserId) {
         logger.warn("⚠️ BotユーザーID未取得のためshoutoutをスキップします。");
-        return;
+        return false;
       }
 
       const sent = await sendShoutout(this.apiClient, {
@@ -438,10 +485,11 @@ export class Bot {
       });
       if (!sent) {
         logger.warn(`⚠️ ユーザー ${username} が見つかりません。`);
-        return;
+        return false;
       }
 
       logger.info(`✅ Shoutout successfully sent to ${username}`);
+      return true;
     } catch (e) {
       logger.error(`❌ Failed to send shoutout: ${e}`);
       // リトライ: AuthProvider内部のトークンを更新（apiClientと同一インスタンス）
@@ -458,12 +506,14 @@ export class Bot {
         });
         if (sent) {
           logger.info(`✅ Shoutout retry success for ${username}`);
+          return true;
         } else {
           logger.warn(`⚠️ ユーザー ${username} が見つかりません。`);
         }
       } catch (retryErr) {
         logger.error(`❌ Shoutout retry failed: ${retryErr}`);
       }
+      return false;
     }
   }
 

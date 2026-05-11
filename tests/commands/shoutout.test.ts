@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { sendShoutout } from "../../src/commands/shoutout";
+import {
+  isShoutoutAdmin,
+  normalizeShoutoutTarget,
+  sendShoutout,
+} from "../../src/commands/shoutout";
 
 describe("sendShoutout", () => {
   it("executes shoutout in the moderator user context", async () => {
@@ -47,5 +51,33 @@ describe("sendShoutout", () => {
 
     expect(asUser).not.toHaveBeenCalled();
     expect(shoutoutUser).not.toHaveBeenCalled();
+  });
+});
+
+describe("isShoutoutAdmin", () => {
+  it("allows broadcaster", () => {
+    expect(isShoutoutAdmin("viewer", [], false, true)).toBe(true);
+  });
+
+  it("allows moderators", () => {
+    expect(isShoutoutAdmin("viewer", [], true, false)).toBe(true);
+  });
+
+  it("allows configured admin users case-insensitively", () => {
+    expect(isShoutoutAdmin("RukaLun", ["rukalun"], false, false)).toBe(true);
+  });
+
+  it("denies regular users", () => {
+    expect(isShoutoutAdmin("viewer", ["rukalun"], false, false)).toBe(false);
+  });
+});
+
+describe("normalizeShoutoutTarget", () => {
+  it("removes leading at mark and lowercases login names", () => {
+    expect(normalizeShoutoutTarget("@YuriiChinya")).toBe("yuriichinya");
+  });
+
+  it("returns null for empty target", () => {
+    expect(normalizeShoutoutTarget(" @ ")).toBeNull();
   });
 });

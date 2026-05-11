@@ -42,6 +42,7 @@ export class Config {
   readonly clipSpecialUsers: string[];
   mangaCommandEnabled: boolean;
   readonly mangaAdminUsers: string[];
+  readonly shoutoutAdminUsers: string[];
 
   // スコープ管理
   private _scopeReauthAttemptedForTokens = new Set<string>();
@@ -86,6 +87,12 @@ export class Config {
     );
     const mangaAdminStr = env["MANGA_ADMIN_USERS"] ?? "rukalun";
     this.mangaAdminUsers = mangaAdminStr
+      .split(",")
+      .map((u) => u.trim().toLowerCase())
+      .filter(Boolean);
+
+    const shoutoutAdminStr = env["SHOUTOUT_ADMIN_USERS"] ?? "rukalun";
+    this.shoutoutAdminUsers = shoutoutAdminStr
       .split(",")
       .map((u) => u.trim().toLowerCase())
       .filter(Boolean);
