@@ -7,6 +7,29 @@ interface SendShoutoutParams {
 }
 
 /**
+ * shoutoutコマンドの管理者判定
+ */
+export function isShoutoutAdmin(
+  userName: string | undefined,
+  adminUsers: string[],
+  isMod: boolean,
+  isBroadcaster: boolean
+): boolean {
+  if (isBroadcaster) return true;
+  if (isMod) return true;
+  if (userName && adminUsers.includes(userName.toLowerCase())) return true;
+  return false;
+}
+
+/**
+ * `!shoutout @name` / `!shoutout name` の対象ログイン名を正規化する。
+ */
+export function normalizeShoutoutTarget(rawTarget: string | undefined): string | null {
+  const normalized = (rawTarget ?? "").trim().replace(/^@+/, "").toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+/**
  * レイド元ユーザーへシャウトアウトを送信する。
  *
  * Twurple の shoutoutUser はデフォルトで broadcaster のユーザーコンテキストを

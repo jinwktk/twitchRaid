@@ -28,6 +28,7 @@ npm run dev         # ts-nodeで開発実行
 - Twitch認証は Bot 動作に必要な最小スコープのみ要求（`chat` / `shoutout` / `chat message delete` 系）
 - トークン検証時は 401 Unauthorized の場合のみ再取得を実行します
 - 起動時の有効トークン検証と再取得成功時に、付与済みスコープ一覧を `[ECHO]` ログとして出力します
+- `SHOUTOUT_ADMIN_USERS` に `!shoutout` を実行できる追加ユーザーをカンマ区切りで設定できます（未設定時は `rukalun`）
 
 ## 技術スタック
 - **ランタイム**: Node.js 20+
@@ -52,6 +53,7 @@ npm run dev         # ts-nodeで開発実行
 | `!manga` | DLsite日間ランキングからランダムに1作品表示 | ON/OFF切替可、5秒後自動削除 |
 | `!mangaon` | `!manga` コマンドを有効化 | 管理者のみ |
 | `!mangaoff` | `!manga` コマンドを無効化 | 管理者のみ |
+| `!shoutout <ユーザー名>` | 指定ユーザーへ手動 shoutout を実行 | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ |
 | `!speed` | コメント風速を表示（直近60秒＋配信全体平均） | コマンドは計測対象外 |
 | `!commentcount` | 配信開始からの累計コメント件数を表示 | 再起動後も引き継ぎ |
 
@@ -74,6 +76,8 @@ npm run dev         # ts-nodeで開発実行
 - レイド検知時は `src/commands/shoutout.ts` でレイド元のユーザーIDを解決し、Bot/Moderator のユーザーコンテキストで `chat.shoutoutUser` を実行
 - Twurple のデフォルト挙動で broadcaster の未登録トークンを探しに行かないよう、`apiClient.asUser(botUserId, ...)` で明示的にコンテキストを切り替える
 - 送信失敗時は登録済み Bot ユーザーのトークンをリフレッシュしてから同じ経路でリトライする
+- デバッグ用に `!shoutout <ユーザー名>` でも同じ送信経路を手動実行できる
+- 手動実行は broadcaster / mod / `SHOUTOUT_ADMIN_USERS` に含まれるユーザーのみ許可
 
 ## Clipコマンドメモ
 - `.env` の `CLIP_SPECIAL_USERS` (初期値: `nyme_ia,rukalun`) に含まれるユーザーはクールダウン無しで実行可能
@@ -121,6 +125,7 @@ src/
 ```
 
 ## 更新履歴
+- **2026-05-11**: `!shoutout <ユーザー名>` デバッグコマンドと権限設定 `SHOUTOUT_ADMIN_USERS` を追加
 - **2026-05-11**: shoutout修正を `main` に反映。Git更新後の build と再起動クールダウン時の注意を追記
 - **2026-05-11**: レイド自動シャウトアウトを Bot/Moderator ユーザーコンテキストで実行するよう修正
 - **2026-03-22**: TypeScript移植 + PM2管理対応（v2.0）
