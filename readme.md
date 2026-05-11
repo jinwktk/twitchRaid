@@ -63,6 +63,8 @@ npm run dev         # ts-nodeで開発実行
 - 定期再起動は 1 日 1 回
 - GitHub 更新による再起動もクールダウン対象
 - PM2管理下では `process.exit(0)` でPM2が自動再起動
+- TypeScript版は `dist/` を Git 管理しないため、GitHub更新検知後に自動で `npm run build` を実行
+- 再起動クールダウン中は pull/build 後も実行中プロセスは旧コードのまま。緊急修正を即時反映する場合は `npm run pm2:restart` を実行
 
 ## 配信通知仕様
 - 配信開始検知時に Discord Webhook へ通知
@@ -119,6 +121,7 @@ src/
 ```
 
 ## 更新履歴
+- **2026-05-11**: shoutout修正を `main` に反映。Git更新後の build と再起動クールダウン時の注意を追記
 - **2026-05-11**: レイド自動シャウトアウトを Bot/Moderator ユーザーコンテキストで実行するよう修正
 - **2026-03-22**: TypeScript移植 + PM2管理対応（v2.0）
 - **2026-03-22**: 仕様ドキュメント作成（docs/ディレクトリに4ファイル追加）
