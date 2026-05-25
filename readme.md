@@ -17,6 +17,10 @@ npm run pm2:restart # 再起動
 npm run pm2:logs    # ログ確認
 ```
 
+### ログ確認運用
+- BotはサブPCで動かす運用のため、問題確認時はローカル作業PCのログだけでなく、必ずサブPC側のPM2ログと `logs/bot_YYYY-MM-DD.log` を確認する
+- SQLiteキャッシュ系の調査では、サブPC側の `data/clips.sqlite` の作成状況と更新時刻も確認する
+
 ### 直接起動
 ```bash
 npm start           # ビルド済みを実行

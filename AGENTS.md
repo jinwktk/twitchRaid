@@ -44,6 +44,9 @@
 - `npm run build`: TypeScript版を `dist/` へビルドし、型エラーを確認。
 - Node.js は `node:sqlite` を使用するため 22.5 以上が必要。
 
+## 運用ルール
+- Botは主にサブPCで稼働するため、ログ確認依頼ではローカル作業PCだけで判断しない。必ずサブPC側のPM2ログ、`logs/bot_YYYY-MM-DD.log`、関連するSQLite DB（例: `data/clips.sqlite`）の有無と更新時刻を確認する。
+
 ## コーディングスタイルと命名規約
 - Python 3 系、PEP 8 準拠、インデントはスペース 4 個。関数名・変数名は `snake_case`、クラス名は `PascalCase`。
 - Docstring は日本語で要約 → 実装ノートの順に記述。外部 API 名は英語表記を保持。
@@ -69,6 +72,7 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-05-25 作業ログ
+- 運用ルール追加: ログ確認依頼では常にサブPC側のPM2ログ、日次Botログ、関連SQLite DBの有無と更新時刻を確認する方針を `readme.md` と `AGENTS.md` に追記
 - 要望: Qiita記事の GraphQL 方式を使い、過去アーカイブから初コメの日時・内容をSQLiteへ保存し、今後の配信ではリアルタイムに初コメを保存して出力したい
 - 調査: Qiita記事は Twitch公式 Helix ではなく `https://gql.twitch.tv/gql` の `VideoCommentsByOffsetOrCursor` を使う方式で、記事内にも公式推奨ではない旨があるため、VOD取得部分を `src/first-comment/vod-comments-client.ts` に隔離
 - TDD: `tests/first-comment/` に SQLite保存、VOD先頭コメント抽出、バックフィル集計、チャット表示文言のテストを先に追加し、未実装による失敗を確認
