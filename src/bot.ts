@@ -17,6 +17,7 @@ import {
 import { refreshAccessTokenAdvanced } from "./auth/token-manager";
 import {
   clipHistoryKey,
+  resolveClipCreatorId,
   selectCachedClip,
   selectClip,
   type ClipCommandName,
@@ -318,17 +319,21 @@ export class Bot {
 
     this.clipCacheSynchronizer?.syncRecentIfStale();
     const historyKey = clipHistoryKey(commandName, creatorName);
+    const creatorId = creatorName
+      ? await resolveClipCreatorId(this.apiClient, creatorName) ?? undefined
+      : undefined;
     let clip = selectCachedClip(
       this.clipCacheStore,
       commandName,
-      creatorName
+      creatorName,
+      creatorId
     );
 
     if (!clip) {
       clip = await selectClip(
         this.apiClient,
         this.config.twitchBroadcasterId,
-        undefined,
+        creatorId,
         creatorName,
         {
           recentClipIds: this.clipCacheStore.getRecentIds(historyKey),

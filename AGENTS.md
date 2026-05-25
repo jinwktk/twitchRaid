@@ -72,6 +72,10 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-05-25 作業ログ
+- ログ確認: サブPC `192.168.0.99` のPM2状態、`E:\GitHub\twitchRaid\logs\bot_2026-05-25.log`、`data/clips.sqlite` を確認。`twitchRaid` は online、`clip_cache` は 2734 件、`clip_scan_windows` は 124 件で全期間バックフィル完了を確認
+- 不具合発見: `!myclip` はログイン名 (`nyme_ia`) でキャッシュ検索する一方、Twitch API由来のキャッシュは表示名 (`にめいや`) を `creator_name_lower` に保存していたため、SQLiteキャッシュに当たらずAPIフォールバックしていた
+- 修正: `resolveClipCreatorId` を公開し、`!myclip` のキャッシュ検索前にTwitchユーザーIDを解決して `creator_id` でSQLite検索できるよう変更
+- TDD: `tests/commands/clip.test.ts` に、`selectCachedClip` が解決済み `creatorId` を `ClipCacheStore.selectRandomClip` に渡すテストを追加し、失敗確認後に実装
 - 運用ルール追加: ログ確認依頼では常にサブPC側のPM2ログ、日次Botログ、関連SQLite DBの有無と更新時刻を確認する方針を `readme.md` と `AGENTS.md` に追記
 - 要望: Qiita記事の GraphQL 方式を使い、過去アーカイブから初コメの日時・内容をSQLiteへ保存し、今後の配信ではリアルタイムに初コメを保存して出力したい
 - 調査: Qiita記事は Twitch公式 Helix ではなく `https://gql.twitch.tv/gql` の `VideoCommentsByOffsetOrCursor` を使う方式で、記事内にも公式推奨ではない旨があるため、VOD取得部分を `src/first-comment/vod-comments-client.ts` に隔離
