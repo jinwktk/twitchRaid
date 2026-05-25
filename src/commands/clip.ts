@@ -18,28 +18,16 @@ interface ClipApiClient {
   };
   users: {
     getUserByName?(loginName: string): Promise<{ id: string } | null>;
-    getUserById?(userId: string): Promise<{ creationDate: Date } | null>;
   };
 }
 
 export interface SelectClipOptions {
   recentClipIds?: readonly string[];
   random?: () => number;
-  oldestClipDate?: Date;
-  now?: Date;
-  windowDays?: number;
-  splitThreshold?: number;
+  maxFetch?: number;
 }
 
-interface ClipDateWindow {
-  start: Date;
-  end: Date;
-}
-
-const DEFAULT_OLDEST_CLIP_DATE = new Date("2016-05-01T00:00:00.000Z");
-const DEFAULT_WINDOW_DAYS = 30;
-const DEFAULT_SPLIT_THRESHOLD = 950;
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_MAX_FETCH = 1000;
 
 /**
  * ログイン名からユーザーIDを解決する
@@ -88,134 +76,31 @@ export function clipHistoryKey(
   return "clip";
 }
 
-export function buildClipDateWindows(
-  oldest: Date,
-  now: Date,
-  windowDays = DEFAULT_WINDOW_DAYS
-): ClipDateWindow[] {
-  const windows: ClipDateWindow[] = [];
-  const windowMs = Math.max(1, windowDays) * ONE_DAY_MS;
-  let startMs = oldest.getTime();
-  const nowMs = now.getTime();
-
-  while (startMs < nowMs) {
-    const endMs = Math.min(startMs + windowMs, nowMs);
-    windows.push({
-      start: new Date(startMs),
-      end: new Date(endMs),
-    });
-    startMs = endMs;
-  }
-
-  return windows;
-}
-
-async function resolveOldestClipDate(
-  apiClient: ClipApiClient,
-  broadcasterId: string,
-  explicitOldest?: Date
-): Promise<Date> {
-  if (explicitOldest) {
-    return explicitOldest;
-  }
-
-  try {
-    const broadcaster = await apiClient.users.getUserById?.(broadcasterId);
-    return broadcaster?.creationDate ?? DEFAULT_OLDEST_CLIP_DATE;
-  } catch (e) {
-    logger.warn(`⚠️ broadcaster作成日時の取得に失敗しました: ${e}`);
-    return DEFAULT_OLDEST_CLIP_DATE;
-  }
-}
-
-async function fetchWindowClips(
-  apiClient: ClipApiClient,
-  broadcasterId: string,
-  window: ClipDateWindow
-): Promise<HelixClip[]> {
-  const paginator = apiClient.clips.getClipsForBroadcasterPaginated(
-    broadcasterId,
-    {
-      startDate: window.start.toISOString(),
-      endDate: window.end.toISOString(),
-    }
-  );
-  const clips: HelixClip[] = [];
-
-  for await (const clip of paginator) {
-    clips.push(clip);
-  }
-
-  return clips;
-}
-
-async function fetchWindowClipsWithSplit(
-  apiClient: ClipApiClient,
-  broadcasterId: string,
-  window: ClipDateWindow,
-  splitThreshold: number
-): Promise<HelixClip[]> {
-  const clips = await fetchWindowClips(apiClient, broadcasterId, window);
-  const canSplit = window.end.getTime() - window.start.getTime() > ONE_DAY_MS;
-
-  if (clips.length < splitThreshold || !canSplit) {
-    return clips;
-  }
-
-  const middle = new Date(
-    Math.floor((window.start.getTime() + window.end.getTime()) / 2)
-  );
-  const firstHalf = await fetchWindowClipsWithSplit(
-    apiClient,
-    broadcasterId,
-    { start: window.start, end: middle },
-    splitThreshold
-  );
-  const secondHalf = await fetchWindowClipsWithSplit(
-    apiClient,
-    broadcasterId,
-    { start: middle, end: window.end },
-    splitThreshold
-  );
-
-  return [...firstHalf, ...secondHalf];
-}
-
 async function fetchBroadcasterClips(
   apiClient: ClipApiClient,
   broadcasterId: string,
   options: SelectClipOptions
 ): Promise<HelixClip[]> {
-  const oldest = await resolveOldestClipDate(
-    apiClient,
-    broadcasterId,
-    options.oldestClipDate
+  const maxFetch = Math.max(1, options.maxFetch ?? DEFAULT_MAX_FETCH);
+  const paginator = apiClient.clips.getClipsForBroadcasterPaginated(
+    broadcasterId
   );
-  const now = options.now ?? new Date();
-  const windows = buildClipDateWindows(oldest, now, options.windowDays);
-  const byId = new Map<string, HelixClip>();
+  const clips: HelixClip[] = [];
 
-  for (const window of windows) {
-    const clips = await fetchWindowClipsWithSplit(
-      apiClient,
-      broadcasterId,
-      window,
-      options.splitThreshold ?? DEFAULT_SPLIT_THRESHOLD
-    );
-    for (const clip of clips) {
-      byId.set(clip.id, clip);
+  for await (const clip of paginator) {
+    clips.push(clip);
+    if (clips.length >= maxFetch) {
+      break;
     }
   }
 
-  logger.info(
-    `🎬 clip候補取得: windows=${windows.length} unique=${byId.size}`
-  );
-  return [...byId.values()];
+  logger.info(`🎬 clip候補取得: fetched=${clips.length}, max=${maxFetch}`);
+  return clips;
 }
 
 /**
  * ランダムなクリップを選択する
- * Twitch APIの単純ページング上限を避けるため、日付窓ごとにページングする
+ * コマンド応答を優先し、ページング取得は最大1000件で打ち切る
  */
 export async function selectClip(
   apiClient: ClipApiClient,
