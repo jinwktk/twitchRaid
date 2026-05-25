@@ -15,8 +15,14 @@ import {
   saveCommentState,
 } from "./utils/comment-state-store";
 import { refreshAccessTokenAdvanced } from "./auth/token-manager";
-import { clipHistoryKey, selectClip, type ClipCommandName } from "./commands/clip";
-import { ClipHistoryStore } from "./commands/clip-history";
+import {
+  clipHistoryKey,
+  selectCachedClip,
+  selectClip,
+  type ClipCommandName,
+} from "./commands/clip";
+import { ClipCacheStore } from "./commands/clip-cache-store";
+import { ClipCacheSynchronizer } from "./commands/clip-cache-sync";
 import {
   isShoutoutAdmin,
   normalizeShoutoutTarget,
@@ -53,7 +59,8 @@ export class Bot {
   private readonly recastNotifiers: Record<string, ClipRecastNotifier>;
   private readonly commandCooldownState: CommandCooldownState;
   private readonly commentSpeedMeter: CommentSpeedMeter;
-  private readonly clipHistoryStore: ClipHistoryStore;
+  private readonly clipCacheStore: ClipCacheStore;
+  private clipCacheSynchronizer: ClipCacheSynchronizer | null = null;
 
   // Keep-alive timers
   private keepAliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -84,7 +91,7 @@ export class Bot {
       myclip: config.lastMyclipTime,
     });
     this.commentSpeedMeter = new CommentSpeedMeter(60);
-    this.clipHistoryStore = new ClipHistoryStore(config.clipHistoryPath);
+    this.clipCacheStore = new ClipCacheStore(config.clipCacheDbPath);
 
     // コメント状態復元
     const [totalCount, streamStartedAt] = loadCommentState(config.envFile);
@@ -120,6 +127,12 @@ export class Bot {
 
     // API Client
     this.apiClient = new ApiClient({ authProvider: this.authProvider });
+    this.clipCacheSynchronizer = new ClipCacheSynchronizer({
+      apiClient: this.apiClient,
+      broadcasterId: this.config.twitchBroadcasterId,
+      store: this.clipCacheStore,
+    });
+    this.clipCacheSynchronizer.start();
 
     // Chat Client
     this.chatClient = new ChatClient({
@@ -141,6 +154,8 @@ export class Bot {
     if (this.commentSaveTimer) clearTimeout(this.commentSaveTimer);
     // 停止前にコメント状態を即座に保存
     this._flushCommentState();
+    await this.clipCacheSynchronizer?.stop();
+    this.clipCacheStore.close();
     this.chatClient.quit();
   }
 
@@ -301,20 +316,30 @@ export class Bot {
       return;
     }
 
+    this.clipCacheSynchronizer?.syncRecentIfStale();
     const historyKey = clipHistoryKey(commandName, creatorName);
-    const clip = await selectClip(
-      this.apiClient,
-      this.config.twitchBroadcasterId,
-      undefined,
-      creatorName,
-      {
-        recentClipIds: this.clipHistoryStore.getRecentIds(historyKey),
-      }
+    let clip = selectCachedClip(
+      this.clipCacheStore,
+      commandName,
+      creatorName
     );
+
+    if (!clip) {
+      clip = await selectClip(
+        this.apiClient,
+        this.config.twitchBroadcasterId,
+        undefined,
+        creatorName,
+        {
+          recentClipIds: this.clipCacheStore.getRecentIds(historyKey),
+          maxFetch: 200,
+        }
+      );
+    }
 
     if (clip) {
       await this.chatClient.say(channel, clip.url);
-      this.clipHistoryStore.record(historyKey, clip.id);
+      this.clipCacheStore.recordHistory(historyKey, clip.id);
       if (!isSpecialUser) {
         this.commandCooldownState.markUsed(commandName, now);
         this._persistCommandCooldown(commandName, now);

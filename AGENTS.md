@@ -13,8 +13,9 @@
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `process_restart.py`: 同一コンソール内でのプロセス再起動と、`execv` 失敗時フォールバック起動を担当。
 - `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトと `!shoutout` 手動デバッグコマンドの権限判定・対象ユーザー正規化を担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。
-- `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の候補取得とランダム選択を担当。コマンド応答速度を優先し、Twurple のページング取得を最大1000件で打ち切る。
-- `src/commands/clip-history.ts`: `!clip` / `!myclip:<ユーザー>` ごとの直近表示クリップIDを JSON に保存し、同じクリップの連続再表示を避ける。
+- `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ軽いAPIフォールバックを使う。
+- `src/commands/clip-cache-store.ts`: クリップ本体、走査済み期間、`!clip` / `!myclip:<ユーザー>` ごとの表示履歴を `data/clips.sqlite` に保存する。
+- `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期を担当。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
 - `.env` (未コミット想定): Twitch と Discord の認証情報および内部ステート (`LAST_CLIP_TIME` 等) を保持。
@@ -30,8 +31,9 @@
 - `tests/test_token_refresh_policy.py`: トークンリフレッシュ失敗時のフォールバック判定テスト。
 - `tests/test_process_restart.py`: 同一コンソール再起動とフォールバック経路のユニットテスト。
 - `tests/commands/shoutout.test.ts`: TypeScript版シャウトアウトが Bot/Moderator ユーザーコンテキストで実行されること、手動コマンド権限判定、対象ユーザー名正規化を検証。
-- `tests/commands/clip.test.ts`: TypeScript版クリップ取得が高速ページング上限を守ること、直近履歴を避けること、`myclip` の作成者フィルタを検証。
-- `tests/commands/clip-history.test.ts`: クリップ表示履歴 JSON の重複排除、件数上限、コマンド/ユーザー別分離を検証。
+- `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタを検証。
+- `tests/commands/clip-cache-store.test.ts`: クリップSQLiteキャッシュ、履歴上限、走査済み期間の保存を検証。
+- `tests/commands/clip-cache-sync.test.ts`: クリップ全期間走査用の日付窓、直近同期、完了済み期間スキップを検証。
 
 ## ビルド・テスト・開発コマンド
 - `python -m venv venv && source venv/bin/activate`: Linux/Mac の仮想環境作成と有効化。Windows は `venv\Scripts\activate` を使用。
@@ -40,6 +42,7 @@
 - `pytest -q`: テストが追加された後の標準実行。CI 導入前でもローカルで失敗確認を徹底。
 - `npm test`: TypeScript版の Vitest ユニットテストを実行。
 - `npm run build`: TypeScript版を `dist/` へビルドし、型エラーを確認。
+- Node.js は `node:sqlite` を使用するため 22.5 以上が必要。
 
 ## コーディングスタイルと命名規約
 - Python 3 系、PEP 8 準拠、インデントはスペース 4 個。関数名・変数名は `snake_case`、クラス名は `PascalCase`。
@@ -60,7 +63,7 @@
 
 ## 設定とセキュリティ Tips
 - `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS` を定義。更新は `Config.update_*` が担当。
-- クリップ重複回避履歴は任意で `TWITCH_CLIP_HISTORY_PATH` を使用。未設定時は `data/clip_history.json` を使い、ローカル状態として Git 管理外。
+- クリップキャッシュは任意で `TWITCH_CLIP_CACHE_DB_PATH` を使用。未設定時は `data/clips.sqlite` を使い、ローカル状態として Git 管理外。
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
@@ -109,6 +112,14 @@
 - 実装: `src/first-comment/` と `tests/first-comment/` を削除し、`src/config.ts` から `TWITCH_FIRST_COMMENT_DB_PATH` / `FIRST_COMMENT_*` 設定を削除
 - 実装: `src/commands/clip.ts` は日付窓の全期間走査をやめ、Twurple のページング取得を最大1000件で打ち切る高速経路へ変更。表示履歴による重複回避は維持
 - ドキュメント更新: `readme.md` から初コメ機能説明と `!firstcomment` を削除し、clip取得方針を高速ページングへ更新
+- 要望: 全期間走査は維持したまま、`!clip` / `!myclip` のパフォーマンスを保ち、起動中に作成された新規クリップも候補へ入れたい
+- 方針: Twitch API の重い全期間走査をチャットコマンド実行時から分離し、SQLiteキャッシュへバックグラウンド同期する
+- TDD: `tests/commands/clip-cache-store.test.ts` と `tests/commands/clip-cache-sync.test.ts` を追加し、キャッシュ選択、履歴上限、走査済み期間、直近同期、完了済み期間スキップを検証
+- 実装: `src/commands/clip-cache-store.ts` を追加し、`clip_cache` / `clip_history` / `clip_scan_windows` / `clip_sync_state` を `data/clips.sqlite` に作成
+- 実装: `src/commands/clip-cache-sync.ts` を追加し、起動直後の直近1時間同期、5分ごとの直近同期、30日単位の全期間バックフィル、クリップ過密期間の分割、完了済み期間スキップを実装
+- 実装: `src/bot.ts` は起動時に `ClipCacheSynchronizer` を開始し、`!clip` / `!myclip` はSQLiteキャッシュから即選択。キャッシュ未準備時のみ最大200件APIフォールバックを使う
+- 実装: JSON履歴 `clip-history.ts` を削除し、表示履歴をSQLiteへ統合。`src/config.ts` に `TWITCH_CLIP_CACHE_DB_PATH` を追加
+- ドキュメント更新: `readme.md` にクリップSQLiteキャッシュ、直近同期、全期間バックフィル仕様を追記
 
 ## 2026-05-11 作業ログ
 - 要望: `!shoutout` で指定ユーザーを応援するテストコマンドを作り、実行権限を付けたい
