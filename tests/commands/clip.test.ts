@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import {
   clipHistoryKey,
   pickClipAvoidingRecent,
+  selectCachedClip,
   selectClip,
 } from "../../src/commands/clip";
+import type { ClipCacheStore } from "../../src/commands/clip-cache-store";
 
 function makeClip(
   id: string,
@@ -56,6 +58,33 @@ describe("clipHistoryKey", () => {
   it("uses a global key for clip and a per-user key for myclip", () => {
     expect(clipHistoryKey("clip")).toBe("clip");
     expect(clipHistoryKey("myclip", "ViewerName")).toBe("myclip:viewername");
+  });
+});
+
+describe("selectCachedClip", () => {
+  it("uses the resolved creator id for myclip cache lookup", () => {
+    const selectedClip = {
+      id: "mine",
+      url: "https://clips.twitch.tv/mine",
+      title: "mine",
+    };
+    const selectRandomClip = vi.fn().mockReturnValue(selectedClip);
+
+    const selected = selectCachedClip(
+      { selectRandomClip } as unknown as ClipCacheStore,
+      "myclip",
+      "nyme_ia",
+      "creator-me",
+      () => 0
+    );
+
+    expect(selected).toBe(selectedClip);
+    expect(selectRandomClip).toHaveBeenCalledWith({
+      historyKey: "myclip:nyme_ia",
+      creatorName: "nyme_ia",
+      creatorId: "creator-me",
+      random: expect.any(Function),
+    });
   });
 });
 

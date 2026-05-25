@@ -33,7 +33,7 @@ const DEFAULT_MAX_FETCH = 1000;
 /**
  * ログイン名からユーザーIDを解決する
  */
-async function resolveUserId(
+export async function resolveClipCreatorId(
   apiClient: ClipApiClient,
   loginName: string
 ): Promise<string | null> {
@@ -81,11 +81,13 @@ export function selectCachedClip(
   store: ClipCacheStore,
   commandName: ClipCommandName,
   creatorName?: string,
+  creatorId?: string,
   random: () => number = Math.random
 ): ClipInfo | null {
   return store.selectRandomClip({
     historyKey: clipHistoryKey(commandName, creatorName),
     creatorName,
+    creatorId,
     random,
   });
 }
@@ -129,7 +131,7 @@ export async function selectClip(
     // creatorNameからユーザーIDを解決
     let resolvedCreatorId = creatorId;
     if (!resolvedCreatorId && creatorName) {
-      resolvedCreatorId = await resolveUserId(apiClient, creatorName) ?? undefined;
+      resolvedCreatorId = await resolveClipCreatorId(apiClient, creatorName) ?? undefined;
       if (!resolvedCreatorId) {
         logger.warn(`⚠️ ユーザー ${creatorName} のID解決に失敗。表示名で検索します。`);
       }
