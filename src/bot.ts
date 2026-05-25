@@ -36,8 +36,7 @@ import { restartProcess } from "./utils/process-restart";
 import { FirstCommentStore } from "./first-comment/first-comment-store";
 import { TwitchVodCommentsClient } from "./first-comment/vod-comments-client";
 import {
-  archivedVideosFromApiClient,
-  backfillArchivedFirstComments,
+  runStartupFirstCommentBackfill,
 } from "./first-comment/first-comment-backfill";
 import {
   formatFirstComment,
@@ -48,7 +47,6 @@ import {
 const MANGA_DELETE_DELAY_SECONDS = 10;
 
 interface LiveFirstCommentContext {
-  streamKey: string;
   streamId: string;
   title: string;
   startedAt: string;
@@ -72,7 +70,7 @@ export class Bot {
   private readonly firstCommentStore: FirstCommentStore;
   private readonly vodCommentsClient: TwitchVodCommentsClient;
   private currentLiveFirstCommentContext: LiveFirstCommentContext | null = null;
-  private firstCommentBackfillRunning = false;
+  private startupFirstCommentBackfillStarted = false;
 
   // Keep-alive timers
   private keepAliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -140,6 +138,7 @@ export class Bot {
 
     // API Client
     this.apiClient = new ApiClient({ authProvider: this.authProvider });
+    this._startStartupFirstCommentBackfill();
 
     // Chat Client
     this.chatClient = new ChatClient({
@@ -253,10 +252,7 @@ export class Bot {
         await this._handleCommentCountCommand(channel);
         break;
       case "firstcomment":
-        await this._handleFirstCommentCommand(channel);
-        break;
-      case "firstcommentbackfill":
-        await this._handleFirstCommentBackfillCommand(channel, user, msg);
+        await this._handleFirstCommentCommand(channel, user);
         break;
       case "clip":
         await this._handleClipCommand(channel, user, "clip");
@@ -298,79 +294,12 @@ export class Bot {
     await this.chatClient.say(channel, formatTotalCommentCount(totalCount));
   }
 
-  private async _handleFirstCommentCommand(channel: string): Promise<void> {
-    const liveRecord = this.currentLiveFirstCommentContext
-      ? this.firstCommentStore.getByStreamId(
-          this.currentLiveFirstCommentContext.streamId
-        ) ??
-        this.firstCommentStore.getByStreamKey(
-          this.currentLiveFirstCommentContext.streamKey
-        )
-      : null;
-    await this.chatClient.say(
-      channel,
-      formatFirstComment(
-        this.currentLiveFirstCommentContext
-          ? liveRecord
-          : this.firstCommentStore.getLatest()
-      )
-    );
-  }
-
-  private async _handleFirstCommentBackfillCommand(
+  private async _handleFirstCommentCommand(
     channel: string,
-    user: string,
-    msg: ChatMessage
+    user: string
   ): Promise<void> {
-    const isMod = msg.userInfo.isMod;
-    const isBroadcaster = msg.userInfo.isBroadcaster;
-    if (
-      !isShoutoutAdmin(
-        user,
-        this.config.shoutoutAdminUsers,
-        isMod,
-        isBroadcaster
-      )
-    ) {
-      await this.chatClient.say(
-        channel,
-        "⚠️ `firstcommentbackfill` は管理者のみ実行できます。"
-      );
-      return;
-    }
-
-    if (this.firstCommentBackfillRunning) {
-      await this.chatClient.say(channel, "初コメバックフィルは実行中です。");
-      return;
-    }
-
-    this.firstCommentBackfillRunning = true;
-    await this.chatClient.say(
-      channel,
-      "初コメバックフィルを開始します。アーカイブ数によって時間がかかります。"
-    );
-
-    try {
-      const result = await backfillArchivedFirstComments({
-        videos: archivedVideosFromApiClient(
-          this.apiClient,
-          this.config.twitchBroadcasterId
-        ),
-        store: this.firstCommentStore,
-        commentsClient: this.vodCommentsClient,
-      });
-      const message = formatFirstCommentBackfillResult(result);
-      logger.info(message);
-      await this.chatClient.say(channel, message);
-    } catch (e) {
-      logger.error(`❌ 初コメバックフィル失敗: ${e}`);
-      await this.chatClient.say(
-        channel,
-        "⚠️ 初コメバックフィルに失敗しました。ログを確認してください。"
-      );
-    } finally {
-      this.firstCommentBackfillRunning = false;
-    }
+    const record = this.firstCommentStore.getUserFirstComment(user);
+    await this.chatClient.say(channel, formatFirstComment(record, user));
   }
 
   private async _handleClipCommand(
@@ -657,25 +586,23 @@ export class Bot {
   ): void {
     const context = this.currentLiveFirstCommentContext;
     if (!context) return;
-    if (this.firstCommentStore.getByStreamId(context.streamId)) return;
 
     const commentedAt = msg.date.toISOString();
     const offsetSeconds = Math.max(
       0,
       (msg.date.getTime() - new Date(context.startedAt).getTime()) / 1000
     );
-    const saved = this.firstCommentStore.saveFirstComment({
-      streamKey: context.streamKey,
-      streamId: context.streamId,
+    const saved = this.firstCommentStore.saveUserFirstComment({
+      authorName: user,
+      authorDisplayName: msg.userInfo.displayName || user,
+      firstCommentedAt: commentedAt,
+      messageText: text.trim(),
+      source: "live",
       videoId: null,
+      streamId: context.streamId,
       streamTitle: context.title,
       streamStartedAt: context.startedAt,
       commentOffsetSeconds: offsetSeconds,
-      commentedAt,
-      authorName: user,
-      authorDisplayName: msg.userInfo.displayName || user,
-      messageText: text.trim(),
-      source: "live",
     });
 
     if (saved) {
@@ -683,6 +610,29 @@ export class Bot {
         `初コメ保存: streamId=${context.streamId}, user=${user}, message=${text}`
       );
     }
+  }
+
+  private _startStartupFirstCommentBackfill(): void {
+    if (this.startupFirstCommentBackfillStarted) return;
+    this.startupFirstCommentBackfillStarted = true;
+
+    void (async () => {
+      try {
+        logger.info(
+          `初コメ自動バックフィル開始: concurrency=${this.config.firstCommentBackfillConcurrency}`
+        );
+        const result = await runStartupFirstCommentBackfill({
+          apiClient: this.apiClient,
+          broadcasterId: this.config.twitchBroadcasterId,
+          store: this.firstCommentStore,
+          commentsClient: this.vodCommentsClient,
+          concurrency: this.config.firstCommentBackfillConcurrency,
+        });
+        logger.info(formatFirstCommentBackfillResult(result));
+      } catch (e) {
+        logger.error(`❌ 初コメ自動バックフィル失敗: ${e}`);
+      }
+    })();
   }
 
   private _startKeepAlive(): void {
@@ -738,7 +688,6 @@ export class Bot {
 
         if (stream) {
           this.currentLiveFirstCommentContext = {
-            streamKey: liveStreamKey(stream.id),
             streamId: stream.id,
             title: stream.title,
             startedAt: stream.startDate.toISOString(),
@@ -795,8 +744,4 @@ export class Bot {
     void checkStreamStatus();
     this.streamMonitorTimer = setInterval(checkStreamStatus, 180_000); // 180秒ごと
   }
-}
-
-function liveStreamKey(streamId: string): string {
-  return `live:${streamId}`;
 }

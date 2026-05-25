@@ -31,6 +31,7 @@ npm run dev         # ts-nodeで開発実行
 - `SHOUTOUT_ADMIN_USERS` に `!shoutout` を実行できる追加ユーザーをカンマ区切りで設定できます（未設定時は `rukalun`）
 - `TWITCH_FIRST_COMMENT_DB_PATH` に初コメ保存用 SQLite DB のパスを設定できます（未設定時は `data/first_comments.sqlite`）
 - `TWITCH_GQL_CLIENT_ID` で VOD コメント取得用 GraphQL Client-ID を上書きできます。未設定時は Twitch Web の既知 Client-ID を使用します
+- `FIRST_COMMENT_BACKFILL_CONCURRENCY` で起動時アーカイブ初コメ取得の並列数を設定できます（未設定時は `8`）
 
 ## 技術スタック
 - **ランタイム**: Node.js 22.5+（`node:sqlite` を使用）
@@ -58,8 +59,7 @@ npm run dev         # ts-nodeで開発実行
 | `!shoutout <ユーザー名>` | 指定ユーザーへ手動 shoutout を実行 | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ |
 | `!speed` | コメント風速を表示（直近60秒＋配信全体平均） | コマンドは計測対象外 |
 | `!commentcount` | 配信開始からの累計コメント件数を表示 | 再起動後も引き継ぎ |
-| `!firstcomment` | 保存済みの初コメ日時・ユーザー・内容を表示 | 配信中は現在配信、未配信時は最新保存分 |
-| `!firstcommentbackfill` | アーカイブVODから初コメをSQLiteへ取り込み | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ |
+| `!firstcomment` | 自分の初コメ日時・内容を表示 | 他ユーザー指定は不可 |
 
 ## .env保護
 - `.env` の更新は `env-store.ts` で実行し、更新前に `.env.backup` を作成
@@ -90,10 +90,13 @@ npm run dev         # ts-nodeで開発実行
 - `!myclip` は `!clip` とは独立したクールダウン管理
 
 ## 初コメ保存
-- 今後の配信は通常コメント受信時に、現在の Twitch stream id ごとに最初の1件だけ `first_comments` テーブルへ保存
-- アーカイブ分は `!firstcommentbackfill` で Helix の archived videos 一覧を取得し、各VODの先頭コメントだけを GraphQL `VideoCommentsByOffsetOrCursor` から取り込む
+- 今後の配信は通常コメント受信時に、ユーザーごとの最古コメントだけを `user_first_comments` テーブルへ保存
+- アーカイブ分はBot起動時に1回だけ自動バックフィルを開始し、Helix の archived videos 一覧から各VODの全コメントを GraphQL `VideoCommentsByOffsetOrCursor` でページング取得する
+- 起動時バックフィルは `FIRST_COMMENT_BACKFILL_CONCURRENCY` の並列数でVOD単位に処理し、処理済みVODは `archive_comment_backfill_status` でスキップする
+- コメントなしVODも処理済みとして記録し、次回起動時に再取得しない
 - GraphQL による VOD コメント取得は Twitch 公式 Helix API ではなく、Qiita 記事で紹介されている非公式寄りの方式のため、Twitch 側の仕様変更で失敗する可能性あり
-- ライブ保存分とアーカイブ保存分は Twitch stream id で重複排除し、後からバックフィルしても同じ配信の初コメを二重保存しない
+- ライブ保存分とアーカイブ保存分はユーザー名で統合し、アーカイブが後から古いコメントを見つけた場合は最古コメントへ更新する
+- 旧仕様で保存した「配信ごとの先頭コメント」は起動時に `first_comments` テーブルから削除し、新しいユーザー別初コメには混ぜない
 - SQLite DB は `data/first_comments.sqlite` が既定値で、ローカル状態のため Git 管理外
 
 ## プロジェクト構成
@@ -141,7 +144,7 @@ src/
 ```
 
 ## 更新履歴
-- **2026-05-25**: 初コメを SQLite に保存し、`!firstcomment` / `!firstcommentbackfill` を追加
+- **2026-05-25**: ユーザー別初コメを SQLite に保存し、起動時の並列アーカイブ自動取得と `!firstcomment` 本人表示を追加
 - **2026-05-11**: `!shoutout <ユーザー名>` デバッグコマンドと権限設定 `SHOUTOUT_ADMIN_USERS` を追加
 - **2026-05-11**: shoutout修正を `main` に反映。Git更新後の build と再起動クールダウン時の注意を追記
 - **2026-05-11**: レイド自動シャウトアウトを Bot/Moderator ユーザーコンテキストで実行するよう修正

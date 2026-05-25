@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { TwitchVodCommentsClient } from "../../src/first-comment/vod-comments-client";
 
 describe("TwitchVodCommentsClient", () => {
-  it("fetches the first comment from a VOD response", async () => {
+  it("fetches comments from a VOD response", async () => {
     const fetchFn = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => [
@@ -33,17 +33,19 @@ describe("TwitchVodCommentsClient", () => {
     });
     const client = new TwitchVodCommentsClient({ fetchFn });
 
-    const comment = await client.fetchFirstComment("123", {
+    const comments = await client.fetchComments("123", {
       videoCreatedAt: "2026-05-25T10:00:00.000Z",
     });
 
-    expect(comment).toEqual({
-      offsetSeconds: 7.25,
-      commentedAt: "2026-05-25T10:00:07.250Z",
-      authorName: "viewer",
-      authorDisplayName: "Viewer",
-      messageText: "初コメ",
-    });
+    expect(comments).toEqual([
+      {
+        offsetSeconds: 7.25,
+        commentedAt: "2026-05-25T10:00:07.250Z",
+        authorName: "viewer",
+        authorDisplayName: "Viewer",
+        messageText: "初コメ",
+      },
+    ]);
     expect(fetchFn).toHaveBeenCalledWith(
       "https://gql.twitch.tv/gql",
       expect.objectContaining({
@@ -74,9 +76,9 @@ describe("TwitchVodCommentsClient", () => {
     const client = new TwitchVodCommentsClient({ fetchFn });
 
     await expect(
-      client.fetchFirstComment("123", {
+      client.fetchComments("123", {
         videoCreatedAt: "2026-05-25T10:00:00.000Z",
       })
-    ).resolves.toBeNull();
+    ).resolves.toEqual([]);
   });
 });

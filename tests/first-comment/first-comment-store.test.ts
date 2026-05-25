@@ -4,7 +4,7 @@ import path from "path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   FirstCommentStore,
-  type FirstCommentRecord,
+  type UserFirstCommentRecord,
 } from "../../src/first-comment/first-comment-store";
 
 const tempDirs: string[] = [];
@@ -15,19 +15,20 @@ function makeDbPath(): string {
   return path.join(dir, "first-comments.sqlite");
 }
 
-function record(overrides: Partial<FirstCommentRecord> = {}): FirstCommentRecord {
+function userRecord(
+  overrides: Partial<UserFirstCommentRecord> = {}
+): UserFirstCommentRecord {
   return {
-    streamKey: "video:123",
-    streamId: "stream-1",
+    authorName: "viewer",
+    authorDisplayName: "Viewer",
+    firstCommentedAt: "2026-05-25T10:00:12.500Z",
+    messageText: "初コメです",
+    source: "archive",
     videoId: "123",
+    streamId: "stream-1",
     streamTitle: "テスト配信",
     streamStartedAt: "2026-05-25T10:00:00.000Z",
     commentOffsetSeconds: 12.5,
-    commentedAt: "2026-05-25T10:00:12.500Z",
-    authorName: "viewer",
-    authorDisplayName: "Viewer",
-    messageText: "初コメです",
-    source: "archive",
     ...overrides,
   };
 }
@@ -39,44 +40,97 @@ afterEach(() => {
 });
 
 describe("FirstCommentStore", () => {
-  it("stores and reads a first comment", () => {
+  it("clears legacy stream-first comments on initialization", () => {
+    const dbPath = makeDbPath();
+    const oldStore = new FirstCommentStore(dbPath);
+
+    oldStore.saveFirstComment({
+      streamKey: "video:legacy",
+      streamId: "stream-legacy",
+      videoId: "legacy",
+      streamTitle: "旧データ",
+      streamStartedAt: "2026-05-25T10:00:00.000Z",
+      commentOffsetSeconds: 1,
+      commentedAt: "2026-05-25T10:00:01.000Z",
+      authorName: "legacy",
+      authorDisplayName: "Legacy",
+      messageText: "配信先頭コメント",
+      source: "archive",
+    });
+    expect(oldStore.getByStreamKey("video:legacy")).not.toBeNull();
+    oldStore.close();
+
+    const store = new FirstCommentStore(dbPath);
+
+    expect(store.getByStreamKey("video:legacy")).toBeNull();
+
+    store.close();
+  });
+
+  it("tracks processed archive videos without a first comment", () => {
     const store = new FirstCommentStore(makeDbPath());
 
-    expect(store.saveFirstComment(record())).toBe(true);
-    expect(store.getByStreamKey("video:123")).toMatchObject({
-      streamKey: "video:123",
-      authorName: "viewer",
-      messageText: "初コメです",
-      source: "archive",
+    expect(store.isArchiveVideoProcessed("no-comment-video")).toBe(false);
+
+    store.markArchiveVideoProcessed({
+      videoId: "no-comment-video",
+      streamId: "stream-empty",
+      status: "no_comments",
+    });
+
+    expect(store.isArchiveVideoProcessed("no-comment-video")).toBe(true);
+    expect(store.getArchiveVideoStatus("no-comment-video")).toMatchObject({
+      videoId: "no-comment-video",
+      streamId: "stream-empty",
+      status: "no_comments",
     });
 
     store.close();
   });
 
-  it("keeps the first saved comment for the same stream", () => {
+  it("stores a user's first comment by login name", () => {
     const store = new FirstCommentStore(makeDbPath());
 
-    expect(store.saveFirstComment(record({ messageText: "最初" }))).toBe(true);
-    expect(store.saveFirstComment(record({ messageText: "二番目" }))).toBe(false);
+    expect(store.saveUserFirstComment(userRecord())).toBe(true);
 
-    expect(store.getByStreamKey("video:123")?.messageText).toBe("最初");
+    expect(store.getUserFirstComment("Viewer")).toMatchObject({
+      authorName: "viewer",
+      authorDisplayName: "Viewer",
+      messageText: "初コメです",
+    });
 
     store.close();
   });
 
-  it("deduplicates live and archive records by Twitch stream id", () => {
+  it("keeps the oldest user first comment when archives are processed out of order", () => {
     const store = new FirstCommentStore(makeDbPath());
 
     expect(
-      store.saveFirstComment(
-        record({ streamKey: "live:stream-1", videoId: null, source: "live" })
+      store.saveUserFirstComment(
+        userRecord({
+          firstCommentedAt: "2026-05-25T10:00:00.000Z",
+          messageText: "新しい",
+        })
       )
     ).toBe(true);
-    expect(store.saveFirstComment(record({ streamKey: "video:123" }))).toBe(
-      false
-    );
+    expect(
+      store.saveUserFirstComment(
+        userRecord({
+          firstCommentedAt: "2026-05-20T10:00:00.000Z",
+          messageText: "古い",
+        })
+      )
+    ).toBe(true);
+    expect(
+      store.saveUserFirstComment(
+        userRecord({
+          firstCommentedAt: "2026-05-26T10:00:00.000Z",
+          messageText: "さらに新しい",
+        })
+      )
+    ).toBe(false);
 
-    expect(store.getByStreamId("stream-1")?.streamKey).toBe("live:stream-1");
+    expect(store.getUserFirstComment("viewer")?.messageText).toBe("古い");
 
     store.close();
   });

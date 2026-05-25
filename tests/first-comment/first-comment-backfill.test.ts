@@ -45,15 +45,17 @@ describe("backfillArchivedFirstComments", () => {
       videos: videos(),
       store,
       commentsClient: {
-        async fetchFirstComment(videoId) {
-          if (videoId === "222") return null;
-          return {
-            offsetSeconds: 3,
-            commentedAt: "2026-05-25T10:00:03.000Z",
-            authorName: "viewer",
-            authorDisplayName: "Viewer",
-            messageText: "アーカイブ初コメ",
-          };
+        async fetchComments(videoId) {
+          if (videoId === "222") return [];
+          return [
+            {
+              offsetSeconds: 3,
+              commentedAt: "2026-05-25T10:00:03.000Z",
+              authorName: "viewer",
+              authorDisplayName: "Viewer",
+              messageText: "アーカイブ初コメ",
+            },
+          ];
         },
       },
     });
@@ -64,10 +66,89 @@ describe("backfillArchivedFirstComments", () => {
       skipped: 0,
       noComments: 1,
       failed: 0,
+      commentsScanned: 1,
     });
-    expect(store.getByStreamKey("video:111")?.messageText).toBe(
+    expect(store.getUserFirstComment("viewer")?.messageText).toBe(
       "アーカイブ初コメ"
     );
+
+    store.close();
+  });
+
+  it("does not fetch archive videos that were already processed", async () => {
+    const store = makeStore();
+    store.markArchiveVideoProcessed({
+      videoId: "111",
+      streamId: "stream-111",
+      status: "no_comments",
+    });
+    const fetched: string[] = [];
+
+    const result = await backfillArchivedFirstComments({
+      videos: videos(),
+      store,
+      commentsClient: {
+        async fetchComments(videoId) {
+          fetched.push(videoId);
+          return [];
+        },
+      },
+    });
+
+    expect(fetched).toEqual(["222"]);
+    expect(result).toEqual({
+      processed: 2,
+      saved: 0,
+      skipped: 1,
+      noComments: 1,
+      failed: 0,
+      commentsScanned: 0,
+    });
+
+    store.close();
+  });
+
+  it("fetches archive comments concurrently", async () => {
+    const store = makeStore();
+    let activeFetches = 0;
+    let maxActiveFetches = 0;
+
+    async function* manyVideos(): AsyncIterable<ArchivedVideoSummary> {
+      for (let index = 1; index <= 4; index++) {
+        yield {
+          id: String(index),
+          streamId: `stream-${index}`,
+          title: `配信${index}`,
+          creationDate: new Date("2026-05-25T10:00:00.000Z"),
+        };
+      }
+    }
+
+    const result = await backfillArchivedFirstComments({
+      videos: manyVideos(),
+      store,
+      concurrency: 2,
+      commentsClient: {
+        async fetchComments(videoId) {
+          activeFetches++;
+          maxActiveFetches = Math.max(maxActiveFetches, activeFetches);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          activeFetches--;
+          return [
+            {
+              offsetSeconds: Number(videoId),
+              commentedAt: "2026-05-25T10:00:03.000Z",
+              authorName: `viewer${videoId}`,
+              authorDisplayName: `Viewer${videoId}`,
+              messageText: `初コメ${videoId}`,
+            },
+          ];
+        },
+      },
+    });
+
+    expect(maxActiveFetches).toBe(2);
+    expect(result.saved).toBe(4);
 
     store.close();
   });
