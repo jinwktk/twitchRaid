@@ -34,24 +34,9 @@ import {
   randomMenu,
 } from "./commands/random-commands";
 import { restartProcess } from "./utils/process-restart";
-import { FirstCommentStore } from "./first-comment/first-comment-store";
-import { TwitchVodCommentsClient } from "./first-comment/vod-comments-client";
-import {
-  runStartupFirstCommentBackfill,
-} from "./first-comment/first-comment-backfill";
-import {
-  formatFirstComment,
-  formatFirstCommentBackfillResult,
-} from "./first-comment/first-comment-format";
 
 
 const MANGA_DELETE_DELAY_SECONDS = 10;
-
-interface LiveFirstCommentContext {
-  streamId: string;
-  title: string;
-  startedAt: string;
-}
 
 export class Bot {
   private readonly config: Config;
@@ -68,11 +53,7 @@ export class Bot {
   private readonly recastNotifiers: Record<string, ClipRecastNotifier>;
   private readonly commandCooldownState: CommandCooldownState;
   private readonly commentSpeedMeter: CommentSpeedMeter;
-  private readonly firstCommentStore: FirstCommentStore;
   private readonly clipHistoryStore: ClipHistoryStore;
-  private readonly vodCommentsClient: TwitchVodCommentsClient;
-  private currentLiveFirstCommentContext: LiveFirstCommentContext | null = null;
-  private startupFirstCommentBackfillStarted = false;
 
   // Keep-alive timers
   private keepAliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -103,9 +84,7 @@ export class Bot {
       myclip: config.lastMyclipTime,
     });
     this.commentSpeedMeter = new CommentSpeedMeter(60);
-    this.firstCommentStore = new FirstCommentStore(config.firstCommentDbPath);
     this.clipHistoryStore = new ClipHistoryStore(config.clipHistoryPath);
-    this.vodCommentsClient = new TwitchVodCommentsClient();
 
     // コメント状態復元
     const [totalCount, streamStartedAt] = loadCommentState(config.envFile);
@@ -141,7 +120,6 @@ export class Bot {
 
     // API Client
     this.apiClient = new ApiClient({ authProvider: this.authProvider });
-    this._startStartupFirstCommentBackfill();
 
     // Chat Client
     this.chatClient = new ChatClient({
@@ -163,7 +141,6 @@ export class Bot {
     if (this.commentSaveTimer) clearTimeout(this.commentSaveTimer);
     // 停止前にコメント状態を即座に保存
     this._flushCommentState();
-    this.firstCommentStore.close();
     this.chatClient.quit();
   }
 
@@ -202,7 +179,6 @@ export class Bot {
       } else {
         const now = Date.now() / 1000;
         this.commentSpeedMeter.record(now);
-        this._saveLiveFirstCommentIfNeeded(user, text, msg);
         this._debouncedSaveCommentState();
       }
     });
@@ -254,9 +230,6 @@ export class Bot {
       case "commentcount":
         await this._handleCommentCountCommand(channel);
         break;
-      case "firstcomment":
-        await this._handleFirstCommentCommand(channel, user);
-        break;
       case "clip":
         await this._handleClipCommand(channel, user, "clip");
         break;
@@ -295,14 +268,6 @@ export class Bot {
   private async _handleCommentCountCommand(channel: string): Promise<void> {
     const totalCount = this.commentSpeedMeter.totalCount();
     await this.chatClient.say(channel, formatTotalCommentCount(totalCount));
-  }
-
-  private async _handleFirstCommentCommand(
-    channel: string,
-    user: string
-  ): Promise<void> {
-    const record = this.firstCommentStore.getUserFirstComment(user);
-    await this.chatClient.say(channel, formatFirstComment(record, user));
   }
 
   private async _handleClipCommand(
@@ -587,72 +552,6 @@ export class Bot {
     );
   }
 
-  private _saveLiveFirstCommentIfNeeded(
-    user: string,
-    text: string,
-    msg: ChatMessage
-  ): void {
-    const context = this.currentLiveFirstCommentContext;
-    if (!context) return;
-
-    const commentedAt = msg.date.toISOString();
-    const offsetSeconds = Math.max(
-      0,
-      (msg.date.getTime() - new Date(context.startedAt).getTime()) / 1000
-    );
-    const saved = this.firstCommentStore.saveUserFirstComment({
-      authorName: user,
-      authorDisplayName: msg.userInfo.displayName || user,
-      firstCommentedAt: commentedAt,
-      messageText: text.trim(),
-      source: "live",
-      videoId: null,
-      streamId: context.streamId,
-      streamTitle: context.title,
-      streamStartedAt: context.startedAt,
-      commentOffsetSeconds: offsetSeconds,
-    });
-
-    if (saved) {
-      logger.info(
-        `初コメ保存: streamId=${context.streamId}, user=${user}, message=${text}`
-      );
-    }
-  }
-
-  private _startStartupFirstCommentBackfill(): void {
-    if (this.startupFirstCommentBackfillStarted) return;
-    this.startupFirstCommentBackfillStarted = true;
-
-    if (!this.config.firstCommentArchiveBackfillEnabled) {
-      logger.info("初コメアーカイブバックフィルは無効です。ライブコメントのみ保存します。");
-      return;
-    }
-
-    void (async () => {
-      try {
-        logger.info(
-          `初コメ自動バックフィル開始: concurrency=${this.config.firstCommentBackfillConcurrency}, force_full_rescan=${this.config.firstCommentForceFullRescan}`
-        );
-        const result = await runStartupFirstCommentBackfill({
-          apiClient: this.apiClient,
-          broadcasterId: this.config.twitchBroadcasterId,
-          store: this.firstCommentStore,
-          commentsClient: this.vodCommentsClient,
-          concurrency: this.config.firstCommentBackfillConcurrency,
-          forceRescan: this.config.firstCommentForceFullRescan,
-        });
-        logger.info(formatFirstCommentBackfillResult(result));
-        if (this.config.firstCommentForceFullRescan) {
-          this.config.updateFirstCommentForceFullRescan(false);
-          logger.info("初コメ全アーカイブ再走査フラグをOFFにしました。");
-        }
-      } catch (e) {
-        logger.error(`❌ 初コメ自動バックフィル失敗: ${e}`);
-      }
-    })();
-  }
-
   private _startKeepAlive(): void {
     if (this.keepAliveTimer) clearInterval(this.keepAliveTimer);
 
@@ -705,12 +604,6 @@ export class Bot {
         );
 
         if (stream) {
-          this.currentLiveFirstCommentContext = {
-            streamId: stream.id,
-            title: stream.title,
-            startedAt: stream.startDate.toISOString(),
-          };
-
           if (!this.streamLive) {
             logger.info(`🎥 配信が開始されました！タイトル: ${stream.title}`);
             const startedAt = stream.startDate.getTime() / 1000;
@@ -738,7 +631,6 @@ export class Bot {
             saveCommentState(this.config.envFile, 0, 0);
             this.streamLive = false;
           }
-          this.currentLiveFirstCommentContext = null;
         }
 
         errorCount = 0;

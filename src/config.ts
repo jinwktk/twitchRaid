@@ -37,11 +37,7 @@ export class Config {
   readonly restartFile: string;
   readonly updateCheckInterval: number;
   readonly restartCheckInterval: number;
-  readonly firstCommentDbPath: string;
   readonly clipHistoryPath: string;
-  readonly firstCommentBackfillConcurrency: number;
-  readonly firstCommentForceFullRescan: boolean;
-  readonly firstCommentArchiveBackfillEnabled: boolean;
 
   // 特別ユーザー設定
   readonly clipSpecialUsers: string[];
@@ -79,21 +75,9 @@ export class Config {
     this.restartFile = path.resolve(BASE_DIR, "last_restart.txt");
     this.updateCheckInterval = 600; // 10分
     this.restartCheckInterval = 300; // 5分
-    this.firstCommentDbPath = path.resolve(
-      BASE_DIR,
-      env["TWITCH_FIRST_COMMENT_DB_PATH"] ?? "data/first_comments.sqlite"
-    );
     this.clipHistoryPath = path.resolve(
       BASE_DIR,
       env["TWITCH_CLIP_HISTORY_PATH"] ?? "data/clip_history.json"
-    );
-    this.firstCommentBackfillConcurrency =
-      parseInt(env["FIRST_COMMENT_BACKFILL_CONCURRENCY"] ?? "8", 10) || 8;
-    this.firstCommentArchiveBackfillEnabled = parseEnabledFlag(
-      env["FIRST_COMMENT_ARCHIVE_BACKFILL_ENABLED"] ?? "0"
-    );
-    this.firstCommentForceFullRescan = parseEnabledFlag(
-      env["FIRST_COMMENT_FORCE_FULL_RESCAN"] ?? "0"
     );
 
     // 特別ユーザー
@@ -180,12 +164,6 @@ export class Config {
     const envValue = toEnvFlag(enabled);
     process.env["MANGA_COMMAND_ENABLED"] = envValue;
     updateEnvFile(this.envFile, { MANGA_COMMAND_ENABLED: envValue });
-  }
-
-  updateFirstCommentForceFullRescan(enabled: boolean): void {
-    const envValue = toEnvFlag(enabled);
-    process.env["FIRST_COMMENT_FORCE_FULL_RESCAN"] = envValue;
-    updateEnvFile(this.envFile, { FIRST_COMMENT_FORCE_FULL_RESCAN: envValue });
   }
 
   getLastStreamTitle(): string {

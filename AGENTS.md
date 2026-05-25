@@ -13,12 +13,8 @@
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `process_restart.py`: 同一コンソール内でのプロセス再起動と、`execv` 失敗時フォールバック起動を担当。
 - `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトと `!shoutout` 手動デバッグコマンドの権限判定・対象ユーザー正規化を担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。
-- `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の候補取得とランダム選択を担当。Twitch API の単一ページング上限を避けるため、30日単位の日付窓でページング取得し、高密度な期間は再分割する。
+- `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の候補取得とランダム選択を担当。コマンド応答速度を優先し、Twurple のページング取得を最大1000件で打ち切る。
 - `src/commands/clip-history.ts`: `!clip` / `!myclip:<ユーザー>` ごとの直近表示クリップIDを JSON に保存し、同じクリップの連続再表示を避ける。
-- `src/first-comment/first-comment-store.ts`: ユーザー別初コメを SQLite (`user_first_comments` テーブル) に保存・取得する。旧 `first_comments` の配信先頭コメントと `source='archive'` のユーザー初コメ、アーカイブ処理状態は初期化時に削除。
-- `src/first-comment/vod-comments-client.ts`: Twitch VOD のコメントを GraphQL `VideoCommentsByOffsetOrCursor` からページング取得する。公式 Helix ではないため仕様変更に注意。
-- `src/first-comment/first-comment-backfill.ts`: Helix archived videos 一覧と VODコメント全件取得をつなぎ、VOD単位の並列処理でユーザー別初コメを SQLite へバックフィルする。
-- `src/first-comment/first-comment-format.ts`: `!firstcomment` と自動バックフィルログの出力文言を整形。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
 - `.env` (未コミット想定): Twitch と Discord の認証情報および内部ステート (`LAST_CLIP_TIME` 等) を保持。
@@ -34,9 +30,8 @@
 - `tests/test_token_refresh_policy.py`: トークンリフレッシュ失敗時のフォールバック判定テスト。
 - `tests/test_process_restart.py`: 同一コンソール再起動とフォールバック経路のユニットテスト。
 - `tests/commands/shoutout.test.ts`: TypeScript版シャウトアウトが Bot/Moderator ユーザーコンテキストで実行されること、手動コマンド権限判定、対象ユーザー名正規化を検証。
-- `tests/commands/clip.test.ts`: TypeScript版クリップ取得がページング日付窓を使うこと、直近履歴を避けること、`myclip` の作成者フィルタを検証。
+- `tests/commands/clip.test.ts`: TypeScript版クリップ取得が高速ページング上限を守ること、直近履歴を避けること、`myclip` の作成者フィルタを検証。
 - `tests/commands/clip-history.test.ts`: クリップ表示履歴 JSON の重複排除、件数上限、コマンド/ユーザー別分離を検証。
-- `tests/first-comment/`: 初コメ SQLite 保存、VODコメントパース、アーカイブバックフィル、チャット表示文言を検証。
 
 ## ビルド・テスト・開発コマンド
 - `python -m venv venv && source venv/bin/activate`: Linux/Mac の仮想環境作成と有効化。Windows は `venv\Scripts\activate` を使用。
@@ -45,7 +40,6 @@
 - `pytest -q`: テストが追加された後の標準実行。CI 導入前でもローカルで失敗確認を徹底。
 - `npm test`: TypeScript版の Vitest ユニットテストを実行。
 - `npm run build`: TypeScript版を `dist/` へビルドし、型エラーを確認。
-- Node.js は `node:sqlite` を使用するため 22.5 以上が必要。
 
 ## コーディングスタイルと命名規約
 - Python 3 系、PEP 8 準拠、インデントはスペース 4 個。関数名・変数名は `snake_case`、クラス名は `PascalCase`。
@@ -66,7 +60,6 @@
 
 ## 設定とセキュリティ Tips
 - `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS` を定義。更新は `Config.update_*` が担当。
-- 初コメ機能は任意で `TWITCH_FIRST_COMMENT_DB_PATH` を使用。未設定時は `data/first_comments.sqlite` を使う。過去アーカイブ取得は `FIRST_COMMENT_ARCHIVE_BACKFILL_ENABLED` 未設定時は無効。
 - クリップ重複回避履歴は任意で `TWITCH_CLIP_HISTORY_PATH` を使用。未設定時は `data/clip_history.json` を使い、ローカル状態として Git 管理外。
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
@@ -110,6 +103,12 @@
 - 実装: `src/bot.ts` でクリップ送信後に履歴を記録し、選択時に履歴を渡すよう変更。`src/config.ts` に `TWITCH_CLIP_HISTORY_PATH` を追加
 - ドキュメント更新: `readme.md` にクリップ取得範囲、API制約、履歴ファイルを追記
 - 検証: `npm test` で 71 件すべて通過、`npm run build` / `npm run lint` / `python -m pytest -q` 通過
+- 要望: 初コメ保存を削除し、`!clip` / `!myclip` が30秒程度かかる問題を解消したい
+- 原因: 日付窓ごとの全期間ページングをコマンド実行時に毎回行っていたため、チャット応答として重すぎた
+- 実装: `src/bot.ts` から通常コメント受信時の初コメ保存、起動時バックフィル、`!firstcomment` コマンド、初コメDB close を削除
+- 実装: `src/first-comment/` と `tests/first-comment/` を削除し、`src/config.ts` から `TWITCH_FIRST_COMMENT_DB_PATH` / `FIRST_COMMENT_*` 設定を削除
+- 実装: `src/commands/clip.ts` は日付窓の全期間走査をやめ、Twurple のページング取得を最大1000件で打ち切る高速経路へ変更。表示履歴による重複回避は維持
+- ドキュメント更新: `readme.md` から初コメ機能説明と `!firstcomment` を削除し、clip取得方針を高速ページングへ更新
 
 ## 2026-05-11 作業ログ
 - 要望: `!shoutout` で指定ユーザーを応援するテストコマンドを作り、実行権限を付けたい

@@ -60,21 +60,14 @@ describe("clipHistoryKey", () => {
 });
 
 describe("selectClip", () => {
-  it("scans paginated date windows instead of only the first 100 clips", async () => {
-    const getClipsForBroadcasterPaginated = vi.fn(
-      (_broadcasterId: string, filter: { startDate?: string }) => {
-        if (filter.startDate === "2024-01-01T00:00:00.000Z") {
-          return iterableClips([makeClip("seen")]);
-        }
-        return iterableClips([makeClip("fresh")]);
-      }
+  it("uses paginated fetching and avoids the old first-100 API path", async () => {
+    const getClipsForBroadcasterPaginated = vi.fn(() =>
+      iterableClips([makeClip("seen"), makeClip("fresh")])
     );
-    const getClipsForBroadcaster = vi.fn();
 
     const selected = await selectClip(
       {
         clips: {
-          getClipsForBroadcaster,
           getClipsForBroadcasterPaginated,
         },
         users: {},
@@ -83,20 +76,43 @@ describe("selectClip", () => {
       undefined,
       undefined,
       {
-        oldestClipDate: new Date("2024-01-01T00:00:00.000Z"),
-        now: new Date("2024-03-01T00:00:00.000Z"),
-        windowDays: 31,
         recentClipIds: ["seen"],
         random: () => 0,
       }
     );
 
-    expect(getClipsForBroadcaster).not.toHaveBeenCalled();
-    expect(getClipsForBroadcasterPaginated).toHaveBeenCalledTimes(2);
+    expect(getClipsForBroadcasterPaginated).toHaveBeenCalledWith(
+      "broadcaster-id"
+    );
     expect(selected?.id).toBe("fresh");
   });
 
-  it("filters myclip candidates by the resolved creator id across all windows", async () => {
+  it("limits the number of fetched clips to keep chat commands responsive", async () => {
+    const getClipsForBroadcasterPaginated = vi.fn(() =>
+      iterableClips([makeClip("a"), makeClip("b"), makeClip("c")])
+    );
+
+    const selected = await selectClip(
+      {
+        clips: {
+          getClipsForBroadcasterPaginated,
+        },
+        users: {},
+      },
+      "broadcaster-id",
+      undefined,
+      undefined,
+      {
+        maxFetch: 2,
+        recentClipIds: ["a"],
+        random: () => 0,
+      }
+    );
+
+    expect(selected?.id).toBe("b");
+  });
+
+  it("filters myclip candidates by the resolved creator id", async () => {
     const getClipsForBroadcasterPaginated = vi.fn(() =>
       iterableClips([
         makeClip("other", "creator-other", "Other"),
@@ -117,8 +133,6 @@ describe("selectClip", () => {
       undefined,
       "Viewer",
       {
-        oldestClipDate: new Date("2024-01-01T00:00:00.000Z"),
-        now: new Date("2024-01-15T00:00:00.000Z"),
         random: () => 0,
       }
     );
