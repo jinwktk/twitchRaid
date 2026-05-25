@@ -13,6 +13,10 @@
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `process_restart.py`: 同一コンソール内でのプロセス再起動と、`execv` 失敗時フォールバック起動を担当。
 - `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトと `!shoutout` 手動デバッグコマンドの権限判定・対象ユーザー正規化を担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。
+- `src/first-comment/first-comment-store.ts`: 初コメを SQLite (`first_comments` テーブル) に保存・取得する。stream id でライブ保存分とアーカイブ保存分を重複排除。
+- `src/first-comment/vod-comments-client.ts`: Twitch VOD の先頭コメントを GraphQL `VideoCommentsByOffsetOrCursor` から取得する。公式 Helix ではないため仕様変更に注意。
+- `src/first-comment/first-comment-backfill.ts`: Helix archived videos 一覧と VOD コメント取得をつなぎ、全アーカイブの初コメを SQLite へバックフィルする。
+- `src/first-comment/first-comment-format.ts`: `!firstcomment` と `!firstcommentbackfill` のチャット出力文言を整形。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
 - `.env` (未コミット想定): Twitch と Discord の認証情報および内部ステート (`LAST_CLIP_TIME` 等) を保持。
@@ -28,6 +32,7 @@
 - `tests/test_token_refresh_policy.py`: トークンリフレッシュ失敗時のフォールバック判定テスト。
 - `tests/test_process_restart.py`: 同一コンソール再起動とフォールバック経路のユニットテスト。
 - `tests/commands/shoutout.test.ts`: TypeScript版シャウトアウトが Bot/Moderator ユーザーコンテキストで実行されること、手動コマンド権限判定、対象ユーザー名正規化を検証。
+- `tests/first-comment/`: 初コメ SQLite 保存、VODコメントパース、アーカイブバックフィル、チャット表示文言を検証。
 
 ## ビルド・テスト・開発コマンド
 - `python -m venv venv && source venv/bin/activate`: Linux/Mac の仮想環境作成と有効化。Windows は `venv\Scripts\activate` を使用。
@@ -36,6 +41,7 @@
 - `pytest -q`: テストが追加された後の標準実行。CI 導入前でもローカルで失敗確認を徹底。
 - `npm test`: TypeScript版の Vitest ユニットテストを実行。
 - `npm run build`: TypeScript版を `dist/` へビルドし、型エラーを確認。
+- Node.js は `node:sqlite` を使用するため 22.5 以上が必要。
 
 ## コーディングスタイルと命名規約
 - Python 3 系、PEP 8 準拠、インデントはスペース 4 個。関数名・変数名は `snake_case`、クラス名は `PascalCase`。
@@ -56,9 +62,23 @@
 
 ## 設定とセキュリティ Tips
 - `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS` を定義。更新は `Config.update_*` が担当。
+- 初コメ機能は任意で `TWITCH_FIRST_COMMENT_DB_PATH` と `TWITCH_GQL_CLIENT_ID` を使用。未設定時は `data/first_comments.sqlite` と既定 GraphQL Client-ID を使う。
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
+
+## 2026-05-25 作業ログ
+- 要望: Qiita記事の GraphQL 方式を使い、過去アーカイブから初コメの日時・内容をSQLiteへ保存し、今後の配信ではリアルタイムに初コメを保存して出力したい
+- 調査: Qiita記事は Twitch公式 Helix ではなく `https://gql.twitch.tv/gql` の `VideoCommentsByOffsetOrCursor` を使う方式で、記事内にも公式推奨ではない旨があるため、VOD取得部分を `src/first-comment/vod-comments-client.ts` に隔離
+- TDD: `tests/first-comment/` に SQLite保存、VOD先頭コメント抽出、バックフィル集計、チャット表示文言のテストを先に追加し、未実装による失敗を確認
+- 実装: `src/first-comment/first-comment-store.ts` を追加し、`first_comments` テーブルへ stream key / stream id / video id / タイトル / コメント日時 / 投稿者 / 本文 / source を保存
+- 実装: `src/first-comment/first-comment-backfill.ts` を追加し、Twurple の `getVideosByUserPaginated(..., { type: "archive" })` から全アーカイブを走査して、各VODの先頭コメントのみ保存
+- 実装: `src/bot.ts` に `!firstcomment` と `!firstcommentbackfill` を追加。バックフィルは broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ実行可能
+- 実装: 今後の配信では `ChatClient.onMessage` の通常コメント受信時に、現在の Twitch stream id ごとに最初の1件だけ SQLite へ保存
+- 実装: 配信監視を起動直後にも実行し、配信開始済みの状態でBotを起動した場合でも stream id / 開始時刻を早めに取得するよう変更
+- 設定: `TWITCH_FIRST_COMMENT_DB_PATH` と `TWITCH_GQL_CLIENT_ID` を任意設定として追加し、既定DBを `data/first_comments.sqlite` に設定。SQLite DB は Git 管理外
+- 環境: `node:sqlite` 使用のため Node.js 要件を 22.5 以上へ更新
+- 検証: `npm test -- --run tests/first-comment` で 8 件すべて通過。`npm run build` 通過
 
 ## 2026-05-11 作業ログ
 - 要望: `!shoutout` で指定ユーザーを応援するテストコマンドを作り、実行権限を付けたい

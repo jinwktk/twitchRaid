@@ -37,6 +37,7 @@ export class Config {
   readonly restartFile: string;
   readonly updateCheckInterval: number;
   readonly restartCheckInterval: number;
+  readonly firstCommentDbPath: string;
 
   // 特別ユーザー設定
   readonly clipSpecialUsers: string[];
@@ -74,6 +75,10 @@ export class Config {
     this.restartFile = path.resolve(BASE_DIR, "last_restart.txt");
     this.updateCheckInterval = 600; // 10分
     this.restartCheckInterval = 300; // 5分
+    this.firstCommentDbPath = path.resolve(
+      BASE_DIR,
+      env["TWITCH_FIRST_COMMENT_DB_PATH"] ?? "data/first_comments.sqlite"
+    );
 
     // 特別ユーザー
     const specialUsersStr = env["CLIP_SPECIAL_USERS"] ?? "nyme_ia,rukalun";

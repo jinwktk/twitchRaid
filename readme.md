@@ -29,9 +29,11 @@ npm run dev         # ts-nodeで開発実行
 - トークン検証時は 401 Unauthorized の場合のみ再取得を実行します
 - 起動時の有効トークン検証と再取得成功時に、付与済みスコープ一覧を `[ECHO]` ログとして出力します
 - `SHOUTOUT_ADMIN_USERS` に `!shoutout` を実行できる追加ユーザーをカンマ区切りで設定できます（未設定時は `rukalun`）
+- `TWITCH_FIRST_COMMENT_DB_PATH` に初コメ保存用 SQLite DB のパスを設定できます（未設定時は `data/first_comments.sqlite`）
+- `TWITCH_GQL_CLIENT_ID` で VOD コメント取得用 GraphQL Client-ID を上書きできます。未設定時は Twitch Web の既知 Client-ID を使用します
 
 ## 技術スタック
-- **ランタイム**: Node.js 20+
+- **ランタイム**: Node.js 22.5+（`node:sqlite` を使用）
 - **言語**: TypeScript 5.7
 - **Twitchライブラリ**: @twurple/api, @twurple/auth, @twurple/chat
 - **ログ**: winston + winston-daily-rotate-file
@@ -56,6 +58,8 @@ npm run dev         # ts-nodeで開発実行
 | `!shoutout <ユーザー名>` | 指定ユーザーへ手動 shoutout を実行 | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ |
 | `!speed` | コメント風速を表示（直近60秒＋配信全体平均） | コマンドは計測対象外 |
 | `!commentcount` | 配信開始からの累計コメント件数を表示 | 再起動後も引き継ぎ |
+| `!firstcomment` | 保存済みの初コメ日時・ユーザー・内容を表示 | 配信中は現在配信、未配信時は最新保存分 |
+| `!firstcommentbackfill` | アーカイブVODから初コメをSQLiteへ取り込み | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ |
 
 ## .env保護
 - `.env` の更新は `env-store.ts` で実行し、更新前に `.env.backup` を作成
@@ -85,6 +89,13 @@ npm run dev         # ts-nodeで開発実行
 - クールダウン終了時に Bot がチャットへ「リキャスト復帰」コメントを自動送信
 - `!myclip` は `!clip` とは独立したクールダウン管理
 
+## 初コメ保存
+- 今後の配信は通常コメント受信時に、現在の Twitch stream id ごとに最初の1件だけ `first_comments` テーブルへ保存
+- アーカイブ分は `!firstcommentbackfill` で Helix の archived videos 一覧を取得し、各VODの先頭コメントだけを GraphQL `VideoCommentsByOffsetOrCursor` から取り込む
+- GraphQL による VOD コメント取得は Twitch 公式 Helix API ではなく、Qiita 記事で紹介されている非公式寄りの方式のため、Twitch 側の仕様変更で失敗する可能性あり
+- ライブ保存分とアーカイブ保存分は Twitch stream id で重複排除し、後からバックフィルしても同じ配信の初コメを二重保存しない
+- SQLite DB は `data/first_comments.sqlite` が既定値で、ローカル状態のため Git 管理外
+
 ## プロジェクト構成
 
 ```
@@ -105,6 +116,11 @@ src/
 │   ├── manga.ts
 │   ├── shoutout.ts
 │   └── random-commands.ts
+├── first-comment/         # 初コメ保存・VODバックフィル
+│   ├── first-comment-store.ts
+│   ├── first-comment-backfill.ts
+│   ├── first-comment-format.ts
+│   └── vod-comments-client.ts
 ├── chat/                 # チャット機能
 │   ├── command-cooldown-state.ts
 │   ├── comment-speed-meter.ts
@@ -125,6 +141,7 @@ src/
 ```
 
 ## 更新履歴
+- **2026-05-25**: 初コメを SQLite に保存し、`!firstcomment` / `!firstcommentbackfill` を追加
 - **2026-05-11**: `!shoutout <ユーザー名>` デバッグコマンドと権限設定 `SHOUTOUT_ADMIN_USERS` を追加
 - **2026-05-11**: shoutout修正を `main` に反映。Git更新後の build と再起動クールダウン時の注意を追記
 - **2026-05-11**: レイド自動シャウトアウトを Bot/Moderator ユーザーコンテキストで実行するよう修正
