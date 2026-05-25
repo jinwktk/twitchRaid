@@ -1,5 +1,6 @@
 import type { HelixClip } from "@twurple/api";
 import logger from "../utils/logger";
+import type { ClipCacheStore } from "./clip-cache-store";
 
 export interface ClipInfo {
   url: string;
@@ -74,6 +75,19 @@ export function clipHistoryKey(
     return `myclip:${(creatorName ?? "").trim().toLowerCase()}`;
   }
   return "clip";
+}
+
+export function selectCachedClip(
+  store: ClipCacheStore,
+  commandName: ClipCommandName,
+  creatorName?: string,
+  random: () => number = Math.random
+): ClipInfo | null {
+  return store.selectRandomClip({
+    historyKey: clipHistoryKey(commandName, creatorName),
+    creatorName,
+    random,
+  });
 }
 
 async function fetchBroadcasterClips(

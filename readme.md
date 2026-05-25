@@ -29,10 +29,10 @@ npm run dev         # ts-nodeで開発実行
 - トークン検証時は 401 Unauthorized の場合のみ再取得を実行します
 - 起動時の有効トークン検証と再取得成功時に、付与済みスコープ一覧を `[ECHO]` ログとして出力します
 - `SHOUTOUT_ADMIN_USERS` に `!shoutout` を実行できる追加ユーザーをカンマ区切りで設定できます（未設定時は `rukalun`）
-- `TWITCH_CLIP_HISTORY_PATH` に `!clip` / `!myclip` の表示履歴 JSON パスを設定できます（未設定時は `data/clip_history.json`）
+- `TWITCH_CLIP_CACHE_DB_PATH` に `!clip` / `!myclip` のクリップキャッシュ SQLite DB パスを設定できます（未設定時は `data/clips.sqlite`）
 
 ## 技術スタック
-- **ランタイム**: Node.js 22.5+
+- **ランタイム**: Node.js 22.5+（`node:sqlite` を使用）
 - **言語**: TypeScript 5.7
 - **Twitchライブラリ**: @twurple/api, @twurple/auth, @twurple/chat
 - **ログ**: winston + winston-daily-rotate-file
@@ -85,9 +85,11 @@ npm run dev         # ts-nodeで開発実行
 - 一般ユーザーは 30 分のクールダウンが適用
 - クールダウン終了時に Bot がチャットへ「リキャスト復帰」コメントを自動送信
 - `!myclip` は `!clip` とは独立したクールダウン管理
-- クリップ候補は Twurple のページング取得で最大1000件まで走査し、旧実装の上位100件固定より広く見る
-- コマンド応答速度を優先し、全期間の日付窓分割走査はチャットコマンド実行時には行わない
-- 直近に表示したクリップIDは `data/clip_history.json` に保存し、`!clip` 全体と `!myclip:<ユーザー>` ごとに重複を避ける。全候補を出し切った場合のみ履歴内のクリップも再候補に戻す
+- 起動後に `data/clips.sqlite` へ全期間クリップをバックグラウンド同期する
+- 同期済み期間は `clip_scan_windows` に保存し、再起動後は取得済み期間をスキップ
+- 直近1時間のクリップは起動直後と5分ごとに再同期し、起動中に作られたクリップも候補へ入れる
+- `!clip` / `!myclip` 実行時はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ最大200件の軽いAPIフォールバックを使う
+- 直近に表示したクリップIDはSQLite内の `clip_history` に保存し、`!clip` 全体と `!myclip:<ユーザー>` ごとに重複を避ける。全候補を出し切った場合のみ履歴内のクリップも再候補に戻す
 
 ## プロジェクト構成
 
@@ -105,8 +107,9 @@ src/
 │   └── auth-scope-sets.ts
 ├── commands/             # チャットコマンド
 │   ├── age.ts
+│   ├── clip-cache-store.ts
+│   ├── clip-cache-sync.ts
 │   ├── clip.ts
-│   ├── clip-history.ts
 │   ├── manga.ts
 │   ├── shoutout.ts
 │   └── random-commands.ts
@@ -130,6 +133,7 @@ src/
 ```
 
 ## 更新履歴
+- **2026-05-25**: クリップ全期間走査をSQLiteキャッシュ化し、起動中の新規クリップは直近同期で反映
 - **2026-05-25**: 初コメ保存と `!firstcomment` を削除。`!clip` / `!myclip` を高速ページング最大1000件へ変更
 - **2026-05-25**: `!clip` / `!myclip` を日付窓ページング取得へ変更し、表示履歴で重複をなるべく回避
 - **2026-05-25**: ユーザー別初コメを SQLite に保存し、`!firstcomment` 本人表示を追加。過去アーカイブ抽出は無効化
