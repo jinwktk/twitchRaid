@@ -616,6 +616,11 @@ export class Bot {
     if (this.startupFirstCommentBackfillStarted) return;
     this.startupFirstCommentBackfillStarted = true;
 
+    if (!this.config.firstCommentArchiveBackfillEnabled) {
+      logger.info("初コメアーカイブバックフィルは無効です。ライブコメントのみ保存します。");
+      return;
+    }
+
     void (async () => {
       try {
         logger.info(

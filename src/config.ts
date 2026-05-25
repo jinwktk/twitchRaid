@@ -40,6 +40,7 @@ export class Config {
   readonly firstCommentDbPath: string;
   readonly firstCommentBackfillConcurrency: number;
   readonly firstCommentForceFullRescan: boolean;
+  readonly firstCommentArchiveBackfillEnabled: boolean;
 
   // 特別ユーザー設定
   readonly clipSpecialUsers: string[];
@@ -83,8 +84,11 @@ export class Config {
     );
     this.firstCommentBackfillConcurrency =
       parseInt(env["FIRST_COMMENT_BACKFILL_CONCURRENCY"] ?? "8", 10) || 8;
+    this.firstCommentArchiveBackfillEnabled = parseEnabledFlag(
+      env["FIRST_COMMENT_ARCHIVE_BACKFILL_ENABLED"] ?? "0"
+    );
     this.firstCommentForceFullRescan = parseEnabledFlag(
-      env["FIRST_COMMENT_FORCE_FULL_RESCAN"] ?? "1"
+      env["FIRST_COMMENT_FORCE_FULL_RESCAN"] ?? "0"
     );
 
     // 特別ユーザー

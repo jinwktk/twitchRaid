@@ -102,6 +102,40 @@ describe("FirstCommentStore", () => {
     store.close();
   });
 
+  it("purges archive-derived user comments and backfill status on initialization", () => {
+    const dbPath = makeDbPath();
+    const oldStore = new FirstCommentStore(dbPath);
+
+    oldStore.saveUserFirstComment(userRecord({ authorName: "archive_user" }));
+    oldStore.saveUserFirstComment(
+      userRecord({
+        authorName: "live_user",
+        authorDisplayName: "Live User",
+        source: "live",
+        videoId: null,
+        streamId: "stream-live",
+      })
+    );
+    oldStore.markArchiveVideoProcessed({
+      videoId: "111",
+      streamId: "stream-111",
+      status: "completed",
+      commentsScanned: 10,
+    });
+    oldStore.close();
+
+    const store = new FirstCommentStore(dbPath);
+
+    expect(store.getUserFirstComment("archive_user")).toBeNull();
+    expect(store.getUserFirstComment("live_user")).toMatchObject({
+      authorName: "live_user",
+      source: "live",
+    });
+    expect(store.getArchiveVideoStatus("111")).toBeNull();
+
+    store.close();
+  });
+
   it("keeps the oldest user first comment when archives are processed out of order", () => {
     const store = new FirstCommentStore(makeDbPath());
 
