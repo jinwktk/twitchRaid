@@ -108,6 +108,40 @@ describe("backfillArchivedFirstComments", () => {
     store.close();
   });
 
+  it("fetches already processed archive videos when forceRescan is enabled", async () => {
+    const store = makeStore();
+    store.markArchiveVideoProcessed({
+      videoId: "111",
+      streamId: "stream-111",
+      status: "completed",
+    });
+    const fetched: string[] = [];
+
+    const result = await backfillArchivedFirstComments({
+      videos: videos(),
+      store,
+      forceRescan: true,
+      commentsClient: {
+        async fetchComments(videoId) {
+          fetched.push(videoId);
+          return [];
+        },
+      },
+    });
+
+    expect(fetched).toEqual(["111", "222"]);
+    expect(result).toEqual({
+      processed: 2,
+      saved: 0,
+      skipped: 0,
+      noComments: 2,
+      failed: 0,
+      commentsScanned: 0,
+    });
+
+    store.close();
+  });
+
   it("fetches archive comments concurrently", async () => {
     const store = makeStore();
     let activeFetches = 0;

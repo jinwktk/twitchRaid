@@ -619,7 +619,7 @@ export class Bot {
     void (async () => {
       try {
         logger.info(
-          `初コメ自動バックフィル開始: concurrency=${this.config.firstCommentBackfillConcurrency}`
+          `初コメ自動バックフィル開始: concurrency=${this.config.firstCommentBackfillConcurrency}, force_full_rescan=${this.config.firstCommentForceFullRescan}`
         );
         const result = await runStartupFirstCommentBackfill({
           apiClient: this.apiClient,
@@ -627,8 +627,13 @@ export class Bot {
           store: this.firstCommentStore,
           commentsClient: this.vodCommentsClient,
           concurrency: this.config.firstCommentBackfillConcurrency,
+          forceRescan: this.config.firstCommentForceFullRescan,
         });
         logger.info(formatFirstCommentBackfillResult(result));
+        if (this.config.firstCommentForceFullRescan) {
+          this.config.updateFirstCommentForceFullRescan(false);
+          logger.info("初コメ全アーカイブ再走査フラグをOFFにしました。");
+        }
       } catch (e) {
         logger.error(`❌ 初コメ自動バックフィル失敗: ${e}`);
       }
