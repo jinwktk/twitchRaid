@@ -13,10 +13,10 @@
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `process_restart.py`: 同一コンソール内でのプロセス再起動と、`execv` 失敗時フォールバック起動を担当。
 - `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトと `!shoutout` 手動デバッグコマンドの権限判定・対象ユーザー正規化を担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。
-- `src/first-comment/first-comment-store.ts`: 初コメを SQLite (`first_comments` テーブル) に保存・取得する。stream id でライブ保存分とアーカイブ保存分を重複排除。
-- `src/first-comment/vod-comments-client.ts`: Twitch VOD の先頭コメントを GraphQL `VideoCommentsByOffsetOrCursor` から取得する。公式 Helix ではないため仕様変更に注意。
-- `src/first-comment/first-comment-backfill.ts`: Helix archived videos 一覧と VOD コメント取得をつなぎ、全アーカイブの初コメを SQLite へバックフィルする。
-- `src/first-comment/first-comment-format.ts`: `!firstcomment` と `!firstcommentbackfill` のチャット出力文言を整形。
+- `src/first-comment/first-comment-store.ts`: ユーザー別初コメを SQLite (`user_first_comments` テーブル) に保存・取得し、アーカイブVOD処理状態を `archive_comment_backfill_status` に記録する。旧 `first_comments` の配信先頭コメントは初期化時に削除。
+- `src/first-comment/vod-comments-client.ts`: Twitch VOD のコメントを GraphQL `VideoCommentsByOffsetOrCursor` からページング取得する。公式 Helix ではないため仕様変更に注意。
+- `src/first-comment/first-comment-backfill.ts`: Helix archived videos 一覧と VODコメント全件取得をつなぎ、VOD単位の並列処理でユーザー別初コメを SQLite へバックフィルする。
+- `src/first-comment/first-comment-format.ts`: `!firstcomment` と自動バックフィルログの出力文言を整形。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
 - `.env` (未コミット想定): Twitch と Discord の認証情報および内部ステート (`LAST_CLIP_TIME` 等) を保持。
@@ -62,7 +62,7 @@
 
 ## 設定とセキュリティ Tips
 - `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS` を定義。更新は `Config.update_*` が担当。
-- 初コメ機能は任意で `TWITCH_FIRST_COMMENT_DB_PATH` と `TWITCH_GQL_CLIENT_ID` を使用。未設定時は `data/first_comments.sqlite` と既定 GraphQL Client-ID を使う。
+- 初コメ機能は任意で `TWITCH_FIRST_COMMENT_DB_PATH`, `TWITCH_GQL_CLIENT_ID`, `FIRST_COMMENT_BACKFILL_CONCURRENCY` を使用。未設定時は `data/first_comments.sqlite`、既定 GraphQL Client-ID、並列数8を使う。
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
@@ -79,6 +79,18 @@
 - 設定: `TWITCH_FIRST_COMMENT_DB_PATH` と `TWITCH_GQL_CLIENT_ID` を任意設定として追加し、既定DBを `data/first_comments.sqlite` に設定。SQLite DB は Git 管理外
 - 環境: `node:sqlite` 使用のため Node.js 要件を 22.5 以上へ更新
 - 検証: `npm test -- --run tests/first-comment` で 8 件すべて通過。`npm run build` 通過
+- 追加要望: `firstcommentbackfill` コマンド不要で、Bot起動時に1回だけアーカイブから初コメを取得したい。大量アーカイブ向けに並列処理し、取得済みアーカイブは再取得しないようにしたい
+- 追加要望: `!firstcomment` は実行者本人の初コメだけを取得したい
+- 追加要望: 旧実装で保存された「配信ごとの先頭コメント」は削除したい
+- 修正: 保存対象を「配信ごとの先頭コメント」から「ユーザーごとの、このチャンネルで確認できた最古コメント」へ変更
+- 修正: `vod-comments-client.ts` を VOD先頭1件取得からページングによる全コメント取得へ変更
+- 修正: `first-comment-backfill.ts` をVOD単位の並列ワーカー方式に変更し、`archive_comment_backfill_status` で `completed` / `no_comments` を処理済みとしてスキップ
+- 修正: `src/bot.ts` は起動時に `runStartupFirstCommentBackfill` を fire-and-forget で1回だけ実行し、`firstcommentbackfill` チャットコマンドを削除
+- 修正: `!firstcomment` はコマンド実行者のログイン名で `user_first_comments` を検索し、他ユーザー指定は受け付けない
+- 修正: ライブコメント受信時は各ユーザーの初回コメントのみ保存し、後からアーカイブでより古いコメントが見つかった場合は最古日時へ更新
+- 修正: `FirstCommentStore` 初期化時に旧 `first_comments` テーブルを空にして、配信先頭コメントを新仕様に混ぜない
+- 設定: `FIRST_COMMENT_BACKFILL_CONCURRENCY` を追加し、既定並列数を8に設定
+- 検証: `npm test -- --run tests/first-comment` で 11 件すべて通過、`npm test` で 62 件すべて通過、`npm run build` / `npm run lint` / `python -m pytest -q` 通過
 
 ## 2026-05-11 作業ログ
 - 要望: `!shoutout` で指定ユーザーを応援するテストコマンドを作り、実行権限を付けたい

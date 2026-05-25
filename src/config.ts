@@ -38,6 +38,7 @@ export class Config {
   readonly updateCheckInterval: number;
   readonly restartCheckInterval: number;
   readonly firstCommentDbPath: string;
+  readonly firstCommentBackfillConcurrency: number;
 
   // 特別ユーザー設定
   readonly clipSpecialUsers: string[];
@@ -79,6 +80,8 @@ export class Config {
       BASE_DIR,
       env["TWITCH_FIRST_COMMENT_DB_PATH"] ?? "data/first_comments.sqlite"
     );
+    this.firstCommentBackfillConcurrency =
+      parseInt(env["FIRST_COMMENT_BACKFILL_CONCURRENCY"] ?? "8", 10) || 8;
 
     // 特別ユーザー
     const specialUsersStr = env["CLIP_SPECIAL_USERS"] ?? "nyme_ia,rukalun";

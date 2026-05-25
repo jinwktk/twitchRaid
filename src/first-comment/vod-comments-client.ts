@@ -11,6 +11,8 @@ export interface VodFirstComment {
   messageText: string;
 }
 
+export type VodComment = VodFirstComment;
+
 export interface FetchFirstCommentOptions {
   videoCreatedAt: string;
 }
@@ -23,6 +25,7 @@ interface TwitchVodCommentsClientOptions {
 }
 
 interface GqlCommentEdge {
+  cursor?: string;
   node?: {
     contentOffsetSeconds?: number;
     createdAt?: string;
@@ -43,6 +46,9 @@ interface GqlVideoCommentsResponse {
     video?: {
       comments?: {
         edges?: GqlCommentEdge[];
+        pageInfo?: {
+          hasNextPage?: boolean;
+        };
       };
     } | null;
   };
@@ -62,6 +68,31 @@ export class TwitchVodCommentsClient {
     videoId: string,
     options: FetchFirstCommentOptions
   ): Promise<VodFirstComment | null> {
+    const comments = await this.fetchComments(videoId, options);
+    return comments[0] ?? null;
+  }
+
+  async fetchComments(
+    videoId: string,
+    options: FetchFirstCommentOptions
+  ): Promise<VodComment[]> {
+    const comments: VodComment[] = [];
+    let cursor: string | null = null;
+
+    do {
+      const page = await this.fetchCommentsPage(videoId, options, cursor);
+      comments.push(...page.comments);
+      cursor = page.nextCursor;
+    } while (cursor);
+
+    return comments;
+  }
+
+  private async fetchCommentsPage(
+    videoId: string,
+    options: FetchFirstCommentOptions,
+    cursor: string | null
+  ): Promise<{ comments: VodComment[]; nextCursor: string | null }> {
     const response = await this.fetchFn(GQL_URL, {
       method: "POST",
       headers: {
@@ -71,10 +102,15 @@ export class TwitchVodCommentsClient {
       body: JSON.stringify([
         {
           operationName: "VideoCommentsByOffsetOrCursor",
-          variables: {
-            videoID: videoId,
-            contentOffsetSeconds: 0,
-          },
+          variables: cursor
+            ? {
+                videoID: videoId,
+                cursor,
+              }
+            : {
+                videoID: videoId,
+                contentOffsetSeconds: 0,
+              },
           extensions: {
             persistedQuery: {
               version: 1,
@@ -90,17 +126,25 @@ export class TwitchVodCommentsClient {
     }
 
     const data = (await response.json()) as GqlVideoCommentsResponse[];
-    const edge = data[0]?.data?.video?.comments?.edges?.[0];
-    if (!edge?.node) return null;
+    const commentsData = data[0]?.data?.video?.comments;
+    const edges = commentsData?.edges ?? [];
+    const comments = edges
+      .map((edge) => parseComment(edge, options.videoCreatedAt))
+      .filter((comment): comment is VodComment => comment !== null);
+    const lastCursor = edges.at(-1)?.cursor ?? null;
+    const nextCursor = commentsData?.pageInfo?.hasNextPage ? lastCursor : null;
 
-    return parseFirstComment(edge, options.videoCreatedAt);
+    return {
+      comments,
+      nextCursor,
+    };
   }
 }
 
-function parseFirstComment(
+function parseComment(
   edge: GqlCommentEdge,
   videoCreatedAt: string
-): VodFirstComment | null {
+): VodComment | null {
   const node = edge.node;
   if (!node) return null;
 

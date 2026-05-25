@@ -1,15 +1,19 @@
 import type {
-  FirstCommentRecord,
+  UserFirstCommentRecord,
 } from "./first-comment-store";
 import type { FirstCommentBackfillResult } from "./first-comment-backfill";
 
-export function formatFirstComment(record: FirstCommentRecord | null): string {
+export function formatFirstComment(
+  record: UserFirstCommentRecord | null,
+  requestedUser?: string
+): string {
   if (!record) {
-    return "初コメはまだ保存されていません。";
+    const suffix = requestedUser ? `@${requestedUser} の` : "";
+    return `${suffix}初コメはまだ保存されていません。`;
   }
 
   const displayName = record.authorDisplayName || record.authorName;
-  return `初コメ: ${formatDateTime(record.commentedAt)} @${displayName}「${truncate(
+  return `@${displayName} の初コメ: ${formatDateTime(record.firstCommentedAt)}「${truncate(
     record.messageText,
     120
   )}」`;
@@ -18,7 +22,7 @@ export function formatFirstComment(record: FirstCommentRecord | null): string {
 export function formatFirstCommentBackfillResult(
   result: FirstCommentBackfillResult
 ): string {
-  return `初コメバックフィル完了: 対象${result.processed}件 / 保存${result.saved}件 / 既存${result.skipped}件 / コメントなし${result.noComments}件 / 失敗${result.failed}件`;
+  return `初コメバックフィル完了: 対象${result.processed}件 / 走査コメント${result.commentsScanned}件 / 保存${result.saved}件 / 既存${result.skipped}件 / コメントなし${result.noComments}件 / 失敗${result.failed}件`;
 }
 
 function formatDateTime(isoValue: string): string {
