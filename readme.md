@@ -30,6 +30,7 @@ npm run dev         # ts-nodeで開発実行
 - 起動時の有効トークン検証と再取得成功時に、付与済みスコープ一覧を `[ECHO]` ログとして出力します
 - `SHOUTOUT_ADMIN_USERS` に `!shoutout` を実行できる追加ユーザーをカンマ区切りで設定できます（未設定時は `rukalun`）
 - `TWITCH_FIRST_COMMENT_DB_PATH` に初コメ保存用 SQLite DB のパスを設定できます（未設定時は `data/first_comments.sqlite`）
+- `TWITCH_CLIP_HISTORY_PATH` に `!clip` / `!myclip` の表示履歴 JSON パスを設定できます（未設定時は `data/clip_history.json`）
 - `TWITCH_GQL_CLIENT_ID` で VOD コメント取得用 GraphQL Client-ID を上書きできます。未設定時は Twitch Web の既知 Client-ID を使用します
 - 過去アーカイブからのコメント抽出は使用しません。`FIRST_COMMENT_ARCHIVE_BACKFILL_ENABLED` は既定で `false` です
 
@@ -88,6 +89,9 @@ npm run dev         # ts-nodeで開発実行
 - 一般ユーザーは 30 分のクールダウンが適用
 - クールダウン終了時に Bot がチャットへ「リキャスト復帰」コメントを自動送信
 - `!myclip` は `!clip` とは独立したクールダウン管理
+- クリップ候補は Twurple のページング取得を日付範囲ごとに実行し、単純な上位100件だけに偏らないようにする
+- Twitch API は単一クエリのページング結果が約1000件で頭打ちになるため、30日ごとの日付窓で分割して取得する。高密度な期間はさらに半分へ分割する
+- 直近に表示したクリップIDは `data/clip_history.json` に保存し、`!clip` 全体と `!myclip:<ユーザー>` ごとに重複を避ける。全候補を出し切った場合のみ履歴内のクリップも再候補に戻す
 
 ## 初コメ保存
 - 今後の配信は通常コメント受信時に、ユーザーごとの最古コメントだけを `user_first_comments` テーブルへ保存
@@ -112,6 +116,7 @@ src/
 ├── commands/             # チャットコマンド
 │   ├── age.ts
 │   ├── clip.ts
+│   ├── clip-history.ts
 │   ├── manga.ts
 │   ├── shoutout.ts
 │   └── random-commands.ts
@@ -140,6 +145,7 @@ src/
 ```
 
 ## 更新履歴
+- **2026-05-25**: `!clip` / `!myclip` を日付窓ページング取得へ変更し、表示履歴で重複をなるべく回避
 - **2026-05-25**: ユーザー別初コメを SQLite に保存し、`!firstcomment` 本人表示を追加。過去アーカイブ抽出は無効化
 - **2026-05-11**: `!shoutout <ユーザー名>` デバッグコマンドと権限設定 `SHOUTOUT_ADMIN_USERS` を追加
 - **2026-05-11**: shoutout修正を `main` に反映。Git更新後の build と再起動クールダウン時の注意を追記

@@ -38,6 +38,7 @@ export class Config {
   readonly updateCheckInterval: number;
   readonly restartCheckInterval: number;
   readonly firstCommentDbPath: string;
+  readonly clipHistoryPath: string;
   readonly firstCommentBackfillConcurrency: number;
   readonly firstCommentForceFullRescan: boolean;
   readonly firstCommentArchiveBackfillEnabled: boolean;
@@ -81,6 +82,10 @@ export class Config {
     this.firstCommentDbPath = path.resolve(
       BASE_DIR,
       env["TWITCH_FIRST_COMMENT_DB_PATH"] ?? "data/first_comments.sqlite"
+    );
+    this.clipHistoryPath = path.resolve(
+      BASE_DIR,
+      env["TWITCH_CLIP_HISTORY_PATH"] ?? "data/clip_history.json"
     );
     this.firstCommentBackfillConcurrency =
       parseInt(env["FIRST_COMMENT_BACKFILL_CONCURRENCY"] ?? "8", 10) || 8;

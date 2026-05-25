@@ -12,6 +12,7 @@ last_restart.txt
 data/*.sqlite
 data/*.sqlite-*
 data/*.db
+data/*.json
 
 # Python関連
 __pycache__/
