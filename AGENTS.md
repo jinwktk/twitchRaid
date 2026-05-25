@@ -13,6 +13,8 @@
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `process_restart.py`: 同一コンソール内でのプロセス再起動と、`execv` 失敗時フォールバック起動を担当。
 - `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトと `!shoutout` 手動デバッグコマンドの権限判定・対象ユーザー正規化を担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。
+- `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の候補取得とランダム選択を担当。Twitch API の単一ページング上限を避けるため、30日単位の日付窓でページング取得し、高密度な期間は再分割する。
+- `src/commands/clip-history.ts`: `!clip` / `!myclip:<ユーザー>` ごとの直近表示クリップIDを JSON に保存し、同じクリップの連続再表示を避ける。
 - `src/first-comment/first-comment-store.ts`: ユーザー別初コメを SQLite (`user_first_comments` テーブル) に保存・取得する。旧 `first_comments` の配信先頭コメントと `source='archive'` のユーザー初コメ、アーカイブ処理状態は初期化時に削除。
 - `src/first-comment/vod-comments-client.ts`: Twitch VOD のコメントを GraphQL `VideoCommentsByOffsetOrCursor` からページング取得する。公式 Helix ではないため仕様変更に注意。
 - `src/first-comment/first-comment-backfill.ts`: Helix archived videos 一覧と VODコメント全件取得をつなぎ、VOD単位の並列処理でユーザー別初コメを SQLite へバックフィルする。
@@ -32,6 +34,8 @@
 - `tests/test_token_refresh_policy.py`: トークンリフレッシュ失敗時のフォールバック判定テスト。
 - `tests/test_process_restart.py`: 同一コンソール再起動とフォールバック経路のユニットテスト。
 - `tests/commands/shoutout.test.ts`: TypeScript版シャウトアウトが Bot/Moderator ユーザーコンテキストで実行されること、手動コマンド権限判定、対象ユーザー名正規化を検証。
+- `tests/commands/clip.test.ts`: TypeScript版クリップ取得がページング日付窓を使うこと、直近履歴を避けること、`myclip` の作成者フィルタを検証。
+- `tests/commands/clip-history.test.ts`: クリップ表示履歴 JSON の重複排除、件数上限、コマンド/ユーザー別分離を検証。
 - `tests/first-comment/`: 初コメ SQLite 保存、VODコメントパース、アーカイブバックフィル、チャット表示文言を検証。
 
 ## ビルド・テスト・開発コマンド
@@ -63,6 +67,7 @@
 ## 設定とセキュリティ Tips
 - `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS` を定義。更新は `Config.update_*` が担当。
 - 初コメ機能は任意で `TWITCH_FIRST_COMMENT_DB_PATH` を使用。未設定時は `data/first_comments.sqlite` を使う。過去アーカイブ取得は `FIRST_COMMENT_ARCHIVE_BACKFILL_ENABLED` 未設定時は無効。
+- クリップ重複回避履歴は任意で `TWITCH_CLIP_HISTORY_PATH` を使用。未設定時は `data/clip_history.json` を使い、ローカル状態として Git 管理外。
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
@@ -97,6 +102,14 @@
 - 修正: `FIRST_COMMENT_ARCHIVE_BACKFILL_ENABLED` を追加し、既定OFFへ変更。Bot起動時はアーカイブバックフィルを起動せず、ライブコメントのみ保存
 - 修正: `FirstCommentStore` 初期化時に `source='archive'` のユーザー初コメと `archive_comment_backfill_status` を削除し、アーカイブ由来の誤データを `!firstcomment` に出さない
 - 検証: `npm test` で 64 件すべて通過、`npm run build` / `npm run lint` / `python -m pytest -q` 通過
+- 要望: `!clip` と `!myclip` が毎回同じクリップに見えるため、同じものをなるべく出さず、クリップ全件からピックアップされているか確認したい
+- 調査: 旧 `src/commands/clip.ts` は `!clip` が `getClipsForBroadcaster(... limit: 100)` の上位100件のみ、`!myclip` がページング最大500件で打ち切りだった。Twitch API は単一クエリのページング結果が約1000件で頭打ちになるため、全体寄せには日付範囲分割が必要
+- TDD: `tests/commands/clip.test.ts` と `tests/commands/clip-history.test.ts` を追加し、ページング日付窓、直近履歴回避、`myclip` 作成者フィルタ、履歴永続化の期待値を先に定義
+- 実装: `src/commands/clip.ts` を日付窓ごとの `getClipsForBroadcasterPaginated` 取得へ変更。既定30日単位で取得し、1窓が多すぎる場合は半分へ再分割して単一クエリ上限の偏りを抑制
+- 実装: `src/commands/clip-history.ts` を追加し、`!clip` 全体と `!myclip:<ユーザー>` ごとに直近200件の表示済みクリップIDを保存。全候補が履歴内の場合だけ再候補化
+- 実装: `src/bot.ts` でクリップ送信後に履歴を記録し、選択時に履歴を渡すよう変更。`src/config.ts` に `TWITCH_CLIP_HISTORY_PATH` を追加
+- ドキュメント更新: `readme.md` にクリップ取得範囲、API制約、履歴ファイルを追記
+- 検証: `npm test` で 71 件すべて通過、`npm run build` / `npm run lint` / `python -m pytest -q` 通過
 
 ## 2026-05-11 作業ログ
 - 要望: `!shoutout` で指定ユーザーを応援するテストコマンドを作り、実行権限を付けたい

@@ -15,7 +15,8 @@ import {
   saveCommentState,
 } from "./utils/comment-state-store";
 import { refreshAccessTokenAdvanced } from "./auth/token-manager";
-import { selectClip } from "./commands/clip";
+import { clipHistoryKey, selectClip, type ClipCommandName } from "./commands/clip";
+import { ClipHistoryStore } from "./commands/clip-history";
 import {
   isShoutoutAdmin,
   normalizeShoutoutTarget,
@@ -68,6 +69,7 @@ export class Bot {
   private readonly commandCooldownState: CommandCooldownState;
   private readonly commentSpeedMeter: CommentSpeedMeter;
   private readonly firstCommentStore: FirstCommentStore;
+  private readonly clipHistoryStore: ClipHistoryStore;
   private readonly vodCommentsClient: TwitchVodCommentsClient;
   private currentLiveFirstCommentContext: LiveFirstCommentContext | null = null;
   private startupFirstCommentBackfillStarted = false;
@@ -102,6 +104,7 @@ export class Bot {
     });
     this.commentSpeedMeter = new CommentSpeedMeter(60);
     this.firstCommentStore = new FirstCommentStore(config.firstCommentDbPath);
+    this.clipHistoryStore = new ClipHistoryStore(config.clipHistoryPath);
     this.vodCommentsClient = new TwitchVodCommentsClient();
 
     // コメント状態復元
@@ -305,7 +308,7 @@ export class Bot {
   private async _handleClipCommand(
     channel: string,
     user: string,
-    commandName: string,
+    commandName: ClipCommandName,
     creatorName?: string
   ): Promise<void> {
     const notifier = this.recastNotifiers[commandName];
@@ -333,15 +336,20 @@ export class Bot {
       return;
     }
 
+    const historyKey = clipHistoryKey(commandName, creatorName);
     const clip = await selectClip(
       this.apiClient,
       this.config.twitchBroadcasterId,
       undefined,
-      creatorName
+      creatorName,
+      {
+        recentClipIds: this.clipHistoryStore.getRecentIds(historyKey),
+      }
     );
 
     if (clip) {
       await this.chatClient.say(channel, clip.url);
+      this.clipHistoryStore.record(historyKey, clip.id);
       if (!isSpecialUser) {
         this.commandCooldownState.markUsed(commandName, now);
         this._persistCommandCooldown(commandName, now);
