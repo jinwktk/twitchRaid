@@ -13,7 +13,7 @@
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `process_restart.py`: 同一コンソール内でのプロセス再起動と、`execv` 失敗時フォールバック起動を担当。
 - `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトと `!shoutout` 手動デバッグコマンドの権限判定・対象ユーザー正規化を担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。
-- `src/first-comment/first-comment-store.ts`: ユーザー別初コメを SQLite (`user_first_comments` テーブル) に保存・取得し、アーカイブVOD処理状態を `archive_comment_backfill_status` に記録する。旧 `first_comments` の配信先頭コメントは初期化時に削除。
+- `src/first-comment/first-comment-store.ts`: ユーザー別初コメを SQLite (`user_first_comments` テーブル) に保存・取得する。旧 `first_comments` の配信先頭コメントと `source='archive'` のユーザー初コメ、アーカイブ処理状態は初期化時に削除。
 - `src/first-comment/vod-comments-client.ts`: Twitch VOD のコメントを GraphQL `VideoCommentsByOffsetOrCursor` からページング取得する。公式 Helix ではないため仕様変更に注意。
 - `src/first-comment/first-comment-backfill.ts`: Helix archived videos 一覧と VODコメント全件取得をつなぎ、VOD単位の並列処理でユーザー別初コメを SQLite へバックフィルする。
 - `src/first-comment/first-comment-format.ts`: `!firstcomment` と自動バックフィルログの出力文言を整形。
@@ -62,7 +62,7 @@
 
 ## 設定とセキュリティ Tips
 - `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS` を定義。更新は `Config.update_*` が担当。
-- 初コメ機能は任意で `TWITCH_FIRST_COMMENT_DB_PATH`, `TWITCH_GQL_CLIENT_ID`, `FIRST_COMMENT_BACKFILL_CONCURRENCY`, `FIRST_COMMENT_FORCE_FULL_RESCAN` を使用。未設定時は `data/first_comments.sqlite`、既定 GraphQL Client-ID、並列数8、次回起動1回だけ全走査を使う。
+- 初コメ機能は任意で `TWITCH_FIRST_COMMENT_DB_PATH` を使用。未設定時は `data/first_comments.sqlite` を使う。過去アーカイブ取得は `FIRST_COMMENT_ARCHIVE_BACKFILL_ENABLED` 未設定時は無効。
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
@@ -93,6 +93,10 @@
 - 検証: `npm test -- --run tests/first-comment` で 11 件すべて通過、`npm test` で 62 件すべて通過、`npm run build` / `npm run lint` / `python -m pytest -q` 通過
 - 追加要望: 全アーカイブを走査したい
 - 修正: `FIRST_COMMENT_FORCE_FULL_RESCAN` を追加し、未設定時は次回起動で処理済みVODも含めて全走査する。成功後は `.env` を `false` へ更新し、以後は通常の取得済みスキップ動作へ戻る
+- 追加判断: 過去配信からのコメント抽出は使わない
+- 修正: `FIRST_COMMENT_ARCHIVE_BACKFILL_ENABLED` を追加し、既定OFFへ変更。Bot起動時はアーカイブバックフィルを起動せず、ライブコメントのみ保存
+- 修正: `FirstCommentStore` 初期化時に `source='archive'` のユーザー初コメと `archive_comment_backfill_status` を削除し、アーカイブ由来の誤データを `!firstcomment` に出さない
+- 検証: `npm test` で 64 件すべて通過、`npm run build` / `npm run lint` / `python -m pytest -q` 通過
 
 ## 2026-05-11 作業ログ
 - 要望: `!shoutout` で指定ユーザーを応援するテストコマンドを作り、実行権限を付けたい

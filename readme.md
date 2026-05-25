@@ -31,8 +31,7 @@ npm run dev         # ts-nodeで開発実行
 - `SHOUTOUT_ADMIN_USERS` に `!shoutout` を実行できる追加ユーザーをカンマ区切りで設定できます（未設定時は `rukalun`）
 - `TWITCH_FIRST_COMMENT_DB_PATH` に初コメ保存用 SQLite DB のパスを設定できます（未設定時は `data/first_comments.sqlite`）
 - `TWITCH_GQL_CLIENT_ID` で VOD コメント取得用 GraphQL Client-ID を上書きできます。未設定時は Twitch Web の既知 Client-ID を使用します
-- `FIRST_COMMENT_BACKFILL_CONCURRENCY` で起動時アーカイブ初コメ取得の並列数を設定できます（未設定時は `8`）
-- `FIRST_COMMENT_FORCE_FULL_RESCAN` が `true` / `1` の場合、取得済みVODも含めて全アーカイブを再走査します。成功後は自動で `false` に戻します（未設定時は次回起動で1回だけ全走査）
+- 過去アーカイブからのコメント抽出は使用しません。`FIRST_COMMENT_ARCHIVE_BACKFILL_ENABLED` は既定で `false` です
 
 ## 技術スタック
 - **ランタイム**: Node.js 22.5+（`node:sqlite` を使用）
@@ -92,13 +91,8 @@ npm run dev         # ts-nodeで開発実行
 
 ## 初コメ保存
 - 今後の配信は通常コメント受信時に、ユーザーごとの最古コメントだけを `user_first_comments` テーブルへ保存
-- アーカイブ分はBot起動時に1回だけ自動バックフィルを開始し、Helix の archived videos 一覧から各VODの全コメントを GraphQL `VideoCommentsByOffsetOrCursor` でページング取得する
-- 起動時バックフィルは `FIRST_COMMENT_BACKFILL_CONCURRENCY` の並列数でVOD単位に処理し、処理済みVODは `archive_comment_backfill_status` でスキップする
-- `FIRST_COMMENT_FORCE_FULL_RESCAN` が有効な起動では、処理済みスキップを無視して全VODを再走査し、完了後にフラグをOFFへ戻す
-- コメントなしVODも処理済みとして記録し、次回起動時に再取得しない
-- GraphQL による VOD コメント取得は Twitch 公式 Helix API ではなく、Qiita 記事で紹介されている非公式寄りの方式のため、Twitch 側の仕様変更で失敗する可能性あり
-- ライブ保存分とアーカイブ保存分はユーザー名で統合し、アーカイブが後から古いコメントを見つけた場合は最古コメントへ更新する
-- 旧仕様で保存した「配信ごとの先頭コメント」は起動時に `first_comments` テーブルから削除し、新しいユーザー別初コメには混ぜない
+- 過去配信アーカイブからの抽出は無効化し、Bot起動時に `source = 'archive'` のユーザー初コメとアーカイブ処理状態を削除する
+- 旧仕様で保存した「配信ごとの先頭コメント」も起動時に `first_comments` テーブルから削除し、新しいユーザー別初コメには混ぜない
 - SQLite DB は `data/first_comments.sqlite` が既定値で、ローカル状態のため Git 管理外
 
 ## プロジェクト構成
@@ -146,7 +140,7 @@ src/
 ```
 
 ## 更新履歴
-- **2026-05-25**: ユーザー別初コメを SQLite に保存し、起動時の並列アーカイブ自動取得と `!firstcomment` 本人表示を追加
+- **2026-05-25**: ユーザー別初コメを SQLite に保存し、`!firstcomment` 本人表示を追加。過去アーカイブ抽出は無効化
 - **2026-05-11**: `!shoutout <ユーザー名>` デバッグコマンドと権限設定 `SHOUTOUT_ADMIN_USERS` を追加
 - **2026-05-11**: shoutout修正を `main` に反映。Git更新後の build と再起動クールダウン時の注意を追記
 - **2026-05-11**: レイド自動シャウトアウトを Bot/Moderator ユーザーコンテキストで実行するよう修正

@@ -332,7 +332,11 @@ export class FirstCommentStore {
     `);
 
     // 旧仕様の「配信ごとの先頭コメント」は新仕様では使わないため削除する。
-    this.db.exec("DELETE FROM first_comments;");
+    this.db.exec(`
+      DELETE FROM first_comments;
+      DELETE FROM user_first_comments WHERE source = 'archive';
+      DELETE FROM archive_comment_backfill_status;
+    `);
   }
 }
 
