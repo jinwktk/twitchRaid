@@ -27,6 +27,7 @@ interface BackfillParams {
   store: FirstCommentStore;
   commentsClient: Pick<TwitchVodCommentsClient, "fetchComments">;
   concurrency?: number;
+  forceRescan?: boolean;
 }
 
 export async function backfillArchivedFirstComments({
@@ -34,6 +35,7 @@ export async function backfillArchivedFirstComments({
   store,
   commentsClient,
   concurrency = 8,
+  forceRescan = false,
 }: BackfillParams): Promise<FirstCommentBackfillResult> {
   const result: FirstCommentBackfillResult = {
     processed: 0,
@@ -54,7 +56,7 @@ export async function backfillArchivedFirstComments({
   async function processVideo(video: ArchivedVideoSummary): Promise<void> {
     result.processed++;
 
-    if (store.isArchiveVideoProcessed(video.id)) {
+    if (!forceRescan && store.isArchiveVideoProcessed(video.id)) {
       result.skipped++;
       return;
     }
@@ -121,12 +123,14 @@ export async function runStartupFirstCommentBackfill(params: {
   store: FirstCommentStore;
   commentsClient: Pick<TwitchVodCommentsClient, "fetchComments">;
   concurrency?: number;
+  forceRescan?: boolean;
 }): Promise<FirstCommentBackfillResult> {
   return backfillArchivedFirstComments({
     videos: archivedVideosFromApiClient(params.apiClient, params.broadcasterId),
     store: params.store,
     commentsClient: params.commentsClient,
     concurrency: params.concurrency,
+    forceRescan: params.forceRescan,
   });
 }
 

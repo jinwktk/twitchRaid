@@ -62,7 +62,7 @@
 
 ## 設定とセキュリティ Tips
 - `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS` を定義。更新は `Config.update_*` が担当。
-- 初コメ機能は任意で `TWITCH_FIRST_COMMENT_DB_PATH`, `TWITCH_GQL_CLIENT_ID`, `FIRST_COMMENT_BACKFILL_CONCURRENCY` を使用。未設定時は `data/first_comments.sqlite`、既定 GraphQL Client-ID、並列数8を使う。
+- 初コメ機能は任意で `TWITCH_FIRST_COMMENT_DB_PATH`, `TWITCH_GQL_CLIENT_ID`, `FIRST_COMMENT_BACKFILL_CONCURRENCY`, `FIRST_COMMENT_FORCE_FULL_RESCAN` を使用。未設定時は `data/first_comments.sqlite`、既定 GraphQL Client-ID、並列数8、次回起動1回だけ全走査を使う。
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
@@ -91,6 +91,8 @@
 - 修正: `FirstCommentStore` 初期化時に旧 `first_comments` テーブルを空にして、配信先頭コメントを新仕様に混ぜない
 - 設定: `FIRST_COMMENT_BACKFILL_CONCURRENCY` を追加し、既定並列数を8に設定
 - 検証: `npm test -- --run tests/first-comment` で 11 件すべて通過、`npm test` で 62 件すべて通過、`npm run build` / `npm run lint` / `python -m pytest -q` 通過
+- 追加要望: 全アーカイブを走査したい
+- 修正: `FIRST_COMMENT_FORCE_FULL_RESCAN` を追加し、未設定時は次回起動で処理済みVODも含めて全走査する。成功後は `.env` を `false` へ更新し、以後は通常の取得済みスキップ動作へ戻る
 
 ## 2026-05-11 作業ログ
 - 要望: `!shoutout` で指定ユーザーを応援するテストコマンドを作り、実行権限を付けたい

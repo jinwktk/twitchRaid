@@ -32,6 +32,7 @@ npm run dev         # ts-nodeで開発実行
 - `TWITCH_FIRST_COMMENT_DB_PATH` に初コメ保存用 SQLite DB のパスを設定できます（未設定時は `data/first_comments.sqlite`）
 - `TWITCH_GQL_CLIENT_ID` で VOD コメント取得用 GraphQL Client-ID を上書きできます。未設定時は Twitch Web の既知 Client-ID を使用します
 - `FIRST_COMMENT_BACKFILL_CONCURRENCY` で起動時アーカイブ初コメ取得の並列数を設定できます（未設定時は `8`）
+- `FIRST_COMMENT_FORCE_FULL_RESCAN` が `true` / `1` の場合、取得済みVODも含めて全アーカイブを再走査します。成功後は自動で `false` に戻します（未設定時は次回起動で1回だけ全走査）
 
 ## 技術スタック
 - **ランタイム**: Node.js 22.5+（`node:sqlite` を使用）
@@ -93,6 +94,7 @@ npm run dev         # ts-nodeで開発実行
 - 今後の配信は通常コメント受信時に、ユーザーごとの最古コメントだけを `user_first_comments` テーブルへ保存
 - アーカイブ分はBot起動時に1回だけ自動バックフィルを開始し、Helix の archived videos 一覧から各VODの全コメントを GraphQL `VideoCommentsByOffsetOrCursor` でページング取得する
 - 起動時バックフィルは `FIRST_COMMENT_BACKFILL_CONCURRENCY` の並列数でVOD単位に処理し、処理済みVODは `archive_comment_backfill_status` でスキップする
+- `FIRST_COMMENT_FORCE_FULL_RESCAN` が有効な起動では、処理済みスキップを無視して全VODを再走査し、完了後にフラグをOFFへ戻す
 - コメントなしVODも処理済みとして記録し、次回起動時に再取得しない
 - GraphQL による VOD コメント取得は Twitch 公式 Helix API ではなく、Qiita 記事で紹介されている非公式寄りの方式のため、Twitch 側の仕様変更で失敗する可能性あり
 - ライブ保存分とアーカイブ保存分はユーザー名で統合し、アーカイブが後から古いコメントを見つけた場合は最古コメントへ更新する

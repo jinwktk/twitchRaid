@@ -39,6 +39,7 @@ export class Config {
   readonly restartCheckInterval: number;
   readonly firstCommentDbPath: string;
   readonly firstCommentBackfillConcurrency: number;
+  readonly firstCommentForceFullRescan: boolean;
 
   // 特別ユーザー設定
   readonly clipSpecialUsers: string[];
@@ -82,6 +83,9 @@ export class Config {
     );
     this.firstCommentBackfillConcurrency =
       parseInt(env["FIRST_COMMENT_BACKFILL_CONCURRENCY"] ?? "8", 10) || 8;
+    this.firstCommentForceFullRescan = parseEnabledFlag(
+      env["FIRST_COMMENT_FORCE_FULL_RESCAN"] ?? "1"
+    );
 
     // 特別ユーザー
     const specialUsersStr = env["CLIP_SPECIAL_USERS"] ?? "nyme_ia,rukalun";
@@ -167,6 +171,12 @@ export class Config {
     const envValue = toEnvFlag(enabled);
     process.env["MANGA_COMMAND_ENABLED"] = envValue;
     updateEnvFile(this.envFile, { MANGA_COMMAND_ENABLED: envValue });
+  }
+
+  updateFirstCommentForceFullRescan(enabled: boolean): void {
+    const envValue = toEnvFlag(enabled);
+    process.env["FIRST_COMMENT_FORCE_FULL_RESCAN"] = envValue;
+    updateEnvFile(this.envFile, { FIRST_COMMENT_FORCE_FULL_RESCAN: envValue });
   }
 
   getLastStreamTitle(): string {
