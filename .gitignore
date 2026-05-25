@@ -8,6 +8,11 @@ logs/
 *.log
 last_restart.txt
 
+# ローカルDB
+data/*.sqlite
+data/*.sqlite-*
+data/*.db
+
 # Python関連
 __pycache__/
 *.pyc
