@@ -71,6 +71,12 @@
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
+## 2026-05-29 作業ログ
+- ログ調査: サブPC `192.168.0.99` のPM2状態を確認し、`twitchRaid` は `online`、PID `1152`、uptime `16h`、restart `26`、PM2 error log は空であることを確認
+- ログ調査: サブPC `E:\GitHub\twitchRaid\logs` の最新ログは `bot_2026-05-29.log` / `bot_2026-05-28.log`。直近は5分ごとの「直近clip同期完了: saved=0」と2時間ごとのトークンリフレッシュ成功ログが中心で、未捕捉例外や権限エラーは確認できず
+- ログ調査: `data/clips.sqlite` は `2026-05-29 00:01:06` 更新、`clip_cache` 2736件、`clip_scan_windows` 129件すべて `completed`、`clip_history` 15件を確認。保存済みクリップ範囲は `2016-08-18T03:42:35.000Z` から `2026-05-26T15:32:18.000Z`
+- 注意点: ログ本文の一部が文字化けしているため、サブPCのPM2/PowerShell出力文字コード設定は別途改善余地あり
+
 ## 2026-05-25 作業ログ
 - ログ確認: サブPC `192.168.0.99` のPM2状態、`E:\GitHub\twitchRaid\logs\bot_2026-05-25.log`、`data/clips.sqlite` を確認。`twitchRaid` は online、`clip_cache` は 2734 件、`clip_scan_windows` は 124 件で全期間バックフィル完了を確認
 - 不具合発見: `!myclip` はログイン名 (`nyme_ia`) でキャッシュ検索する一方、Twitch API由来のキャッシュは表示名 (`にめいや`) を `creator_name_lower` に保存していたため、SQLiteキャッシュに当たらずAPIフォールバックしていた
