@@ -79,8 +79,13 @@
 - TDD: `tests/commands/boom.test.ts` を追加し、GraphQL moments のゲーム名/時間抽出、時間欠損時の区間推定、ゲーム別合算、1時間未満フィルタ、表示文言を先に定義して未実装失敗を確認
 - 実装: `src/commands/boom.ts` を追加し、ゲーム別合計時間が1時間以上のものを合計時間降順・最大6件で整形するよう実装
 - 実装: `src/bot.ts` に `!boom` を追加し、取得失敗時はチャットへ失敗メッセージを返すようにした
-- 設定: `src/config.ts` に任意の `TWITCH_GQL_CLIENT_ID` を追加し、未設定時は `TWITCH_CLIENT_ID` を使うようにした
+- 設定: `src/config.ts` に任意の `TWITCH_GQL_CLIENT_ID` を追加し、未設定時はTwitch Webの公開Client-IDを使うようにした
 - 検証: `npm test -- --run tests/commands/boom.test.ts`、`npm run build`、`npm run lint` が通過
+- 不具合報告: `!boom` が「最近配信したゲーム時間の取得に失敗しました」を返す
+- 原因: サブPCログで `Twitch GraphQL request failed: 400` を確認。通常のTwitch Client-ID / 古い `TWITCH_GQL_CLIENT_ID` が `https://gql.twitch.tv/gql` で拒否され、さらに手書きGraphQLクエリの `GameChangeMoment` 型も現行スキーマに合っていなかった
+- 修正: `!boom` のGraphQL取得をTwitch persisted queryへ変更し、Twitch Webの公開Client-IDへ自動フォールバックするよう修正
+- 修正: VODチャプターが空の単一ゲーム配信では、`VideoMetadata` の `game` と `lengthSeconds` を使って配信全体をそのゲーム時間として集計するよう変更
+- 検証: サブPC上の実VOD 3件で `FINAL FANTASY XIV ONLINE:27615` 秒が取得できることを確認。`npm test` 75件、`npm run build`、`npm run lint`、`python -m pytest -q` 106件が通過
 
 ## 2026-05-29 作業ログ
 - ログ調査: サブPC `192.168.0.99` のPM2状態を確認し、`twitchRaid` は `online`、PID `1152`、uptime `16h`、restart `26`、PM2 error log は空であることを確認

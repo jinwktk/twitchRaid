@@ -4,6 +4,7 @@ import { updateEnvFile } from "./utils/env-store";
 import { REQUIRED_AUTH_SCOPES } from "./auth/auth-scope-sets";
 
 const BASE_DIR = path.resolve(__dirname, "..");
+const DEFAULT_TWITCH_GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 
 function parseEnabledFlag(raw: string): boolean {
   return raw.toLowerCase() === "true" || raw === "1";
@@ -65,7 +66,7 @@ export class Config {
     this.twitchBroadcasterId = env["TWITCH_BROADCASTER_ID"] ?? "";
     this.twitchModeratorId = env["TWITCH_MODERATOR_ID"] ?? "";
     this.twitchGqlClientId =
-      env["TWITCH_GQL_CLIENT_ID"] ?? this.twitchClientId;
+      env["TWITCH_GQL_CLIENT_ID"] ?? DEFAULT_TWITCH_GQL_CLIENT_ID;
 
     // Discord設定
     this.discordWebhookUrl = env["DISCORD_WEBHOOK_URL"] ?? "";
