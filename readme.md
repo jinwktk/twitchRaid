@@ -34,6 +34,7 @@ npm run dev         # ts-nodeで開発実行
 - 起動時の有効トークン検証と再取得成功時に、付与済みスコープ一覧を `[ECHO]` ログとして出力します
 - `SHOUTOUT_ADMIN_USERS` に `!shoutout` を実行できる追加ユーザーをカンマ区切りで設定できます（未設定時は `rukalun`）
 - `TWITCH_CLIP_CACHE_DB_PATH` に `!clip` / `!myclip` のクリップキャッシュ SQLite DB パスを設定できます（未設定時は `data/clips.sqlite`）
+- `TWITCH_GQL_CLIENT_ID` に Twitch GraphQL 用 Client-ID を任意設定できます（未設定時は `TWITCH_CLIENT_ID` を使用）
 
 ## 技術スタック
 - **ランタイム**: Node.js 22.5+（`node:sqlite` を使用）
@@ -61,6 +62,7 @@ npm run dev         # ts-nodeで開発実行
 | `!shoutout <ユーザー名>` | 指定ユーザーへ手動 shoutout を実行 | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ |
 | `!speed` | コメント風速を表示（直近60秒＋配信全体平均） | コマンドは計測対象外 |
 | `!commentcount` | 配信開始からの累計コメント件数を表示 | 再起動後も引き継ぎ |
+| `!boom` | 直近20配信で1時間以上遊んだゲーム別トータル時間を表示 | VODチャプター情報を集計 |
 
 ## .env保護
 - `.env` の更新は `env-store.ts` で実行し、更新前に `.env.backup` を作成
@@ -95,6 +97,11 @@ npm run dev         # ts-nodeで開発実行
 - `!clip` / `!myclip` 実行時はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ最大200件の軽いAPIフォールバックを使う
 - 直近に表示したクリップIDはSQLite内の `clip_history` に保存し、`!clip` 全体と `!myclip:<ユーザー>` ごとに重複を避ける。全候補を出し切った場合のみ履歴内のクリップも再候補に戻す
 
+## Boomコマンドメモ
+- `!boom` は直近20本のアーカイブ配信を対象に、Twitch GraphQL の VOD チャプターからゲーム別の配信時間を集計する
+- ゲーム別合計が1時間未満のものは表示対象外
+- 表示は合計時間の長い順で最大6件まで
+
 ## プロジェクト構成
 
 ```
@@ -111,6 +118,7 @@ src/
 │   └── auth-scope-sets.ts
 ├── commands/             # チャットコマンド
 │   ├── age.ts
+│   ├── boom.ts
 │   ├── clip-cache-store.ts
 │   ├── clip-cache-sync.ts
 │   ├── clip.ts
@@ -137,6 +145,7 @@ src/
 ```
 
 ## 更新履歴
+- **2026-05-30**: `!boom` を追加。直近20配信のVODチャプターから、1時間以上遊んだゲーム別トータル時間を表示
 - **2026-05-29**: サブPC側ログを確認。`twitchRaid` はPM2上で online、PM2 error log は空、`data/clips.sqlite` は2736件・全走査窓 completed で稼働中
 - **2026-05-25**: `!myclip` のSQLiteキャッシュ検索を解決済みユーザーID対応にし、ログイン名と表示名が違うユーザーでもキャッシュから選択できるよう修正
 - **2026-05-25**: クリップ全期間走査をSQLiteキャッシュ化し、起動中の新規クリップは直近同期で反映
