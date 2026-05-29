@@ -40,7 +40,11 @@ import {
   randomMood,
   randomMenu,
 } from "./commands/random-commands";
-import { buildBoomSummary, formatBoomSummary } from "./commands/boom";
+import {
+  BoomSummaryCache,
+  buildBoomSummary,
+  formatBoomSummary,
+} from "./commands/boom";
 import { restartProcess } from "./utils/process-restart";
 
 
@@ -62,6 +66,7 @@ export class Bot {
   private readonly commandCooldownState: CommandCooldownState;
   private readonly commentSpeedMeter: CommentSpeedMeter;
   private readonly clipCacheStore: ClipCacheStore;
+  private readonly boomSummaryCache = new BoomSummaryCache();
   private clipCacheSynchronizer: ClipCacheSynchronizer | null = null;
 
   // Keep-alive timers
@@ -292,10 +297,12 @@ export class Bot {
 
   private async _handleBoomCommand(channel: string): Promise<void> {
     try {
-      const summary = await buildBoomSummary(this.apiClient, {
-        broadcasterId: this.config.twitchBroadcasterId,
-        gqlClientId: this.config.twitchGqlClientId,
-      });
+      const summary = await this.boomSummaryCache.getOrLoad(() =>
+        buildBoomSummary(this.apiClient, {
+          broadcasterId: this.config.twitchBroadcasterId,
+          gqlClientId: this.config.twitchGqlClientId,
+        })
+      );
       await this.chatClient.say(channel, formatBoomSummary(summary));
     } catch (e) {
       logger.error(`❌ boom集計失敗: ${e}`);
