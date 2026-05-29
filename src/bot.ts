@@ -40,6 +40,7 @@ import {
   randomMood,
   randomMenu,
 } from "./commands/random-commands";
+import { buildBoomSummary, formatBoomSummary } from "./commands/boom";
 import { restartProcess } from "./utils/process-restart";
 
 
@@ -246,6 +247,9 @@ export class Bot {
       case "commentcount":
         await this._handleCommentCountCommand(channel);
         break;
+      case "boom":
+        await this._handleBoomCommand(channel);
+        break;
       case "clip":
         await this._handleClipCommand(channel, user, "clip");
         break;
@@ -284,6 +288,22 @@ export class Bot {
   private async _handleCommentCountCommand(channel: string): Promise<void> {
     const totalCount = this.commentSpeedMeter.totalCount();
     await this.chatClient.say(channel, formatTotalCommentCount(totalCount));
+  }
+
+  private async _handleBoomCommand(channel: string): Promise<void> {
+    try {
+      const summary = await buildBoomSummary(this.apiClient, {
+        broadcasterId: this.config.twitchBroadcasterId,
+        gqlClientId: this.config.twitchGqlClientId,
+      });
+      await this.chatClient.say(channel, formatBoomSummary(summary));
+    } catch (e) {
+      logger.error(`❌ boom集計失敗: ${e}`);
+      await this.chatClient.say(
+        channel,
+        "⚠️ 最近配信したゲーム時間の取得に失敗しました。時間をおいて再試行してください。"
+      );
+    }
   }
 
   private async _handleClipCommand(

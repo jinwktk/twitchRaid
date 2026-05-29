@@ -13,6 +13,7 @@
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `process_restart.py`: 同一コンソール内でのプロセス再起動と、`execv` 失敗時フォールバック起動を担当。
 - `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトと `!shoutout` 手動デバッグコマンドの権限判定・対象ユーザー正規化を担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。
+- `src/commands/boom.ts`: TypeScript版 `!boom` の集計ロジック。直近アーカイブ配信を Twurple Helix で取得し、Twitch GraphQL の VOD チャプターからゲーム別トータル時間を算出する。
 - `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ軽いAPIフォールバックを使う。
 - `src/commands/clip-cache-store.ts`: クリップ本体、走査済み期間、`!clip` / `!myclip:<ユーザー>` ごとの表示履歴を `data/clips.sqlite` に保存する。
 - `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期を担当。
@@ -31,6 +32,7 @@
 - `tests/test_token_refresh_policy.py`: トークンリフレッシュ失敗時のフォールバック判定テスト。
 - `tests/test_process_restart.py`: 同一コンソール再起動とフォールバック経路のユニットテスト。
 - `tests/commands/shoutout.test.ts`: TypeScript版シャウトアウトが Bot/Moderator ユーザーコンテキストで実行されること、手動コマンド権限判定、対象ユーザー名正規化を検証。
+- `tests/commands/boom.test.ts`: TypeScript版 `!boom` のVODチャプター抽出、ゲーム別合算、1時間未満フィルタ、表示文言を検証。
 - `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタを検証。
 - `tests/commands/clip-cache-store.test.ts`: クリップSQLiteキャッシュ、履歴上限、走査済み期間の保存を検証。
 - `tests/commands/clip-cache-sync.test.ts`: クリップ全期間走査用の日付窓、直近同期、完了済み期間スキップを検証。
@@ -65,11 +67,20 @@
 - main へ直接 push しない。レビュー向けには小さな論理単位でブランチを切り、CI テスト (将来導入) の結果を添付。
 
 ## 設定とセキュリティ Tips
-- `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS` を定義。更新は `Config.update_*` が担当。
+- `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS`, 任意で `TWITCH_GQL_CLIENT_ID` を定義。更新は `Config.update_*` が担当。
 - クリップキャッシュは任意で `TWITCH_CLIP_CACHE_DB_PATH` を使用。未設定時は `data/clips.sqlite` を使い、ローカル状態として Git 管理外。
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
+
+## 2026-05-30 作業ログ
+- 要望: `!boom` で最近配信したゲームとトータル時間を表示し、統計対象は1時間以上遊んだものにしたい
+- 方針: Twitch Helix のVOD一覧だけではゲーム名が取れないため、直近20本のアーカイブ配信を Twurple `getVideosByUserPaginated(..., { type: "archive" })` で取得し、各VODの Twitch GraphQL チャプターからゲーム区間を集計する
+- TDD: `tests/commands/boom.test.ts` を追加し、GraphQL moments のゲーム名/時間抽出、時間欠損時の区間推定、ゲーム別合算、1時間未満フィルタ、表示文言を先に定義して未実装失敗を確認
+- 実装: `src/commands/boom.ts` を追加し、ゲーム別合計時間が1時間以上のものを合計時間降順・最大6件で整形するよう実装
+- 実装: `src/bot.ts` に `!boom` を追加し、取得失敗時はチャットへ失敗メッセージを返すようにした
+- 設定: `src/config.ts` に任意の `TWITCH_GQL_CLIENT_ID` を追加し、未設定時は `TWITCH_CLIENT_ID` を使うようにした
+- 検証: `npm test -- --run tests/commands/boom.test.ts`、`npm run build`、`npm run lint` が通過
 
 ## 2026-05-29 作業ログ
 - ログ調査: サブPC `192.168.0.99` のPM2状態を確認し、`twitchRaid` は `online`、PID `1152`、uptime `16h`、restart `26`、PM2 error log は空であることを確認

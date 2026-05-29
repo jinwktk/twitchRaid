@@ -25,6 +25,7 @@ export class Config {
   readonly twitchSecretToken: string;
   readonly twitchBroadcasterId: string;
   readonly twitchModeratorId: string;
+  readonly twitchGqlClientId: string;
 
   // Discord設定
   readonly discordWebhookUrl: string;
@@ -63,6 +64,8 @@ export class Config {
     this.twitchSecretToken = env["TWITCH_SECRET_TOKEN"] ?? "";
     this.twitchBroadcasterId = env["TWITCH_BROADCASTER_ID"] ?? "";
     this.twitchModeratorId = env["TWITCH_MODERATOR_ID"] ?? "";
+    this.twitchGqlClientId =
+      env["TWITCH_GQL_CLIENT_ID"] ?? this.twitchClientId;
 
     // Discord設定
     this.discordWebhookUrl = env["DISCORD_WEBHOOK_URL"] ?? "";
