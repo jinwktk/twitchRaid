@@ -57,32 +57,14 @@ interface MomentNode {
 }
 
 const TWITCH_GQL_URL = "https://gql.twitch.tv/gql";
+export const DEFAULT_TWITCH_GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 const DEFAULT_MAX_VIDEOS = 20;
 const DEFAULT_MIN_GAME_SECONDS = 60 * 60;
 const DEFAULT_MAX_GAMES = 6;
-
-const VIDEO_CHAPTER_QUERY = `
-query VideoPlayer_ChapterSelectButtonVideo($videoID: ID!) {
-  video(id: $videoID) {
-    moments(first: 100, types: [GAME_CHANGE]) {
-      edges {
-        node {
-          positionMilliseconds
-          durationMilliseconds
-          details {
-            ... on GameChangeMoment {
-              game {
-                displayName
-                name
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-`;
+const VIDEO_METADATA_HASH =
+  "45111672eea2e507f8ba44d101a61862f9c56b11dee09a15634cb75cb9b9084d";
+const VIDEO_CHAPTER_HASH =
+  "71835d5ef425e154bf282453a926d99b328cdc5e32f36d3a209d0f4778b41203";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -119,6 +101,10 @@ function extractMomentNodes(response: unknown): MomentNode[] {
 function gameNameFromMoment(node: MomentNode): string | null {
   const game = node.details?.game;
   return stringValue(game?.displayName) ?? stringValue(game?.name);
+}
+
+function graphQlClientIds(primary: string): string[] {
+  return [...new Set([primary, DEFAULT_TWITCH_GQL_CLIENT_ID].filter(Boolean))];
 }
 
 export function parseGameChapters(
@@ -175,24 +161,85 @@ async function fetchVideoChapters(
   gqlClientId: string,
   videoId: string
 ): Promise<unknown> {
-  const response = await fetchFn(TWITCH_GQL_URL, {
-    method: "POST",
-    headers: {
-      "Client-ID": gqlClientId,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      operationName: "VideoPlayer_ChapterSelectButtonVideo",
-      query: VIDEO_CHAPTER_QUERY,
-      variables: { videoID: videoId },
-    }),
+  return fetchPersistedGraphQl(fetchFn, gqlClientId, {
+    operationName: "VideoPlayer_ChapterSelectButtonVideo",
+    variables: { includePrivate: false, videoID: videoId },
+    sha256Hash: VIDEO_CHAPTER_HASH,
   });
+}
 
-  if (!response.ok) {
-    throw new Error(`Twitch GraphQL request failed: ${response.status ?? "unknown"}`);
+async function fetchVideoMetadata(
+  fetchFn: FetchLike,
+  gqlClientId: string,
+  videoId: string
+): Promise<unknown> {
+  return fetchPersistedGraphQl(fetchFn, gqlClientId, {
+    operationName: "VideoMetadata",
+    variables: { channelLogin: "", videoID: videoId },
+    sha256Hash: VIDEO_METADATA_HASH,
+  });
+}
+
+async function fetchPersistedGraphQl(
+  fetchFn: FetchLike,
+  gqlClientId: string,
+  request: {
+    operationName: string;
+    variables: Record<string, unknown>;
+    sha256Hash: string;
+  }
+): Promise<unknown> {
+  let lastStatus: number | undefined;
+
+  for (const clientId of graphQlClientIds(gqlClientId)) {
+    const response = await fetchFn(TWITCH_GQL_URL, {
+      method: "POST",
+      headers: {
+        "Client-ID": clientId,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        operationName: request.operationName,
+        variables: request.variables,
+        extensions: {
+          persistedQuery: {
+            version: 1,
+            sha256Hash: request.sha256Hash,
+          },
+        },
+      }),
+    });
+
+    lastStatus = response.status;
+    if (response.ok) return response.json();
   }
 
-  return response.json();
+  throw new Error(
+    `Twitch GraphQL request failed: ${lastStatus ?? "unknown"}`
+  );
+}
+
+function parseMetadataGame(
+  response: unknown,
+  fallbackDurationSeconds: number
+): GameChapter | null {
+  if (!isRecord(response)) return null;
+  const data = response["data"];
+  if (!isRecord(data)) return null;
+  const video = data["video"];
+  if (!isRecord(video)) return null;
+  const game = video["game"];
+  if (!isRecord(game)) return null;
+
+  const gameName =
+    stringValue(game["displayName"]) ?? stringValue(game["name"]);
+  if (!gameName) return null;
+
+  return {
+    gameName,
+    durationSeconds:
+      numberValue(video["lengthSeconds"]) ?? fallbackDurationSeconds,
+  };
 }
 
 export async function buildBoomSummary(
@@ -214,15 +261,25 @@ export async function buildBoomSummary(
   );
 
   for (const video of videos) {
-    const response = await fetchVideoChapters(
-      fetchFn,
-      options.gqlClientId,
-      video.id
-    );
-    for (const chapter of parseGameChapters(
-      response,
+    const [metadataResponse, chaptersResponse] = await Promise.all([
+      fetchVideoMetadata(fetchFn, options.gqlClientId, video.id),
+      fetchVideoChapters(fetchFn, options.gqlClientId, video.id),
+    ]);
+    const metadataGame = parseMetadataGame(
+      metadataResponse,
       video.durationInSeconds
-    )) {
+    );
+    const chapters = parseGameChapters(
+      chaptersResponse,
+      video.durationInSeconds
+    );
+    const gameDurations = chapters.length > 0
+      ? chapters
+      : metadataGame
+        ? [metadataGame]
+        : [];
+
+    for (const chapter of gameDurations) {
       totals.set(
         chapter.gameName,
         (totals.get(chapter.gameName) ?? 0) + chapter.durationSeconds

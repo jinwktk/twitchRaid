@@ -94,6 +94,17 @@ describe("buildBoomSummary", () => {
         json: async () => ({
           data: {
             video: {
+              game: { displayName: "Fallback Game" },
+              lengthSeconds: 4_200,
+            },
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            video: {
               moments: {
                 edges: [
                   {
@@ -112,6 +123,17 @@ describe("buildBoomSummary", () => {
                   },
                 ],
               },
+            },
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            video: {
+              game: { displayName: "Fallback Game" },
+              lengthSeconds: 1_800,
             },
           },
         }),
@@ -159,7 +181,111 @@ describe("buildBoomSummary", () => {
       analyzedVideos: 2,
       games: [{ gameName: "Game A", totalSeconds: 4_500 }],
     });
-    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(fetchFn).toHaveBeenCalledTimes(4);
+  });
+
+  it("uses video metadata as the whole stream game when no game-change chapters exist", async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            video: {
+              game: { displayName: "FINAL FANTASY XIV ONLINE" },
+              lengthSeconds: 7_200,
+            },
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: { video: { moments: { edges: [] } } },
+        }),
+      });
+
+    const summary = await buildBoomSummary(
+      {
+        videos: {
+          getVideosByUserPaginated: vi.fn(() =>
+            iterableVideos([{ id: "v1", durationInSeconds: 7_200 }])
+          ),
+        },
+      },
+      {
+        broadcasterId: "broadcaster-id",
+        gqlClientId: "gql-client",
+        fetchFn,
+      }
+    );
+
+    expect(summary.games).toEqual([
+      { gameName: "FINAL FANTASY XIV ONLINE", totalSeconds: 7_200 },
+    ]);
+  });
+
+  it("retries GraphQL requests with the Twitch web client id when the configured id is rejected", async () => {
+    const fetchFn = vi.fn(async (_input, init) => {
+      if (init.headers["Client-ID"] !== "kimne78kx3ncx6brgo4mv6wki5h1ko") {
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({
+            message: "The \"Client-ID\" header is invalid.",
+          }),
+        };
+      }
+
+      const body = JSON.parse(init.body) as { operationName: string };
+      if (body.operationName === "VideoMetadata") {
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              video: {
+                game: { displayName: "Game A" },
+                lengthSeconds: 3_600,
+              },
+            },
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({
+          data: { video: { moments: { edges: [] } } },
+        }),
+      };
+    });
+
+    const summary = await buildBoomSummary(
+      {
+        videos: {
+          getVideosByUserPaginated: vi.fn(() =>
+            iterableVideos([{ id: "v1", durationInSeconds: 3_600 }])
+          ),
+        },
+      },
+      {
+        broadcasterId: "broadcaster-id",
+        gqlClientId: "bad-client",
+        fetchFn,
+      }
+    );
+
+    expect(summary.games).toEqual([
+      { gameName: "Game A", totalSeconds: 3_600 },
+    ]);
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "Client-ID": "kimne78kx3ncx6brgo4mv6wki5h1ko",
+        }),
+      })
+    );
   });
 
   it("limits archive video fetching to keep the chat command responsive", async () => {
@@ -174,6 +300,8 @@ describe("buildBoomSummary", () => {
       json: async () => ({
         data: {
           video: {
+            game: { displayName: "Game A" },
+            lengthSeconds: 3_600,
             moments: {
               edges: [
                 {
@@ -203,7 +331,7 @@ describe("buildBoomSummary", () => {
     expect(getVideosByUserPaginated).toHaveBeenCalledWith("broadcaster-id", {
       type: "archive",
     });
-    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 });
 
