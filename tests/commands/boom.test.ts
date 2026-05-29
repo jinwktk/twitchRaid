@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  BoomSummaryCache,
   buildBoomSummary,
   formatBoomSummary,
   formatDuration,
@@ -332,6 +333,84 @@ describe("buildBoomSummary", () => {
       type: "archive",
     });
     expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("fetches multiple videos concurrently to reduce first response time", async () => {
+    let activeRequests = 0;
+    let maxActiveRequests = 0;
+    const getVideosByUserPaginated = vi.fn(() =>
+      iterableVideos([
+        { id: "v1", durationInSeconds: 3_600 },
+        { id: "v2", durationInSeconds: 3_600 },
+        { id: "v3", durationInSeconds: 3_600 },
+      ])
+    );
+    const fetchFn = vi.fn(async (_input, init) => {
+      activeRequests++;
+      maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      activeRequests--;
+
+      const body = JSON.parse(init.body) as { operationName: string };
+      if (body.operationName === "VideoMetadata") {
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              video: {
+                game: { displayName: "Game A" },
+                lengthSeconds: 3_600,
+              },
+            },
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({
+          data: { video: { moments: { edges: [] } } },
+        }),
+      };
+    });
+
+    await buildBoomSummary(
+      { videos: { getVideosByUserPaginated } },
+      {
+        broadcasterId: "broadcaster-id",
+        gqlClientId: "gql-client",
+        fetchFn,
+        maxConcurrentVideos: 2,
+      }
+    );
+
+    expect(maxActiveRequests).toBeGreaterThan(2);
+    expect(maxActiveRequests).toBeLessThanOrEqual(4);
+  });
+});
+
+describe("BoomSummaryCache", () => {
+  it("reuses a fresh summary and refreshes after ttl", async () => {
+    let now = 1_000;
+    const cache = new BoomSummaryCache(5_000, () => now);
+    const first = {
+      analyzedVideos: 1,
+      games: [{ gameName: "Game A", totalSeconds: 3_600 }],
+    };
+    const second = {
+      analyzedVideos: 1,
+      games: [{ gameName: "Game B", totalSeconds: 3_600 }],
+    };
+    const loader = vi
+      .fn()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(second);
+
+    await expect(cache.getOrLoad(loader)).resolves.toBe(first);
+    await expect(cache.getOrLoad(loader)).resolves.toBe(first);
+    now = 7_000;
+    await expect(cache.getOrLoad(loader)).resolves.toBe(second);
+    expect(loader).toHaveBeenCalledTimes(2);
   });
 });
 

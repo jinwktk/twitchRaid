@@ -86,6 +86,11 @@
 - 修正: `!boom` のGraphQL取得をTwitch persisted queryへ変更し、Twitch Webの公開Client-IDへ自動フォールバックするよう修正
 - 修正: VODチャプターが空の単一ゲーム配信では、`VideoMetadata` の `game` と `lengthSeconds` を使って配信全体をそのゲーム時間として集計するよう変更
 - 検証: サブPC上の実VOD 3件で `FINAL FANTASY XIV ONLINE:27615` 秒が取得できることを確認。`npm test` 75件、`npm run build`、`npm run lint`、`python -m pytest -q` 106件が通過
+- 改善要望: `!boom` の取得までに時間がかかった
+- 修正: `buildBoomSummary` をVOD単位で最大4本並列取得する方式に変更し、初回取得の待ち時間を短縮
+- 修正: `BoomSummaryCache` を追加し、Bot内で `!boom` 結果を5分間メモリキャッシュして再実行時は即時応答できるようにした
+- TDD: `tests/commands/boom.test.ts` にVOD並列取得とキャッシュTTLのテストを追加し、失敗確認後に実装
+- 検証: `npm test -- --run tests/commands/boom.test.ts` 11件、`npm run build`、`npm run lint` が通過
 
 ## 2026-05-29 作業ログ
 - ログ調査: サブPC `192.168.0.99` のPM2状態を確認し、`twitchRaid` は `online`、PID `1152`、uptime `16h`、restart `26`、PM2 error log は空であることを確認

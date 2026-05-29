@@ -43,6 +43,7 @@ interface BuildBoomSummaryOptions {
   maxVideos?: number;
   minGameSeconds?: number;
   maxGames?: number;
+  maxConcurrentVideos?: number;
 }
 
 interface MomentNode {
@@ -61,6 +62,7 @@ export const DEFAULT_TWITCH_GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 const DEFAULT_MAX_VIDEOS = 20;
 const DEFAULT_MIN_GAME_SECONDS = 60 * 60;
 const DEFAULT_MAX_GAMES = 6;
+const DEFAULT_MAX_CONCURRENT_VIDEOS = 4;
 const VIDEO_METADATA_HASH =
   "45111672eea2e507f8ba44d101a61862f9c56b11dee09a15634cb75cb9b9084d";
 const VIDEO_CHAPTER_HASH =
@@ -105,6 +107,28 @@ function gameNameFromMoment(node: MomentNode): string | null {
 
 function graphQlClientIds(primary: string): string[] {
   return [...new Set([primary, DEFAULT_TWITCH_GQL_CLIENT_ID].filter(Boolean))];
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const currentIndex = nextIndex;
+        nextIndex++;
+        results[currentIndex] = await mapper(items[currentIndex]);
+      }
+    })
+  );
+
+  return results;
 }
 
 export function parseGameChapters(
@@ -242,6 +266,50 @@ function parseMetadataGame(
   };
 }
 
+async function fetchVideoGameDurations(
+  video: BoomVideo,
+  fetchFn: FetchLike,
+  gqlClientId: string
+): Promise<GameChapter[]> {
+  const [metadataResponse, chaptersResponse] = await Promise.all([
+    fetchVideoMetadata(fetchFn, gqlClientId, video.id),
+    fetchVideoChapters(fetchFn, gqlClientId, video.id),
+  ]);
+  const metadataGame = parseMetadataGame(
+    metadataResponse,
+    video.durationInSeconds
+  );
+  const chapters = parseGameChapters(
+    chaptersResponse,
+    video.durationInSeconds
+  );
+
+  if (chapters.length > 0) return chapters;
+  return metadataGame ? [metadataGame] : [];
+}
+
+export class BoomSummaryCache {
+  private summary: BoomSummary | null = null;
+  private expiresAt = 0;
+
+  constructor(
+    private readonly ttlMs = 5 * 60 * 1000,
+    private readonly now: () => number = () => Date.now()
+  ) {}
+
+  async getOrLoad(loader: () => Promise<BoomSummary>): Promise<BoomSummary> {
+    const currentTime = this.now();
+    if (this.summary && currentTime < this.expiresAt) {
+      return this.summary;
+    }
+
+    const summary = await loader();
+    this.summary = summary;
+    this.expiresAt = currentTime + this.ttlMs;
+    return summary;
+  }
+}
+
 export async function buildBoomSummary(
   apiClient: BoomApiClient,
   options: BuildBoomSummaryOptions
@@ -252,6 +320,10 @@ export async function buildBoomSummary(
     options.minGameSeconds ?? DEFAULT_MIN_GAME_SECONDS
   );
   const maxGames = Math.max(1, options.maxGames ?? DEFAULT_MAX_GAMES);
+  const maxConcurrentVideos = Math.max(
+    1,
+    options.maxConcurrentVideos ?? DEFAULT_MAX_CONCURRENT_VIDEOS
+  );
   const fetchFn = options.fetchFn ?? fetch;
   const totals = new Map<string, number>();
   const videos = await fetchRecentArchiveVideos(
@@ -260,25 +332,13 @@ export async function buildBoomSummary(
     maxVideos
   );
 
-  for (const video of videos) {
-    const [metadataResponse, chaptersResponse] = await Promise.all([
-      fetchVideoMetadata(fetchFn, options.gqlClientId, video.id),
-      fetchVideoChapters(fetchFn, options.gqlClientId, video.id),
-    ]);
-    const metadataGame = parseMetadataGame(
-      metadataResponse,
-      video.durationInSeconds
-    );
-    const chapters = parseGameChapters(
-      chaptersResponse,
-      video.durationInSeconds
-    );
-    const gameDurations = chapters.length > 0
-      ? chapters
-      : metadataGame
-        ? [metadataGame]
-        : [];
+  const gameDurationsByVideo = await mapWithConcurrency(
+    videos,
+    maxConcurrentVideos,
+    (video) => fetchVideoGameDurations(video, fetchFn, options.gqlClientId)
+  );
 
+  for (const gameDurations of gameDurationsByVideo) {
     for (const chapter of gameDurations) {
       totals.set(
         chapter.gameName,
