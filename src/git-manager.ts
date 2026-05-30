@@ -50,13 +50,21 @@ export class GitManager {
     return false;
   }
 
+  restartAfterUpdate(reason: string): boolean {
+    this.restartPending = false;
+    saveLastRestart(this.config.restartFile, Date.now() / 1000);
+    logger.info(reason);
+    restartProcess();
+    return true;
+  }
+
   pullAndRestartIfUpdated(): void {
     try {
       const result = execSync("git pull", { encoding: "utf-8" });
       logger.info(`Git pull結果: ${result}`);
       if (!result.includes("Already up to date")) {
         this._buildAfterPull();
-        this.restartWithCooldown("更新があったので再起動します");
+        this.restartAfterUpdate("更新があったので再起動します");
       }
     } catch (e) {
       logger.error(`Git pull エラー: ${e}`);
@@ -107,7 +115,7 @@ export class GitManager {
         const pullResult = execSync("git pull", { encoding: "utf-8" });
         logger.info(`プル結果: ${pullResult}`);
         this._buildAfterPull();
-        this.restartWithCooldown("更新があったので再起動します");
+        this.restartAfterUpdate("更新があったので再起動します");
         return true;
       }
 

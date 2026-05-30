@@ -1,6 +1,7 @@
 # 環境設定ファイル
 .env
 .env.bak
+.env.backup
 .env.tmp
 
 # ログファイル
@@ -44,6 +45,7 @@ Thumbs.db
 
 # OMC ステート管理ファイル
 .omc/
+.omx/
 
 # テストカバレッジ
 coverage/

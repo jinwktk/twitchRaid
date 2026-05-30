@@ -36,6 +36,7 @@
 - `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタを検証。
 - `tests/commands/clip-cache-store.test.ts`: クリップSQLiteキャッシュ、履歴上限、走査済み期間の保存を検証。
 - `tests/commands/clip-cache-sync.test.ts`: クリップ全期間走査用の日付窓、直近同期、完了済み期間スキップを検証。
+- `tests/git-manager.test.ts`: TypeScript版Git更新検知がpull/build後にクールダウンを挟まずPM2再起動をトリガーすることを検証。
 
 ## ビルド・テスト・開発コマンド
 - `python -m venv venv && source venv/bin/activate`: Linux/Mac の仮想環境作成と有効化。Windows は `venv\Scripts\activate` を使用。
@@ -72,6 +73,13 @@
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
+
+## 2026-05-31 作業ログ
+- 要望: Git更新時にPM2再起動がかかる設定へ戻したい
+- 原因: TypeScript版 `GitManager.checkForUpdates` / `pullAndRestartIfUpdated` が、更新後も `restartWithCooldown` を通っていたため、24時間再起動クールダウン中は `restartPending=true` で保留され、pull/build後も実行プロセスが旧コードのままだった
+- TDD: `tests/git-manager.test.ts` を追加し、Git更新後は `shouldRestart` を呼ばず `restartProcess` が直接呼ばれること、`restartPending` が残らないことを先に定義して失敗を確認
+- 実装: `GitManager.restartAfterUpdate` を追加し、Git更新後は `last_restart.txt` を現在時刻へ更新してから即 `restartProcess()` を呼ぶよう変更。定期再起動の `restartWithCooldown` は維持
+- 運用: `.env.backup` とAutopilot状態 `.omx/` をGit管理外へ追加
 
 ## 2026-05-30 作業ログ
 - 要望: `!boom` で最近配信したゲームとトータル時間を表示し、統計対象は1時間以上遊んだものにしたい
