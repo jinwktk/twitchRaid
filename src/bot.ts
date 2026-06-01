@@ -818,6 +818,9 @@ export class Bot {
         webhookUrl: this.config.discordWebhookUrl,
         botToken: this.config.discordBotToken || undefined,
         channelId: this.config.discordSummaryChannelId || undefined,
+        webhookThreadName: this.config.discordSummaryWebhookThreadEnabled
+          ? `配信まとめ - ${pending.title}`.slice(0, 100)
+          : undefined,
         state: pending,
         clips,
         persistProgress: (state) => this.streamSummaryStateStore.save(state),

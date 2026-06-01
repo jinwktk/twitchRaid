@@ -32,6 +32,7 @@ export class Config {
   readonly discordWebhookUrl: string;
   readonly discordBotToken: string;
   readonly discordSummaryChannelId: string;
+  readonly discordSummaryWebhookThreadEnabled: boolean;
 
   // システム設定
   lastClipTime: number;
@@ -76,6 +77,9 @@ export class Config {
     this.discordWebhookUrl = env["DISCORD_WEBHOOK_URL"] ?? "";
     this.discordBotToken = env["DISCORD_BOT_TOKEN"] ?? "";
     this.discordSummaryChannelId = env["DISCORD_SUMMARY_CHANNEL_ID"] ?? "";
+    this.discordSummaryWebhookThreadEnabled = parseEnabledFlag(
+      env["DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED"] ?? "0"
+    );
 
     // システム設定
     this.lastClipTime = parseFloat(env["LAST_CLIP_TIME"] ?? "0") || 0;

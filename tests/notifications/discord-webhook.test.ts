@@ -34,6 +34,32 @@ describe("discord webhook helpers", () => {
     expect(message).toEqual({ id: "message-id", channelId: "channel-id" });
   });
 
+  it("passes thread_name in the webhook body for forum or media channel posts", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: "message-id", channel_id: "thread-id" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const message = await executeDiscordWebhook(
+      "https://discord.com/api/webhooks/123/token",
+      { content: "summary", thread_name: "配信まとめ" },
+      { wait: true }
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://discord.com/api/webhooks/123/token?wait=true",
+      expect.objectContaining({
+        body: JSON.stringify({
+          content: "summary",
+          thread_name: "配信まとめ",
+        }),
+      })
+    );
+    expect(message).toEqual({ id: "message-id", channelId: "thread-id" });
+  });
+
   it("creates a thread from a webhook summary message", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
