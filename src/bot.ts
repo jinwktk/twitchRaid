@@ -14,6 +14,8 @@ import {
   loadCommentState,
   saveCommentState,
 } from "./utils/comment-state-store";
+import { StreamSummaryStateStore } from "./streams/stream-summary-state-store";
+import { postStreamSummary } from "./streams/stream-summary";
 import { refreshAccessTokenAdvanced } from "./auth/token-manager";
 import {
   clipHistoryKey,
@@ -66,6 +68,7 @@ export class Bot {
   private readonly commandCooldownState: CommandCooldownState;
   private readonly commentSpeedMeter: CommentSpeedMeter;
   private readonly clipCacheStore: ClipCacheStore;
+  private readonly streamSummaryStateStore: StreamSummaryStateStore;
   private readonly boomSummaryCache = new BoomSummaryCache();
   private clipCacheSynchronizer: ClipCacheSynchronizer | null = null;
 
@@ -99,10 +102,24 @@ export class Bot {
     });
     this.commentSpeedMeter = new CommentSpeedMeter(60);
     this.clipCacheStore = new ClipCacheStore(config.clipCacheDbPath);
+    this.streamSummaryStateStore = new StreamSummaryStateStore(
+      config.streamSummaryStatePath
+    );
 
     // コメント状態復元
     const [totalCount, streamStartedAt] = loadCommentState(config.envFile);
     this.commentSpeedMeter.setState(streamStartedAt, totalCount);
+    const summaryState = this.streamSummaryStateStore.load();
+    if (
+      streamStartedAt === 0 &&
+      summaryState &&
+      summaryState.status !== "posted"
+    ) {
+      this.commentSpeedMeter.setState(
+        Date.parse(summaryState.startedAt) / 1000,
+        summaryState.commentCount
+      );
+    }
   }
 
   async start(): Promise<void> {
@@ -202,6 +219,7 @@ export class Bot {
         const now = Date.now() / 1000;
         this.commentSpeedMeter.record(now);
         this._debouncedSaveCommentState();
+        this._persistStreamSummaryCounts();
       }
     });
 
@@ -214,6 +232,7 @@ export class Bot {
       logger.info(
         `Raid detected from ${user}. Viewers: ${raidInfo.viewerCount}. Sending shoutout.`
       );
+      this._incrementStreamSummaryRaid();
       await this._sendShoutout(user);
     });
   }
@@ -609,6 +628,26 @@ export class Bot {
     );
   }
 
+  private _persistStreamSummaryCounts(): void {
+    const state = this.streamSummaryStateStore.load();
+    if (!state || state.status === "posted") return;
+
+    this.streamSummaryStateStore.updateCounts(
+      this.commentSpeedMeter.totalCount(),
+      state.raidCount
+    );
+  }
+
+  private _incrementStreamSummaryRaid(): void {
+    const state = this.streamSummaryStateStore.load();
+    if (!state || state.status === "posted") return;
+
+    this.streamSummaryStateStore.updateCounts(
+      this.commentSpeedMeter.totalCount(),
+      state.raidCount + 1
+    );
+  }
+
   private _startKeepAlive(): void {
     if (this.keepAliveTimer) clearInterval(this.keepAliveTimer);
 
@@ -663,9 +702,7 @@ export class Bot {
         if (stream) {
           if (!this.streamLive) {
             logger.info(`🎥 配信が開始されました！タイトル: ${stream.title}`);
-            const startedAt = stream.startDate.getTime() / 1000;
-            this.commentSpeedMeter.startStream(startedAt);
-            saveCommentState(this.config.envFile, 0, startedAt);
+            await this._handleStreamStarted(stream);
             this.streamLive = true;
             await this.streamNotifier.notifyIfNeeded(stream.title, (msg) =>
               sendDiscordNotification(this.config.discordWebhookUrl, msg)
@@ -682,8 +719,10 @@ export class Bot {
             );
           }
         } else {
-          if (this.streamLive) {
+          const summaryState = this.streamSummaryStateStore.load();
+          if (this.streamLive || (summaryState && summaryState.status !== "posted")) {
             logger.info("📢 配信が終了しました！");
+            await this._finalizeAndPostStreamSummary(new Date().toISOString());
             this.commentSpeedMeter.resetStream();
             saveCommentState(this.config.envFile, 0, 0);
             this.streamLive = false;
@@ -710,5 +749,85 @@ export class Bot {
 
     void checkStreamStatus();
     this.streamMonitorTimer = setInterval(checkStreamStatus, 180_000); // 180秒ごと
+  }
+
+  private async _handleStreamStarted(stream: {
+    id: string;
+    title: string;
+    gameName?: string;
+    startDate: Date;
+  }): Promise<void> {
+    const existing = this.streamSummaryStateStore.load();
+    if (existing && existing.status !== "posted" && existing.streamId !== stream.id) {
+      await this._finalizeAndPostStreamSummary(new Date().toISOString());
+    }
+
+    const startedAt = stream.startDate.getTime() / 1000;
+    const sameStream =
+      existing && existing.status !== "posted" && existing.streamId === stream.id;
+
+    if (!sameStream) {
+      this.commentSpeedMeter.startStream(startedAt);
+      saveCommentState(this.config.envFile, 0, startedAt);
+      this.streamSummaryStateStore.save({
+        status: "active",
+        streamId: stream.id,
+        title: stream.title,
+        gameName: stream.gameName ?? null,
+        startedAt: stream.startDate.toISOString(),
+        streamUrl: `https://www.twitch.tv/${this.config.loginChannel}`,
+        commentCount: 0,
+        raidCount: 0,
+        postedClipIds: [],
+      });
+      return;
+    }
+
+    this.commentSpeedMeter.ensureStreamStarted(startedAt);
+    this.streamSummaryStateStore.updateCounts(
+      this.commentSpeedMeter.totalCount(),
+      existing.raidCount
+    );
+  }
+
+  private async _finalizeAndPostStreamSummary(endedAt: string): Promise<void> {
+    const current = this.streamSummaryStateStore.load();
+    if (!current || current.status === "posted") return;
+    if (!this.config.discordWebhookUrl) {
+      logger.warn("⚠️ DISCORD_WEBHOOK_URL 未設定のため配信まとめ投稿を保留します。");
+      return;
+    }
+
+    const pending =
+      current.status === "pending"
+        ? current
+        : this.streamSummaryStateStore.markPending(endedAt);
+    if (!pending) return;
+
+    try {
+      await this.clipCacheSynchronizer?.syncWindow({
+        start: new Date(pending.startedAt),
+        end: new Date(pending.endedAt ?? endedAt),
+      });
+      const clips = this.clipCacheStore.listClipsCreatedBetween(
+        pending.startedAt,
+        pending.endedAt ?? endedAt,
+        this.config.maxSummaryClipPosts
+      );
+      const posted = await postStreamSummary({
+        webhookUrl: this.config.discordWebhookUrl,
+        botToken: this.config.discordBotToken || undefined,
+        channelId: this.config.discordSummaryChannelId || undefined,
+        state: pending,
+        clips,
+        persistProgress: (state) => this.streamSummaryStateStore.save(state),
+      });
+      this.streamSummaryStateStore.save(posted);
+      logger.info(
+        `✅ 配信まとめを投稿しました: streamId=${posted.streamId}, clips=${clips.length}`
+      );
+    } catch (e) {
+      logger.error(`❌ 配信まとめ投稿に失敗しました。次回起動/監視で再試行します: ${e}`);
+    }
   }
 }

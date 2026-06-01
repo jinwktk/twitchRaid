@@ -30,6 +30,8 @@ export class Config {
 
   // Discord設定
   readonly discordWebhookUrl: string;
+  readonly discordBotToken: string;
+  readonly discordSummaryChannelId: string;
 
   // システム設定
   lastClipTime: number;
@@ -40,6 +42,8 @@ export class Config {
   readonly updateCheckInterval: number;
   readonly restartCheckInterval: number;
   readonly clipCacheDbPath: string;
+  readonly streamSummaryStatePath: string;
+  readonly maxSummaryClipPosts: number;
 
   // 特別ユーザー設定
   readonly clipSpecialUsers: string[];
@@ -70,6 +74,8 @@ export class Config {
 
     // Discord設定
     this.discordWebhookUrl = env["DISCORD_WEBHOOK_URL"] ?? "";
+    this.discordBotToken = env["DISCORD_BOT_TOKEN"] ?? "";
+    this.discordSummaryChannelId = env["DISCORD_SUMMARY_CHANNEL_ID"] ?? "";
 
     // システム設定
     this.lastClipTime = parseFloat(env["LAST_CLIP_TIME"] ?? "0") || 0;
@@ -83,6 +89,12 @@ export class Config {
       BASE_DIR,
       env["TWITCH_CLIP_CACHE_DB_PATH"] ?? "data/clips.sqlite"
     );
+    this.streamSummaryStatePath = path.resolve(
+      BASE_DIR,
+      env["STREAM_SUMMARY_STATE_PATH"] ?? "data/stream-summary-state.json"
+    );
+    this.maxSummaryClipPosts =
+      parseInt(env["STREAM_SUMMARY_MAX_CLIPS"] ?? "10", 10) || 10;
 
     // 特別ユーザー
     const specialUsersStr = env["CLIP_SPECIAL_USERS"] ?? "nyme_ia,rukalun";
