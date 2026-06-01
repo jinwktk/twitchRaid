@@ -36,6 +36,7 @@ export interface PostStreamSummaryOptions {
   webhookUrl: string;
   botToken?: string;
   channelId?: string;
+  webhookThreadName?: string;
   state: StreamSummaryState;
   clips: SummaryClip[];
   sendWebhook?: SendWebhook;
@@ -67,6 +68,7 @@ export async function postStreamSummary({
   webhookUrl,
   botToken,
   channelId,
+  webhookThreadName,
   state,
   clips,
   sendWebhook = executeDiscordWebhook,
@@ -88,12 +90,17 @@ export async function postStreamSummary({
   };
 
   if (!summaryMessageId) {
-    const message = await sendWebhook(
+    const summaryPayload = { content: formatStreamSummary(state, clips) };
+    const { message, threadCreated } = await sendInitialSummaryWebhook(
+      sendWebhook,
       webhookUrl,
-      { content: formatStreamSummary(state, clips) },
-      { wait: true }
+      summaryPayload,
+      webhookThreadName
     );
     summaryMessageId = message?.id;
+    if (threadCreated) {
+      threadId = message?.channelId;
+    }
     persist();
   }
 
@@ -133,6 +140,36 @@ export async function postStreamSummary({
   };
   persistProgress?.(postedState);
   return postedState;
+}
+
+async function sendInitialSummaryWebhook(
+  sendWebhook: SendWebhook,
+  webhookUrl: string,
+  payload: DiscordWebhookPayload,
+  webhookThreadName?: string
+): Promise<{ message: DiscordWebhookMessage | null; threadCreated: boolean }> {
+  if (!webhookThreadName) {
+    return {
+      message: await sendWebhook(webhookUrl, payload, { wait: true }),
+      threadCreated: false,
+    };
+  }
+
+  try {
+    return {
+      message: await sendWebhook(
+        webhookUrl,
+        { ...payload, thread_name: webhookThreadName },
+        { wait: true }
+      ),
+      threadCreated: true,
+    };
+  } catch {
+    return {
+      message: await sendWebhook(webhookUrl, payload, { wait: true }),
+      threadCreated: false,
+    };
+  }
 }
 
 function buildThreadName(title: string): string {

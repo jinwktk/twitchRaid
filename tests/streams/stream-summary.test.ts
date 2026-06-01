@@ -88,6 +88,63 @@ describe("stream summary", () => {
     expect(posted.postedClipIds).toEqual(["clip-a", "clip-b"]);
   });
 
+  it("creates a forum/media thread using only webhook thread_name", async () => {
+    const sendWebhook = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "message-id", channelId: "thread-id" })
+      .mockResolvedValue({ id: "clip-message-id", channelId: "thread-id" });
+
+    const posted = await postStreamSummary({
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+      webhookThreadName: "配信まとめ - 回変り金み",
+      state,
+      clips,
+      sendWebhook,
+    });
+
+    expect(sendWebhook).toHaveBeenNthCalledWith(
+      1,
+      "https://discord.com/api/webhooks/123/token",
+      expect.objectContaining({
+        content: expect.stringContaining("配信終了まとめ"),
+        thread_name: "配信まとめ - 回変り金み",
+      }),
+      { wait: true }
+    );
+    expect(sendWebhook).toHaveBeenNthCalledWith(
+      2,
+      "https://discord.com/api/webhooks/123/token",
+      { content: clips[0].url },
+      { threadId: "thread-id", wait: false }
+    );
+    expect(posted.threadId).toBe("thread-id");
+  });
+
+  it("falls back to a normal webhook summary if thread_name is rejected", async () => {
+    const sendWebhook = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Discord Webhook failed: 400"))
+      .mockResolvedValueOnce({ id: "message-id", channelId: "channel-id" })
+      .mockResolvedValue({ id: "clip-message-id", channelId: "channel-id" });
+
+    const posted = await postStreamSummary({
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+      webhookThreadName: "配信まとめ - 回変り金み",
+      state,
+      clips,
+      sendWebhook,
+    });
+
+    expect(sendWebhook).toHaveBeenNthCalledWith(
+      2,
+      "https://discord.com/api/webhooks/123/token",
+      expect.not.objectContaining({ thread_name: expect.any(String) }),
+      { wait: true }
+    );
+    expect(posted.threadId).toBeUndefined();
+    expect(posted.postedClipIds).toEqual(["clip-a", "clip-b"]);
+  });
+
   it("persists progress after summary, thread, and each clip post", async () => {
     const sendWebhook = vi
       .fn()

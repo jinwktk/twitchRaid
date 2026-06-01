@@ -2,6 +2,7 @@ import logger from "../utils/logger";
 
 export interface DiscordWebhookPayload {
   content: string;
+  thread_name?: string;
 }
 
 export interface DiscordWebhookMessage {

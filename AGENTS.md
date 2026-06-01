@@ -77,6 +77,7 @@
 - クリップキャッシュは任意で `TWITCH_CLIP_CACHE_DB_PATH` を使用。未設定時は `data/clips.sqlite` を使い、ローカル状態として Git 管理外。
 - 配信まとめ状態は任意で `STREAM_SUMMARY_STATE_PATH` を使用。未設定時は `data/stream-summary-state.json` を使い、ローカル状態として Git 管理外。
 - 配信まとめスレッド作成には `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` が必要。未設定時や権限不足時は通常Webhook投稿へフォールバックする。
+- Webhookだけで配信まとめスレッドを作る場合は、Webhook先をフォーラム/メディアチャンネルにし、`DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定する。通常テキストチャンネルWebhookではDiscord側が `thread_name` を拒否するため、通常Webhook投稿へフォールバックする。
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
@@ -89,10 +90,11 @@
 - 実装: `src/streams/stream-summary-state-store.ts` を追加し、active / pending / posted 状態、投稿済みまとめID、スレッドID、投稿済みクリップIDをJSON保存できるようにした
 - 実装: `src/streams/stream-summary.ts` を追加し、配信終了まとめの整形、Webhook `wait=true` 投稿、Discord Bot Tokenによるメッセージスレッド作成、スレッドへのクリップURL投稿、投稿済みクリップ重複回避を実装
 - 実装: `src/notifications/discord-webhook.ts` に戻り値ありのWebhook実行と、Discord REST APIでまとめメッセージからスレッドを作る関数を追加
+- 実装: フォーラム/メディアチャンネルWebhook向けに、`thread_name` でWebhookだけのスレッド作成を試す経路を追加。通常チャンネルで拒否された場合は通常Webhook投稿へフォールバック
 - 実装: `ClipCacheStore.listClipsCreatedBetween` を追加し、配信開始から終了までのクリップを視聴数降順で抽出できるようにした
 - 実装: `src/bot.ts` で配信開始時にまとめ状態を保存し、通常コメント/Raidで状態を更新、配信終了時または再起動後のオフライン検知時にまとめ投稿を再試行するよう変更
-- 設定: `STREAM_SUMMARY_STATE_PATH`、`STREAM_SUMMARY_MAX_CLIPS`、`DISCORD_BOT_TOKEN`、`DISCORD_SUMMARY_CHANNEL_ID` を追加。Discordスレッド作成に必要な設定がない場合は通常Webhook投稿へフォールバック
-- 検証: `npm test` 89件、`npm run build`、`npm run lint`、`python -m pytest -q` 106件が通過
+- 設定: `STREAM_SUMMARY_STATE_PATH`、`STREAM_SUMMARY_MAX_CLIPS`、`DISCORD_BOT_TOKEN`、`DISCORD_SUMMARY_CHANNEL_ID`、`DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED` を追加。Discordスレッド作成に必要な設定がない場合は通常Webhook投稿へフォールバック
+- 検証: `npm test` 92件、`npm run build`、`npm run lint`、`python -m pytest -q` 106件が通過
 
 ## 2026-05-31 作業ログ
 - 要望: Git更新時にPM2再起動がかかる設定へ戻したい
