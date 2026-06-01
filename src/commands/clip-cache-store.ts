@@ -13,6 +13,15 @@ export interface CachedClip {
   views: number | null;
 }
 
+export interface StreamSummaryClip {
+  id: string;
+  url: string;
+  title: string;
+  creatorDisplayName: string;
+  createdAt: string | null;
+  views: number | null;
+}
+
 interface ClipRow {
   id: string;
   url: string;
@@ -191,6 +200,44 @@ export class ClipCacheStore {
       .prepare("SELECT COUNT(*) AS count FROM clip_cache")
       .get() as { count: number };
     return row.count;
+  }
+
+  listClipsCreatedBetween(
+    startAt: string,
+    endAt: string,
+    limit = 10
+  ): StreamSummaryClip[] {
+    return this.db
+      .prepare(
+        `
+        SELECT id, url, title, creator_display_name, created_at, views
+        FROM clip_cache
+        WHERE created_at IS NOT NULL
+          AND created_at >= ?
+          AND created_at <= ?
+        ORDER BY COALESCE(views, 0) DESC, created_at ASC, id ASC
+        LIMIT ?
+      `
+      )
+      .all(startAt, endAt, limit)
+      .map((row) => {
+        const clip = row as {
+          id: string;
+          url: string;
+          title: string;
+          creator_display_name: string;
+          created_at: string | null;
+          views: number | null;
+        };
+        return {
+          id: clip.id,
+          url: clip.url,
+          title: clip.title,
+          creatorDisplayName: clip.creator_display_name,
+          createdAt: clip.created_at,
+          views: clip.views,
+        };
+      });
   }
 
   markWindowCompleted(startAt: string, endAt: string, clipCount: number): void {

@@ -35,6 +35,9 @@ npm run dev         # ts-nodeで開発実行
 - `SHOUTOUT_ADMIN_USERS` に `!shoutout` を実行できる追加ユーザーをカンマ区切りで設定できます（未設定時は `rukalun`）
 - `TWITCH_CLIP_CACHE_DB_PATH` に `!clip` / `!myclip` のクリップキャッシュ SQLite DB パスを設定できます（未設定時は `data/clips.sqlite`）
 - `TWITCH_GQL_CLIENT_ID` に Twitch GraphQL 用 Client-ID を任意設定できます（未設定時はTwitch Webの公開Client-IDを使用し、指定値が拒否された場合も公開Client-IDへフォールバック）
+- `STREAM_SUMMARY_STATE_PATH` に配信まとめの再起動復元用JSONパスを設定できます（未設定時は `data/stream-summary-state.json`）
+- `STREAM_SUMMARY_MAX_CLIPS` に配信まとめスレッドへ投稿する最大クリップ数を設定できます（未設定時は `10`）
+- `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を設定すると、配信まとめメッセージからDiscordスレッドを作成し、クリップURLをそのスレッドへ投稿します。未設定時や権限不足時は通常Webhook投稿へフォールバックします
 
 ## 技術スタック
 - **ランタイム**: Node.js 22.5+（`node:sqlite` を使用）
@@ -78,6 +81,11 @@ npm run dev         # ts-nodeで開発実行
 ## 配信通知仕様
 - 配信開始検知時に Discord Webhook へ通知
 - 直前に通知したタイトルと同一 (`LAST_STREAM_TITLE`) の場合は通知をスキップ
+- 配信開始中は `STREAM_SUMMARY_STATE_PATH` に stream id / タイトル / ゲーム名 / 開始時刻 / コメント数 / Raid数を保存
+- 配信終了検知時に「配信終了まとめ」をDiscordへ投稿し、配信時間、ゲーム、コメント数、Raid数、クリップ数、ハイライト候補、配信URLを表示
+- まとめ投稿前に配信時間帯のクリップを同期し、`created_at` が配信開始から終了までのクリップを最大 `STREAM_SUMMARY_MAX_CLIPS` 件まで抽出
+- `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` がある場合、まとめメッセージからDiscordスレッドを作成し、クリップURLをスレッドへ投稿
+- Bot再起動時に未投稿の配信まとめ状態が残っていて、Twitchがオフラインなら保存済み情報から投稿を再試行
 
 ## レイド自動シャウトアウト
 - レイド検知時は `src/commands/shoutout.ts` でレイド元のユーザーIDを解決し、Bot/Moderator のユーザーコンテキストで `chat.shoutoutUser` を実行
@@ -126,6 +134,9 @@ src/
 │   ├── manga.ts
 │   ├── shoutout.ts
 │   └── random-commands.ts
+├── streams/              # 配信まとめ状態と投稿
+│   ├── stream-summary.ts
+│   └── stream-summary-state-store.ts
 ├── chat/                 # チャット機能
 │   ├── command-cooldown-state.ts
 │   ├── comment-speed-meter.ts
@@ -146,6 +157,7 @@ src/
 ```
 
 ## 更新履歴
+- **2026-06-02**: 配信終了まとめを追加。配信中状態をJSONに保持し、再起動後も未投稿まとめを復元してDiscordへ再試行。クリップはまとめメッセージのDiscordスレッドへ投稿可能
 - **2026-05-31**: GitHub更新検知後の再起動をクールダウン対象外に変更。pull/build成功後は即PM2再起動をトリガーする
 - **2026-05-30**: `!boom` の取得を最大4本並列にし、5分キャッシュで再実行時の応答を高速化
 - **2026-05-30**: `!boom` のGraphQL 400失敗を修正。Twitch persisted query と公開Client-IDフォールバックを使い、チャプターが空の単一ゲーム配信はVODメタデータで集計

@@ -82,4 +82,20 @@ describe("ClipCacheStore", () => {
       )
     ).toBe(true);
   });
+
+  it("lists clips created during a stream window by view count", () => {
+    store.saveClips([
+      clip("before", "Viewer", "2026-05-25T09:59:59.000Z"),
+      clip("low", "Viewer", "2026-05-25T10:30:00.000Z"),
+      { ...clip("high", "Viewer", "2026-05-25T10:40:00.000Z"), views: 99 },
+      clip("after", "Viewer", "2026-05-25T11:00:01.000Z"),
+    ]);
+
+    const clips = store.listClipsCreatedBetween(
+      "2026-05-25T10:00:00.000Z",
+      "2026-05-25T11:00:00.000Z"
+    );
+
+    expect(clips.map((c) => c.id)).toEqual(["high", "low"]);
+  });
 });
