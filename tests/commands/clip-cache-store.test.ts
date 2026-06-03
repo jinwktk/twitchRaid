@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ClipCacheStore, type CachedClip } from "../../src/commands/clip-cache-store";
 
@@ -97,5 +98,85 @@ describe("ClipCacheStore", () => {
     );
 
     expect(clips.map((c) => c.id)).toEqual(["high", "low"]);
+  });
+
+  it("marks clips missing from a rescan window as unavailable", () => {
+    store.saveClips([
+      clip("kept", "Viewer", "2026-05-25T10:10:00.000Z"),
+      clip("deleted", "Viewer", "2026-05-25T10:20:00.000Z"),
+      clip("outside", "Viewer", "2026-05-25T11:10:00.000Z"),
+    ]);
+
+    const marked = store.markMissingClipsUnavailable(
+      "2026-05-25T10:00:00.000Z",
+      "2026-05-25T11:00:00.000Z",
+      ["kept"]
+    );
+
+    expect(marked).toBe(1);
+    expect(
+      store.selectRandomClip({
+        historyKey: "clip",
+        creatorName: "viewer",
+        random: () => 0,
+      })?.id
+    ).not.toBe("deleted");
+    expect(
+      store
+        .listClipsCreatedBetween(
+          "2026-05-25T10:00:00.000Z",
+          "2026-05-25T11:00:00.000Z"
+        )
+        .map((c) => c.id)
+    ).toEqual(["kept"]);
+  });
+
+  it("restores an unavailable clip when Twitch returns it again", () => {
+    store.saveClips([clip("restored", "Viewer", "2026-05-25T10:10:00.000Z")]);
+    store.markMissingClipsUnavailable(
+      "2026-05-25T10:00:00.000Z",
+      "2026-05-25T11:00:00.000Z",
+      []
+    );
+
+    expect(store.selectRandomClip({ historyKey: "clip" })).toBeNull();
+
+    store.saveClips([clip("restored", "Viewer", "2026-05-25T10:10:00.000Z")]);
+
+    expect(store.selectRandomClip({ historyKey: "clip" })?.id).toBe(
+      "restored"
+    );
+  });
+
+  it("migrates an existing cache database before creating availability indexes", () => {
+    const dbPath = path.join(tmpDir, "old-clips.sqlite");
+    const oldDb = new DatabaseSync(dbPath);
+    oldDb.exec(`
+      CREATE TABLE clip_cache (
+        id TEXT PRIMARY KEY,
+        url TEXT NOT NULL,
+        title TEXT NOT NULL,
+        creator_id TEXT NOT NULL,
+        creator_display_name TEXT NOT NULL,
+        creator_name_lower TEXT NOT NULL,
+        created_at TEXT,
+        views INTEGER,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    oldDb.close();
+
+    const migratedStore = new ClipCacheStore(dbPath);
+    migratedStore.saveClips([
+      clip("after-migration", "Viewer", "2026-05-25T10:10:00.000Z"),
+    ]);
+
+    expect(
+      migratedStore.listClipsCreatedBetween(
+        "2026-05-25T10:00:00.000Z",
+        "2026-05-25T11:00:00.000Z"
+      )
+    ).toHaveLength(1);
+    migratedStore.close();
   });
 });

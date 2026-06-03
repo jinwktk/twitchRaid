@@ -15,8 +15,8 @@
 - `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトと `!shoutout` 手動デバッグコマンドの権限判定・対象ユーザー正規化を担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。
 - `src/commands/boom.ts`: TypeScript版 `!boom` の集計ロジック。直近アーカイブ配信を Twurple Helix で取得し、Twitch GraphQL の VOD チャプターからゲーム別トータル時間を算出する。
 - `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ軽いAPIフォールバックを使う。
-- `src/commands/clip-cache-store.ts`: クリップ本体、走査済み期間、`!clip` / `!myclip:<ユーザー>` ごとの表示履歴を `data/clips.sqlite` に保存する。
-- `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期、直近同期完了後コールバックを担当。
+- `src/commands/clip-cache-store.ts`: クリップ本体、走査済み期間、削除/非公開化でTwitch APIから返らなくなったClipの無効化状態、`!clip` / `!myclip:<ユーザー>` ごとの表示履歴を `data/clips.sqlite` に保存する。
+- `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期、直近同期完了後コールバック、配信していない時間の1日1回全期間再走査を担当。
 - `src/streams/stream-summary.ts`: 配信終了まとめの表示文言作成、Discord Bot API/Webhook投稿、開始通知/まとめメッセージからのスレッド作成、ライブクリップURL投稿、終了時スレッドクローズを担当。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
@@ -36,8 +36,8 @@
 - `tests/commands/shoutout.test.ts`: TypeScript版シャウトアウトが Bot/Moderator ユーザーコンテキストで実行されること、手動コマンド権限判定、対象ユーザー名正規化を検証。
 - `tests/commands/boom.test.ts`: TypeScript版 `!boom` のVODチャプター抽出、ゲーム別合算、1時間未満フィルタ、表示文言を検証。
 - `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタを検証。
-- `tests/commands/clip-cache-store.test.ts`: クリップSQLiteキャッシュ、履歴上限、走査済み期間の保存を検証。
-- `tests/commands/clip-cache-sync.test.ts`: クリップ全期間走査用の日付窓、直近同期、完了済み期間スキップを検証。
+- `tests/commands/clip-cache-store.test.ts`: クリップSQLiteキャッシュ、履歴上限、走査済み期間、削除済みClipの無効化と候補除外を検証。
+- `tests/commands/clip-cache-sync.test.ts`: クリップ全期間走査用の日付窓、直近同期、完了済み期間スキップ、日次再走査の配信中スキップと削除済みClip無効化を検証。
 - `tests/streams/stream-summary.test.ts`: 配信終了まとめの整形、Discordスレッドへのライブ/終了時クリップ投稿、開始通知スレッド補完、終了時スレッドクローズ、投稿途中再開時の重複回避を検証。
 - `tests/streams/stream-summary-state-store.test.ts`: 配信まとめ状態JSONの保存・復元・投稿済み更新を検証。
 - `tests/notifications/discord-webhook.test.ts`: Discord Webhookの `wait` / `thread_id` 付与、Bot Tokenによるメッセージ投稿、メッセージスレッド作成、スレッドアーカイブを検証。
@@ -75,12 +75,24 @@
 ## 設定とセキュリティ Tips
 - `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS`, 任意で `TWITCH_GQL_CLIENT_ID` を定義。更新は `Config.update_*` が担当。
 - クリップキャッシュは任意で `TWITCH_CLIP_CACHE_DB_PATH` を使用。未設定時は `data/clips.sqlite` を使い、ローカル状態として Git 管理外。
+- Clip全期間バックフィルは通常起動時は完了済み期間をスキップする。配信していない時間に1日1回だけ全期間を再走査し、Twitch APIから返らなくなったClipは `clip_cache.unavailable_at` を設定して `!clip` / `!myclip` / 配信まとめ候補から除外する。再走査の最終時刻は `clip_sync_state.daily_reconcile_at` に保存する。
 - 配信まとめ状態は任意で `STREAM_SUMMARY_STATE_PATH` を使用。未設定時は `data/stream-summary-state.json` を使い、ローカル状態として Git 管理外。
 - 配信まとめスレッド作成と投稿には `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を使う。Bot Token方式では開始通知、クリップURL、終了まとめをBot APIで投稿し、配信開始通知メッセージからスレッドを作る。未設定時や権限不足時のみ通常Webhook投稿へフォールバックする。
 - Webhookだけで配信まとめスレッドを作る場合は、Webhook先をフォーラム/メディアチャンネルにし、`DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定する。通常テキストチャンネルWebhookではDiscord側が `thread_name` を拒否するため、通常Webhook投稿へフォールバックする。
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
+
+## 2026-06-03 作業ログ
+- 要望: 削除されたClipが全期間バックフィルでどう扱われるか確認し、配信していない時間に1日1回再走査して削除済みClipを反映したい
+- 調査: 既存の `saveClips` はUPSERTのみで、完了済み `clip_scan_windows` はスキップされるため、Twitch側で削除/非公開化されたClipは `data/clips.sqlite` に残り続け、`!clip` や配信まとめ候補に出る可能性があった
+- TDD: `tests/commands/clip-cache-store.test.ts` に欠落Clipの無効化、無効Clipの候補除外、再発見時の復帰テストを追加し、未実装失敗を確認
+- TDD: `tests/commands/clip-cache-sync.test.ts` に完了済み期間の再走査、配信中スキップ、1日1回制御のテストを追加し、未実装失敗を確認
+- 実装: `clip_cache` に `last_seen_at` と `unavailable_at` を追加し、再走査で返らなかったClipを無効化、Twitch APIで再び返ったClipは自動で有効化するよう変更
+- 実装: `selectRandomClip` と `listClipsCreatedBetween` は `unavailable_at IS NULL` のClipだけを候補にするよう変更
+- 実装: `ClipCacheSynchronizer.runDailyReconcileIfDue` を追加し、配信中はスキップ、オフライン時のみ `daily_reconcile_at` から24時間以上経過していれば全期間再走査するよう変更
+- 実装: `src/bot.ts` の配信状態監視でオフライン確認時に日次再走査を呼び、同期器のタイマーにも1時間ごとの期日チェックを追加
+- 検証: `npm test -- --run tests/commands/clip-cache-store.test.ts tests/commands/clip-cache-sync.test.ts` 14件が通過
 
 ## 2026-06-02 作業ログ
 - 要望: 配信まとめは良かったので、クリップをDiscordスレッドへ投稿し、Bot再起動後も配信まとめが確実に投稿されるよう情報を保持したい

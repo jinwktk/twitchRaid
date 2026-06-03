@@ -158,6 +158,7 @@ export class Bot {
       apiClient: this.apiClient,
       broadcasterId: this.config.twitchBroadcasterId,
       store: this.clipCacheStore,
+      isStreamLive: () => this.streamLive,
       onRecentSyncComplete: () => {
         void this._postNewStreamClipsToSummaryThread();
       },
@@ -732,6 +733,7 @@ export class Bot {
             saveCommentState(this.config.envFile, 0, 0);
             this.streamLive = false;
           }
+          await this.clipCacheSynchronizer?.runDailyReconcileIfDue();
         }
 
         errorCount = 0;
