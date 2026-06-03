@@ -60,6 +60,11 @@ export interface StartStreamSummaryThreadResult {
   threadId?: string;
 }
 
+export interface EnsureStreamSummaryStartThreadOptions
+  extends StartStreamSummaryThreadOptions {
+  state: StreamSummaryState;
+}
+
 export function formatStreamSummary(
   state: StreamSummaryState,
   clips: SummaryClip[]
@@ -205,6 +210,58 @@ export async function startStreamSummaryThread({
     startMessageId: startMessage?.id,
     threadId,
   };
+}
+
+export async function ensureStreamSummaryStartThread({
+  webhookUrl,
+  botToken,
+  channelId,
+  webhookThreadName,
+  title,
+  message,
+  state,
+  sendWebhook = executeDiscordWebhook,
+  createThread = createDiscordThreadFromMessage,
+}: EnsureStreamSummaryStartThreadOptions): Promise<StartStreamSummaryThreadResult> {
+  if (state.threadId) {
+    return {
+      startMessageId: state.startMessageId,
+      threadId: state.threadId,
+    };
+  }
+
+  if (state.startMessageId) {
+    let threadId: string | undefined;
+    if (botToken && channelId) {
+      try {
+        const thread = await createThread({
+          botToken,
+          channelId,
+          messageId: state.startMessageId,
+          name: buildThreadName(title),
+        });
+        threadId = thread.id;
+      } catch {
+        threadId = undefined;
+      }
+    }
+
+    return {
+      startMessageId: state.startMessageId,
+      threadId,
+    };
+  }
+
+  return startStreamSummaryThread({
+    webhookUrl,
+    botToken,
+    channelId,
+    webhookThreadName,
+    title,
+    message,
+    sendWebhook,
+    createThread,
+  });
 }
 
 async function sendInitialSummaryWebhook(

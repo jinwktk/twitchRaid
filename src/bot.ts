@@ -14,7 +14,10 @@ import {
   saveCommentState,
 } from "./utils/comment-state-store";
 import { StreamSummaryStateStore } from "./streams/stream-summary-state-store";
-import { postStreamSummary, startStreamSummaryThread } from "./streams/stream-summary";
+import {
+  ensureStreamSummaryStartThread,
+  postStreamSummary,
+} from "./streams/stream-summary";
 import { refreshAccessTokenAdvanced } from "./auth/token-manager";
 import {
   clipHistoryKey,
@@ -789,27 +792,45 @@ export class Bot {
 
   private async _notifyStreamStartedOnDiscord(title: string): Promise<void> {
     await this.streamNotifier.notifyIfNeeded(title, async (message) => {
-      if (!this.config.discordWebhookUrl) return;
+      await this._ensureStreamStartSummaryThread(title, message);
+    });
 
-      const started = await startStreamSummaryThread({
-        webhookUrl: this.config.discordWebhookUrl,
-        botToken: this.config.discordBotToken || undefined,
-        channelId: this.config.discordSummaryChannelId || undefined,
-        webhookThreadName: this.config.discordSummaryWebhookThreadEnabled
-          ? `配信まとめ - ${title}`.slice(0, 100)
-          : undefined,
+    const state = this.streamSummaryStateStore.load();
+    if (state && state.status !== "posted" && !state.threadId) {
+      await this._ensureStreamStartSummaryThread(
         title,
-        message,
-      });
+        this.streamNotifier.buildMessage(title)
+      );
+    }
+  }
 
-      const state = this.streamSummaryStateStore.load();
-      if (!state || state.status === "posted") return;
+  private async _ensureStreamStartSummaryThread(
+    title: string,
+    message: string
+  ): Promise<void> {
+    if (!this.config.discordWebhookUrl) return;
 
-      this.streamSummaryStateStore.save({
-        ...state,
-        startMessageId: started.startMessageId ?? state.startMessageId,
-        threadId: started.threadId ?? state.threadId,
-      });
+    const state = this.streamSummaryStateStore.load();
+    if (!state || state.status === "posted") return;
+
+    const started = await ensureStreamSummaryStartThread({
+      webhookUrl: this.config.discordWebhookUrl,
+      botToken: this.config.discordBotToken || undefined,
+      channelId: this.config.discordSummaryChannelId || undefined,
+      webhookThreadName: this.config.discordSummaryWebhookThreadEnabled
+        ? `配信まとめ - ${title}`.slice(0, 100)
+        : undefined,
+      title,
+      message,
+      state,
+    });
+
+    if (!started.startMessageId && !started.threadId) return;
+
+    this.streamSummaryStateStore.save({
+      ...state,
+      startMessageId: started.startMessageId ?? state.startMessageId,
+      threadId: started.threadId ?? state.threadId,
     });
   }
 

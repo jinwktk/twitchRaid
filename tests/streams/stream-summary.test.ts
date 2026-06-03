@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ensureStreamSummaryStartThread,
   formatStreamSummary,
   postStreamSummary,
   startStreamSummaryThread,
@@ -116,6 +117,66 @@ describe("stream summary", () => {
       messageId: "start-message-id",
       name: "配信まとめ - 回変り金み",
     });
+    expect(started).toEqual({
+      startMessageId: "start-message-id",
+      threadId: "thread-id",
+    });
+  });
+
+  it("creates a missing start thread from a saved start notification message", async () => {
+    const sendWebhook = vi.fn();
+    const createThread = vi.fn().mockResolvedValue({ id: "thread-id" });
+
+    const started = await ensureStreamSummaryStartThread({
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+      botToken: "bot-token",
+      channelId: "channel-id",
+      title: "回変り金み",
+      message: "回変り金み\n🔴 配信URL: https://www.twitch.tv/rukalun",
+      state: {
+        ...state,
+        status: "active",
+        startMessageId: "start-message-id",
+      },
+      sendWebhook,
+      createThread,
+    });
+
+    expect(sendWebhook).not.toHaveBeenCalled();
+    expect(createThread).toHaveBeenCalledWith({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      messageId: "start-message-id",
+      name: "配信まとめ - 回変り金み",
+    });
+    expect(started).toEqual({
+      startMessageId: "start-message-id",
+      threadId: "thread-id",
+    });
+  });
+
+  it("does not duplicate start notifications when the start thread already exists", async () => {
+    const sendWebhook = vi.fn();
+    const createThread = vi.fn();
+
+    const started = await ensureStreamSummaryStartThread({
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+      botToken: "bot-token",
+      channelId: "channel-id",
+      title: "回変り金み",
+      message: "回変り金み\n🔴 配信URL: https://www.twitch.tv/rukalun",
+      state: {
+        ...state,
+        status: "active",
+        startMessageId: "start-message-id",
+        threadId: "thread-id",
+      },
+      sendWebhook,
+      createThread,
+    });
+
+    expect(sendWebhook).not.toHaveBeenCalled();
+    expect(createThread).not.toHaveBeenCalled();
     expect(started).toEqual({
       startMessageId: "start-message-id",
       threadId: "thread-id",
