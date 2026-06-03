@@ -26,13 +26,17 @@ interface ClipCacheSyncOptions {
   recentWindowMinutes?: number;
   recentSyncIntervalMs?: number;
   staleRecentSyncMs?: number;
+  onRecentSyncComplete?: (result: {
+    syncedAt: string;
+    saved: number;
+  }) => Promise<void> | void;
 }
 
 const DEFAULT_OLDEST_CLIP_DATE = new Date("2016-05-01T00:00:00.000Z");
 const DEFAULT_FULL_WINDOW_DAYS = 30;
 const DEFAULT_SPLIT_THRESHOLD = 950;
 const DEFAULT_RECENT_WINDOW_MINUTES = 60;
-const DEFAULT_RECENT_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+const DEFAULT_RECENT_SYNC_INTERVAL_MS = 60 * 1000;
 const DEFAULT_STALE_RECENT_SYNC_MS = 60 * 1000;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const RECENT_SYNC_STATE_KEY = "recent_sync_at";
@@ -138,6 +142,14 @@ export class ClipCacheSynchronizer {
         now.toISOString()
       );
       logger.info(`🎬 直近clip同期完了: saved=${saved}`);
+      try {
+        await this.options.onRecentSyncComplete?.({
+          syncedAt: now.toISOString(),
+          saved,
+        });
+      } catch (callbackError) {
+        logger.warn(`⚠️ 直近clip同期後処理失敗: ${callbackError}`);
+      }
       return saved;
     } catch (e) {
       logger.warn(`⚠️ 直近clip同期失敗: ${e}`);

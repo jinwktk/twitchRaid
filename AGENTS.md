@@ -16,8 +16,8 @@
 - `src/commands/boom.ts`: TypeScript版 `!boom` の集計ロジック。直近アーカイブ配信を Twurple Helix で取得し、Twitch GraphQL の VOD チャプターからゲーム別トータル時間を算出する。
 - `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ軽いAPIフォールバックを使う。
 - `src/commands/clip-cache-store.ts`: クリップ本体、走査済み期間、`!clip` / `!myclip:<ユーザー>` ごとの表示履歴を `data/clips.sqlite` に保存する。
-- `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期を担当。
-- `src/streams/stream-summary.ts`: 配信終了まとめの表示文言作成、Discord Webhook投稿、開始通知/まとめメッセージからのスレッド作成、クリップURL投稿を担当。
+- `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期、直近同期完了後コールバックを担当。
+- `src/streams/stream-summary.ts`: 配信終了まとめの表示文言作成、Discord Webhook投稿、開始通知/まとめメッセージからのスレッド作成、ライブクリップURL投稿、終了時スレッドクローズを担当。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
@@ -38,9 +38,9 @@
 - `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタを検証。
 - `tests/commands/clip-cache-store.test.ts`: クリップSQLiteキャッシュ、履歴上限、走査済み期間の保存を検証。
 - `tests/commands/clip-cache-sync.test.ts`: クリップ全期間走査用の日付窓、直近同期、完了済み期間スキップを検証。
-- `tests/streams/stream-summary.test.ts`: 配信終了まとめの整形、Discordスレッドへのクリップ投稿、開始通知スレッド補完、投稿途中再開時の重複回避を検証。
+- `tests/streams/stream-summary.test.ts`: 配信終了まとめの整形、Discordスレッドへのライブ/終了時クリップ投稿、開始通知スレッド補完、終了時スレッドクローズ、投稿途中再開時の重複回避を検証。
 - `tests/streams/stream-summary-state-store.test.ts`: 配信まとめ状態JSONの保存・復元・投稿済み更新を検証。
-- `tests/notifications/discord-webhook.test.ts`: Discord Webhookの `wait` / `thread_id` 付与と、Bot Tokenによるメッセージスレッド作成を検証。
+- `tests/notifications/discord-webhook.test.ts`: Discord Webhookの `wait` / `thread_id` 付与、Bot Tokenによるメッセージスレッド作成とスレッドアーカイブを検証。
 - `tests/git-manager.test.ts`: TypeScript版Git更新検知がpull/build後にクールダウンを挟まずPM2再起動をトリガーすることを検証。
 
 ## ビルド・テスト・開発コマンド
@@ -97,8 +97,10 @@
 - 実地検証: テストチャンネル `1201193604731904030` で、開始通知 message `1511624974907998248` からスレッド `1511624974907998248` / `配信まとめテスト-878941` を作成し、終了まとめ message `1511624977747677264` とクリップ message `1511624979005964328` をスレッド投稿できることを確認
 - 追加修正: 再起動時に現在配信中のstateへ `threadId` が無いケースを確認。同一タイトルで開始通知がスキップされても、保存済み開始通知メッセージIDがあればスレッド作成だけを再試行し、無ければ開始通知を1回投稿して `threadId` を保存するよう補完した
 - 表示調整: Discordへ投稿する配信開始通知と配信終了まとめから配信URL行を削除し、タイトル・配信統計・クリップ中心の表示にした
+- 追加実装: 直近クリップ同期を1分間隔に変更し、同期完了時に配信中stateの未投稿クリップを配信まとめスレッドへ投稿して `postedClipIds` に保存するよう変更
+- 追加実装: 配信終了時は最終クリップ同期後に未投稿クリップを先にスレッドへ投稿し、終了まとめ投稿後にBot Tokenでスレッドをアーカイブして閉じるよう変更
 - 設定: `STREAM_SUMMARY_STATE_PATH`、`STREAM_SUMMARY_MAX_CLIPS`、`DISCORD_BOT_TOKEN`、`DISCORD_SUMMARY_CHANNEL_ID`、`DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED` を追加。Discordスレッド作成に必要な設定がない場合は通常Webhook投稿へフォールバック
-- 検証: `npm test` 96件、`npm run build`、`npm run lint`、`python -m pytest -q` 106件が通過
+- 検証: `npm test` 101件、`npm run build`、`npm run lint`、`python -m pytest -q` 106件が通過
 
 ## 2026-05-31 作業ログ
 - 要望: Git更新時にPM2再起動がかかる設定へ戻したい

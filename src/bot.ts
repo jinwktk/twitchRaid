@@ -16,6 +16,7 @@ import {
 import { StreamSummaryStateStore } from "./streams/stream-summary-state-store";
 import {
   ensureStreamSummaryStartThread,
+  postStreamSummaryClips,
   postStreamSummary,
 } from "./streams/stream-summary";
 import { refreshAccessTokenAdvanced } from "./auth/token-manager";
@@ -157,6 +158,9 @@ export class Bot {
       apiClient: this.apiClient,
       broadcasterId: this.config.twitchBroadcasterId,
       store: this.clipCacheStore,
+      onRecentSyncComplete: () => {
+        void this._postNewStreamClipsToSummaryThread();
+      },
     });
     this.clipCacheSynchronizer.start();
 
@@ -707,6 +711,7 @@ export class Bot {
             await this._handleStreamStarted(stream);
             this.streamLive = true;
             await this._notifyStreamStartedOnDiscord(stream.title);
+            await this._postNewStreamClipsToSummaryThread();
           }
 
           if (this.commentSpeedMeter.streamStartedAt() === null) {
@@ -834,6 +839,48 @@ export class Bot {
     });
   }
 
+  private async _postNewStreamClipsToSummaryThread(now = new Date()): Promise<void> {
+    if (!this.config.discordWebhookUrl) return;
+
+    const state = this.streamSummaryStateStore.load();
+    if (!state || state.status !== "active") return;
+
+    if (!state.threadId) {
+      await this._ensureStreamStartSummaryThread(
+        state.title,
+        this.streamNotifier.buildMessage(state.title)
+      );
+    }
+
+    const current = this.streamSummaryStateStore.load();
+    if (!current || current.status !== "active" || !current.threadId) return;
+
+    const clips = this.clipCacheStore.listClipsCreatedBetween(
+      current.startedAt,
+      now.toISOString(),
+      1000
+    );
+    const unpostedCount = clips.filter(
+      (clip) => !(current.postedClipIds ?? []).includes(clip.id)
+    ).length;
+    if (unpostedCount === 0) return;
+
+    try {
+      const posted = await postStreamSummaryClips({
+        webhookUrl: this.config.discordWebhookUrl,
+        state: current,
+        clips,
+        persistProgress: (nextState) => this.streamSummaryStateStore.save(nextState),
+      });
+      this.streamSummaryStateStore.save(posted);
+      logger.info(
+        `✅ 配信まとめスレッドへ新規クリップを投稿しました: streamId=${posted.streamId}, clips=${unpostedCount}`
+      );
+    } catch (e) {
+      logger.warn(`⚠️ 配信まとめスレッドへのクリップ投稿に失敗: ${e}`);
+    }
+  }
+
   private async _finalizeAndPostStreamSummary(endedAt: string): Promise<void> {
     const current = this.streamSummaryStateStore.load();
     if (!current || current.status === "posted") return;
@@ -842,20 +889,25 @@ export class Bot {
       return;
     }
 
-    const pending =
-      current.status === "pending"
-        ? current
-        : this.streamSummaryStateStore.markPending(endedAt);
-    if (!pending) return;
-
     try {
+      const finalEndedAt = current.endedAt ?? endedAt;
       await this.clipCacheSynchronizer?.syncWindow({
-        start: new Date(pending.startedAt),
-        end: new Date(pending.endedAt ?? endedAt),
+        start: new Date(current.startedAt),
+        end: new Date(finalEndedAt),
       });
+      if (current.status === "active") {
+        await this._postNewStreamClipsToSummaryThread(new Date(finalEndedAt));
+      }
+
+      const pending =
+        current.status === "pending"
+          ? current
+          : this.streamSummaryStateStore.markPending(finalEndedAt);
+      if (!pending) return;
+
       const clips = this.clipCacheStore.listClipsCreatedBetween(
         pending.startedAt,
-        pending.endedAt ?? endedAt,
+        pending.endedAt ?? finalEndedAt,
         this.config.maxSummaryClipPosts
       );
       const posted = await postStreamSummary({
@@ -867,6 +919,7 @@ export class Bot {
           : undefined,
         state: pending,
         clips,
+        closeThreadAfterPost: true,
         persistProgress: (state) => this.streamSummaryStateStore.save(state),
       });
       this.streamSummaryStateStore.save(posted);

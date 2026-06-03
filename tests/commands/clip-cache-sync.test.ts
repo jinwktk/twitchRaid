@@ -94,6 +94,27 @@ describe("ClipCacheSynchronizer", () => {
     expect(store.clipCount()).toBe(1);
   });
 
+  it("notifies after a recent sync so stream clips can be posted", async () => {
+    const getClipsForBroadcasterPaginated = vi.fn(() =>
+      iterableClips([makeClip("recent")])
+    );
+    const onRecentSyncComplete = vi.fn();
+    const sync = new ClipCacheSynchronizer({
+      apiClient: { clips: { getClipsForBroadcasterPaginated } },
+      broadcasterId: "broadcaster-id",
+      store,
+      recentWindowMinutes: 30,
+      onRecentSyncComplete,
+    });
+
+    await sync.syncRecentClips(new Date("2026-05-25T10:30:00.000Z"));
+
+    expect(onRecentSyncComplete).toHaveBeenCalledWith({
+      syncedAt: "2026-05-25T10:30:00.000Z",
+      saved: 1,
+    });
+  });
+
   it("skips completed full-scan windows", async () => {
     store.markWindowCompleted(
       "2026-01-01T00:00:00.000Z",
