@@ -397,7 +397,7 @@ export function formatDuration(totalSeconds: number): string {
 }
 
 export function formatBoomSummary(summary: BoomSummary): string {
-  const prefix = `過去${summary.lookbackDays}日間の総配信時間 ${formatDuration(summary.totalStreamSeconds)}`;
+  const prefix = `!過去${summary.lookbackDays}日間の総配信時間 ${formatDuration(summary.totalStreamSeconds)}`;
 
   if (summary.games.length === 0) {
     return `${prefix} / 1時間以上のゲームは見つかりませんでした。`;

@@ -84,6 +84,12 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-03 作業ログ
+- 要望: `!boom` の表示文言が長く棒読みが暴走するため、読み上げスキップ用に返却文言の先頭へ `!` を付けたい
+- TDD: `tests/commands/boom.test.ts` の `formatBoomSummary` 期待値を成功時・対象ゲームなし時ともに `!過去30日間...` へ変更し、未実装失敗を確認
+- 実装: `src/commands/boom.ts` の `formatBoomSummary` で作る prefix を `!過去...` に変更し、集計ロジックは変更しない
+- ドキュメント: `README.md` のBoomコマンドメモへ、長文読み上げ回避のため返却文頭に `!` を付ける仕様を追記
+- 検証: `npm test -- --run tests/commands/boom.test.ts` 11件が通過
+
 - 不具合報告: `!boom` が直近20配信集計へ戻っており、過去30日間集計からデグレしていた
 - 原因: `a29611d boom集計を30日間へ変更` で導入した `lookbackDays` / `creationDate` / `totalStreamSeconds` が、後続の配信まとめ系変更後の `main` で20配信版に戻っていた
 - TDD: `tests/commands/boom.test.ts` を30日仕様へ戻し、過去30日以内のVODのみ集計、古いVODで打ち切り、総配信時間表示を期待して失敗を確認
