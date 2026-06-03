@@ -37,7 +37,7 @@ npm run dev         # ts-nodeで開発実行
 - `TWITCH_GQL_CLIENT_ID` に Twitch GraphQL 用 Client-ID を任意設定できます（未設定時はTwitch Webの公開Client-IDを使用し、指定値が拒否された場合も公開Client-IDへフォールバック）
 - `STREAM_SUMMARY_STATE_PATH` に配信まとめの再起動復元用JSONパスを設定できます（未設定時は `data/stream-summary-state.json`）
 - `STREAM_SUMMARY_MAX_CLIPS` に配信まとめスレッドへ投稿する最大クリップ数を設定できます（未設定時は `10`）
-- `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を設定すると、配信開始通知メッセージからDiscordスレッドを作成し、終了まとめとクリップURLをそのスレッドへ投稿します。未設定時や権限不足時は通常Webhook投稿へフォールバックします
+- `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を設定すると、Bot APIで配信開始通知、クリップURL、終了まとめを投稿し、配信開始通知メッセージからDiscordスレッドを作成します。`DISCORD_WEBHOOK_URL` はBot設定が無い場合のフォールバックです
 - `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定すると、Webhookだけで `thread_name` によるスレッド作成を試します。この方式はDiscordのフォーラム/メディアチャンネルWebhook向けです。通常テキストチャンネルWebhookではDiscord側で拒否されるため、自動で通常Webhook投稿へフォールバックします
 
 ## 技術スタック
@@ -80,7 +80,7 @@ npm run dev         # ts-nodeで開発実行
 - 定期再起動だけは `last_restart.txt` による1日クールダウンを維持する
 
 ## 配信通知仕様
-- 配信開始検知時に Discord Webhook へ通知
+- 配信開始検知時に Discord Bot API で通知（Bot設定が無い場合のみWebhookへフォールバック）
 - 直前に通知したタイトルと同一 (`LAST_STREAM_TITLE`) の場合は通知をスキップ
 - 配信開始中は `STREAM_SUMMARY_STATE_PATH` に stream id / タイトル / ゲーム名 / 開始時刻 / コメント数 / Raid数を保存
 - `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` がある場合、配信開始通知メッセージからDiscordスレッドを作成し、そのスレッドIDを保存する
@@ -170,6 +170,7 @@ src/
 - **2026-06-03**: 再起動時に同一タイトルで開始通知がスキップされても、配信まとめstateにスレッドIDがなければ開始通知メッセージからスレッド作成を補完するよう修正
 - **2026-06-03**: Discordへ投稿する配信開始通知と配信終了まとめから、配信URL行を削除
 - **2026-06-03**: 配信中の新規クリップを1分ごとの直近同期で検知して配信まとめスレッドへ随時投稿し、配信終了まとめ後にスレッドをアーカイブして閉じるよう変更
+- **2026-06-03**: 配信まとめ系のDiscord投稿をWebhook優先からBot API優先へ変更。Bot TokenとチャンネルIDがあればWebhook URLなしで開始通知、クリップ、終了まとめを投稿可能
 - **2026-05-31**: GitHub更新検知後の再起動をクールダウン対象外に変更。pull/build成功後は即PM2再起動をトリガーする
 - **2026-05-30**: `!boom` の取得を最大4本並列にし、5分キャッシュで再実行時の応答を高速化
 - **2026-05-30**: `!boom` のGraphQL 400失敗を修正。Twitch persisted query と公開Client-IDフォールバックを使い、チャプターが空の単一ゲーム配信はVODメタデータで集計

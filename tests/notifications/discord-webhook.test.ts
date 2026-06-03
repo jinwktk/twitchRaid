@@ -3,6 +3,7 @@ import {
   closeDiscordThread,
   createDiscordThreadFromMessage,
   executeDiscordWebhook,
+  sendDiscordBotMessage,
 } from "../../src/notifications/discord-webhook";
 
 describe("discord webhook helpers", () => {
@@ -91,6 +92,34 @@ describe("discord webhook helpers", () => {
       })
     );
     expect(thread).toEqual({ id: "thread-id" });
+  });
+
+  it("sends a Discord message with a bot token", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: "message-id", channel_id: "channel-id" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const message = await sendDiscordBotMessage({
+      botToken: "secret",
+      channelId: "channel-id",
+      content: "summary",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://discord.com/api/v10/channels/channel-id/messages",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          Authorization: "Bot secret",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ content: "summary" }),
+      })
+    );
+    expect(message).toEqual({ id: "message-id", channelId: "channel-id" });
   });
 
   it("closes a Discord thread by archiving it", async () => {

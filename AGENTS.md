@@ -17,7 +17,7 @@
 - `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ軽いAPIフォールバックを使う。
 - `src/commands/clip-cache-store.ts`: クリップ本体、走査済み期間、`!clip` / `!myclip:<ユーザー>` ごとの表示履歴を `data/clips.sqlite` に保存する。
 - `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期、直近同期完了後コールバックを担当。
-- `src/streams/stream-summary.ts`: 配信終了まとめの表示文言作成、Discord Webhook投稿、開始通知/まとめメッセージからのスレッド作成、ライブクリップURL投稿、終了時スレッドクローズを担当。
+- `src/streams/stream-summary.ts`: 配信終了まとめの表示文言作成、Discord Bot API/Webhook投稿、開始通知/まとめメッセージからのスレッド作成、ライブクリップURL投稿、終了時スレッドクローズを担当。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
@@ -40,7 +40,7 @@
 - `tests/commands/clip-cache-sync.test.ts`: クリップ全期間走査用の日付窓、直近同期、完了済み期間スキップを検証。
 - `tests/streams/stream-summary.test.ts`: 配信終了まとめの整形、Discordスレッドへのライブ/終了時クリップ投稿、開始通知スレッド補完、終了時スレッドクローズ、投稿途中再開時の重複回避を検証。
 - `tests/streams/stream-summary-state-store.test.ts`: 配信まとめ状態JSONの保存・復元・投稿済み更新を検証。
-- `tests/notifications/discord-webhook.test.ts`: Discord Webhookの `wait` / `thread_id` 付与、Bot Tokenによるメッセージスレッド作成とスレッドアーカイブを検証。
+- `tests/notifications/discord-webhook.test.ts`: Discord Webhookの `wait` / `thread_id` 付与、Bot Tokenによるメッセージ投稿、メッセージスレッド作成、スレッドアーカイブを検証。
 - `tests/git-manager.test.ts`: TypeScript版Git更新検知がpull/build後にクールダウンを挟まずPM2再起動をトリガーすることを検証。
 
 ## ビルド・テスト・開発コマンド
@@ -76,7 +76,7 @@
 - `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS`, 任意で `TWITCH_GQL_CLIENT_ID` を定義。更新は `Config.update_*` が担当。
 - クリップキャッシュは任意で `TWITCH_CLIP_CACHE_DB_PATH` を使用。未設定時は `data/clips.sqlite` を使い、ローカル状態として Git 管理外。
 - 配信まとめ状態は任意で `STREAM_SUMMARY_STATE_PATH` を使用。未設定時は `data/stream-summary-state.json` を使い、ローカル状態として Git 管理外。
-- 配信まとめスレッド作成には `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` が必要。Bot Token方式では配信開始通知メッセージからスレッドを作り、終了まとめとクリップURLを同じスレッドへ投稿する。未設定時や権限不足時は通常Webhook投稿へフォールバックする。
+- 配信まとめスレッド作成と投稿には `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を使う。Bot Token方式では開始通知、クリップURL、終了まとめをBot APIで投稿し、配信開始通知メッセージからスレッドを作る。未設定時や権限不足時のみ通常Webhook投稿へフォールバックする。
 - Webhookだけで配信まとめスレッドを作る場合は、Webhook先をフォーラム/メディアチャンネルにし、`DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定する。通常テキストチャンネルWebhookではDiscord側が `thread_name` を拒否するため、通常Webhook投稿へフォールバックする。
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
@@ -99,8 +99,9 @@
 - 表示調整: Discordへ投稿する配信開始通知と配信終了まとめから配信URL行を削除し、タイトル・配信統計・クリップ中心の表示にした
 - 追加実装: 直近クリップ同期を1分間隔に変更し、同期完了時に配信中stateの未投稿クリップを配信まとめスレッドへ投稿して `postedClipIds` に保存するよう変更
 - 追加実装: 配信終了時は最終クリップ同期後に未投稿クリップを先にスレッドへ投稿し、終了まとめ投稿後にBot Tokenでスレッドをアーカイブして閉じるよう変更
+- 追加実装: 配信まとめ系の開始通知、ライブクリップ、終了まとめ投稿をWebhook優先からBot API優先へ変更。`DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` があれば `DISCORD_WEBHOOK_URL` なしで投稿できるようにした
 - 設定: `STREAM_SUMMARY_STATE_PATH`、`STREAM_SUMMARY_MAX_CLIPS`、`DISCORD_BOT_TOKEN`、`DISCORD_SUMMARY_CHANNEL_ID`、`DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED` を追加。Discordスレッド作成に必要な設定がない場合は通常Webhook投稿へフォールバック
-- 検証: `npm test` 101件、`npm run build`、`npm run lint`、`python -m pytest -q` 106件が通過
+- 検証: `npm test` 102件、`npm run build`、`npm run lint`、`python -m pytest -q` 106件が通過
 
 ## 2026-05-31 作業ログ
 - 要望: Git更新時にPM2再起動がかかる設定へ戻したい

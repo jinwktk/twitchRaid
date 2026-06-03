@@ -54,65 +54,61 @@ describe("stream summary", () => {
   });
 
   it("posts clips into a Discord thread and returns posted ids", async () => {
-    const sendWebhook = vi
+    const sendBotMessage = vi
       .fn()
       .mockResolvedValueOnce({ id: "message-id", channelId: "channel-id" })
       .mockResolvedValue({ id: "clip-message-id", channelId: "channel-id" });
     const createThread = vi.fn().mockResolvedValue({ id: "thread-id" });
 
     const posted = await postStreamSummary({
-      webhookUrl: "https://discord.com/api/webhooks/123/token",
       botToken: "bot-token",
       channelId: "channel-id",
       state,
       clips,
-      sendWebhook,
+      sendBotMessage,
       createThread,
     });
 
-    expect(sendWebhook).toHaveBeenNthCalledWith(
-      1,
-      "https://discord.com/api/webhooks/123/token",
-      expect.objectContaining({ content: expect.stringContaining("配信終了まとめ") }),
-      { wait: true }
-    );
+    expect(sendBotMessage).toHaveBeenNthCalledWith(1, {
+      botToken: "bot-token",
+      channelId: "channel-id",
+      content: expect.stringContaining("配信終了まとめ"),
+    });
     expect(createThread).toHaveBeenCalledWith({
       botToken: "bot-token",
       channelId: "channel-id",
       messageId: "message-id",
       name: "配信まとめ - 回変り金み",
     });
-    expect(sendWebhook).toHaveBeenNthCalledWith(
-      2,
-      "https://discord.com/api/webhooks/123/token",
-      { content: clips[0].url },
-      { threadId: "thread-id", wait: false }
-    );
+    expect(sendBotMessage).toHaveBeenNthCalledWith(2, {
+      botToken: "bot-token",
+      channelId: "thread-id",
+      content: clips[0].url,
+    });
     expect(posted.threadId).toBe("thread-id");
     expect(posted.postedClipIds).toEqual(["clip-a", "clip-b"]);
   });
 
   it("starts a thread from the stream-start notification with bot credentials", async () => {
-    const sendWebhook = vi
+    const sendBotMessage = vi
       .fn()
       .mockResolvedValueOnce({ id: "start-message-id", channelId: "channel-id" });
     const createThread = vi.fn().mockResolvedValue({ id: "thread-id" });
 
     const started = await startStreamSummaryThread({
-      webhookUrl: "https://discord.com/api/webhooks/123/token",
       botToken: "bot-token",
       channelId: "channel-id",
       title: "回変り金み",
       message: "回変り金み",
-      sendWebhook,
+      sendBotMessage,
       createThread,
     });
 
-    expect(sendWebhook).toHaveBeenCalledWith(
-      "https://discord.com/api/webhooks/123/token",
-      { content: "回変り金み" },
-      { wait: true }
-    );
+    expect(sendBotMessage).toHaveBeenCalledWith({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      content: "回変り金み",
+    });
     expect(createThread).toHaveBeenCalledWith({
       botToken: "bot-token",
       channelId: "channel-id",
@@ -218,14 +214,13 @@ describe("stream summary", () => {
   });
 
   it("closes the stream thread after posting the ending summary", async () => {
-    const sendWebhook = vi.fn().mockResolvedValue({
+    const sendBotMessage = vi.fn().mockResolvedValue({
       id: "summary-message-id",
       channelId: "thread-id",
     });
     const closeThread = vi.fn().mockResolvedValue(undefined);
 
     const posted = await postStreamSummary({
-      webhookUrl: "https://discord.com/api/webhooks/123/token",
       botToken: "bot-token",
       state: {
         ...state,
@@ -233,16 +228,16 @@ describe("stream summary", () => {
         postedClipIds: ["clip-a", "clip-b"],
       },
       clips,
-      sendWebhook,
+      sendBotMessage,
       closeThread,
       closeThreadAfterPost: true,
     });
 
-    expect(sendWebhook).toHaveBeenCalledWith(
-      "https://discord.com/api/webhooks/123/token",
-      expect.objectContaining({ content: expect.stringContaining("配信終了まとめ") }),
-      { threadId: "thread-id", wait: true }
-    );
+    expect(sendBotMessage).toHaveBeenCalledWith({
+      botToken: "bot-token",
+      channelId: "thread-id",
+      content: expect.stringContaining("配信終了まとめ"),
+    });
     expect(closeThread).toHaveBeenCalledWith({
       botToken: "bot-token",
       threadId: "thread-id",
@@ -308,7 +303,7 @@ describe("stream summary", () => {
   });
 
   it("persists progress after summary, thread, and each clip post", async () => {
-    const sendWebhook = vi
+    const sendBotMessage = vi
       .fn()
       .mockResolvedValueOnce({ id: "message-id", channelId: "channel-id" })
       .mockResolvedValue({ id: "clip-message-id", channelId: "channel-id" });
@@ -316,12 +311,11 @@ describe("stream summary", () => {
     const persistProgress = vi.fn();
 
     await postStreamSummary({
-      webhookUrl: "https://discord.com/api/webhooks/123/token",
       botToken: "bot-token",
       channelId: "channel-id",
       state,
       clips,
-      sendWebhook,
+      sendBotMessage,
       createThread,
       persistProgress,
     });

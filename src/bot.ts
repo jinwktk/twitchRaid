@@ -813,13 +813,13 @@ export class Bot {
     title: string,
     message: string
   ): Promise<void> {
-    if (!this.config.discordWebhookUrl) return;
+    if (!this._canPostDiscordSummary()) return;
 
     const state = this.streamSummaryStateStore.load();
     if (!state || state.status === "posted") return;
 
     const started = await ensureStreamSummaryStartThread({
-      webhookUrl: this.config.discordWebhookUrl,
+      webhookUrl: this.config.discordWebhookUrl || undefined,
       botToken: this.config.discordBotToken || undefined,
       channelId: this.config.discordSummaryChannelId || undefined,
       webhookThreadName: this.config.discordSummaryWebhookThreadEnabled
@@ -840,7 +840,7 @@ export class Bot {
   }
 
   private async _postNewStreamClipsToSummaryThread(now = new Date()): Promise<void> {
-    if (!this.config.discordWebhookUrl) return;
+    if (!this._canPostDiscordSummary()) return;
 
     const state = this.streamSummaryStateStore.load();
     if (!state || state.status !== "active") return;
@@ -867,7 +867,9 @@ export class Bot {
 
     try {
       const posted = await postStreamSummaryClips({
-        webhookUrl: this.config.discordWebhookUrl,
+        webhookUrl: this.config.discordWebhookUrl || undefined,
+        botToken: this.config.discordBotToken || undefined,
+        channelId: this.config.discordSummaryChannelId || undefined,
         state: current,
         clips,
         persistProgress: (nextState) => this.streamSummaryStateStore.save(nextState),
@@ -884,8 +886,10 @@ export class Bot {
   private async _finalizeAndPostStreamSummary(endedAt: string): Promise<void> {
     const current = this.streamSummaryStateStore.load();
     if (!current || current.status === "posted") return;
-    if (!this.config.discordWebhookUrl) {
-      logger.warn("⚠️ DISCORD_WEBHOOK_URL 未設定のため配信まとめ投稿を保留します。");
+    if (!this._canPostDiscordSummary()) {
+      logger.warn(
+        "⚠️ Discord投稿設定未完了のため配信まとめ投稿を保留します。"
+      );
       return;
     }
 
@@ -911,7 +915,7 @@ export class Bot {
         this.config.maxSummaryClipPosts
       );
       const posted = await postStreamSummary({
-        webhookUrl: this.config.discordWebhookUrl,
+        webhookUrl: this.config.discordWebhookUrl || undefined,
         botToken: this.config.discordBotToken || undefined,
         channelId: this.config.discordSummaryChannelId || undefined,
         webhookThreadName: this.config.discordSummaryWebhookThreadEnabled
@@ -929,5 +933,12 @@ export class Bot {
     } catch (e) {
       logger.error(`❌ 配信まとめ投稿に失敗しました。次回起動/監視で再試行します: ${e}`);
     }
+  }
+
+  private _canPostDiscordSummary(): boolean {
+    return Boolean(
+      this.config.discordWebhookUrl ||
+      (this.config.discordBotToken && this.config.discordSummaryChannelId)
+    );
   }
 }
