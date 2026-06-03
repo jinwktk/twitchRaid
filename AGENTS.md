@@ -84,6 +84,11 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-03 作業ログ
+- 不具合報告: にめいやアカウントで `!mangaon` が実行できなくなった
+- 原因: サブPC本番 `.env` に `MANGA_ADMIN_USERS` が存在せず、TypeScript版の既定値 `rukalun` のみが管理者扱いになっていた。`mangaon` / `mangaoff` はTwitch表示名ではなくログイン名で照合するため、にめいやは `nyme_ia` 登録が必要
+- 対応: サブPC `E:\GitHub\twitchRaid\.env` をバックアップ後、`MANGA_ADMIN_USERS=rukalun,nyme_ia` を追加し、`pm2 restart twitchRaid --update-env` で反映。`.env.bak-manga-admin-20260603190856` を作成
+- 確認: 本番 `.env` に `MANGA_COMMAND_ENABLED=false` と `MANGA_ADMIN_USERS=rukalun,nyme_ia` があること、PM2 `twitchRaid` が online で起動したことを確認
+
 - 要望: `!boom` の表示文言が長く棒読みが暴走するため、読み上げスキップ用に返却文言の先頭へ `!` を付けたい
 - TDD: `tests/commands/boom.test.ts` の `formatBoomSummary` 期待値を成功時・対象ゲームなし時ともに `!過去30日間...` へ変更し、未実装失敗を確認
 - 実装: `src/commands/boom.ts` の `formatBoomSummary` で作る prefix を `!過去...` に変更し、集計ロジックは変更しない
