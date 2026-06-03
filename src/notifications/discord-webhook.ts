@@ -32,6 +32,12 @@ export interface CloseDiscordThreadOptions {
   threadId: string;
 }
 
+export interface SendDiscordBotMessageOptions {
+  botToken: string;
+  channelId: string;
+  content: string;
+}
+
 /**
  * Discord Webhookで通知を送信する
  */
@@ -115,6 +121,38 @@ export async function createDiscordThreadFromMessage({
   const body = (await response.json()) as { id?: string };
   if (!body.id) throw new Error("Discord thread response did not include id");
   return { id: body.id };
+}
+
+export async function sendDiscordBotMessage({
+  botToken,
+  channelId,
+  content,
+}: SendDiscordBotMessageOptions): Promise<DiscordWebhookMessage> {
+  const response = await fetch(
+    `https://discord.com/api/v10/channels/${channelId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bot ${botToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ content }),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Discord bot message failed: ${response.status}`);
+  }
+
+  const body = (await response.json()) as { id?: string; channel_id?: string };
+  if (!body.id || !body.channel_id) {
+    throw new Error("Discord bot message response did not include id/channel_id");
+  }
+
+  return {
+    id: body.id,
+    channelId: body.channel_id,
+  };
 }
 
 export async function closeDiscordThread({

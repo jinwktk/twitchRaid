@@ -2,11 +2,13 @@ import {
   closeDiscordThread,
   createDiscordThreadFromMessage,
   executeDiscordWebhook,
+  sendDiscordBotMessage,
   type CloseDiscordThreadOptions,
   type DiscordThread,
   type DiscordWebhookMessage,
   type DiscordWebhookPayload,
   type ExecuteDiscordWebhookOptions,
+  type SendDiscordBotMessageOptions,
 } from "../notifications/discord-webhook";
 import type { StreamSummaryState } from "./stream-summary-state-store";
 
@@ -27,6 +29,10 @@ type SendWebhook = (
   options?: ExecuteDiscordWebhookOptions
 ) => Promise<DiscordWebhookMessage | null>;
 
+type SendBotMessage = (
+  options: SendDiscordBotMessageOptions
+) => Promise<DiscordWebhookMessage>;
+
 type CreateThread = (options: {
   botToken: string;
   channelId: string;
@@ -37,13 +43,14 @@ type CreateThread = (options: {
 type CloseThread = (options: CloseDiscordThreadOptions) => Promise<void>;
 
 export interface PostStreamSummaryOptions {
-  webhookUrl: string;
+  webhookUrl?: string;
   botToken?: string;
   channelId?: string;
   webhookThreadName?: string;
   state: StreamSummaryState;
   clips: SummaryClip[];
   sendWebhook?: SendWebhook;
+  sendBotMessage?: SendBotMessage;
   createThread?: CreateThread;
   closeThread?: CloseThread;
   closeThreadAfterPost?: boolean;
@@ -51,22 +58,26 @@ export interface PostStreamSummaryOptions {
 }
 
 export interface PostStreamSummaryClipsOptions {
-  webhookUrl: string;
+  webhookUrl?: string;
+  botToken?: string;
+  channelId?: string;
   state: StreamSummaryState;
   clips: SummaryClip[];
   allowWithoutThread?: boolean;
   sendWebhook?: SendWebhook;
+  sendBotMessage?: SendBotMessage;
   persistProgress?: (state: StreamSummaryState) => void;
 }
 
 export interface StartStreamSummaryThreadOptions {
-  webhookUrl: string;
+  webhookUrl?: string;
   botToken?: string;
   channelId?: string;
   webhookThreadName?: string;
   title: string;
   message: string;
   sendWebhook?: SendWebhook;
+  sendBotMessage?: SendBotMessage;
   createThread?: CreateThread;
 }
 
@@ -107,6 +118,7 @@ export async function postStreamSummary({
   state,
   clips,
   sendWebhook = executeDiscordWebhook,
+  sendBotMessage = sendDiscordBotMessage,
   createThread = createDiscordThreadFromMessage,
   closeThread = closeDiscordThread,
   closeThreadAfterPost = false,
@@ -130,9 +142,12 @@ export async function postStreamSummary({
 
   if (!summaryMessageId) {
     const summaryPayload = { content: formatStreamSummary(state, clips) };
-    const { message, threadCreated } = await sendInitialSummaryWebhook(
+    const { message, threadCreated } = await sendInitialSummaryMessage(
       sendWebhook,
+      sendBotMessage,
       webhookUrl,
+      botToken,
+      channelId,
       summaryPayload,
       webhookThreadName,
       threadId
@@ -161,6 +176,8 @@ export async function postStreamSummary({
 
   const clipPostedState = await postStreamSummaryClips({
     webhookUrl,
+    botToken,
+    channelId,
     state: {
       ...state,
       summaryMessageId,
@@ -170,6 +187,7 @@ export async function postStreamSummary({
     clips,
     allowWithoutThread: true,
     sendWebhook,
+    sendBotMessage,
     persistProgress: (nextState) => {
       summaryMessageId = nextState.summaryMessageId;
       threadId = nextState.threadId;
@@ -212,10 +230,13 @@ export async function postStreamSummary({
 
 export async function postStreamSummaryClips({
   webhookUrl,
+  botToken,
+  channelId,
   state,
   clips,
   allowWithoutThread = false,
   sendWebhook = executeDiscordWebhook,
+  sendBotMessage = sendDiscordBotMessage,
   persistProgress,
 }: PostStreamSummaryClipsOptions): Promise<StreamSummaryState> {
   if ((!state.threadId && !allowWithoutThread) || state.status === "posted") {
@@ -225,11 +246,16 @@ export async function postStreamSummaryClips({
   const postedClipIds = new Set(state.postedClipIds ?? []);
   for (const clip of clips) {
     if (postedClipIds.has(clip.id)) continue;
-    await sendWebhook(
+    await sendSummaryMessage({
       webhookUrl,
-      { content: clip.url },
-      { threadId: state.threadId, wait: false }
-    );
+      botToken,
+      channelId: state.threadId ?? channelId,
+      content: clip.url,
+      threadId: state.threadId,
+      wait: false,
+      sendWebhook,
+      sendBotMessage,
+    });
     postedClipIds.add(clip.id);
     persistProgress?.({
       ...state,
@@ -251,13 +277,21 @@ export async function startStreamSummaryThread({
   title,
   message,
   sendWebhook = executeDiscordWebhook,
+  sendBotMessage = sendDiscordBotMessage,
   createThread = createDiscordThreadFromMessage,
 }: StartStreamSummaryThreadOptions): Promise<StartStreamSummaryThreadResult> {
   let startMessage: DiscordWebhookMessage | null = null;
   let threadId: string | undefined;
 
-  if (webhookThreadName) {
+  if (botToken && channelId) {
+    startMessage = await sendBotMessage({
+      botToken,
+      channelId,
+      content: message,
+    });
+  } else if (webhookThreadName) {
     try {
+      if (!webhookUrl) throw new Error("Discord webhook URL is not configured");
       startMessage = await sendWebhook(
         webhookUrl,
         { content: message, thread_name: webhookThreadName },
@@ -265,9 +299,11 @@ export async function startStreamSummaryThread({
       );
       threadId = startMessage?.channelId;
     } catch {
+      if (!webhookUrl) throw new Error("Discord webhook URL is not configured");
       startMessage = await sendWebhook(webhookUrl, { content: message }, { wait: true });
     }
   } else {
+    if (!webhookUrl) throw new Error("Discord webhook URL is not configured");
     startMessage = await sendWebhook(webhookUrl, { content: message }, { wait: true });
   }
 
@@ -300,6 +336,7 @@ export async function ensureStreamSummaryStartThread({
   message,
   state,
   sendWebhook = executeDiscordWebhook,
+  sendBotMessage = sendDiscordBotMessage,
   createThread = createDiscordThreadFromMessage,
 }: EnsureStreamSummaryStartThreadOptions): Promise<StartStreamSummaryThreadResult> {
   if (state.threadId) {
@@ -339,17 +376,36 @@ export async function ensureStreamSummaryStartThread({
     title,
     message,
     sendWebhook,
+    sendBotMessage,
     createThread,
   });
 }
 
-async function sendInitialSummaryWebhook(
+async function sendInitialSummaryMessage(
   sendWebhook: SendWebhook,
-  webhookUrl: string,
+  sendBotMessage: SendBotMessage,
+  webhookUrl: string | undefined,
+  botToken: string | undefined,
+  channelId: string | undefined,
   payload: DiscordWebhookPayload,
   webhookThreadName?: string,
   threadId?: string
 ): Promise<{ message: DiscordWebhookMessage | null; threadCreated: boolean }> {
+  if (botToken && (threadId || channelId)) {
+    return {
+      message: await sendBotMessage({
+        botToken,
+        channelId: threadId ?? channelId!,
+        content: payload.content,
+      }),
+      threadCreated: false,
+    };
+  }
+
+  if (!webhookUrl) {
+    throw new Error("Discord webhook URL is not configured");
+  }
+
   if (threadId) {
     return {
       message: await sendWebhook(webhookUrl, payload, { threadId, wait: true }),
@@ -379,6 +435,44 @@ async function sendInitialSummaryWebhook(
       threadCreated: false,
     };
   }
+}
+
+async function sendSummaryMessage({
+  webhookUrl,
+  botToken,
+  channelId,
+  content,
+  threadId,
+  wait,
+  sendWebhook,
+  sendBotMessage,
+}: {
+  webhookUrl?: string;
+  botToken?: string;
+  channelId?: string;
+  content: string;
+  threadId?: string;
+  wait: boolean;
+  sendWebhook: SendWebhook;
+  sendBotMessage: SendBotMessage;
+}): Promise<DiscordWebhookMessage | null> {
+  if (botToken && channelId) {
+    return sendBotMessage({
+      botToken,
+      channelId,
+      content,
+    });
+  }
+
+  if (!webhookUrl) {
+    throw new Error("Discord webhook URL is not configured");
+  }
+
+  return sendWebhook(
+    webhookUrl,
+    { content },
+    { threadId, wait }
+  );
 }
 
 function buildThreadName(title: string): string {
