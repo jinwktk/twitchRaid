@@ -135,4 +135,71 @@ describe("ClipCacheSynchronizer", () => {
 
     expect(getClipsForBroadcasterPaginated).not.toHaveBeenCalled();
   });
+
+  it("resyncs a completed window in reconcile mode and marks missing clips unavailable", async () => {
+    store.saveClips([
+      clipToCachedClip(makeClip("kept", "2026-01-01T10:00:00.000Z")),
+      clipToCachedClip(makeClip("deleted", "2026-01-01T11:00:00.000Z")),
+    ]);
+    store.markWindowCompleted(
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-02T00:00:00.000Z",
+      2
+    );
+    const getClipsForBroadcasterPaginated = vi.fn(() =>
+      iterableClips([makeClip("kept", "2026-01-01T10:00:00.000Z")])
+    );
+    const sync = new ClipCacheSynchronizer({
+      apiClient: { clips: { getClipsForBroadcasterPaginated } },
+      broadcasterId: "broadcaster-id",
+      store,
+    });
+
+    await sync.syncWindow(
+      {
+        start: new Date("2026-01-01T00:00:00.000Z"),
+        end: new Date("2026-01-02T00:00:00.000Z"),
+      },
+      { reconcileMissing: true }
+    );
+
+    expect(getClipsForBroadcasterPaginated).toHaveBeenCalledOnce();
+    expect(
+      store
+        .listClipsCreatedBetween(
+          "2026-01-01T00:00:00.000Z",
+          "2026-01-02T00:00:00.000Z"
+        )
+        .map((clip) => clip.id)
+    ).toEqual(["kept"]);
+  });
+
+  it("runs daily reconcile only while offline and only once per interval", async () => {
+    const getClipsForBroadcasterPaginated = vi.fn(() => iterableClips([]));
+    let live = true;
+    const sync = new ClipCacheSynchronizer({
+      apiClient: { clips: { getClipsForBroadcasterPaginated } },
+      broadcasterId: "broadcaster-id",
+      store,
+      oldestClipDate: new Date("2026-01-01T00:00:00.000Z"),
+      fullWindowDays: 1,
+      isStreamLive: () => live,
+    });
+
+    await sync.runDailyReconcileIfDue(new Date("2026-01-03T00:00:00.000Z"));
+    expect(getClipsForBroadcasterPaginated).not.toHaveBeenCalled();
+
+    live = false;
+    await sync.runDailyReconcileIfDue(new Date("2026-01-03T00:00:00.000Z"));
+    expect(getClipsForBroadcasterPaginated).toHaveBeenCalledTimes(2);
+    expect(store.getSyncState("daily_reconcile_at")).toBe(
+      "2026-01-03T00:00:00.000Z"
+    );
+
+    await sync.runDailyReconcileIfDue(new Date("2026-01-03T12:00:00.000Z"));
+    expect(getClipsForBroadcasterPaginated).toHaveBeenCalledTimes(2);
+
+    await sync.runDailyReconcileIfDue(new Date("2026-01-04T00:00:01.000Z"));
+    expect(getClipsForBroadcasterPaginated).toHaveBeenCalledTimes(6);
+  });
 });

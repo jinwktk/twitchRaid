@@ -31,6 +31,7 @@ interface ClipRow {
   creator_name_lower: string;
   created_at: string | null;
   views: number | null;
+  unavailable_at: string | null;
 }
 
 interface ScanWindowRow {
@@ -81,9 +82,11 @@ export class ClipCacheStore {
         creator_name_lower,
         created_at,
         views,
+        last_seen_at,
+        unavailable_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
       ON CONFLICT(id) DO UPDATE SET
         url = excluded.url,
         title = excluded.title,
@@ -92,6 +95,8 @@ export class ClipCacheStore {
         creator_name_lower = excluded.creator_name_lower,
         created_at = excluded.created_at,
         views = excluded.views,
+        last_seen_at = excluded.last_seen_at,
+        unavailable_at = NULL,
         updated_at = excluded.updated_at
     `);
     const now = new Date().toISOString();
@@ -109,6 +114,7 @@ export class ClipCacheStore {
           clip.creatorDisplayName.toLowerCase(),
           clip.createdAt,
           clip.views,
+          now,
           now
         );
         saved++;
@@ -120,6 +126,40 @@ export class ClipCacheStore {
     }
 
     return saved;
+  }
+
+  markMissingClipsUnavailable(
+    startAt: string,
+    endAt: string,
+    availableClipIds: string[],
+    markedAt = new Date().toISOString()
+  ): number {
+    const filters = [
+      "created_at IS NOT NULL",
+      "created_at >= ?",
+      "created_at < ?",
+      "unavailable_at IS NULL",
+    ];
+    const params: (string | number)[] = [startAt, endAt];
+
+    if (availableClipIds.length > 0) {
+      filters.push(
+        `id NOT IN (${availableClipIds.map(() => "?").join(", ")})`
+      );
+      params.push(...availableClipIds);
+    }
+
+    const result = this.db
+      .prepare(
+        `
+        UPDATE clip_cache
+        SET unavailable_at = ?, updated_at = ?
+        WHERE ${filters.join(" AND ")}
+      `
+      )
+      .run(markedAt, markedAt, ...params);
+
+    return Number(result.changes);
   }
 
   selectRandomClip({
@@ -215,6 +255,7 @@ export class ClipCacheStore {
         WHERE created_at IS NOT NULL
           AND created_at >= ?
           AND created_at <= ?
+          AND unavailable_at IS NULL
         ORDER BY COALESCE(views, 0) DESC, created_at ASC, id ASC
         LIMIT ?
       `
@@ -320,7 +361,9 @@ export class ClipCacheStore {
       params.push(...excludeIds);
     }
 
-    const where = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
+    filters.push("unavailable_at IS NULL");
+
+    const where = `WHERE ${filters.join(" AND ")}`;
     const countRow = this.db
       .prepare(`SELECT COUNT(*) AS count FROM clip_cache ${where}`)
       .get(...params) as unknown as CountRow;
@@ -356,6 +399,8 @@ export class ClipCacheStore {
         creator_name_lower TEXT NOT NULL,
         created_at TEXT,
         views INTEGER,
+        last_seen_at TEXT,
+        unavailable_at TEXT,
         updated_at TEXT NOT NULL
       );
 
@@ -391,5 +436,24 @@ export class ClipCacheStore {
         updated_at TEXT NOT NULL
       );
     `);
+    this.addColumnIfMissing("clip_cache", "last_seen_at", "TEXT");
+    this.addColumnIfMissing("clip_cache", "unavailable_at", "TEXT");
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_clip_cache_available_created_at
+        ON clip_cache (unavailable_at, created_at);
+    `);
+  }
+
+  private addColumnIfMissing(
+    tableName: string,
+    columnName: string,
+    definition: string
+  ): void {
+    const columns = this.db
+      .prepare(`PRAGMA table_info(${tableName})`)
+      .all() as Array<{ name: string }>;
+    if (columns.some((column) => column.name === columnName)) return;
+
+    this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
   }
 }

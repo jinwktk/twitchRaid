@@ -26,10 +26,21 @@ interface ClipCacheSyncOptions {
   recentWindowMinutes?: number;
   recentSyncIntervalMs?: number;
   staleRecentSyncMs?: number;
+  dailyReconcileIntervalMs?: number;
+  dailyReconcileCheckIntervalMs?: number;
+  isStreamLive?: () => boolean;
   onRecentSyncComplete?: (result: {
     syncedAt: string;
     saved: number;
   }) => Promise<void> | void;
+}
+
+interface SyncWindowOptions {
+  reconcileMissing?: boolean;
+}
+
+interface FullBackfillOptions {
+  reconcileMissing?: boolean;
 }
 
 const DEFAULT_OLDEST_CLIP_DATE = new Date("2016-05-01T00:00:00.000Z");
@@ -39,7 +50,10 @@ const DEFAULT_RECENT_WINDOW_MINUTES = 60;
 const DEFAULT_RECENT_SYNC_INTERVAL_MS = 60 * 1000;
 const DEFAULT_STALE_RECENT_SYNC_MS = 60 * 1000;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_DAILY_RECONCILE_INTERVAL_MS = ONE_DAY_MS;
+const DEFAULT_DAILY_RECONCILE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const RECENT_SYNC_STATE_KEY = "recent_sync_at";
+export const DAILY_RECONCILE_STATE_KEY = "daily_reconcile_at";
 
 export function buildClipDateWindows(
   oldest: Date,
@@ -79,12 +93,17 @@ export class ClipCacheSynchronizer {
   private readonly recentWindowMinutes: number;
   private readonly recentSyncIntervalMs: number;
   private readonly staleRecentSyncMs: number;
+  private readonly dailyReconcileIntervalMs: number;
+  private readonly dailyReconcileCheckIntervalMs: number;
   private recentSyncTimer: ReturnType<typeof setInterval> | null = null;
+  private dailyReconcileTimer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
   private fullScanRunning = false;
   private recentSyncRunning = false;
+  private dailyReconcileRunning = false;
   private fullBackfillPromise: Promise<void> | null = null;
   private recentSyncPromise: Promise<number> | null = null;
+  private dailyReconcilePromise: Promise<void> | null = null;
 
   constructor(private readonly options: ClipCacheSyncOptions) {
     this.oldestClipDate = options.oldestClipDate ?? DEFAULT_OLDEST_CLIP_DATE;
@@ -96,6 +115,11 @@ export class ClipCacheSynchronizer {
       options.recentSyncIntervalMs ?? DEFAULT_RECENT_SYNC_INTERVAL_MS;
     this.staleRecentSyncMs =
       options.staleRecentSyncMs ?? DEFAULT_STALE_RECENT_SYNC_MS;
+    this.dailyReconcileIntervalMs =
+      options.dailyReconcileIntervalMs ?? DEFAULT_DAILY_RECONCILE_INTERVAL_MS;
+    this.dailyReconcileCheckIntervalMs =
+      options.dailyReconcileCheckIntervalMs ??
+      DEFAULT_DAILY_RECONCILE_CHECK_INTERVAL_MS;
   }
 
   start(): void {
@@ -104,6 +128,9 @@ export class ClipCacheSynchronizer {
     this.recentSyncTimer = setInterval(() => {
       this.recentSyncPromise = this.syncRecentClips();
     }, this.recentSyncIntervalMs);
+    this.dailyReconcileTimer = setInterval(() => {
+      this.dailyReconcilePromise = this.runDailyReconcileIfDue();
+    }, this.dailyReconcileCheckIntervalMs);
   }
 
   async stop(): Promise<void> {
@@ -112,10 +139,15 @@ export class ClipCacheSynchronizer {
       clearInterval(this.recentSyncTimer);
       this.recentSyncTimer = null;
     }
+    if (this.dailyReconcileTimer) {
+      clearInterval(this.dailyReconcileTimer);
+      this.dailyReconcileTimer = null;
+    }
 
     const pending: Promise<unknown>[] = [];
     if (this.recentSyncPromise) pending.push(this.recentSyncPromise);
     if (this.fullBackfillPromise) pending.push(this.fullBackfillPromise);
+    if (this.dailyReconcilePromise) pending.push(this.dailyReconcilePromise);
     await Promise.allSettled(pending);
   }
 
@@ -159,7 +191,10 @@ export class ClipCacheSynchronizer {
     }
   }
 
-  async runFullBackfill(now = new Date()): Promise<void> {
+  async runFullBackfill(
+    now = new Date(),
+    options: FullBackfillOptions = {}
+  ): Promise<void> {
     if (this.fullScanRunning) return;
     this.fullScanRunning = true;
 
@@ -169,15 +204,20 @@ export class ClipCacheSynchronizer {
         now,
         this.fullWindowDays
       );
-      logger.info(`🎬 clip全期間バックフィル開始: windows=${windows.length}`);
+      const scanLabel = options.reconcileMissing
+        ? "clip全期間再走査"
+        : "clip全期間バックフィル";
+      logger.info(`🎬 ${scanLabel}開始: windows=${windows.length}`);
 
       for (const window of windows) {
         if (this.stopped) return;
-        await this.syncWindow(window);
+        await this.syncWindow(window, {
+          reconcileMissing: options.reconcileMissing,
+        });
       }
 
       logger.info(
-        `🎬 clip全期間バックフィル完了: total=${this.options.store.clipCount()}`
+        `🎬 ${scanLabel}完了: total=${this.options.store.clipCount()}`
       );
     } catch (e) {
       logger.warn(`⚠️ clip全期間バックフィル失敗: ${e}`);
@@ -186,11 +226,43 @@ export class ClipCacheSynchronizer {
     }
   }
 
-  async syncWindow(window: ClipDateWindow): Promise<number> {
+  async runDailyReconcileIfDue(now = new Date()): Promise<void> {
+    if (this.dailyReconcileRunning) return;
+    if (this.options.isStreamLive?.()) {
+      logger.info("🎬 配信中のためclip日次再走査をスキップします。");
+      return;
+    }
+
+    const lastReconciled =
+      this.options.store.getSyncState(DAILY_RECONCILE_STATE_KEY);
+    const lastReconciledMs = lastReconciled ? Date.parse(lastReconciled) : 0;
+    if (now.getTime() - lastReconciledMs < this.dailyReconcileIntervalMs) {
+      return;
+    }
+
+    this.dailyReconcileRunning = true;
+    try {
+      await this.runFullBackfill(now, { reconcileMissing: true });
+      this.options.store.setSyncState(
+        DAILY_RECONCILE_STATE_KEY,
+        now.toISOString()
+      );
+    } finally {
+      this.dailyReconcileRunning = false;
+    }
+  }
+
+  async syncWindow(
+    window: ClipDateWindow,
+    options: SyncWindowOptions = {}
+  ): Promise<number> {
     const startAt = window.start.toISOString();
     const endAt = window.end.toISOString();
 
-    if (this.options.store.isWindowCompleted(startAt, endAt)) {
+    if (
+      !options.reconcileMissing &&
+      this.options.store.isWindowCompleted(startAt, endAt)
+    ) {
       return 0;
     }
 
@@ -201,15 +273,28 @@ export class ClipCacheSynchronizer {
       const middle = new Date(
         Math.floor((window.start.getTime() + window.end.getTime()) / 2)
       );
-      const first = await this.syncWindow({ start: window.start, end: middle });
-      const second = await this.syncWindow({ start: middle, end: window.end });
+      const first = await this.syncWindow(
+        { start: window.start, end: middle },
+        options
+      );
+      const second = await this.syncWindow(
+        { start: middle, end: window.end },
+        options
+      );
       return first + second;
     }
 
     const saved = this.options.store.saveClips(clips.map(clipToCachedClip));
+    const unavailable = options.reconcileMissing
+      ? this.options.store.markMissingClipsUnavailable(
+          startAt,
+          endAt,
+          clips.map((clip) => clip.id)
+        )
+      : 0;
     this.options.store.markWindowCompleted(startAt, endAt, clips.length);
     logger.info(
-      `🎬 clip期間同期完了: ${startAt} - ${endAt}, clips=${clips.length}`
+      `🎬 clip期間同期完了: ${startAt} - ${endAt}, clips=${clips.length}, unavailable=${unavailable}`
     );
     return saved;
   }
