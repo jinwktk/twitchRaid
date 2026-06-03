@@ -96,6 +96,7 @@
 - 追加実装: Bot Token方式では配信終了時ではなく配信開始通知メッセージからスレッドを作成し、保存済み `threadId` へ配信終了まとめとクリップURLを投稿するよう変更
 - 実地検証: テストチャンネル `1201193604731904030` で、開始通知 message `1511624974907998248` からスレッド `1511624974907998248` / `配信まとめテスト-878941` を作成し、終了まとめ message `1511624977747677264` とクリップ message `1511624979005964328` をスレッド投稿できることを確認
 - 追加修正: 再起動時に現在配信中のstateへ `threadId` が無いケースを確認。同一タイトルで開始通知がスキップされても、保存済み開始通知メッセージIDがあればスレッド作成だけを再試行し、無ければ開始通知を1回投稿して `threadId` を保存するよう補完した
+- 表示調整: Discordへ投稿する配信開始通知と配信終了まとめから配信URL行を削除し、タイトル・配信統計・クリップ中心の表示にした
 - 設定: `STREAM_SUMMARY_STATE_PATH`、`STREAM_SUMMARY_MAX_CLIPS`、`DISCORD_BOT_TOKEN`、`DISCORD_SUMMARY_CHANNEL_ID`、`DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED` を追加。Discordスレッド作成に必要な設定がない場合は通常Webhook投稿へフォールバック
 - 検証: `npm test` 96件、`npm run build`、`npm run lint`、`python -m pytest -q` 106件が通過
 

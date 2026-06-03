@@ -26,9 +26,7 @@ def test_notify_when_title_is_new():
     result = notifier.notify_if_needed("新しいタイトル", sender)
 
     assert result is True
-    sender.assert_called_once_with(
-        "新しいタイトル\n🔴 配信URL: https://www.twitch.tv/rukalun"
-    )
+    sender.assert_called_once_with("新しいタイトル")
     assert config.LAST_STREAM_TITLE == "新しいタイトル"
     assert config.updated_titles == ["新しいタイトル"]
 
