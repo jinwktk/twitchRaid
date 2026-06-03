@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   formatStreamSummary,
   postStreamSummary,
+  startStreamSummaryThread,
   type SummaryClip,
   type StreamSummaryState,
 } from "../../src/streams/stream-summary";
@@ -86,6 +87,71 @@ describe("stream summary", () => {
     );
     expect(posted.threadId).toBe("thread-id");
     expect(posted.postedClipIds).toEqual(["clip-a", "clip-b"]);
+  });
+
+  it("starts a thread from the stream-start notification with bot credentials", async () => {
+    const sendWebhook = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "start-message-id", channelId: "channel-id" });
+    const createThread = vi.fn().mockResolvedValue({ id: "thread-id" });
+
+    const started = await startStreamSummaryThread({
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+      botToken: "bot-token",
+      channelId: "channel-id",
+      title: "回変り金み",
+      message: "回変り金み\n🔴 配信URL: https://www.twitch.tv/rukalun",
+      sendWebhook,
+      createThread,
+    });
+
+    expect(sendWebhook).toHaveBeenCalledWith(
+      "https://discord.com/api/webhooks/123/token",
+      { content: "回変り金み\n🔴 配信URL: https://www.twitch.tv/rukalun" },
+      { wait: true }
+    );
+    expect(createThread).toHaveBeenCalledWith({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      messageId: "start-message-id",
+      name: "配信まとめ - 回変り金み",
+    });
+    expect(started).toEqual({
+      startMessageId: "start-message-id",
+      threadId: "thread-id",
+    });
+  });
+
+  it("posts the ending summary into an existing start-notification thread", async () => {
+    const sendWebhook = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "summary-message-id", channelId: "thread-id" })
+      .mockResolvedValue({ id: "clip-message-id", channelId: "thread-id" });
+
+    const posted = await postStreamSummary({
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+      state: {
+        ...state,
+        threadId: "thread-id",
+      },
+      clips,
+      sendWebhook,
+    });
+
+    expect(sendWebhook).toHaveBeenNthCalledWith(
+      1,
+      "https://discord.com/api/webhooks/123/token",
+      expect.objectContaining({ content: expect.stringContaining("配信終了まとめ") }),
+      { threadId: "thread-id", wait: true }
+    );
+    expect(sendWebhook).toHaveBeenNthCalledWith(
+      2,
+      "https://discord.com/api/webhooks/123/token",
+      { content: clips[0].url },
+      { threadId: "thread-id", wait: false }
+    );
+    expect(posted.summaryMessageId).toBe("summary-message-id");
+    expect(posted.threadId).toBe("thread-id");
   });
 
   it("creates a forum/media thread using only webhook thread_name", async () => {
