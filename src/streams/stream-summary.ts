@@ -81,7 +81,6 @@ export function formatStreamSummary(
     `レイド: ${state.raidCount}件`,
     `クリップ: ${clips.length}件`,
     `ハイライト候補: ${highlight}`,
-    `配信URL: ${state.streamUrl}`,
   ].join("\n");
 }
 

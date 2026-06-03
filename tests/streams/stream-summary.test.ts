@@ -49,6 +49,7 @@ describe("stream summary", () => {
     expect(formatStreamSummary(state, clips)).toContain("コメント: 53件");
     expect(formatStreamSummary(state, clips)).toContain("クリップ: 2件");
     expect(formatStreamSummary(state, clips)).toContain("ハイライト候補: BadClearOstrich");
+    expect(formatStreamSummary(state, clips)).not.toContain("配信URL:");
   });
 
   it("posts clips into a Discord thread and returns posted ids", async () => {
@@ -101,14 +102,14 @@ describe("stream summary", () => {
       botToken: "bot-token",
       channelId: "channel-id",
       title: "回変り金み",
-      message: "回変り金み\n🔴 配信URL: https://www.twitch.tv/rukalun",
+      message: "回変り金み",
       sendWebhook,
       createThread,
     });
 
     expect(sendWebhook).toHaveBeenCalledWith(
       "https://discord.com/api/webhooks/123/token",
-      { content: "回変り金み\n🔴 配信URL: https://www.twitch.tv/rukalun" },
+      { content: "回変り金み" },
       { wait: true }
     );
     expect(createThread).toHaveBeenCalledWith({
@@ -132,7 +133,7 @@ describe("stream summary", () => {
       botToken: "bot-token",
       channelId: "channel-id",
       title: "回変り金み",
-      message: "回変り金み\n🔴 配信URL: https://www.twitch.tv/rukalun",
+      message: "回変り金み",
       state: {
         ...state,
         status: "active",
@@ -164,7 +165,7 @@ describe("stream summary", () => {
       botToken: "bot-token",
       channelId: "channel-id",
       title: "回変り金み",
-      message: "回変り金み\n🔴 配信URL: https://www.twitch.tv/rukalun",
+      message: "回変り金み",
       state: {
         ...state,
         status: "active",
