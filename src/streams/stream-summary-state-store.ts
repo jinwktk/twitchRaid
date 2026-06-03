@@ -16,6 +16,7 @@ export interface StreamSummaryState {
   startMessageId?: string;
   summaryMessageId?: string;
   threadId?: string;
+  threadClosedAt?: string;
   postedClipIds: string[];
   postedAt?: string;
 }

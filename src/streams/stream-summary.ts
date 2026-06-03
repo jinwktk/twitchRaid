@@ -1,6 +1,8 @@
 import {
+  closeDiscordThread,
   createDiscordThreadFromMessage,
   executeDiscordWebhook,
+  type CloseDiscordThreadOptions,
   type DiscordThread,
   type DiscordWebhookMessage,
   type DiscordWebhookPayload,
@@ -32,6 +34,8 @@ type CreateThread = (options: {
   name: string;
 }) => Promise<DiscordThread>;
 
+type CloseThread = (options: CloseDiscordThreadOptions) => Promise<void>;
+
 export interface PostStreamSummaryOptions {
   webhookUrl: string;
   botToken?: string;
@@ -41,6 +45,17 @@ export interface PostStreamSummaryOptions {
   clips: SummaryClip[];
   sendWebhook?: SendWebhook;
   createThread?: CreateThread;
+  closeThread?: CloseThread;
+  closeThreadAfterPost?: boolean;
+  persistProgress?: (state: StreamSummaryState) => void;
+}
+
+export interface PostStreamSummaryClipsOptions {
+  webhookUrl: string;
+  state: StreamSummaryState;
+  clips: SummaryClip[];
+  allowWithoutThread?: boolean;
+  sendWebhook?: SendWebhook;
   persistProgress?: (state: StreamSummaryState) => void;
 }
 
@@ -93,10 +108,13 @@ export async function postStreamSummary({
   clips,
   sendWebhook = executeDiscordWebhook,
   createThread = createDiscordThreadFromMessage,
+  closeThread = closeDiscordThread,
+  closeThreadAfterPost = false,
   persistProgress,
 }: PostStreamSummaryOptions): Promise<StreamSummaryState> {
   let summaryMessageId = state.summaryMessageId;
   let threadId = state.threadId;
+  let threadClosedAt = state.threadClosedAt;
   const postedClipIds = new Set(state.postedClipIds ?? []);
 
   const persist = (status: StreamSummaryState["status"] = "pending") => {
@@ -105,6 +123,7 @@ export async function postStreamSummary({
       status,
       summaryMessageId,
       threadId,
+      threadClosedAt,
       postedClipIds: [...postedClipIds],
     });
   };
@@ -140,15 +159,42 @@ export async function postStreamSummary({
     }
   }
 
-  for (const clip of clips) {
-    if (postedClipIds.has(clip.id)) continue;
-    await sendWebhook(
-      webhookUrl,
-      { content: clip.url },
-      { threadId, wait: false }
-    );
-    postedClipIds.add(clip.id);
-    persist();
+  const clipPostedState = await postStreamSummaryClips({
+    webhookUrl,
+    state: {
+      ...state,
+      summaryMessageId,
+      threadId,
+      postedClipIds: [...postedClipIds],
+    },
+    clips,
+    allowWithoutThread: true,
+    sendWebhook,
+    persistProgress: (nextState) => {
+      summaryMessageId = nextState.summaryMessageId;
+      threadId = nextState.threadId;
+      postedClipIds.clear();
+      for (const clipId of nextState.postedClipIds) {
+        postedClipIds.add(clipId);
+      }
+      persistProgress?.(nextState);
+    },
+  });
+  summaryMessageId = clipPostedState.summaryMessageId;
+  threadId = clipPostedState.threadId;
+  postedClipIds.clear();
+  for (const clipId of clipPostedState.postedClipIds) {
+    postedClipIds.add(clipId);
+  }
+
+  if (closeThreadAfterPost && botToken && threadId && !threadClosedAt) {
+    try {
+      await closeThread({ botToken, threadId });
+      threadClosedAt = new Date().toISOString();
+      persist();
+    } catch {
+      threadClosedAt = undefined;
+    }
   }
 
   const postedState: StreamSummaryState = {
@@ -156,11 +202,45 @@ export async function postStreamSummary({
     status: "posted",
     summaryMessageId,
     threadId,
+    threadClosedAt,
     postedClipIds: [...postedClipIds],
     postedAt: new Date().toISOString(),
   };
   persistProgress?.(postedState);
   return postedState;
+}
+
+export async function postStreamSummaryClips({
+  webhookUrl,
+  state,
+  clips,
+  allowWithoutThread = false,
+  sendWebhook = executeDiscordWebhook,
+  persistProgress,
+}: PostStreamSummaryClipsOptions): Promise<StreamSummaryState> {
+  if ((!state.threadId && !allowWithoutThread) || state.status === "posted") {
+    return state;
+  }
+
+  const postedClipIds = new Set(state.postedClipIds ?? []);
+  for (const clip of clips) {
+    if (postedClipIds.has(clip.id)) continue;
+    await sendWebhook(
+      webhookUrl,
+      { content: clip.url },
+      { threadId: state.threadId, wait: false }
+    );
+    postedClipIds.add(clip.id);
+    persistProgress?.({
+      ...state,
+      postedClipIds: [...postedClipIds],
+    });
+  }
+
+  return {
+    ...state,
+    postedClipIds: [...postedClipIds],
+  };
 }
 
 export async function startStreamSummaryThread({

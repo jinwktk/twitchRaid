@@ -27,6 +27,11 @@ export interface CreateDiscordThreadFromMessageOptions {
   autoArchiveDuration?: number;
 }
 
+export interface CloseDiscordThreadOptions {
+  botToken: string;
+  threadId: string;
+}
+
 /**
  * Discord Webhookで通知を送信する
  */
@@ -110,4 +115,25 @@ export async function createDiscordThreadFromMessage({
   const body = (await response.json()) as { id?: string };
   if (!body.id) throw new Error("Discord thread response did not include id");
   return { id: body.id };
+}
+
+export async function closeDiscordThread({
+  botToken,
+  threadId,
+}: CloseDiscordThreadOptions): Promise<void> {
+  const response = await fetch(
+    `https://discord.com/api/v10/channels/${threadId}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bot ${botToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ archived: true }),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Discord thread close failed: ${response.status}`);
+  }
 }

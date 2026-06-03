@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ensureStreamSummaryStartThread,
   formatStreamSummary,
+  postStreamSummaryClips,
   postStreamSummary,
   startStreamSummaryThread,
   type SummaryClip,
@@ -216,6 +217,39 @@ describe("stream summary", () => {
     expect(posted.threadId).toBe("thread-id");
   });
 
+  it("closes the stream thread after posting the ending summary", async () => {
+    const sendWebhook = vi.fn().mockResolvedValue({
+      id: "summary-message-id",
+      channelId: "thread-id",
+    });
+    const closeThread = vi.fn().mockResolvedValue(undefined);
+
+    const posted = await postStreamSummary({
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+      botToken: "bot-token",
+      state: {
+        ...state,
+        threadId: "thread-id",
+        postedClipIds: ["clip-a", "clip-b"],
+      },
+      clips,
+      sendWebhook,
+      closeThread,
+      closeThreadAfterPost: true,
+    });
+
+    expect(sendWebhook).toHaveBeenCalledWith(
+      "https://discord.com/api/webhooks/123/token",
+      expect.objectContaining({ content: expect.stringContaining("配信終了まとめ") }),
+      { threadId: "thread-id", wait: true }
+    );
+    expect(closeThread).toHaveBeenCalledWith({
+      botToken: "bot-token",
+      threadId: "thread-id",
+    });
+    expect(posted.threadClosedAt).toBeDefined();
+  });
+
   it("creates a forum/media thread using only webhook thread_name", async () => {
     const sendWebhook = vi
       .fn()
@@ -330,5 +364,49 @@ describe("stream summary", () => {
       { threadId: "thread-id", wait: false }
     );
     expect(posted.postedClipIds).toEqual(["clip-a", "clip-b"]);
+  });
+
+  it("posts live clips into the existing stream thread without a summary", async () => {
+    const sendWebhook = vi.fn().mockResolvedValue({ id: "clip-message-id" });
+    const persistProgress = vi.fn();
+
+    const posted = await postStreamSummaryClips({
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+      state: {
+        ...state,
+        status: "active",
+        threadId: "thread-id",
+        postedClipIds: ["clip-a"],
+      },
+      clips,
+      sendWebhook,
+      persistProgress,
+    });
+
+    expect(sendWebhook).toHaveBeenCalledTimes(1);
+    expect(sendWebhook).toHaveBeenCalledWith(
+      "https://discord.com/api/webhooks/123/token",
+      { content: clips[1].url },
+      { threadId: "thread-id", wait: false }
+    );
+    expect(persistProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ postedClipIds: ["clip-a", "clip-b"] })
+    );
+    expect(posted.summaryMessageId).toBeUndefined();
+    expect(posted.postedClipIds).toEqual(["clip-a", "clip-b"]);
+  });
+
+  it("does not post live clips outside a thread", async () => {
+    const sendWebhook = vi.fn();
+
+    const posted = await postStreamSummaryClips({
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+      state,
+      clips,
+      sendWebhook,
+    });
+
+    expect(sendWebhook).not.toHaveBeenCalled();
+    expect(posted.postedClipIds).toEqual([]);
   });
 });

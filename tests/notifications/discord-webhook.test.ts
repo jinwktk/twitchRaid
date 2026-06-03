@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  closeDiscordThread,
   createDiscordThreadFromMessage,
   executeDiscordWebhook,
 } from "../../src/notifications/discord-webhook";
@@ -90,5 +91,31 @@ describe("discord webhook helpers", () => {
       })
     );
     expect(thread).toEqual({ id: "thread-id" });
+  });
+
+  it("closes a Discord thread by archiving it", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: "thread-id", archived: true }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await closeDiscordThread({
+      botToken: "secret",
+      threadId: "thread-id",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://discord.com/api/v10/channels/thread-id",
+      expect.objectContaining({
+        method: "PATCH",
+        headers: {
+          Authorization: "Bot secret",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ archived: true }),
+      })
+    );
   });
 });
