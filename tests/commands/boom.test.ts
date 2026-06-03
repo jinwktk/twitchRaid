@@ -10,6 +10,7 @@ import {
 interface FakeVideo {
   id: string;
   durationInSeconds: number;
+  creationDate: Date;
 }
 
 function iterableVideos(videos: FakeVideo[]): AsyncIterable<FakeVideo> {
@@ -87,7 +88,8 @@ describe("parseGameChapters", () => {
 });
 
 describe("buildBoomSummary", () => {
-  it("aggregates recent archive game time and filters totals below one hour", async () => {
+  it("aggregates archive game time from the last 30 days and filters totals below one hour", async () => {
+    const now = new Date("2026-05-31T12:00:00.000Z");
     const fetchFn = vi
       .fn()
       .mockResolvedValueOnce({
@@ -165,8 +167,21 @@ describe("buildBoomSummary", () => {
         videos: {
           getVideosByUserPaginated: vi.fn(() =>
             iterableVideos([
-              { id: "v1", durationInSeconds: 4_200 },
-              { id: "v2", durationInSeconds: 1_800 },
+              {
+                id: "v1",
+                durationInSeconds: 4_200,
+                creationDate: new Date("2026-05-30T12:00:00.000Z"),
+              },
+              {
+                id: "v2",
+                durationInSeconds: 1_800,
+                creationDate: new Date("2026-05-20T12:00:00.000Z"),
+              },
+              {
+                id: "old",
+                durationInSeconds: 7_200,
+                creationDate: new Date("2026-04-20T12:00:00.000Z"),
+              },
             ])
           ),
         },
@@ -175,11 +190,14 @@ describe("buildBoomSummary", () => {
         broadcasterId: "broadcaster-id",
         gqlClientId: "gql-client",
         fetchFn,
+        now: () => now,
       }
     );
 
     expect(summary).toEqual({
       analyzedVideos: 2,
+      lookbackDays: 30,
+      totalStreamSeconds: 6_000,
       games: [{ gameName: "Game A", totalSeconds: 4_500 }],
     });
     expect(fetchFn).toHaveBeenCalledTimes(4);
@@ -210,7 +228,13 @@ describe("buildBoomSummary", () => {
       {
         videos: {
           getVideosByUserPaginated: vi.fn(() =>
-            iterableVideos([{ id: "v1", durationInSeconds: 7_200 }])
+            iterableVideos([
+              {
+                id: "v1",
+                durationInSeconds: 7_200,
+                creationDate: new Date("2026-05-31T12:00:00.000Z"),
+              },
+            ])
           ),
         },
       },
@@ -218,6 +242,7 @@ describe("buildBoomSummary", () => {
         broadcasterId: "broadcaster-id",
         gqlClientId: "gql-client",
         fetchFn,
+        now: () => new Date("2026-05-31T12:00:00.000Z"),
       }
     );
 
@@ -265,7 +290,13 @@ describe("buildBoomSummary", () => {
       {
         videos: {
           getVideosByUserPaginated: vi.fn(() =>
-            iterableVideos([{ id: "v1", durationInSeconds: 3_600 }])
+            iterableVideos([
+              {
+                id: "v1",
+                durationInSeconds: 3_600,
+                creationDate: new Date("2026-05-31T12:00:00.000Z"),
+              },
+            ])
           ),
         },
       },
@@ -273,6 +304,7 @@ describe("buildBoomSummary", () => {
         broadcasterId: "broadcaster-id",
         gqlClientId: "bad-client",
         fetchFn,
+        now: () => new Date("2026-05-31T12:00:00.000Z"),
       }
     );
 
@@ -289,11 +321,20 @@ describe("buildBoomSummary", () => {
     );
   });
 
-  it("limits archive video fetching to keep the chat command responsive", async () => {
+  it("stops archive video fetching once videos are older than the lookback window", async () => {
+    const now = new Date("2026-05-31T12:00:00.000Z");
     const getVideosByUserPaginated = vi.fn(() =>
       iterableVideos([
-        { id: "v1", durationInSeconds: 3_600 },
-        { id: "v2", durationInSeconds: 3_600 },
+        {
+          id: "v1",
+          durationInSeconds: 3_600,
+          creationDate: new Date("2026-05-31T12:00:00.000Z"),
+        },
+        {
+          id: "v2",
+          durationInSeconds: 3_600,
+          creationDate: new Date("2026-04-30T12:00:00.000Z"),
+        },
       ])
     );
     const fetchFn = vi.fn().mockResolvedValue({
@@ -325,7 +366,7 @@ describe("buildBoomSummary", () => {
         broadcasterId: "broadcaster-id",
         gqlClientId: "gql-client",
         fetchFn,
-        maxVideos: 1,
+        now: () => now,
       }
     );
 
@@ -340,9 +381,21 @@ describe("buildBoomSummary", () => {
     let maxActiveRequests = 0;
     const getVideosByUserPaginated = vi.fn(() =>
       iterableVideos([
-        { id: "v1", durationInSeconds: 3_600 },
-        { id: "v2", durationInSeconds: 3_600 },
-        { id: "v3", durationInSeconds: 3_600 },
+        {
+          id: "v1",
+          durationInSeconds: 3_600,
+          creationDate: new Date("2026-05-31T12:00:00.000Z"),
+        },
+        {
+          id: "v2",
+          durationInSeconds: 3_600,
+          creationDate: new Date("2026-05-30T12:00:00.000Z"),
+        },
+        {
+          id: "v3",
+          durationInSeconds: 3_600,
+          creationDate: new Date("2026-05-29T12:00:00.000Z"),
+        },
       ])
     );
     const fetchFn = vi.fn(async (_input, init) => {
@@ -381,6 +434,7 @@ describe("buildBoomSummary", () => {
         gqlClientId: "gql-client",
         fetchFn,
         maxConcurrentVideos: 2,
+        now: () => new Date("2026-05-31T12:00:00.000Z"),
       }
     );
 
@@ -395,10 +449,14 @@ describe("BoomSummaryCache", () => {
     const cache = new BoomSummaryCache(5_000, () => now);
     const first = {
       analyzedVideos: 1,
+      lookbackDays: 30,
+      totalStreamSeconds: 3_600,
       games: [{ gameName: "Game A", totalSeconds: 3_600 }],
     };
     const second = {
       analyzedVideos: 1,
+      lookbackDays: 30,
+      totalStreamSeconds: 3_600,
       games: [{ gameName: "Game B", totalSeconds: 3_600 }],
     };
     const loader = vi
@@ -418,18 +476,29 @@ describe("formatBoomSummary", () => {
   it("formats a compact chat response", () => {
     expect(
       formatBoomSummary({
-        analyzedVideos: 20,
+        analyzedVideos: 4,
+        lookbackDays: 30,
+        totalStreamSeconds: 12_600,
         games: [
           { gameName: "Game A", totalSeconds: 9_000 },
           { gameName: "Game B", totalSeconds: 3_600 },
         ],
       })
-    ).toBe("最近20配信のゲーム時間(1時間以上): Game A 2時間30分 / Game B 1時間");
+    ).toBe(
+      "過去30日間の総配信時間 3時間30分 / ゲーム時間(1時間以上): Game A 2時間30分 / Game B 1時間"
+    );
   });
 
   it("returns a not-found message when there are no qualifying games", () => {
-    expect(formatBoomSummary({ analyzedVideos: 3, games: [] })).toBe(
-      "最近3配信で1時間以上のゲームは見つかりませんでした。"
+    expect(
+      formatBoomSummary({
+        analyzedVideos: 3,
+        lookbackDays: 30,
+        totalStreamSeconds: 5_400,
+        games: [],
+      })
+    ).toBe(
+      "過去30日間の総配信時間 1時間30分 / 1時間以上のゲームは見つかりませんでした。"
     );
   });
 });

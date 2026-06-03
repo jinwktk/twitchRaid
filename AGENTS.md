@@ -13,7 +13,7 @@
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `process_restart.py`: 同一コンソール内でのプロセス再起動と、`execv` 失敗時フォールバック起動を担当。
 - `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトと `!shoutout` 手動デバッグコマンドの権限判定・対象ユーザー正規化を担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。
-- `src/commands/boom.ts`: TypeScript版 `!boom` の集計ロジック。直近アーカイブ配信を Twurple Helix で取得し、Twitch GraphQL の VOD チャプターからゲーム別トータル時間を算出する。
+- `src/commands/boom.ts`: TypeScript版 `!boom` の集計ロジック。過去30日間のアーカイブ配信を Twurple Helix で取得し、Twitch GraphQL の VOD チャプターからゲーム別トータル時間と総配信時間を算出する。
 - `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ軽いAPIフォールバックを使う。
 - `src/commands/clip-cache-store.ts`: クリップ本体、走査済み期間、削除/非公開化でTwitch APIから返らなくなったClipの無効化状態、`!clip` / `!myclip:<ユーザー>` ごとの表示履歴を `data/clips.sqlite` に保存する。
 - `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期、直近同期完了後コールバック、配信していない時間の1日1回全期間再走査を担当。
@@ -84,6 +84,12 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-03 作業ログ
+- 不具合報告: `!boom` が直近20配信集計へ戻っており、過去30日間集計からデグレしていた
+- 原因: `a29611d boom集計を30日間へ変更` で導入した `lookbackDays` / `creationDate` / `totalStreamSeconds` が、後続の配信まとめ系変更後の `main` で20配信版に戻っていた
+- TDD: `tests/commands/boom.test.ts` を30日仕様へ戻し、過去30日以内のVODのみ集計、古いVODで打ち切り、総配信時間表示を期待して失敗を確認
+- 実装: `src/commands/boom.ts` を過去30日間集計へ戻し、`BoomSummary` に `lookbackDays` と `totalStreamSeconds` を復元。`formatBoomSummary` も「過去30日間の総配信時間 ...」表示へ戻した
+- 検証: `npm test -- --run tests/commands/boom.test.ts` 11件が通過
+
 - 要望: 削除されたClipが全期間バックフィルでどう扱われるか確認し、配信していない時間に1日1回再走査して削除済みClipを反映したい
 - 調査: 既存の `saveClips` はUPSERTのみで、完了済み `clip_scan_windows` はスキップされるため、Twitch側で削除/非公開化されたClipは `data/clips.sqlite` に残り続け、`!clip` や配信まとめ候補に出る可能性があった
 - TDD: `tests/commands/clip-cache-store.test.ts` に欠落Clipの無効化、無効Clipの候補除外、再発見時の復帰テストを追加し、未実装失敗を確認

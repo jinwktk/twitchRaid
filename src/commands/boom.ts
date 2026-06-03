@@ -1,5 +1,6 @@
 interface BoomVideo {
   id: string;
+  creationDate: Date;
   durationInSeconds: number;
 }
 
@@ -33,6 +34,8 @@ export interface BoomGameSummary {
 
 export interface BoomSummary {
   analyzedVideos: number;
+  lookbackDays: number;
+  totalStreamSeconds: number;
   games: BoomGameSummary[];
 }
 
@@ -40,10 +43,12 @@ interface BuildBoomSummaryOptions {
   broadcasterId: string;
   gqlClientId: string;
   fetchFn?: FetchLike;
+  lookbackDays?: number;
   maxVideos?: number;
   minGameSeconds?: number;
   maxGames?: number;
   maxConcurrentVideos?: number;
+  now?: () => Date;
 }
 
 interface MomentNode {
@@ -59,7 +64,7 @@ interface MomentNode {
 
 const TWITCH_GQL_URL = "https://gql.twitch.tv/gql";
 export const DEFAULT_TWITCH_GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
-const DEFAULT_MAX_VIDEOS = 20;
+const DEFAULT_LOOKBACK_DAYS = 30;
 const DEFAULT_MIN_GAME_SECONDS = 60 * 60;
 const DEFAULT_MAX_GAMES = 6;
 const DEFAULT_MAX_CONCURRENT_VIDEOS = 4;
@@ -165,16 +170,26 @@ export function parseGameChapters(
 async function fetchRecentArchiveVideos(
   apiClient: BoomApiClient,
   broadcasterId: string,
-  maxVideos: number
+  options: {
+    lookbackDays: number;
+    maxVideos: number | null;
+    now: Date;
+  }
 ): Promise<BoomVideo[]> {
   const paginator = apiClient.videos.getVideosByUserPaginated(broadcasterId, {
     type: "archive",
   });
   const videos: BoomVideo[] = [];
+  const cutoffTime =
+    options.now.getTime() - options.lookbackDays * 24 * 60 * 60 * 1000;
 
   for await (const video of paginator) {
+    if (video.creationDate.getTime() < cutoffTime) break;
+
     videos.push(video);
-    if (videos.length >= maxVideos) break;
+    if (options.maxVideos !== null && videos.length >= options.maxVideos) {
+      break;
+    }
   }
 
   return videos;
@@ -314,7 +329,12 @@ export async function buildBoomSummary(
   apiClient: BoomApiClient,
   options: BuildBoomSummaryOptions
 ): Promise<BoomSummary> {
-  const maxVideos = Math.max(1, options.maxVideos ?? DEFAULT_MAX_VIDEOS);
+  const lookbackDays = Math.max(
+    1,
+    options.lookbackDays ?? DEFAULT_LOOKBACK_DAYS
+  );
+  const maxVideos =
+    options.maxVideos === undefined ? null : Math.max(1, options.maxVideos);
   const minGameSeconds = Math.max(
     0,
     options.minGameSeconds ?? DEFAULT_MIN_GAME_SECONDS
@@ -324,12 +344,17 @@ export async function buildBoomSummary(
     1,
     options.maxConcurrentVideos ?? DEFAULT_MAX_CONCURRENT_VIDEOS
   );
+  const now = options.now?.() ?? new Date();
   const fetchFn = options.fetchFn ?? fetch;
   const totals = new Map<string, number>();
   const videos = await fetchRecentArchiveVideos(
     apiClient,
     options.broadcasterId,
-    maxVideos
+    { lookbackDays, maxVideos, now }
+  );
+  const totalStreamSeconds = videos.reduce(
+    (sum, video) => sum + video.durationInSeconds,
+    0
   );
 
   const gameDurationsByVideo = await mapWithConcurrency(
@@ -353,7 +378,12 @@ export async function buildBoomSummary(
     .sort((a, b) => b.totalSeconds - a.totalSeconds)
     .slice(0, maxGames);
 
-  return { analyzedVideos: videos.length, games };
+  return {
+    analyzedVideos: videos.length,
+    lookbackDays,
+    totalStreamSeconds,
+    games,
+  };
 }
 
 export function formatDuration(totalSeconds: number): string {
@@ -367,12 +397,14 @@ export function formatDuration(totalSeconds: number): string {
 }
 
 export function formatBoomSummary(summary: BoomSummary): string {
+  const prefix = `過去${summary.lookbackDays}日間の総配信時間 ${formatDuration(summary.totalStreamSeconds)}`;
+
   if (summary.games.length === 0) {
-    return `最近${summary.analyzedVideos}配信で1時間以上のゲームは見つかりませんでした。`;
+    return `${prefix} / 1時間以上のゲームは見つかりませんでした。`;
   }
 
   const games = summary.games
     .map((game) => `${game.gameName} ${formatDuration(game.totalSeconds)}`)
     .join(" / ");
-  return `最近${summary.analyzedVideos}配信のゲーム時間(1時間以上): ${games}`;
+  return `${prefix} / ゲーム時間(1時間以上): ${games}`;
 }
