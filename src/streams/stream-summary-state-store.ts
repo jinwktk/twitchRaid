@@ -13,6 +13,7 @@ export interface StreamSummaryState {
   streamUrl: string;
   commentCount: number;
   raidCount: number;
+  startMessageId?: string;
   summaryMessageId?: string;
   threadId?: string;
   postedClipIds: string[];

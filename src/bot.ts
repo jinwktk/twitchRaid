@@ -5,7 +5,6 @@ import type { Config } from "./config";
 import logger from "./utils/logger";
 import { StreamTitleNotifier } from "./notifications/stream-notifications";
 import { ClipRecastNotifier } from "./notifications/clip-recast-notifier";
-import { sendDiscordNotification } from "./notifications/discord-webhook";
 import { CommentSpeedMeter } from "./chat/comment-speed-meter";
 import { CommandCooldownState } from "./chat/command-cooldown-state";
 import { isCommandMessage } from "./chat/message-filters";
@@ -15,7 +14,7 @@ import {
   saveCommentState,
 } from "./utils/comment-state-store";
 import { StreamSummaryStateStore } from "./streams/stream-summary-state-store";
-import { postStreamSummary } from "./streams/stream-summary";
+import { postStreamSummary, startStreamSummaryThread } from "./streams/stream-summary";
 import { refreshAccessTokenAdvanced } from "./auth/token-manager";
 import {
   clipHistoryKey,
@@ -704,9 +703,7 @@ export class Bot {
             logger.info(`🎥 配信が開始されました！タイトル: ${stream.title}`);
             await this._handleStreamStarted(stream);
             this.streamLive = true;
-            await this.streamNotifier.notifyIfNeeded(stream.title, (msg) =>
-              sendDiscordNotification(this.config.discordWebhookUrl, msg)
-            );
+            await this._notifyStreamStartedOnDiscord(stream.title);
           }
 
           if (this.commentSpeedMeter.streamStartedAt() === null) {
@@ -788,6 +785,32 @@ export class Bot {
       this.commentSpeedMeter.totalCount(),
       existing.raidCount
     );
+  }
+
+  private async _notifyStreamStartedOnDiscord(title: string): Promise<void> {
+    await this.streamNotifier.notifyIfNeeded(title, async (message) => {
+      if (!this.config.discordWebhookUrl) return;
+
+      const started = await startStreamSummaryThread({
+        webhookUrl: this.config.discordWebhookUrl,
+        botToken: this.config.discordBotToken || undefined,
+        channelId: this.config.discordSummaryChannelId || undefined,
+        webhookThreadName: this.config.discordSummaryWebhookThreadEnabled
+          ? `配信まとめ - ${title}`.slice(0, 100)
+          : undefined,
+        title,
+        message,
+      });
+
+      const state = this.streamSummaryStateStore.load();
+      if (!state || state.status === "posted") return;
+
+      this.streamSummaryStateStore.save({
+        ...state,
+        startMessageId: started.startMessageId ?? state.startMessageId,
+        threadId: started.threadId ?? state.threadId,
+      });
+    });
   }
 
   private async _finalizeAndPostStreamSummary(endedAt: string): Promise<void> {

@@ -93,8 +93,10 @@
 - 実装: フォーラム/メディアチャンネルWebhook向けに、`thread_name` でWebhookだけのスレッド作成を試す経路を追加。通常チャンネルで拒否された場合は通常Webhook投稿へフォールバック
 - 実装: `ClipCacheStore.listClipsCreatedBetween` を追加し、配信開始から終了までのクリップを視聴数降順で抽出できるようにした
 - 実装: `src/bot.ts` で配信開始時にまとめ状態を保存し、通常コメント/Raidで状態を更新、配信終了時または再起動後のオフライン検知時にまとめ投稿を再試行するよう変更
+- 追加実装: Bot Token方式では配信終了時ではなく配信開始通知メッセージからスレッドを作成し、保存済み `threadId` へ配信終了まとめとクリップURLを投稿するよう変更
+- 実地検証: テストチャンネル `1201193604731904030` で、開始通知 message `1511624974907998248` からスレッド `1511624974907998248` / `配信まとめテスト-878941` を作成し、終了まとめ message `1511624977747677264` とクリップ message `1511624979005964328` をスレッド投稿できることを確認
 - 設定: `STREAM_SUMMARY_STATE_PATH`、`STREAM_SUMMARY_MAX_CLIPS`、`DISCORD_BOT_TOKEN`、`DISCORD_SUMMARY_CHANNEL_ID`、`DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED` を追加。Discordスレッド作成に必要な設定がない場合は通常Webhook投稿へフォールバック
-- 検証: `npm test` 92件、`npm run build`、`npm run lint`、`python -m pytest -q` 106件が通過
+- 検証: `npm test` 94件、`npm run build`、`npm run lint`、`python -m pytest -q` 106件が通過
 
 ## 2026-05-31 作業ログ
 - 要望: Git更新時にPM2再起動がかかる設定へ戻したい
