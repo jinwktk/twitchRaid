@@ -108,6 +108,17 @@ export function mergeStreamStartThreadResult(
     };
   }
 
+  if (
+    started.startMessageId &&
+    started.startMessageId !== state.startMessageId
+  ) {
+    return {
+      ...state,
+      startMessageId: started.startMessageId,
+      threadId: started.threadId,
+    };
+  }
+
   return {
     ...state,
     startMessageId: started.startMessageId ?? state.startMessageId,
