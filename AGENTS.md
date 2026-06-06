@@ -17,7 +17,7 @@
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `process_restart.py`: 同一コンソール内でのプロセス再起動と、`execv` 失敗時フォールバック起動を担当。
 - `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトと `!shoutout` 手動デバッグコマンドの権限判定・対象ユーザー正規化を担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。Raid自動shoutoutは `ShoutoutQueue` で直列化し、429時は対象をキュー先頭へ戻して2分後に再実行する。
-- `src/commands/shoutout-introduction.ts`: Raid時の挨拶文をOllama `POST /api/generate` で生成し、失敗時は固定Raid挨拶文へフォールバックする任意機能を担当。Twitchチャット向けに単一行・500文字以内へ整形する。
+- `src/commands/shoutout-introduction.ts`: Raid時の挨拶文をOllama `POST /api/generate` で生成し、失敗時は固定Raid挨拶文へフォールバックする任意機能を担当。Twitchチャット向けに単一行・500文字以内へ整形し、`@ユーザー名` とURLを保証して絵文字を除去する。
 - `src/commands/raid-info.ts`: Raid受信時にレイド元の配信URL、配信タイトル、ゲーム名をTwitch APIから取得し、チャット投稿用メッセージへ整形する。配信情報取得不可時もURL付きフォールバック文を返す。
 - `src/commands/boom.ts`: TypeScript版 `!boom` の集計ロジック。過去30日間のアーカイブ配信を Twurple Helix で取得し、Twitch GraphQL の VOD チャプターからゲーム別トータル時間と総配信時間を算出する。
 - `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ軽いAPIフォールバックを使う。
@@ -47,7 +47,7 @@
 - `tests/test_token_refresh_policy.py`: トークンリフレッシュ失敗時のフォールバック判定テスト。
 - `tests/test_process_restart.py`: 同一コンソール再起動とフォールバック経路のユニットテスト。
 - `tests/commands/shoutout.test.ts`: TypeScript版シャウトアウトが Bot/Moderator ユーザーコンテキストで実行されること、手動コマンド権限判定、対象ユーザー名正規化、429時のキュー再実行を検証。
-- `tests/commands/shoutout-introduction.test.ts`: Ollama Raid挨拶文生成の無効時固定文フォールバック、`/api/generate` リクエスト、HTTP失敗時フォールバック、チャット向け整形を検証。
+- `tests/commands/shoutout-introduction.test.ts`: Ollama Raid挨拶文生成の無効時固定文フォールバック、`/api/generate` リクエスト、HTTP失敗時フォールバック、`@ユーザー名` とURL保証、絵文字除去を含むチャット向け整形を検証。
 - `tests/bot-raid-greeting.test.ts`: BotのRaid情報取得ではチャット送信せず、Raid挨拶文送信経路だけが1通送ることを検証。
 - `tests/commands/raid-info.test.ts`: Raid元配信情報の取得、指定文言でのチャットメッセージ整形、オフライン時フォールバック、長文タイトルの単一行化/短縮を検証。
 - `tests/commands/boom.test.ts`: TypeScript版 `!boom` のVODチャプター抽出、ゲーム別合算、1時間未満フィルタ、表示文言を検証。
@@ -111,9 +111,9 @@
 - 追加不具合報告: Raid時に固定のRaidお礼文とOllama紹介文が2通送信されていた。ユーザー要望は、1通目のようなRaid挨拶文そのものをAIで生成すること
 - 原因: `src/bot.ts` が `formatRaidSourceInfoMessage` の固定文を先に送信し、その後に `formatShoutoutIntroductionMessage` のAI紹介文を別送信していたため、役割の違う2通がチャットへ流れていた
 - TDD: `tests/commands/shoutout-introduction.test.ts` を、Ollamaが返すのは短い紹介文ではなくURL付きの1通のRaid挨拶文であること、Ollama無効/失敗時は固定Raid挨拶文へフォールバックすることへ更新し、未実装失敗を確認。`tests/bot-raid-greeting.test.ts` を追加し、Raid情報取得ではチャット送信せず、Raid挨拶文送信経路だけが1回 `chatClient.say` することを検証
-- 実装: `src/commands/shoutout-introduction.ts` に `buildRaidGreetingMessage` / `generateRaidGreetingMessage` / `formatGeneratedRaidGreetingMessage` を追加し、AI生成文にもユーザー名とチャンネルURLを必ず含める整形に変更。`src/bot.ts` はRaid元情報取得、shoutoutキュー投入、AIまたは固定文のRaid挨拶文1通送信の順に整理し、固定文とAI文の二重送信を廃止
+- 実装: `src/commands/shoutout-introduction.ts` に `buildRaidGreetingMessage` / `generateRaidGreetingMessage` / `formatGeneratedRaidGreetingMessage` を追加し、AI生成文にも `@ユーザー名` とチャンネルURLを必ず含め、絵文字を除去する整形に変更。`src/bot.ts` はRaid元情報取得、shoutoutキュー投入、AIまたは固定文のRaid挨拶文1通送信の順に整理し、固定文とAI文の二重送信を廃止
 - ドキュメント: README と `docs/index.html` を、Ollama紹介文の追加送信ではなく、Ollamaまたは固定文のRaid挨拶文を1通だけ送る仕様へ更新
-- 検証: `npm test -- --run tests/commands/shoutout-introduction.test.ts tests/bot-raid-greeting.test.ts` 7件、`npm test` 144件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認が通過
+- 検証: `npm test -- --run tests/commands/shoutout-introduction.test.ts tests/bot-raid-greeting.test.ts` 8件、`npm test` 145件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認、ビルド済みJSでの `@nyme_ia` 補正と絵文字除去確認が通過
 - 要望: Shoutoutの紹介文をサブPC上のOllamaで生成したい
 - 調査: Ollama公式APIは `POST /api/generate` に `model`、`prompt`、`stream:false` を送る非ストリーミング生成で利用可能。BotはNode.js 22.5+のため追加依存なしで `fetch` / `AbortSignal.timeout` を使える
 - サブPC確認: `192.168.0.99` のPM2で `ollama` が online、Ollama API `http://127.0.0.1:11434/api/tags` が応答し、利用可能モデルとして `qwen2.5:7b` を確認

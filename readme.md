@@ -116,7 +116,7 @@ npm run dev         # ts-nodeで開発実行
 - レイド検知時は `src/commands/shoutout.ts` でレイド元のユーザーIDを解決し、Bot/Moderator のユーザーコンテキストで `chat.shoutoutUser` を実行
 - レイド検知時は `src/commands/raid-info.ts` でレイド元の配信情報を取得し、Ollamaが無効または失敗した場合はチャットへ `レイドありがとうD！！ @ユーザー さんは、「ゲーム名」で「配信タイトル」をしてたD！お疲れ様D！チャンネルはこD→URL` を1通だけ送信する
 - `OLLAMA_SHOUTOUT_ENABLED=true` の場合は、取得したRaid元のユーザー名/ゲーム/タイトル/Raid人数/URLをもとに `src/commands/shoutout-introduction.ts` で同じ役割のRaid挨拶文を生成し、固定文の代わりに1通だけ送信する
-- Ollama挨拶文生成はshoutoutキュー投入後に実行する。Ollamaが未設定、タイムアウト、HTTPエラー、空応答、日本語かなを含まない返答の場合は固定のRaid挨拶文へフォールバックし、Twitch shoutout APIは継続する
+- Ollama挨拶文生成はshoutoutキュー投入後に実行する。AI生成文は `@ユーザー名` とチャンネルURLを必ず含むよう補正し、絵文字を除去する。Ollamaが未設定、タイムアウト、HTTPエラー、空応答、日本語かなを含まない返答の場合は固定のRaid挨拶文へフォールバックし、Twitch shoutout APIは継続する
 - Raid元の配信がすでにオフライン、またはTwitch APIでタイトル/ゲームを取得できない場合でも、チャンネルURL付きのフォールバック文を送信する
 - Raid自動shoutoutは `ShoutoutQueue` で直列化し、Twitchの `429 Too Many Requests` に当たった対象はキュー先頭へ戻して2分後に再実行する
 - Twurple のデフォルト挙動で broadcaster の未登録トークンを探しに行かないよう、`apiClient.asUser(botUserId, ...)` で明示的にコンテキストを切り替える
@@ -193,7 +193,7 @@ src/
 ```
 
 ## 更新履歴
-- **2026-06-07**: Raid時の挨拶文をOllamaで生成する任意機能を追加。`OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` 設定時だけ、サブPC上のOllama APIへ1通のRaid挨拶文を依頼し、失敗時は固定Raid挨拶文へフォールバックする
+- **2026-06-07**: Raid時の挨拶文をOllamaで生成する任意機能を追加。`OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` 設定時だけ、サブPC上のOllama APIへ1通のRaid挨拶文を依頼し、失敗時は固定Raid挨拶文へフォールバックする。生成文は `@ユーザー名` とURLを保証し、絵文字は除去する
 - **2026-06-07**: 配信開始通知直後のスレッド補完で、保存済み `startMessageId` からスレッド作成に失敗しても同じ開始処理内では開始通知を投稿し直さないよう修正。クリップ/終了まとめ前の保証処理では従来どおり必要時のみ再投稿する
 - **2026-06-06**: ソース側の性能レビュー反映として、通常コメント1件ごとの配信まとめstate JSON同期書き込みを廃止。`StreamSummaryCountBuffer` で30秒デバウンスし、Raid/停止/配信終了時は即時flushするよう変更
 - **2026-06-06**: GitHub Pagesの仕様書を `docs/index.html` に一本化し、`docs/typescript-bot-spec.html` は統合先への案内ページへ変更。図解中心のTypeScript版総合仕様書として、配信通知、Clip同期、Raid情報、shoutoutキュー、Boom集計、フォールバック、品質ゲートを追記

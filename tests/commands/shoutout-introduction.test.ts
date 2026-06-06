@@ -155,4 +155,15 @@ describe("formatGeneratedRaidGreetingMessage", () => {
       "レイドありがとうD！！ @raiduser さん、Minecraftの建築配信お疲れ様D！ チャンネルはこD→https://www.twitch.tv/raiduser"
     );
   });
+
+  it("adds at mark to a bare user name and removes emoji", () => {
+    expect(
+      formatGeneratedRaidGreetingMessage(
+        raidInfo,
+        "レイドありがとうraiduser！1人で来てくれてありがとう🎉 https://www.twitch.tv/raiduser"
+      )
+    ).toBe(
+      "レイドありがとう@raiduser！1人で来てくれてありがとう https://www.twitch.tv/raiduser"
+    );
+  });
 });
