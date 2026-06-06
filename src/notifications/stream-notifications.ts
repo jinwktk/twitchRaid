@@ -6,9 +6,11 @@ import logger from "../utils/logger";
  */
 export class StreamTitleNotifier {
   private readonly config: Config;
+  private readonly channelName: string;
 
-  constructor(config: Config, _channelName: string) {
+  constructor(config: Config, channelName: string) {
     this.config = config;
+    this.channelName = channelName;
   }
 
   /**
@@ -41,7 +43,7 @@ export class StreamTitleNotifier {
   }
 
   buildMessage(newTitle: string): string {
-    return newTitle;
+    return `${newTitle}\n🔴 配信URL: https://www.twitch.tv/${this.channelName}`;
   }
 
   private _storedLastTitle(): string {

@@ -41,6 +41,7 @@
 - `tests/streams/stream-summary.test.ts`: 配信終了まとめの整形、Discordスレッドへのライブ/終了時クリップ投稿、開始通知スレッド補完、終了時スレッドクローズ、投稿途中再開時の重複回避を検証。
 - `tests/streams/stream-summary-state-store.test.ts`: 配信まとめ状態JSONの保存・復元・投稿済み更新を検証。
 - `tests/notifications/discord-webhook.test.ts`: Discord Webhookの `wait` / `thread_id` 付与、Bot Tokenによるメッセージ投稿、メッセージスレッド作成、スレッドアーカイブを検証。
+- `tests/notifications/stream-notifications.test.ts`: TypeScript版配信開始通知の本文生成と、配信URL行を含めつつ保存タイトルはタイトル単体に保つことを検証。
 - `tests/git-manager.test.ts`: TypeScript版Git更新検知がpull/build後にクールダウンを挟まずPM2再起動をトリガーすることを検証。
 
 ## ビルド・テスト・開発コマンド
@@ -92,6 +93,10 @@
 - TDD: `tests/streams/stream-summary.test.ts` に、Bot API投稿が403相当で失敗した場合に配信開始通知、配信終了まとめ、配信中クリップ投稿をWebhookへフォールバックするテストを追加し、未実装失敗を確認
 - 実装: `src/streams/stream-summary.ts` でBot API投稿失敗時に `DISCORD_WEBHOOK_URL` があれば通常Webhook投稿へフォールバックするよう修正。Webhookへフォールバックした開始通知/まとめではBotスレッド作成を無理に続行しない
 - 検証: `npm test -- --run tests/streams/stream-summary.test.ts` 16件、`npm test` 110件、`npm run build`、`npm run lint` が通過
+- 追加要望: 配信開始通知には配信URLが必要なため、本文に `🔴 配信URL: https://www.twitch.tv/rukalun` を戻したい
+- TDD: `tests/notifications/stream-notifications.test.ts` と `tests/test_stream_notifications.py` に配信URL行の期待値を追加し、未実装失敗を確認
+- 実装: TypeScript版 `src/notifications/stream-notifications.ts` と旧Python版 `stream_notifications.py` の開始通知本文に配信URL行を追加。重複判定用に保存する `LAST_STREAM_TITLE` は従来どおりタイトル単体のまま維持
+- 検証: `npm test -- --run tests/notifications/stream-notifications.test.ts` 2件、`python -m pytest tests/test_stream_notifications.py -q` 5件、`npm test` 112件、`npm run build`、`npm run lint`、`python -m pytest -q` が通過
 
 ## 2026-06-03 作業ログ
 - 不具合報告: にめいやアカウントで `!mangaon` が実行できなくなった
