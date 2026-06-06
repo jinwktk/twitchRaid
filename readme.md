@@ -38,7 +38,7 @@ npm run dev         # ts-nodeで開発実行
 - `TWITCH_GQL_CLIENT_ID` に Twitch GraphQL 用 Client-ID を任意設定できます（未設定時はTwitch Webの公開Client-IDを使用し、指定値が拒否された場合も公開Client-IDへフォールバック）
 - `STREAM_SUMMARY_STATE_PATH` に配信まとめの再起動復元用JSONパスを設定できます（未設定時は `data/stream-summary-state.json`）
 - `STREAM_SUMMARY_MAX_CLIPS` に配信まとめスレッドへ投稿する最大クリップ数を設定できます（未設定時は `10`）
-- `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を設定すると、Bot APIで配信開始通知、クリップURL、終了まとめを投稿し、配信開始通知メッセージからDiscordスレッドを作成します。`DISCORD_WEBHOOK_URL` はBot設定が無い場合のフォールバックです
+- `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を設定すると、Bot APIで配信開始通知、クリップURL、終了まとめを投稿し、配信開始通知メッセージからDiscordスレッドを作成します。`DISCORD_WEBHOOK_URL` はBot設定が無い場合、またはBot API投稿が403などで失敗した場合のフォールバックです
 - `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定すると、Webhookだけで `thread_name` によるスレッド作成を試します。この方式はDiscordのフォーラム/メディアチャンネルWebhook向けです。通常テキストチャンネルWebhookではDiscord側で拒否されるため、自動で通常Webhook投稿へフォールバックします
 
 ## 技術スタック
@@ -81,7 +81,7 @@ npm run dev         # ts-nodeで開発実行
 - 定期再起動だけは `last_restart.txt` による1日クールダウンを維持する
 
 ## 配信通知仕様
-- 配信開始検知時に Discord Bot API で通知（Bot設定が無い場合のみWebhookへフォールバック）
+- 配信開始検知時に Discord Bot API で通知（Bot設定が無い場合、またはBot API投稿が失敗した場合はWebhookへフォールバック）
 - 直前に通知したタイトルと同一 (`LAST_STREAM_TITLE`) の場合は通知をスキップ
 - 配信開始中は `STREAM_SUMMARY_STATE_PATH` に stream id / タイトル / ゲーム名 / 開始時刻 / コメント数 / Raid数を保存
 - `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` がある場合、配信開始通知メッセージからDiscordスレッドを作成し、そのスレッドIDを保存する
@@ -91,7 +91,7 @@ npm run dev         # ts-nodeで開発実行
 - まとめ投稿前に配信時間帯のクリップを最終同期し、未投稿クリップを先にスレッドへ投稿してから終了まとめを投稿する
 - 終了まとめ投稿後、Bot Tokenで配信まとめスレッドをアーカイブして閉じる
 - 配信開始時にスレッド作成済みなら、クリップURLと終了まとめはそのスレッドへ投稿する
-- 配信開始時にスレッド作成できなかった場合は、終了まとめメッセージからBot Tokenでスレッド作成を試し、失敗時は通常Webhook投稿へフォールバックする
+- 配信開始時にBot API投稿やスレッド作成ができなかった場合は、通常Webhook投稿へフォールバックする。終了まとめとクリップURL投稿もBot API失敗時はWebhookへフォールバックする
 - Bot Tokenを使わずWebhookだけで完結させたい場合は、Webhook先をフォーラム/メディアチャンネルにし、`DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定する。まとめ投稿に `thread_name` を付けてスレッドを作成し、返却されたスレッドIDへクリップURLを投稿する
 - Bot再起動時に未投稿の配信まとめ状態が残っていて、Twitchがオフラインなら保存済み情報から投稿を再試行
 
@@ -169,6 +169,7 @@ src/
 ```
 
 ## 更新履歴
+- **2026-06-06**: サブPC本番ログで配信開始通知が `Discord bot message failed: 403` により停止していたことを確認。`DISCORD_WEBHOOK_URL` が設定済みだったため、配信開始通知・配信終了まとめ・配信中クリップ投稿でBot API失敗時にWebhookへフォールバックするよう修正
 - **2026-06-02**: 配信終了まとめを追加。配信中状態をJSONに保持し、再起動後も未投稿まとめを復元してDiscordへ再試行。クリップはまとめメッセージのDiscordスレッドへ投稿可能
 - **2026-06-02**: フォーラム/メディアチャンネルWebhook向けに、Bot Tokenなしで `thread_name` から配信まとめスレッドを作るWebhook-onlyモードを追加
 - **2026-06-03**: Bot Token方式を配信開始通知スレッド化へ変更。配信開始通知から作成したスレッドへ、配信終了まとめとクリップを投稿
