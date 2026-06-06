@@ -18,6 +18,7 @@
 ### 2. 永続化して再起動に強くする
 
 - 配信まとめstateは `data/stream-summary-state.json` に保存する。
+- 通常コメントによる配信まとめコメント数更新は `StreamSummaryCountBuffer` で30秒デバウンスし、Raid/停止/配信終了時だけ即時flushする。
 - Clipキャッシュ、表示履歴、走査窓、同期状態は `data/clips.sqlite` に保存する。
 - コメント数やコマンドクールダウンなどの互換状態は `.env` に保存する。
 - `.env` 更新は `src/utils/env-store.ts` でバックアップ付きにする。

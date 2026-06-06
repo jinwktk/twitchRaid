@@ -17,6 +17,7 @@ import {
   StreamSummaryStateStore,
   type StreamSummaryState,
 } from "./streams/stream-summary-state-store";
+import { StreamSummaryCountBuffer } from "./streams/stream-summary-count-buffer";
 import {
   ensureStreamSummaryStartThread,
   mergeStreamStartThreadResult,
@@ -88,6 +89,7 @@ export class Bot {
   private readonly commentSpeedMeter: CommentSpeedMeter;
   private readonly clipCacheStore: ClipCacheStore;
   private readonly streamSummaryStateStore: StreamSummaryStateStore;
+  private readonly streamSummaryCountBuffer: StreamSummaryCountBuffer<StreamSummaryState>;
   private readonly boomSummaryCache = new BoomSummaryCache();
   private readonly shoutoutQueue: ShoutoutQueue;
   private clipCacheSynchronizer: ClipCacheSynchronizer | null = null;
@@ -125,6 +127,12 @@ export class Bot {
     this.streamSummaryStateStore = new StreamSummaryStateStore(
       config.streamSummaryStatePath
     );
+    this.streamSummaryCountBuffer = new StreamSummaryCountBuffer({
+      debounceMs: this.commentSaveDebounceMs,
+      loadState: () => this.streamSummaryStateStore.load(),
+      updateCounts: (commentCount, raidCount) =>
+        this.streamSummaryStateStore.updateCounts(commentCount, raidCount),
+    });
     this.shoutoutQueue = new ShoutoutQueue({
       send: (username) =>
         this._sendShoutout(username, { throwRateLimitError: true }),
@@ -221,6 +229,7 @@ export class Bot {
     if (this.commentSaveTimer) clearTimeout(this.commentSaveTimer);
     // 停止前にコメント状態を即座に保存
     this._flushCommentState();
+    this._flushStreamSummaryCounts();
     await this.clipCacheSynchronizer?.stop();
     this.clipCacheStore.close();
     this.chatClient.quit();
@@ -779,23 +788,19 @@ export class Bot {
   }
 
   private _persistStreamSummaryCounts(): void {
-    const state = this.streamSummaryStateStore.load();
-    if (!state || state.status === "posted") return;
-
-    this.streamSummaryStateStore.updateCounts(
-      this.commentSpeedMeter.totalCount(),
-      state.raidCount
+    this.streamSummaryCountBuffer.recordCommentCount(
+      this.commentSpeedMeter.totalCount()
     );
   }
 
   private _incrementStreamSummaryRaid(): void {
-    const state = this.streamSummaryStateStore.load();
-    if (!state || state.status === "posted") return;
-
-    this.streamSummaryStateStore.updateCounts(
-      this.commentSpeedMeter.totalCount(),
-      state.raidCount + 1
+    this.streamSummaryCountBuffer.incrementRaidCount(
+      this.commentSpeedMeter.totalCount()
     );
+  }
+
+  private _flushStreamSummaryCounts(): void {
+    this.streamSummaryCountBuffer.flush();
   }
 
   private _startKeepAlive(): void {
@@ -871,6 +876,7 @@ export class Bot {
           const summaryState = this.streamSummaryStateStore.load();
           if (this.streamLive || (summaryState && summaryState.status !== "posted")) {
             logger.info("📢 配信が終了しました！");
+            this._flushStreamSummaryCounts();
             await this._finalizeAndPostStreamSummary(new Date().toISOString());
             this.commentSpeedMeter.resetStream();
             saveCommentState(this.config.envFile, 0, 0);
@@ -1084,6 +1090,7 @@ export class Bot {
   }
 
   private async _finalizeAndPostStreamSummary(endedAt: string): Promise<void> {
+    this._flushStreamSummaryCounts();
     const current = this.streamSummaryStateStore.load();
     if (!current || current.status === "posted") return;
     if (!this._canPostDiscordSummary()) {

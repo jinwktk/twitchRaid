@@ -980,7 +980,7 @@
             </tr>
             <tr>
               <td><code>src/streams/*</code></td>
-              <td>配信中/投稿待ち/投稿済みstate保存、開始通知スレッド保証、Clip投稿、終了まとめ、スレッドクローズ。</td>
+              <td>配信中/投稿待ち/投稿済みstate保存、コメント数/Raid数のデバウンス保存、開始通知スレッド保証、Clip投稿、終了まとめ、スレッドクローズ。</td>
             </tr>
             <tr>
               <td><code>src/notifications/*</code></td>
@@ -1099,6 +1099,7 @@
               <li>直近Clip同期は1分ごと。</li>
               <li>全期間再走査は配信していない時に1日1回。</li>
               <li>token validateは5分TTLキャッシュ。</li>
+              <li>配信まとめのコメント数JSON保存は30秒デバウンス。</li>
             </ul>
           </article>
           <article class="card">

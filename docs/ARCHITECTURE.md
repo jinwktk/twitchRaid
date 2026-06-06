@@ -15,7 +15,7 @@ Twitchチャンネル `rukalun` 向けの常駐Botです。現行運用対象は
 | 設定 | `src/config.ts` | `.env` 読み込み、認証情報、管理者、DB/stateパス、Discord設定 |
 | 認証 | `src/auth/*` | token validate/refresh、必須スコープ、不足スコープ判定、validateキャッシュ |
 | コマンド | `src/commands/*` | `!clip`、`!myclip`、`!manga`、`!boom`、`!shoutout`、`!streamnotify` など |
-| 配信まとめ | `src/streams/*` | state保存、開始通知スレッド保証、Clip投稿、終了まとめ、スレッドクローズ |
+| 配信まとめ | `src/streams/*` | state保存、コメント数/Raid数のデバウンス保存、開始通知スレッド保証、Clip投稿、終了まとめ、スレッドクローズ |
 | 通知 | `src/notifications/*` | Discord Bot API/Webhook投稿、開始通知本文、スレッド作成 |
 | 監視 | `src/git-manager.ts` / `src/system-watcher.ts` | Git更新検知、build、PM2再起動、24時間定期再起動 |
 
@@ -61,6 +61,7 @@ src/index.ts
 - Discord投稿はBot API優先。403などで失敗し、Webhook URLがある場合はWebhookへフォールバックする。
 - `!streamnotify` は新しい開始通知の `startMessageId` / `threadId` を既存stateより優先する。
 - 新しい開始通知に `threadId` が無い場合、古い `threadId` は保持しない。
+- 通常コメントによる配信まとめコメント数更新は30秒デバウンスし、Raid/停止/配信終了時は即時flushする。
 - Raid shoutoutは `ShoutoutQueue` で直列化し、429時は2分後に同一対象を再実行する。
 - ClipはSQLiteキャッシュ優先。削除/非公開化されたClipはオフライン時の日次再走査で `unavailable_at` を入れて候補から外す。
 - `!boom` は過去30日間のVODを対象に、最大4本並列でGraphQLを取得し、結果を5分キャッシュする。
