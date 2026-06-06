@@ -31,6 +31,7 @@ const RAID_GREETING_SYSTEM_PROMPT = [
   "返答は1通のTwitchチャット投稿だけ。説明、ハッシュタグ、引用符、前置き、箇条書きは禁止です。",
   "必ずRaidのお礼、相手のユーザー名、配信情報または取得できなかったこと、チャンネルURLを含めてください。",
   "口調は「レイドありがとうD！！」に近い明るい雰囲気にしてください。",
+  "絵文字は使わないでください。",
 ].join("\n");
 
 function normalizeLoginName(userName: string): string {
@@ -66,12 +67,16 @@ function stripWrappingQuotes(value: string): string {
   return value.replace(/^[`"'「『]+/, "").replace(/[`"'」』]+$/, "").trim();
 }
 
+function removeEmoji(value: string): string {
+  return value.replace(/\p{Extended_Pictographic}/gu, "");
+}
+
 function includesJapaneseKana(value: string): boolean {
   return /[\u3040-\u30ff]/.test(value);
 }
 
 function normalizeGeneratedGreeting(value: string): string | null {
-  const normalized = stripWrappingQuotes(singleLine(value));
+  const normalized = stripWrappingQuotes(singleLine(removeEmoji(value)));
   if (!normalized) return null;
   if (!includesJapaneseKana(normalized)) return null;
   return normalized;
@@ -81,8 +86,8 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function includesUserName(value: string, userName: string): boolean {
-  return new RegExp(`@?${escapeRegExp(userName)}\\b`, "i").test(value);
+function includesUserMention(value: string, userName: string): boolean {
+  return new RegExp(`@${escapeRegExp(userName)}\\b`, "i").test(value);
 }
 
 function removeLeadingUserName(value: string, userName: string): string {
@@ -96,7 +101,12 @@ function removeLeadingUserName(value: string, userName: string): string {
 }
 
 function ensureUserMention(value: string, userName: string): string {
-  if (includesUserName(value, userName)) return value;
+  if (includesUserMention(value, userName)) return value;
+
+  const bareUserNamePattern = new RegExp(`@?${escapeRegExp(userName)}\\b`, "i");
+  if (bareUserNamePattern.test(value)) {
+    return value.replace(bareUserNamePattern, `@${userName}`);
+  }
 
   const raidThanks = "レイドありがとうD！！";
   if (value.startsWith(raidThanks)) {
