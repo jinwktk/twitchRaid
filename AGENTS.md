@@ -99,6 +99,11 @@
 - TDD: `tests/streams/stream-summary.test.ts` に、保存済み `startMessageId` からスレッド作成できない場合は新しい開始通知を投稿し直してスレッド作成するテストを追加し、未実装失敗を確認
 - 実装: `ensureStreamSummaryStartThread` で保存済み開始通知からのスレッド作成に失敗した場合、開始通知を新規投稿し、その新規投稿からスレッド作成を再試行するよう変更。Bot側もスレッド保証失敗時に警告ログを出すようにした
 - 検証: `npm test -- --run tests/commands/shoutout.test.ts` 13件、`npm test -- --run tests/streams/stream-summary.test.ts` 19件、`npm test` 130件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件が通過
+- 追加調査: 本番で 2026-06-06 14:10:36 に `配信まとめスレッドへ新規クリップを投稿しました` と出たがDiscord上に投稿が無い件を調査。サブPC `data/stream-summary-state.json` は `startMessageId=1512655504424570990` に対し `threadId=1512647761017966668` を保持しており、新しい開始通知IDと古いthreadIdが混在していた。`postedClipIds` には `HyperPerfectCroissant...`、`EnergeticDepressedMoose...`、`TangiblePhilanthropicShingle...` の3件が保存済み
+- 原因: `mergeStreamStartThreadResult` が通常通知で `started.startMessageId` だけ更新され `started.threadId` が無い場合も、既存 `state.threadId` を保持していた。そのため新規通知にスレッドが無いのに古い/別スレッドIDへ投稿し、成功扱いで `postedClipIds` が進んだ
+- TDD: `tests/streams/stream-summary.test.ts` に、新しい自動開始通知が `threadId` なしで返った場合は古い `threadId` をクリアするテストを追加し、未実装失敗を確認
+- 実装: `mergeStreamStartThreadResult` で `started.startMessageId` が既存と異なる場合は、`threadId` も `started.threadId` へ置き換えるよう変更。`started.threadId` が無ければ古い `threadId` を明示的に消す
+- 検証: `npm test -- --run tests/streams/stream-summary.test.ts` 20件、`npm test` 131件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件が通過
 - 要望: レイドをもらった時に、レイド者の配信URL、配信タイトル、ゲームをチャットへ送信したい
 - 文言指定: `レイドありがとうD！！ ○○さんは、「（ゲーム名）」で「（配信タイトル）」をしてたD！お疲れ様D！チャンネルはこD→（URL）`
 - TDD: `tests/commands/raid-info.test.ts` を追加し、Raid元ライブ情報取得、指定文言整形、配信情報取得不可時のURL付きフォールバック、改行除去と長文タイトル短縮を先に定義して未実装失敗を確認

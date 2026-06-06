@@ -298,6 +298,23 @@ describe("stream summary", () => {
     expect(merged.threadId).toBeUndefined();
   });
 
+  it("clears a stale thread when a new automatic start notification has no thread", () => {
+    const merged = mergeStreamStartThreadResult(
+      {
+        ...state,
+        status: "active",
+        startMessageId: "old-start-message-id",
+        threadId: "old-thread-id",
+      },
+      {
+        startMessageId: "new-start-message-id",
+      }
+    );
+
+    expect(merged.startMessageId).toBe("new-start-message-id");
+    expect(merged.threadId).toBeUndefined();
+  });
+
   it("posts the ending summary into an existing start-notification thread", async () => {
     const sendWebhook = vi
       .fn()
