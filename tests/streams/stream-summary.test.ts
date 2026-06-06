@@ -187,6 +187,52 @@ describe("stream summary", () => {
     });
   });
 
+  it("posts a replacement start notification when a saved message cannot create a thread", async () => {
+    const sendBotMessage = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "replacement-message-id", channelId: "channel-id" });
+    const createThread = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Discord thread creation failed: 404"))
+      .mockResolvedValueOnce({ id: "replacement-thread-id" });
+
+    const started = await ensureStreamSummaryStartThread({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      title: "回変り金み",
+      message: "回変り金み",
+      state: {
+        ...state,
+        status: "active",
+        startMessageId: "stale-start-message-id",
+      },
+      sendBotMessage,
+      createThread,
+    });
+
+    expect(createThread).toHaveBeenNthCalledWith(1, {
+      botToken: "bot-token",
+      channelId: "channel-id",
+      messageId: "stale-start-message-id",
+      name: "配信まとめ - 回変り金み",
+    });
+    expect(sendBotMessage).toHaveBeenCalledWith({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      content: "回変り金み",
+    });
+    expect(createThread).toHaveBeenNthCalledWith(2, {
+      botToken: "bot-token",
+      channelId: "channel-id",
+      messageId: "replacement-message-id",
+      name: "配信まとめ - 回変り金み",
+    });
+    expect(started).toEqual({
+      startMessageId: "replacement-message-id",
+      threadId: "replacement-thread-id",
+    });
+  });
+
   it("does not duplicate start notifications when the start thread already exists", async () => {
     const sendWebhook = vi.fn();
     const createThread = vi.fn();

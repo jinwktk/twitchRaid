@@ -35,6 +35,8 @@ import {
 import { ClipCacheStore } from "./commands/clip-cache-store";
 import { ClipCacheSynchronizer } from "./commands/clip-cache-sync";
 import {
+  ShoutoutQueue,
+  isShoutoutRateLimitError,
   isShoutoutAdmin,
   normalizeShoutoutTarget,
   sendShoutout,
@@ -87,6 +89,7 @@ export class Bot {
   private readonly clipCacheStore: ClipCacheStore;
   private readonly streamSummaryStateStore: StreamSummaryStateStore;
   private readonly boomSummaryCache = new BoomSummaryCache();
+  private readonly shoutoutQueue: ShoutoutQueue;
   private clipCacheSynchronizer: ClipCacheSynchronizer | null = null;
 
   // Keep-alive timers
@@ -122,6 +125,25 @@ export class Bot {
     this.streamSummaryStateStore = new StreamSummaryStateStore(
       config.streamSummaryStatePath
     );
+    this.shoutoutQueue = new ShoutoutQueue({
+      send: (username) =>
+        this._sendShoutout(username, { throwRateLimitError: true }),
+      onEvent: (event) => {
+        if (event.type === "sent") {
+          logger.info(`✅ Queued shoutout sent to ${event.targetUsername}`);
+        } else if (event.type === "not-found") {
+          logger.warn(`⚠️ Queued shoutout target not found: ${event.targetUsername}`);
+        } else if (event.type === "rate-limited") {
+          logger.warn(
+            `⚠️ Shoutout rate limited. Requeued after cooldown: ${event.targetUsername}`
+          );
+        } else {
+          logger.error(
+            `❌ Queued shoutout failed for ${event.targetUsername}: ${event.error}`
+          );
+        }
+      },
+    });
 
     // コメント状態復元
     const [totalCount, streamStartedAt] = loadCommentState(config.envFile);
@@ -255,7 +277,7 @@ export class Bot {
       );
       this._incrementStreamSummaryRaid();
       await this._sendRaidSourceInfo(channel, user);
-      await this._sendShoutout(user);
+      this._enqueueRaidShoutout(user);
     });
   }
 
@@ -631,7 +653,22 @@ export class Bot {
     }
   }
 
-  private async _sendShoutout(username: string): Promise<boolean> {
+  private _enqueueRaidShoutout(username: string): void {
+    const result = this.shoutoutQueue.enqueue(username);
+    if (!result) {
+      logger.warn(`⚠️ Raid元ユーザー名が空のためshoutoutキュー投入をスキップ: ${username}`);
+      return;
+    }
+
+    logger.info(
+      `📣 Raid shoutout queued: target=${result.targetUsername}, queueSize=${result.queueSize}`
+    );
+  }
+
+  private async _sendShoutout(
+    username: string,
+    options: { throwRateLimitError?: boolean } = {}
+  ): Promise<boolean> {
     try {
       if (!this.botUserId) {
         logger.warn("⚠️ BotユーザーID未取得のためshoutoutをスキップします。");
@@ -652,6 +689,11 @@ export class Bot {
       return true;
     } catch (e) {
       logger.error(`❌ Failed to send shoutout: ${e}`);
+      if (isShoutoutRateLimitError(e)) {
+        logger.warn(`⚠️ Shoutout cooldown hit for ${username}`);
+        if (options.throwRateLimitError) throw e;
+        return false;
+      }
       // リトライ: AuthProvider内部のトークンを更新（apiClientと同一インスタンス）
       try {
         if (this.botUserId) {
@@ -672,6 +714,12 @@ export class Bot {
         }
       } catch (retryErr) {
         logger.error(`❌ Shoutout retry failed: ${retryErr}`);
+        if (
+          options.throwRateLimitError &&
+          isShoutoutRateLimitError(retryErr)
+        ) {
+          throw retryErr;
+        }
       }
       return false;
     }
@@ -989,7 +1037,12 @@ export class Bot {
     );
 
     const current = this.streamSummaryStateStore.load();
-    if (!current || current.status === "posted" || !current.threadId) return null;
+    if (!current || current.status === "posted" || !current.threadId) {
+      logger.warn(
+        `⚠️ 配信まとめスレッドを保証できませんでした: streamId=${state.streamId}, startMessageId=${state.startMessageId ?? "none"}`
+      );
+      return null;
+    }
     return current;
   }
 
