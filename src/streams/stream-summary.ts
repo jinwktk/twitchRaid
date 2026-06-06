@@ -93,6 +93,7 @@ export interface MergeStreamStartThreadResultOptions {
 export interface EnsureStreamSummaryStartThreadOptions
   extends StartStreamSummaryThreadOptions {
   state: StreamSummaryState;
+  allowStartNotificationRepost?: boolean;
 }
 
 export function mergeStreamStartThreadResult(
@@ -379,6 +380,7 @@ export async function ensureStreamSummaryStartThread({
   title,
   message,
   state,
+  allowStartNotificationRepost = true,
   sendWebhook = executeDiscordWebhook,
   sendBotMessage = sendDiscordBotMessage,
   createThread = createDiscordThreadFromMessage,
@@ -410,6 +412,12 @@ export async function ensureStreamSummaryStartThread({
       return {
         startMessageId: state.startMessageId,
         threadId,
+      };
+    }
+
+    if (!allowStartNotificationRepost) {
+      return {
+        startMessageId: state.startMessageId,
       };
     }
   }

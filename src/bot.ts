@@ -966,14 +966,16 @@ export class Bot {
     if (state && state.status !== "posted" && !state.threadId) {
       await this._ensureStreamStartSummaryThread(
         title,
-        this.streamNotifier.buildMessage(title)
+        this.streamNotifier.buildMessage(title),
+        { allowStartNotificationRepost: false }
       );
     }
   }
 
   private async _ensureStreamStartSummaryThread(
     title: string,
-    message: string
+    message: string,
+    options: { allowStartNotificationRepost?: boolean } = {}
   ): Promise<void> {
     if (!this._canPostDiscordSummary()) return;
 
@@ -990,6 +992,7 @@ export class Bot {
       title,
       message,
       state,
+      allowStartNotificationRepost: options.allowStartNotificationRepost,
     });
 
     if (!started.startMessageId && !started.threadId) return;

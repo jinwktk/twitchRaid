@@ -104,6 +104,14 @@
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
+## 2026-06-07 作業ログ
+- 不具合報告: 配信開始通知がDiscordへ2通流れている
+- 原因: 通常の配信開始通知を投稿した直後にスレッド作成が失敗すると、同じ開始処理内のスレッド補完が保存済み `startMessageId` からの再スレッド化に失敗し、新しい開始通知を投稿し直す経路に入っていた
+- TDD: `tests/streams/stream-summary.test.ts` に、再投稿禁止時は保存済み `startMessageId` からスレッド作成できなくても置き換え開始通知を投稿しないテストを追加し、未実装失敗を確認
+- 実装: `ensureStreamSummaryStartThread` に `allowStartNotificationRepost` を追加。`src/bot.ts` の通常開始通知直後の補完では再投稿を禁止し、クリップ/終了まとめ前のスレッド保証では従来どおり必要時のみ再投稿できるようにした
+- ドキュメント: README と `docs/index.html` に、通常開始通知直後は二重投稿防止のため開始通知を投稿し直さず、Clip/終了まとめ前の保証処理だけ必要時に再投稿する仕様を追記
+- 検証: `npm test -- --run tests/streams/stream-summary.test.ts` 21件、`npm test` 137件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認が通過
+
 ## 2026-06-06 作業ログ
 - 追加指摘: 前回はドキュメント中心で、ソースコード側の性能レビュー反映が不足していた
 - TDD: `tests/streams/stream-summary-count-buffer.test.ts` を追加し、コメント数更新の30秒デバウンス、flush、Raid即時反映、state無し/posted時スキップを先に定義して未実装失敗を確認
