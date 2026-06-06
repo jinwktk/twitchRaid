@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ensureStreamSummaryStartThread,
   formatStreamSummary,
+  mergeStreamStartThreadResult,
   postStreamSummaryClips,
   postStreamSummary,
   startStreamSummaryThread,
@@ -212,6 +213,43 @@ describe("stream summary", () => {
       startMessageId: "start-message-id",
       threadId: "thread-id",
     });
+  });
+
+  it("prefers the manually posted start notification thread when requested", () => {
+    const merged = mergeStreamStartThreadResult(
+      {
+        ...state,
+        status: "active",
+        startMessageId: "old-start-message-id",
+        threadId: "old-thread-id",
+      },
+      {
+        startMessageId: "manual-start-message-id",
+        threadId: "manual-thread-id",
+      },
+      { preferStartedThread: true }
+    );
+
+    expect(merged.startMessageId).toBe("manual-start-message-id");
+    expect(merged.threadId).toBe("manual-thread-id");
+  });
+
+  it("clears a stale thread when a manual notification has no created thread yet", () => {
+    const merged = mergeStreamStartThreadResult(
+      {
+        ...state,
+        status: "active",
+        startMessageId: "old-start-message-id",
+        threadId: "old-thread-id",
+      },
+      {
+        startMessageId: "manual-start-message-id",
+      },
+      { preferStartedThread: true }
+    );
+
+    expect(merged.startMessageId).toBe("manual-start-message-id");
+    expect(merged.threadId).toBeUndefined();
   });
 
   it("posts the ending summary into an existing start-notification thread", async () => {

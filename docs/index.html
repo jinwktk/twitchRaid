@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>twitchRaid 配信通知・クリップ投稿設計</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f8fb;
+        --panel: #ffffff;
+        --ink: #17202a;
+        --muted: #5f6b7a;
+        --line: #d9e0ea;
+        --accent: #1864ab;
+        --accent-2: #0f766e;
+        --warn: #9a3412;
+        --code: #0f172a;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family:
+          "Segoe UI",
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
+        line-height: 1.65;
+      }
+
+      header {
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .wrap {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+      }
+
+      .hero {
+        padding: 40px 0 28px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.25;
+        margin: 0;
+      }
+
+      h1 {
+        font-size: clamp(2rem, 5vw, 3.4rem);
+      }
+
+      h2 {
+        margin-top: 42px;
+        font-size: 1.55rem;
+      }
+
+      h3 {
+        font-size: 1.1rem;
+      }
+
+      p {
+        margin: 10px 0 0;
+      }
+
+      code {
+        border-radius: 4px;
+        background: #eef2f7;
+        color: var(--code);
+        padding: 0.1rem 0.35rem;
+        font-family: Consolas, "Cascadia Mono", monospace;
+        font-size: 0.92em;
+      }
+
+      .lead {
+        max-width: 860px;
+        color: var(--muted);
+        font-size: 1.05rem;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
+      .tag {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #fff;
+        padding: 4px 10px;
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      main {
+        padding: 10px 0 60px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+        margin-top: 18px;
+      }
+
+      .grid.two {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 16px;
+      }
+
+      .card strong {
+        display: block;
+        margin-bottom: 5px;
+      }
+
+      .card p,
+      .card li {
+        color: var(--muted);
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(130px, 1fr));
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .step {
+        position: relative;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        min-height: 118px;
+        padding: 14px;
+      }
+
+      .step::after {
+        content: "→";
+        position: absolute;
+        top: 42%;
+        right: -17px;
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      .step:last-child::after {
+        content: "";
+      }
+
+      .step .num {
+        display: inline-grid;
+        place-items: center;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--accent);
+        color: #fff;
+        font-size: 0.82rem;
+        font-weight: 700;
+      }
+
+      .step h3 {
+        margin-top: 10px;
+      }
+
+      .step p {
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      .state {
+        display: grid;
+        grid-template-columns: 1fr 1.3fr;
+        gap: 14px;
+        margin-top: 18px;
+      }
+
+      pre {
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #111827;
+        color: #e5e7eb;
+        padding: 16px;
+        font-size: 0.9rem;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 18px;
+        background: #fff;
+        border: 1px solid var(--line);
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid var(--line);
+        padding: 10px 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: #eef2f7;
+      }
+
+      td {
+        color: var(--muted);
+      }
+
+      .note {
+        border-left: 4px solid var(--accent-2);
+        background: #ecfdf5;
+        padding: 12px 14px;
+        margin-top: 18px;
+      }
+
+      .warn {
+        border-left-color: var(--warn);
+        background: #fff7ed;
+      }
+
+      ul {
+        margin: 10px 0 0;
+        padding-left: 1.2rem;
+      }
+
+      footer {
+        border-top: 1px solid var(--line);
+        padding: 24px 0;
+        color: var(--muted);
+        background: #fff;
+      }
+
+      @media (max-width: 920px) {
+        .grid,
+        .grid.two,
+        .state {
+          grid-template-columns: 1fr;
+        }
+
+        .flow {
+          grid-template-columns: 1fr;
+        }
+
+        .step::after {
+          content: "↓";
+          top: auto;
+          right: 50%;
+          bottom: -22px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap hero">
+        <h1>twitchRaid 配信通知・クリップ投稿設計</h1>
+        <p class="lead">
+          Twitch配信開始通知をDiscordへ投稿し、その通知投稿から配信まとめスレッドを作成する。
+          配信中に検知したクリップと配信終了まとめは、同じスレッドへ集約する。
+        </p>
+        <div class="meta">
+          <span class="tag">更新日: 2026-06-06</span>
+          <span class="tag">Runtime: Node.js 22.5+</span>
+          <span class="tag">Source: TypeScript</span>
+          <span class="tag">State: data/stream-summary-state.json</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section>
+        <h2>設計方針</h2>
+        <div class="grid">
+          <article class="card">
+            <strong>開始通知が親</strong>
+            <p>
+              通常の配信通知または <code>!streamnotify</code> で送ったDiscord投稿を
+              <code>startMessageId</code> として保存し、その投稿からスレッドを作成する。
+            </p>
+          </article>
+          <article class="card">
+            <strong>クリップはスレッドへ集約</strong>
+            <p>
+              1分ごとの直近クリップ同期で新規クリップを検知し、
+              未投稿分だけ <code>threadId</code> へ投稿して <code>postedClipIds</code> に保存する。
+            </p>
+          </article>
+          <article class="card">
+            <strong>終了時も同じ保証</strong>
+            <p>
+              配信終了まとめを投稿する前に、開始通知起点のスレッド保証を通す。
+              active/pending のどちらの状態でも同じスレッドを使う。
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>主要コンポーネント</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>ファイル</th>
+              <th>責務</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>src/bot.ts</code></td>
+              <td>配信状態監視、開始通知、手動通知、クリップ同期後投稿、終了まとめ投稿を接続する。</td>
+            </tr>
+            <tr>
+              <td><code>src/streams/stream-summary.ts</code></td>
+              <td>開始通知投稿、開始通知からのスレッド作成、クリップ投稿、終了まとめ投稿、スレッドクローズを担当する。</td>
+            </tr>
+            <tr>
+              <td><code>src/streams/stream-summary-state-store.ts</code></td>
+              <td>配信中/投稿待ち/投稿済みstateをJSONへ保存し、再起動後の復元に使う。</td>
+            </tr>
+            <tr>
+              <td><code>src/commands/clip-cache-sync.ts</code></td>
+              <td>起動直後と1分ごとの直近60分クリップ同期、全期間バックフィル、日次再走査を担当する。</td>
+            </tr>
+            <tr>
+              <td><code>src/notifications/discord-webhook.ts</code></td>
+              <td>Discord Webhook、Bot API投稿、投稿からのスレッド作成、スレッドアーカイブを実行する。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>状態モデル</h2>
+        <div class="state">
+          <article class="card">
+            <h3>重要フィールド</h3>
+            <ul>
+              <li><code>status</code>: <code>active</code> / <code>pending</code> / <code>posted</code></li>
+              <li><code>streamId</code>: Twitch配信ID</li>
+              <li><code>startMessageId</code>: 配信開始通知のDiscord投稿ID</li>
+              <li><code>threadId</code>: 配信まとめスレッドID</li>
+              <li><code>postedClipIds</code>: 投稿済みクリップID</li>
+              <li><code>threadClosedAt</code>: 終了後にスレッドを閉じた時刻</li>
+            </ul>
+          </article>
+          <pre><code>{
+  "status": "active",
+  "streamId": "316055131251",
+  "title": "配信タイトル",
+  "startedAt": "2026-06-06T01:05:28.000Z",
+  "streamUrl": "https://www.twitch.tv/rukalun",
+  "startMessageId": "1512655504424570990",
+  "threadId": "1512655504424570990",
+  "postedClipIds": []
+}</code></pre>
+        </div>
+      </section>
+
+      <section>
+        <h2>通常の配信開始フロー</h2>
+        <div class="flow">
+          <div class="step">
+            <span class="num">1</span>
+            <h3>配信検知</h3>
+            <p><code>getStreamByUserName</code> でライブ状態を検知する。</p>
+          </div>
+          <div class="step">
+            <span class="num">2</span>
+            <h3>state保存</h3>
+            <p><code>status=active</code> とstream情報をJSONへ保存する。</p>
+          </div>
+          <div class="step">
+            <span class="num">3</span>
+            <h3>開始通知</h3>
+            <p>Discord Bot API優先で通知し、失敗時はWebhookへフォールバックする。</p>
+          </div>
+          <div class="step">
+            <span class="num">4</span>
+            <h3>スレッド作成</h3>
+            <p>開始通知投稿IDから <code>createDiscordThreadFromMessage</code> を呼ぶ。</p>
+          </div>
+          <div class="step">
+            <span class="num">5</span>
+            <h3>ID保存</h3>
+            <p><code>startMessageId</code> と <code>threadId</code> をstateへ保存する。</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2><code>!streamnotify</code> フロー</h2>
+        <div class="flow">
+          <div class="step">
+            <span class="num">1</span>
+            <h3>権限確認</h3>
+            <p>broadcaster / mod / <code>SHOUTOUT_ADMIN_USERS</code> のみ許可する。</p>
+          </div>
+          <div class="step">
+            <span class="num">2</span>
+            <h3>現在配信取得</h3>
+            <p>オフラインならDiscord投稿せずチャットへ結果を返す。</p>
+          </div>
+          <div class="step">
+            <span class="num">3</span>
+            <h3>強制通知</h3>
+            <p><code>LAST_STREAM_TITLE</code> の重複スキップを通さず通知する。</p>
+          </div>
+          <div class="step">
+            <span class="num">4</span>
+            <h3>新通知を優先</h3>
+            <p>新しく送った投稿の <code>startMessageId</code> / <code>threadId</code> を既存値より優先する。</p>
+          </div>
+          <div class="step">
+            <span class="num">5</span>
+            <h3>以後の集約先</h3>
+            <p>クリップと終了まとめは、その手動通知から作られたスレッドへ投稿する。</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>クリップ検知・投稿フロー</h2>
+        <div class="flow">
+          <div class="step">
+            <span class="num">1</span>
+            <h3>直近同期</h3>
+            <p>起動直後と1分ごとに直近60分のTwitchクリップをSQLiteへ保存する。</p>
+          </div>
+          <div class="step">
+            <span class="num">2</span>
+            <h3>スレッド確認</h3>
+            <p><code>threadId</code> がなければ開始通知IDから作成を試す。</p>
+          </div>
+          <div class="step">
+            <span class="num">3</span>
+            <h3>通知がない場合</h3>
+            <p><code>startMessageId</code> もなければ開始通知を投稿し、その投稿からスレッドを作る。</p>
+          </div>
+          <div class="step">
+            <span class="num">4</span>
+            <h3>未投稿抽出</h3>
+            <p>配信開始時刻から現在までのクリップを取得し、投稿済みIDを除外する。</p>
+          </div>
+          <div class="step">
+            <span class="num">5</span>
+            <h3>投稿と保存</h3>
+            <p>URLをスレッドへ投稿し、成功ごとに <code>postedClipIds</code> を永続化する。</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>配信終了フロー</h2>
+        <div class="flow">
+          <div class="step">
+            <span class="num">1</span>
+            <h3>終了検知</h3>
+            <p>配信監視は180秒ごとにTwitchのライブ状態を確認する。</p>
+          </div>
+          <div class="step">
+            <span class="num">2</span>
+            <h3>最終同期</h3>
+            <p>配信開始から終了検知時刻までのクリップ窓を再同期する。</p>
+          </div>
+          <div class="step">
+            <span class="num">3</span>
+            <h3>スレッド保証</h3>
+            <p>pending状態でも開始通知起点のスレッド作成を再試行する。</p>
+          </div>
+          <div class="step">
+            <span class="num">4</span>
+            <h3>まとめ投稿</h3>
+            <p>未投稿クリップを投稿してから、配信時間・コメント数・Raid数をまとめる。</p>
+          </div>
+          <div class="step">
+            <span class="num">5</span>
+            <h3>クローズ</h3>
+            <p>Bot Tokenが使える場合は、投稿後にスレッドをアーカイブする。</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>フォールバック規則</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>状況</th>
+              <th>処理</th>
+              <th>注意点</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>threadId</code> あり</td>
+              <td>既存スレッドへクリップと終了まとめを投稿する。</td>
+              <td>開始通知やスレッドは重複作成しない。</td>
+            </tr>
+            <tr>
+              <td><code>threadId</code> なし、<code>startMessageId</code> あり</td>
+              <td>保存済み開始通知投稿からスレッド作成を試す。</td>
+              <td>Bot Tokenと対象チャンネルIDが必要。</td>
+            </tr>
+            <tr>
+              <td><code>threadId</code> なし、<code>startMessageId</code> なし</td>
+              <td>開始通知を投稿し、その投稿からスレッド作成を試す。</td>
+              <td>Webhookのみの場合は通常テキストチャンネルで投稿からのスレッド作成ができない。</td>
+            </tr>
+            <tr>
+              <td>Bot API投稿が403などで失敗</td>
+              <td>Webhook URLがあればWebhook投稿へフォールバックする。</td>
+              <td>Webhook fallbackは通知本文の欠落防止用。投稿起点のスレッド作成はBot API権限に依存する。</td>
+            </tr>
+            <tr>
+              <td><code>!streamnotify</code></td>
+              <td>新しく送った通知投稿のIDとスレッドIDを既存stateより優先する。</td>
+              <td>手動通知後のクリップ集約先を、手動通知から作成したスレッドへ寄せる。</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="note warn">
+          Discord側でBotにスレッド作成権限がない場合、プログラムだけでは投稿からスレッドを作れない。
+          その場合はBot権限を修正するか、フォーラム/メディアチャンネルWebhook向けに
+          <code>DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true</code> を使う。
+        </div>
+      </section>
+
+      <section>
+        <h2>運用確認ポイント</h2>
+        <div class="grid two">
+          <article class="card">
+            <strong>ログ</strong>
+            <ul>
+              <li><code>直近clip同期完了: saved=...</code></li>
+              <li><code>配信まとめスレッドへ新規クリップを投稿しました</code></li>
+              <li><code>配信まとめを投稿しました</code></li>
+              <li><code>Discord bot message failed: 403</code> が出たら権限確認</li>
+            </ul>
+          </article>
+          <article class="card">
+            <strong>state</strong>
+            <ul>
+              <li><code>data/stream-summary-state.json</code> に <code>startMessageId</code> があるか</li>
+              <li><code>threadId</code> が開始通知投稿から作られたスレッドか</li>
+              <li><code>postedClipIds</code> が増えているか</li>
+              <li><code>status=posted</code> と <code>threadClosedAt</code> が終了後に入るか</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        twitchRaid technical design. Source files are maintained in the repository root and <code>src/</code>.
+      </div>
+    </footer>
+  </body>
+</html>

@@ -86,9 +86,33 @@ export interface StartStreamSummaryThreadResult {
   threadId?: string;
 }
 
+export interface MergeStreamStartThreadResultOptions {
+  preferStartedThread?: boolean;
+}
+
 export interface EnsureStreamSummaryStartThreadOptions
   extends StartStreamSummaryThreadOptions {
   state: StreamSummaryState;
+}
+
+export function mergeStreamStartThreadResult(
+  state: StreamSummaryState,
+  started: StartStreamSummaryThreadResult,
+  options: MergeStreamStartThreadResultOptions = {}
+): StreamSummaryState {
+  if (options.preferStartedThread && started.startMessageId) {
+    return {
+      ...state,
+      startMessageId: started.startMessageId,
+      threadId: started.threadId,
+    };
+  }
+
+  return {
+    ...state,
+    startMessageId: started.startMessageId ?? state.startMessageId,
+    threadId: started.threadId ?? state.threadId,
+  };
 }
 
 export function formatStreamSummary(

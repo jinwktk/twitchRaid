@@ -20,6 +20,8 @@
 - `src/commands/stream-notify.ts`: TypeScript版 `!streamnotify` の管理者判定と、現在配信中の開始通知をDiscordへ手動送信するためのライブ状態取得ヘルパー。
 - `src/streams/stream-summary.ts`: 配信終了まとめの表示文言作成、Discord Bot API/Webhook投稿、開始通知/まとめメッセージからのスレッド作成、ライブクリップURL投稿、終了時スレッドクローズを担当。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
+- `docs/index.html`: 配信通知、配信まとめスレッド、クリップ検知、配信終了まとめの技術設計をGitHub Pages向けに可視化したHTML設計書。
+- `.github/workflows/pages.yml`: `docs/` をGitHub Pagesへ公開するGitHub Actions workflow。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
 - `.env` (未コミット想定): Twitch と Discord の認証情報および内部ステート (`LAST_CLIP_TIME` 等) を保持。
@@ -108,6 +110,13 @@
 - 原因: 本番サブPC `.env` に `SHOUTOUT_ADMIN_USERS` が未設定で、`!streamnotify` は `SHOUTOUT_ADMIN_USERS` を参照していた。`MANGA_ADMIN_USERS=rukalun,nyme_ia` は設定済みだったが、streamnotify権限には使っていない
 - 対応: サブPC `E:\GitHub\twitchRaid\.env` を `.env.bak-streamnotify-admin-20260606121349` にバックアップし、`SHOUTOUT_ADMIN_USERS=rukalun,nyme_ia` を追加。`pm2 restart twitchRaid --update-env` で反映
 - 確認: PM2 `twitchRaid` は online、`E:\GitHub\twitchRaid\.env` に `SHOUTOUT_ADMIN_USERS=rukalun,nyme_ia` があることを確認
+- 要望: クリップ検知時は配信まとめスレッドへ投稿し、スレッド未作成なら配信通知または `!streamnotify` の通知投稿からスレッドを作成する。配信終了時も同じ設計にし、技術者向け設計書をHTML化してGitHub Pagesで表示したい
+- TDD: `tests/streams/stream-summary.test.ts` に、手動通知で新しく送った開始通知の `startMessageId` / `threadId` を既存stateより優先するマージ規則を追加し、未実装失敗を確認
+- 実装: `src/streams/stream-summary.ts` に `mergeStreamStartThreadResult` を追加。通常通知は既存スレッド保持、`!streamnotify` は新規通知投稿のスレッド優先にした
+- 実装: `src/bot.ts` に現在stateの開始通知起点スレッドを保証する内部ヘルパーを追加し、配信中クリップ投稿と配信終了まとめ投稿の前に active/pending どちらでもスレッド保証を通すよう変更
+- ドキュメント: `docs/index.html` に配信通知、手動通知、クリップ検知、終了まとめ、フォールバック規則、運用確認ポイントを可視化。`.github/workflows/pages.yml` で `docs/` をGitHub Pagesへ公開するworkflowを追加
+- 検証: `npm test -- --run tests/streams/stream-summary.test.ts` が通過
+- ブランチ整理: `git branch --merged main` と `git branch -r --merged origin/main` で main へマージ済み確認後、ローカル `codex/fix-shoutout-context` / `codex/stream-summary-threads` / `feature/typescript-migration` と、リモート `codex/fix-shoutout-context` / `codex/stream-summary-threads` / `feature/comment-speed` / `feature/typescript-migration` / `fix/env-safe-update` / `fix/restart-interval` を削除。`git fetch --prune` 後は `main` と `origin/main` のみ残存
 
 ## 2026-06-03 作業ログ
 - 不具合報告: にめいやアカウントで `!mangaon` が実行できなくなった
