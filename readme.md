@@ -21,6 +21,11 @@ npm run pm2:logs    # ログ確認
 - BotはサブPCで動かす運用のため、問題確認時はローカル作業PCのログだけでなく、必ずサブPC側のPM2ログと `logs/bot_YYYY-MM-DD.log` を確認する
 - SQLiteキャッシュ系の調査では、サブPC側の `data/clips.sqlite` の作成状況と更新時刻も確認する
 
+### 技術設計書
+- 配信通知、配信まとめスレッド、クリップ投稿、配信終了まとめの設計は `docs/index.html` にHTML設計書としてまとめています
+- `main` ブランチの `docs/` 更新時に `.github/workflows/pages.yml` がGitHub Pagesへ公開します
+- 既存のMarkdown設計資料は `docs/ARCHITECTURE.md` / `docs/COMMANDS.md` / `docs/DESIGN_PATTERNS.md` / `docs/TECH_STACK.md` に残しています
+
 ### 直接起動
 ```bash
 npm start           # ビルド済みを実行
@@ -89,9 +94,11 @@ npm run dev         # ts-nodeで開発実行
 - 配信開始中は `STREAM_SUMMARY_STATE_PATH` に stream id / タイトル / ゲーム名 / 開始時刻 / コメント数 / Raid数を保存
 - `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` がある場合、配信開始通知メッセージからDiscordスレッドを作成し、そのスレッドIDを保存する
 - 同一タイトルで開始通知がスキップされた再起動ケースでも、保存済み開始通知メッセージIDがあれば重複投稿せずスレッド作成だけを再試行する。開始通知メッセージIDも無い場合は開始通知を1回投稿してスレッドIDを保存する
+- `!streamnotify` で手動送信した場合は、新しく送った通知投稿の `startMessageId` / `threadId` を既存stateより優先し、その通知投稿から作成したスレッドへ以後のクリップと終了まとめを集約する
 - 直近クリップ同期は1分ごとに実行し、配信中に新規クリップを検知したら未投稿分だけ配信まとめスレッドへ投稿して `postedClipIds` に保存する
+- クリップ検知時に `threadId` が無い場合は、保存済み `startMessageId` からスレッド作成を再試行する。`startMessageId` も無い場合は開始通知を投稿し、その投稿からスレッド作成を試す
 - 配信終了検知時に「配信終了まとめ」をDiscordへ投稿し、配信時間、ゲーム、コメント数、Raid数、クリップ数、ハイライト候補を表示
-- まとめ投稿前に配信時間帯のクリップを最終同期し、未投稿クリップを先にスレッドへ投稿してから終了まとめを投稿する
+- まとめ投稿前に配信時間帯のクリップを最終同期し、active/pendingどちらの状態でも開始通知起点のスレッド保証を通してから、未投稿クリップと終了まとめを投稿する
 - 終了まとめ投稿後、Bot Tokenで配信まとめスレッドをアーカイブして閉じる
 - 配信開始時にスレッド作成済みなら、クリップURLと終了まとめはそのスレッドへ投稿する
 - 配信開始時にBot API投稿やスレッド作成ができなかった場合は、通常Webhook投稿へフォールバックする。終了まとめとクリップURL投稿もBot API失敗時はWebhookへフォールバックする

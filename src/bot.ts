@@ -13,9 +13,13 @@ import {
   loadCommentState,
   saveCommentState,
 } from "./utils/comment-state-store";
-import { StreamSummaryStateStore } from "./streams/stream-summary-state-store";
+import {
+  StreamSummaryStateStore,
+  type StreamSummaryState,
+} from "./streams/stream-summary-state-store";
 import {
   ensureStreamSummaryStartThread,
+  mergeStreamStartThreadResult,
   postStreamSummaryClips,
   postStreamSummary,
   startStreamSummaryThread,
@@ -905,11 +909,9 @@ export class Bot {
 
     if (!started.startMessageId && !started.threadId) return;
 
-    this.streamSummaryStateStore.save({
-      ...state,
-      startMessageId: started.startMessageId ?? state.startMessageId,
-      threadId: started.threadId ?? state.threadId,
-    });
+    this.streamSummaryStateStore.save(
+      mergeStreamStartThreadResult(state, started)
+    );
   }
 
   private async _forceStreamStartSummaryThread(
@@ -940,11 +942,24 @@ export class Bot {
       throw new Error("Discord start notification did not return message or thread id");
     }
 
-    this.streamSummaryStateStore.save({
-      ...state,
-      startMessageId: started.startMessageId ?? state.startMessageId,
-      threadId: started.threadId ?? state.threadId,
-    });
+    this.streamSummaryStateStore.save(
+      mergeStreamStartThreadResult(state, started, { preferStartedThread: true })
+    );
+  }
+
+  private async _ensureCurrentStreamSummaryThread(
+    state: StreamSummaryState
+  ): Promise<StreamSummaryState | null> {
+    if (state.threadId) return state;
+
+    await this._ensureStreamStartSummaryThread(
+      state.title,
+      this.streamNotifier.buildMessage(state.title)
+    );
+
+    const current = this.streamSummaryStateStore.load();
+    if (!current || current.status === "posted" || !current.threadId) return null;
+    return current;
   }
 
   private async _postNewStreamClipsToSummaryThread(now = new Date()): Promise<void> {
@@ -953,15 +968,8 @@ export class Bot {
     const state = this.streamSummaryStateStore.load();
     if (!state || state.status !== "active") return;
 
-    if (!state.threadId) {
-      await this._ensureStreamStartSummaryThread(
-        state.title,
-        this.streamNotifier.buildMessage(state.title)
-      );
-    }
-
-    const current = this.streamSummaryStateStore.load();
-    if (!current || current.status !== "active" || !current.threadId) return;
+    const current = await this._ensureCurrentStreamSummaryThread(state);
+    if (!current || current.status !== "active") return;
 
     const clips = this.clipCacheStore.listClipsCreatedBetween(
       current.startedAt,
@@ -1017,9 +1025,12 @@ export class Bot {
           : this.streamSummaryStateStore.markPending(finalEndedAt);
       if (!pending) return;
 
+      const ensuredPending =
+        (await this._ensureCurrentStreamSummaryThread(pending)) ?? pending;
+
       const clips = this.clipCacheStore.listClipsCreatedBetween(
-        pending.startedAt,
-        pending.endedAt ?? finalEndedAt,
+        ensuredPending.startedAt,
+        ensuredPending.endedAt ?? finalEndedAt,
         this.config.maxSummaryClipPosts
       );
       const posted = await postStreamSummary({
@@ -1029,7 +1040,7 @@ export class Bot {
         webhookThreadName: this.config.discordSummaryWebhookThreadEnabled
           ? `配信まとめ - ${pending.title}`.slice(0, 100)
           : undefined,
-        state: pending,
+        state: ensuredPending,
         clips,
         closeThreadAfterPost: true,
         persistProgress: (state) => this.streamSummaryStateStore.save(state),
