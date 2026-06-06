@@ -104,6 +104,10 @@
 - TDD: `tests/commands/stream-notify.test.ts` を追加し、管理者判定、配信中の手動通知、オフライン時スキップ、Discord投稿失敗時の結果を先に定義して未実装失敗を確認
 - 実装: `src/commands/stream-notify.ts` を追加し、`src/bot.ts` に `!streamnotify` を接続。手動送信時は配信まとめstateを補完し、開始通知メッセージ/スレッドIDを新しい投稿結果で保存する
 - 検証: `npm test -- --run tests/commands/stream-notify.test.ts` 5件、`npm test` 117件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件が通過
+- 不具合報告: `nyme_ia` が `!streamnotify` を実行すると「管理者のみ」と拒否された
+- 原因: 本番サブPC `.env` に `SHOUTOUT_ADMIN_USERS` が未設定で、`!streamnotify` は `SHOUTOUT_ADMIN_USERS` を参照していた。`MANGA_ADMIN_USERS=rukalun,nyme_ia` は設定済みだったが、streamnotify権限には使っていない
+- 対応: サブPC `E:\GitHub\twitchRaid\.env` を `.env.bak-streamnotify-admin-20260606121349` にバックアップし、`SHOUTOUT_ADMIN_USERS=rukalun,nyme_ia` を追加。`pm2 restart twitchRaid --update-env` で反映
+- 確認: PM2 `twitchRaid` は online、`E:\GitHub\twitchRaid\.env` に `SHOUTOUT_ADMIN_USERS=rukalun,nyme_ia` があることを確認
 
 ## 2026-06-03 作業ログ
 - 不具合報告: にめいやアカウントで `!mangaon` が実行できなくなった
