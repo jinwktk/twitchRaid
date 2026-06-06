@@ -127,6 +127,7 @@ export async function postStreamSummary({
   let summaryMessageId = state.summaryMessageId;
   let threadId = state.threadId;
   let threadClosedAt = state.threadClosedAt;
+  let summaryPostedWithBot = Boolean(state.summaryMessageId);
   const postedClipIds = new Set(state.postedClipIds ?? []);
 
   const persist = (status: StreamSummaryState["status"] = "pending") => {
@@ -153,13 +154,14 @@ export async function postStreamSummary({
       threadId
     );
     summaryMessageId = message?.id;
+    summaryPostedWithBot = message?.postedWithBot ?? false;
     if (threadCreated) {
       threadId = message?.channelId;
     }
     persist();
   }
 
-  if (!threadId && botToken && channelId && summaryMessageId) {
+  if (!threadId && botToken && channelId && summaryMessageId && summaryPostedWithBot) {
     try {
       const thread = await createThread({
         botToken,
@@ -282,13 +284,20 @@ export async function startStreamSummaryThread({
 }: StartStreamSummaryThreadOptions): Promise<StartStreamSummaryThreadResult> {
   let startMessage: DiscordWebhookMessage | null = null;
   let threadId: string | undefined;
+  let postedWithBot = false;
 
   if (botToken && channelId) {
-    startMessage = await sendBotMessage({
-      botToken,
-      channelId,
-      content: message,
-    });
+    try {
+      startMessage = await sendBotMessage({
+        botToken,
+        channelId,
+        content: message,
+      });
+      postedWithBot = true;
+    } catch (error) {
+      if (!webhookUrl) throw error;
+      startMessage = await sendWebhook(webhookUrl, { content: message }, { wait: true });
+    }
   } else if (webhookThreadName) {
     try {
       if (!webhookUrl) throw new Error("Discord webhook URL is not configured");
@@ -307,7 +316,7 @@ export async function startStreamSummaryThread({
     startMessage = await sendWebhook(webhookUrl, { content: message }, { wait: true });
   }
 
-  if (!threadId && botToken && channelId && startMessage?.id) {
+  if (!threadId && botToken && channelId && startMessage?.id && postedWithBot) {
     try {
       const thread = await createThread({
         botToken,
@@ -390,16 +399,28 @@ async function sendInitialSummaryMessage(
   payload: DiscordWebhookPayload,
   webhookThreadName?: string,
   threadId?: string
-): Promise<{ message: DiscordWebhookMessage | null; threadCreated: boolean }> {
+): Promise<{
+  message: (DiscordWebhookMessage & { postedWithBot?: boolean }) | null;
+  threadCreated: boolean;
+}> {
   if (botToken && (threadId || channelId)) {
-    return {
-      message: await sendBotMessage({
+    try {
+      const message = await sendBotMessage({
         botToken,
         channelId: threadId ?? channelId!,
         content: payload.content,
-      }),
-      threadCreated: false,
-    };
+      });
+      return {
+        message: { ...message, postedWithBot: true },
+        threadCreated: false,
+      };
+    } catch (error) {
+      if (!webhookUrl) throw error;
+      return {
+        message: await sendWebhook(webhookUrl, payload, { threadId, wait: true }),
+        threadCreated: false,
+      };
+    }
   }
 
   if (!webhookUrl) {
@@ -456,12 +477,21 @@ async function sendSummaryMessage({
   sendWebhook: SendWebhook;
   sendBotMessage: SendBotMessage;
 }): Promise<DiscordWebhookMessage | null> {
-  if (botToken && channelId) {
-    return sendBotMessage({
-      botToken,
-      channelId,
-      content,
-    });
+  if (botToken && (threadId || channelId)) {
+    try {
+      return await sendBotMessage({
+        botToken,
+        channelId: threadId ?? channelId!,
+        content,
+      });
+    } catch (error) {
+      if (!webhookUrl) throw error;
+      return sendWebhook(
+        webhookUrl,
+        { content },
+        { threadId, wait }
+      );
+    }
   }
 
   if (!webhookUrl) {

@@ -77,11 +77,21 @@
 - クリップキャッシュは任意で `TWITCH_CLIP_CACHE_DB_PATH` を使用。未設定時は `data/clips.sqlite` を使い、ローカル状態として Git 管理外。
 - Clip全期間バックフィルは通常起動時は完了済み期間をスキップする。配信していない時間に1日1回だけ全期間を再走査し、Twitch APIから返らなくなったClipは `clip_cache.unavailable_at` を設定して `!clip` / `!myclip` / 配信まとめ候補から除外する。再走査の最終時刻は `clip_sync_state.daily_reconcile_at` に保存する。
 - 配信まとめ状態は任意で `STREAM_SUMMARY_STATE_PATH` を使用。未設定時は `data/stream-summary-state.json` を使い、ローカル状態として Git 管理外。
-- 配信まとめスレッド作成と投稿には `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を使う。Bot Token方式では開始通知、クリップURL、終了まとめをBot APIで投稿し、配信開始通知メッセージからスレッドを作る。未設定時や権限不足時のみ通常Webhook投稿へフォールバックする。
+- 配信まとめスレッド作成と投稿には `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を使う。Bot Token方式では開始通知、クリップURL、終了まとめをBot APIで投稿し、配信開始通知メッセージからスレッドを作る。未設定時や403などのBot API投稿失敗時は通常Webhook投稿へフォールバックする。
 - Webhookだけで配信まとめスレッドを作る場合は、Webhook先をフォーラム/メディアチャンネルにし、`DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定する。通常テキストチャンネルWebhookではDiscord側が `thread_name` を拒否するため、通常Webhook投稿へフォールバックする。
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
+
+## 2026-06-06 作業ログ
+- 不具合報告: 配信通知が止まっている
+- 本番確認: サブPC `192.168.0.99` のPM2では `twitchRaid` が online、PID `6788`、uptime `3h`、restart `76`。リポジトリは `main...origin/main` で `61c6630 manga管理者設定を記録`、未追跡は `.env.bak-manga-admin-20260603190856` のみ
+- 本番ログ: `E:\GitHub\twitchRaid\logs\bot_2026-06-06.log` で 2026-06-06 10:06:27 に配信開始を検知後、10:06:28 に `Discord bot message failed: 403` で配信タイトル通知が失敗。配信終了まとめも同じ403で再試行を繰り返していた
+- 本番状態: `data/stream-summary-state.json` は `status=active`、`streamId=316055131251`、`threadId` / `startMessageId` 未保存。`DISCORD_WEBHOOK_URL`、`DISCORD_BOT_TOKEN`、`DISCORD_SUMMARY_CHANNEL_ID` はすべて設定済み
+- 原因: Bot Token方式を優先する実装で、Bot API投稿が403になった場合に既存Webhookへフォールバックせず、配信開始通知・配信まとめ投稿が停止していた
+- TDD: `tests/streams/stream-summary.test.ts` に、Bot API投稿が403相当で失敗した場合に配信開始通知、配信終了まとめ、配信中クリップ投稿をWebhookへフォールバックするテストを追加し、未実装失敗を確認
+- 実装: `src/streams/stream-summary.ts` でBot API投稿失敗時に `DISCORD_WEBHOOK_URL` があれば通常Webhook投稿へフォールバックするよう修正。Webhookへフォールバックした開始通知/まとめではBotスレッド作成を無理に続行しない
+- 検証: `npm test -- --run tests/streams/stream-summary.test.ts` 16件、`npm test` 110件、`npm run build`、`npm run lint` が通過
 
 ## 2026-06-03 作業ログ
 - 不具合報告: にめいやアカウントで `!mangaon` が実行できなくなった

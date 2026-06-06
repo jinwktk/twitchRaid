@@ -121,6 +121,39 @@ describe("stream summary", () => {
     });
   });
 
+  it("falls back to webhook when bot start notification is rejected", async () => {
+    const sendBotMessage = vi
+      .fn()
+      .mockRejectedValue(new Error("Discord bot message failed: 403"));
+    const sendWebhook = vi
+      .fn()
+      .mockResolvedValue({ id: "webhook-message-id", channelId: "webhook-channel" });
+    const createThread = vi.fn();
+
+    const started = await startStreamSummaryThread({
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+      botToken: "bot-token",
+      channelId: "channel-id",
+      title: "回変り金み",
+      message: "回変り金み",
+      sendBotMessage,
+      sendWebhook,
+      createThread,
+    });
+
+    expect(sendBotMessage).toHaveBeenCalledOnce();
+    expect(sendWebhook).toHaveBeenCalledWith(
+      "https://discord.com/api/webhooks/123/token",
+      { content: "回変り金み" },
+      { wait: true }
+    );
+    expect(createThread).not.toHaveBeenCalled();
+    expect(started).toEqual({
+      startMessageId: "webhook-message-id",
+      threadId: undefined,
+    });
+  });
+
   it("creates a missing start thread from a saved start notification message", async () => {
     const sendWebhook = vi.fn();
     const createThread = vi.fn().mockResolvedValue({ id: "thread-id" });
@@ -302,6 +335,52 @@ describe("stream summary", () => {
     expect(posted.postedClipIds).toEqual(["clip-a", "clip-b"]);
   });
 
+  it("falls back to webhook when bot summary and clip posts are rejected", async () => {
+    const sendBotMessage = vi
+      .fn()
+      .mockRejectedValue(new Error("Discord bot message failed: 403"));
+    const sendWebhook = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "summary-message-id", channelId: "channel-id" })
+      .mockResolvedValue({ id: "clip-message-id", channelId: "channel-id" });
+    const createThread = vi
+      .fn()
+      .mockRejectedValue(new Error("Discord thread creation failed: 403"));
+
+    const posted = await postStreamSummary({
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+      botToken: "bot-token",
+      channelId: "channel-id",
+      state,
+      clips,
+      sendBotMessage,
+      sendWebhook,
+      createThread,
+    });
+
+    expect(sendBotMessage).toHaveBeenCalledTimes(3);
+    expect(sendWebhook).toHaveBeenNthCalledWith(
+      1,
+      "https://discord.com/api/webhooks/123/token",
+      expect.objectContaining({ content: expect.stringContaining("配信終了まとめ") }),
+      { wait: true }
+    );
+    expect(sendWebhook).toHaveBeenNthCalledWith(
+      2,
+      "https://discord.com/api/webhooks/123/token",
+      { content: clips[0].url },
+      { threadId: undefined, wait: false }
+    );
+    expect(sendWebhook).toHaveBeenNthCalledWith(
+      3,
+      "https://discord.com/api/webhooks/123/token",
+      { content: clips[1].url },
+      { threadId: undefined, wait: false }
+    );
+    expect(posted.summaryMessageId).toBe("summary-message-id");
+    expect(posted.postedClipIds).toEqual(["clip-a", "clip-b"]);
+  });
+
   it("persists progress after summary, thread, and each clip post", async () => {
     const sendBotMessage = vi
       .fn()
@@ -387,6 +466,45 @@ describe("stream summary", () => {
       expect.objectContaining({ postedClipIds: ["clip-a", "clip-b"] })
     );
     expect(posted.summaryMessageId).toBeUndefined();
+    expect(posted.postedClipIds).toEqual(["clip-a", "clip-b"]);
+  });
+
+  it("falls back to webhook when bot live clip posting is rejected", async () => {
+    const sendBotMessage = vi
+      .fn()
+      .mockRejectedValue(new Error("Discord bot message failed: 403"));
+    const sendWebhook = vi.fn().mockResolvedValue({ id: "clip-message-id" });
+    const persistProgress = vi.fn();
+
+    const posted = await postStreamSummaryClips({
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+      botToken: "bot-token",
+      channelId: "channel-id",
+      state: {
+        ...state,
+        status: "active",
+        threadId: "thread-id",
+        postedClipIds: ["clip-a"],
+      },
+      clips,
+      sendBotMessage,
+      sendWebhook,
+      persistProgress,
+    });
+
+    expect(sendBotMessage).toHaveBeenCalledWith({
+      botToken: "bot-token",
+      channelId: "thread-id",
+      content: clips[1].url,
+    });
+    expect(sendWebhook).toHaveBeenCalledWith(
+      "https://discord.com/api/webhooks/123/token",
+      { content: clips[1].url },
+      { threadId: "thread-id", wait: false }
+    );
+    expect(persistProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ postedClipIds: ["clip-a", "clip-b"] })
+    );
     expect(posted.postedClipIds).toEqual(["clip-a", "clip-b"]);
   });
 
