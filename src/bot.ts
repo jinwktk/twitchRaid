@@ -40,6 +40,10 @@ import {
   sendShoutout,
 } from "./commands/shoutout";
 import {
+  fetchRaidSourceInfo,
+  formatRaidSourceInfoMessage,
+} from "./commands/raid-info";
+import {
   isStreamNotifyAdmin,
   sendManualStreamNotification,
   type ManualStreamNotificationStream,
@@ -245,11 +249,12 @@ export class Bot {
     });
 
     // レイドイベント
-    this.chatClient.onRaid(async (_channel, user, raidInfo) => {
+    this.chatClient.onRaid(async (channel, user, raidInfo) => {
       logger.info(
         `Raid detected from ${user}. Viewers: ${raidInfo.viewerCount}. Sending shoutout.`
       );
       this._incrementStreamSummaryRaid();
+      await this._sendRaidSourceInfo(channel, user);
       await this._sendShoutout(user);
     });
   }
@@ -669,6 +674,32 @@ export class Bot {
         logger.error(`❌ Shoutout retry failed: ${retryErr}`);
       }
       return false;
+    }
+  }
+
+  private async _sendRaidSourceInfo(
+    channel: string,
+    username: string
+  ): Promise<void> {
+    try {
+      const info = await fetchRaidSourceInfo(this.apiClient, username);
+      await this.chatClient.say(channel, formatRaidSourceInfoMessage(info));
+    } catch (e) {
+      logger.error(`❌ Raid元配信情報の送信に失敗しました: ${e}`);
+      const fallbackUserName = username.trim().replace(/^@+/, "").toLowerCase();
+      try {
+        await this.chatClient.say(
+          channel,
+          formatRaidSourceInfoMessage({
+            userName: fallbackUserName,
+            streamUrl: `https://www.twitch.tv/${fallbackUserName}`,
+            title: null,
+            gameName: null,
+          })
+        );
+      } catch (fallbackErr) {
+        logger.error(`❌ Raid元配信URLのフォールバック送信に失敗しました: ${fallbackErr}`);
+      }
     }
   }
 

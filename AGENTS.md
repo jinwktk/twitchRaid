@@ -13,6 +13,7 @@
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `process_restart.py`: 同一コンソール内でのプロセス再起動と、`execv` 失敗時フォールバック起動を担当。
 - `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトと `!shoutout` 手動デバッグコマンドの権限判定・対象ユーザー正規化を担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。
+- `src/commands/raid-info.ts`: Raid受信時にレイド元の配信URL、配信タイトル、ゲーム名をTwitch APIから取得し、チャット投稿用メッセージへ整形する。配信情報取得不可時もURL付きフォールバック文を返す。
 - `src/commands/boom.ts`: TypeScript版 `!boom` の集計ロジック。過去30日間のアーカイブ配信を Twurple Helix で取得し、Twitch GraphQL の VOD チャプターからゲーム別トータル時間と総配信時間を算出する。
 - `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ軽いAPIフォールバックを使う。
 - `src/commands/clip-cache-store.ts`: クリップ本体、走査済み期間、削除/非公開化でTwitch APIから返らなくなったClipの無効化状態、`!clip` / `!myclip:<ユーザー>` ごとの表示履歴を `data/clips.sqlite` に保存する。
@@ -38,6 +39,7 @@
 - `tests/test_token_refresh_policy.py`: トークンリフレッシュ失敗時のフォールバック判定テスト。
 - `tests/test_process_restart.py`: 同一コンソール再起動とフォールバック経路のユニットテスト。
 - `tests/commands/shoutout.test.ts`: TypeScript版シャウトアウトが Bot/Moderator ユーザーコンテキストで実行されること、手動コマンド権限判定、対象ユーザー名正規化を検証。
+- `tests/commands/raid-info.test.ts`: Raid元配信情報の取得、指定文言でのチャットメッセージ整形、オフライン時フォールバック、長文タイトルの単一行化/短縮を検証。
 - `tests/commands/boom.test.ts`: TypeScript版 `!boom` のVODチャプター抽出、ゲーム別合算、1時間未満フィルタ、表示文言を検証。
 - `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタを検証。
 - `tests/commands/clip-cache-store.test.ts`: クリップSQLiteキャッシュ、履歴上限、走査済み期間、削除済みClipの無効化と候補除外を検証。
@@ -90,6 +92,12 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-06 作業ログ
+- 要望: レイドをもらった時に、レイド者の配信URL、配信タイトル、ゲームをチャットへ送信したい
+- 文言指定: `レイドありがとうD！！ ○○さんは、「（ゲーム名）」で「（配信タイトル）」をしてたD！お疲れ様D！チャンネルはこD→（URL）`
+- TDD: `tests/commands/raid-info.test.ts` を追加し、Raid元ライブ情報取得、指定文言整形、配信情報取得不可時のURL付きフォールバック、改行除去と長文タイトル短縮を先に定義して未実装失敗を確認
+- 実装: `src/commands/raid-info.ts` を追加し、Twurple `streams.getStreamByUserName` でRaid元のライブ配信情報を取得。`src/bot.ts` の `onRaid` でチャットへRaid情報を送信してから既存shoutoutを実行するよう接続
+- 安全策: Raid元が既にオフライン、API取得失敗、チャット送信失敗の場合でもログ化し、shoutout処理が止まらないようにした
+- 検証: `npm test -- --run tests/commands/raid-info.test.ts` 5件、`npm test` 124件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件が通過
 - 不具合報告: 配信通知が止まっている
 - 本番確認: サブPC `192.168.0.99` のPM2では `twitchRaid` が online、PID `6788`、uptime `3h`、restart `76`。リポジトリは `main...origin/main` で `61c6630 manga管理者設定を記録`、未追跡は `.env.bak-manga-admin-20260603190856` のみ
 - 本番ログ: `E:\GitHub\twitchRaid\logs\bot_2026-06-06.log` で 2026-06-06 10:06:27 に配信開始を検知後、10:06:28 に `Discord bot message failed: 403` で配信タイトル通知が失敗。配信終了まとめも同じ403で再試行を繰り返していた
