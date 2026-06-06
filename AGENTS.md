@@ -21,7 +21,7 @@
 - `src/streams/stream-summary.ts`: 配信終了まとめの表示文言作成、Discord Bot API/Webhook投稿、開始通知/まとめメッセージからのスレッド作成、ライブクリップURL投稿、終了時スレッドクローズを担当。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
 - `docs/index.html`: 配信通知、配信まとめスレッド、クリップ検知、配信終了まとめの技術設計をGitHub Pages向けに可視化したHTML設計書。
-- `docs/python-bot-spec.html`: Python版 `main.py` を中心に、Twitch Botのプログラム概要、機能一覧、処理フロー、依存関係、エラーハンドリングを図付きでまとめたHTML仕様書。
+- `docs/typescript-bot-spec.html`: 現行TypeScript版 `src/` を中心に、Twitch Botのプログラム概要、機能一覧、処理フロー、依存関係、エラーハンドリングを図付きでまとめたHTML仕様書。
 - `.github/workflows/pages.yml`: `docs/` をGitHub Pagesへ公開するGitHub Actions workflow。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
@@ -123,6 +123,10 @@
 - ドキュメント: `docs/python-bot-spec.html` を追加し、システム全体構成図、起動シーケンス図、主要処理フロー図をインラインSVGで可視化。既存 `docs/index.html` からPython版仕様書へ遷移できるリンクを追加
 - ドキュメント: `README.md` の技術設計書一覧へ `docs/python-bot-spec.html` を追記
 - 検証: `docs/python-bot-spec.html` と `docs/index.html` をHTMLParserで構文確認
+- 追加要望: 現行本番はTypeScript版のため旧Python仕様書は不要。TypeScript版として作り直したい
+- 対応: `docs/python-bot-spec.html` を削除し、`docs/typescript-bot-spec.html` を追加。`src/index.ts`、`src/bot.ts`、`src/commands/`、`src/streams/`、`src/notifications/`、`src/auth/`、`src/git-manager.ts`、`src/system-watcher.ts`、`src/utils/`、`package.json` の責務を現行仕様として整理
+- ドキュメント: `docs/index.html` と `README.md` のリンクをTypeScript版仕様書へ差し替え
+- 検証: `docs/typescript-bot-spec.html` と `docs/index.html` をHTMLParserで構文確認。TypeScript版仕様書に必須4章とSVG図3点があることを確認
 
 ## 2026-06-03 作業ログ
 - 不具合報告: にめいやアカウントで `!mangaon` が実行できなくなった

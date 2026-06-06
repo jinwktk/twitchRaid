@@ -23,7 +23,7 @@ npm run pm2:logs    # ログ確認
 
 ### 技術設計書
 - 配信通知、配信まとめスレッド、クリップ投稿、配信終了まとめの設計は `docs/index.html` にHTML設計書としてまとめています
-- Python版 Twitch Bot のシステム仕様書/機能設計書は `docs/python-bot-spec.html` にまとめています
+- 現行TypeScript版 Twitch Bot のシステム仕様書/機能設計書は `docs/typescript-bot-spec.html` にまとめています
 - `main` ブランチの `docs/` 更新時に `.github/workflows/pages.yml` がGitHub Pagesへ公開します
 - 既存のMarkdown設計資料は `docs/ARCHITECTURE.md` / `docs/COMMANDS.md` / `docs/DESIGN_PATTERNS.md` / `docs/TECH_STACK.md` に残しています
 
