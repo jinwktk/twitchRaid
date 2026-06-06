@@ -47,6 +47,7 @@ npm run dev         # ts-nodeで開発実行
 - `STREAM_SUMMARY_MAX_CLIPS` に配信まとめスレッドへ投稿する最大クリップ数を設定できます（未設定時は `10`）
 - `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を設定すると、Bot APIで配信開始通知、クリップURL、終了まとめを投稿し、配信開始通知メッセージからDiscordスレッドを作成します。`DISCORD_WEBHOOK_URL` はBot設定が無い場合、またはBot API投稿が403などで失敗した場合のフォールバックです
 - `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定すると、Webhookだけで `thread_name` によるスレッド作成を試します。この方式はDiscordのフォーラム/メディアチャンネルWebhook向けです。通常テキストチャンネルWebhookではDiscord側で拒否されるため、自動で通常Webhook投稿へフォールバックします
+- `OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` を設定すると、Raid時にOllama `POST /api/generate` で短いshoutout紹介文を生成してチャットへ送信します。`OLLAMA_BASE_URL` は未設定時 `http://127.0.0.1:11434`、`OLLAMA_SHOUTOUT_TIMEOUT_MS` は未設定時 `8000`、`OLLAMA_SHOUTOUT_KEEP_ALIVE` は未設定時 `5m` です
 
 ## 技術スタック
 - **ランタイム**: Node.js 22.5+（`node:sqlite` を使用）
@@ -114,6 +115,8 @@ npm run dev         # ts-nodeで開発実行
 ## レイド自動シャウトアウト
 - レイド検知時は `src/commands/shoutout.ts` でレイド元のユーザーIDを解決し、Bot/Moderator のユーザーコンテキストで `chat.shoutoutUser` を実行
 - レイド検知時は `src/commands/raid-info.ts` でレイド元の配信情報を取得し、チャットへ `レイドありがとうD！！ @ユーザー さんは、「ゲーム名」で「配信タイトル」をしてたD！お疲れ様D！チャンネルはこD→URL` を送信する
+- `OLLAMA_SHOUTOUT_ENABLED=true` の場合は、取得したRaid元のユーザー名/ゲーム/タイトル/Raid人数をもとに `src/commands/shoutout-introduction.ts` で短い紹介文を生成し、`@ユーザー さん紹介D！...` としてチャットへ追加送信する
+- Ollama紹介文生成は既存のshoutoutキューを待たせないようバックグラウンドで実行する。Ollamaが未設定、タイムアウト、HTTPエラー、空応答、日本語かなを含まない返答の場合は紹介文だけスキップし、Raid情報メッセージとTwitch shoutout APIは継続する
 - Raid元の配信がすでにオフライン、またはTwitch APIでタイトル/ゲームを取得できない場合でも、チャンネルURL付きのフォールバック文を送信する
 - Raid自動shoutoutは `ShoutoutQueue` で直列化し、Twitchの `429 Too Many Requests` に当たった対象はキュー先頭へ戻して2分後に再実行する
 - Twurple のデフォルト挙動で broadcaster の未登録トークンを探しに行かないよう、`apiClient.asUser(botUserId, ...)` で明示的にコンテキストを切り替える
@@ -170,6 +173,7 @@ src/
 │   ├── manga.ts                   # !manga / 管理者判定
 │   ├── raid-info.ts               # Raid元配信情報文言
 │   ├── random-commands.ts
+│   ├── shoutout-introduction.ts   # OllamaによるRaid紹介文生成
 │   ├── shoutout.ts                # shoutout権限/キュー
 │   └── stream-notify.ts           # !streamnotify
 ├── notifications/
@@ -189,6 +193,7 @@ src/
 ```
 
 ## 更新履歴
+- **2026-06-07**: Raid時のshoutout紹介文をOllamaで生成する任意機能を追加。`OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` 設定時だけ、サブPC上のOllama APIへ短い紹介文を依頼し、失敗時は既存Raid情報/shoutoutを継続する
 - **2026-06-07**: 配信開始通知直後のスレッド補完で、保存済み `startMessageId` からスレッド作成に失敗しても同じ開始処理内では開始通知を投稿し直さないよう修正。クリップ/終了まとめ前の保証処理では従来どおり必要時のみ再投稿する
 - **2026-06-06**: ソース側の性能レビュー反映として、通常コメント1件ごとの配信まとめstate JSON同期書き込みを廃止。`StreamSummaryCountBuffer` で30秒デバウンスし、Raid/停止/配信終了時は即時flushするよう変更
 - **2026-06-06**: GitHub Pagesの仕様書を `docs/index.html` に一本化し、`docs/typescript-bot-spec.html` は統合先への案内ページへ変更。図解中心のTypeScript版総合仕様書として、配信通知、Clip同期、Raid情報、shoutoutキュー、Boom集計、フォールバック、品質ゲートを追記

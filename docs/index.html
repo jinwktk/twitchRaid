@@ -767,8 +767,8 @@
             </tr>
             <tr>
               <td>Raid対応</td>
-              <td>Raid元のURL、タイトル、ゲームをチャットへ出し、shoutoutをキューに入れる。</td>
-              <td>Twitchチャット、Twitch shoutout API</td>
+              <td>Raid元のURL、タイトル、ゲームをチャットへ出し、任意でOllama紹介文を追加して、shoutoutをキューに入れる。</td>
+              <td>Twitchチャット、Twitch shoutout API、Ollama API</td>
             </tr>
             <tr>
               <td>自動復旧</td>
@@ -927,6 +927,11 @@
           </article>
           <article class="step">
             <span class="num">5</span>
+            <h4>紹介文生成</h4>
+            <p>有効時だけOllamaで短い紹介文を作り、チャットへ追加投稿。</p>
+          </article>
+          <article class="step">
+            <span class="num">6</span>
             <h4>429なら待つ</h4>
             <p>レート制限時は同じ対象を先頭へ戻し2分後に再実行。</p>
           </article>
@@ -981,6 +986,10 @@
             <tr>
               <td><code>src/commands/shoutout.ts</code></td>
               <td>手動/自動shoutout、対象名正規化、権限判定、429時再キュー。</td>
+            </tr>
+            <tr>
+              <td><code>src/commands/shoutout-introduction.ts</code></td>
+              <td>Ollama <code>/api/generate</code> でRaid紹介文を作り、Twitchチャット向けに単一行・短文へ整形。</td>
             </tr>
             <tr>
               <td><code>src/commands/stream-notify.ts</code></td>
@@ -1077,6 +1086,11 @@
               <td>Raid元の配信情報が取れない</td>
               <td>タイトル/ゲームなしでもチャンネルURL付きフォールバック文を送る。</td>
               <td>Raid直後は元配信が既にオフラインのことがある。</td>
+            </tr>
+            <tr>
+              <td>Ollama紹介文が生成できない</td>
+              <td>紹介文だけスキップし、Raid情報メッセージとTwitch shoutout APIは継続。</td>
+              <td><code>OLLAMA_SHOUTOUT_ENABLED=true</code> と <code>OLLAMA_SHOUTOUT_MODEL</code> 設定時だけ有効。日本語かなを含まない返答も送らない。</td>
             </tr>
             <tr>
               <td>ClipがTwitch APIから消えた</td>

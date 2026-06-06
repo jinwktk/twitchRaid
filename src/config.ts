@@ -10,6 +10,11 @@ function parseEnabledFlag(raw: string): boolean {
   return raw.toLowerCase() === "true" || raw === "1";
 }
 
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  const parsed = parseInt(raw ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function toEnvFlag(enabled: boolean): string {
   return enabled ? "true" : "false";
 }
@@ -45,6 +50,11 @@ export class Config {
   readonly clipCacheDbPath: string;
   readonly streamSummaryStatePath: string;
   readonly maxSummaryClipPosts: number;
+  readonly ollamaShoutoutEnabled: boolean;
+  readonly ollamaBaseUrl: string;
+  readonly ollamaShoutoutModel: string;
+  readonly ollamaShoutoutTimeoutMs: number;
+  readonly ollamaShoutoutKeepAlive: string;
 
   // 特別ユーザー設定
   readonly clipSpecialUsers: string[];
@@ -99,6 +109,19 @@ export class Config {
     );
     this.maxSummaryClipPosts =
       parseInt(env["STREAM_SUMMARY_MAX_CLIPS"] ?? "10", 10) || 10;
+    this.ollamaShoutoutEnabled = parseEnabledFlag(
+      env["OLLAMA_SHOUTOUT_ENABLED"] ?? "0"
+    );
+    this.ollamaBaseUrl =
+      env["OLLAMA_BASE_URL"]?.trim() || "http://127.0.0.1:11434";
+    this.ollamaShoutoutModel =
+      env["OLLAMA_SHOUTOUT_MODEL"]?.trim() || env["OLLAMA_MODEL"]?.trim() || "";
+    this.ollamaShoutoutTimeoutMs = parsePositiveInt(
+      env["OLLAMA_SHOUTOUT_TIMEOUT_MS"],
+      8_000
+    );
+    this.ollamaShoutoutKeepAlive =
+      env["OLLAMA_SHOUTOUT_KEEP_ALIVE"]?.trim() || "5m";
 
     // 特別ユーザー
     const specialUsersStr = env["CLIP_SPECIAL_USERS"] ?? "nyme_ia,rukalun";
