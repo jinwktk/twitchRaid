@@ -45,7 +45,12 @@ import {
 import {
   fetchRaidSourceInfo,
   formatRaidSourceInfoMessage,
+  type RaidSourceInfo,
 } from "./commands/raid-info";
+import {
+  formatShoutoutIntroductionMessage,
+  generateShoutoutIntroduction,
+} from "./commands/shoutout-introduction";
 import {
   isStreamNotifyAdmin,
   sendManualStreamNotification,
@@ -285,8 +290,13 @@ export class Bot {
         `Raid detected from ${user}. Viewers: ${raidInfo.viewerCount}. Sending shoutout.`
       );
       this._incrementStreamSummaryRaid();
-      await this._sendRaidSourceInfo(channel, user);
+      const sourceInfo = await this._sendRaidSourceInfo(channel, user);
       this._enqueueRaidShoutout(user);
+      void this._sendOllamaShoutoutIntroduction(
+        channel,
+        sourceInfo,
+        raidInfo.viewerCount
+      );
     });
   }
 
@@ -737,26 +747,65 @@ export class Bot {
   private async _sendRaidSourceInfo(
     channel: string,
     username: string
-  ): Promise<void> {
+  ): Promise<RaidSourceInfo> {
+    const fallbackUserName = username.trim().replace(/^@+/, "").toLowerCase();
+    let info: RaidSourceInfo = {
+      userName: fallbackUserName,
+      streamUrl: `https://www.twitch.tv/${fallbackUserName}`,
+      title: null,
+      gameName: null,
+    };
+
     try {
-      const info = await fetchRaidSourceInfo(this.apiClient, username);
-      await this.chatClient.say(channel, formatRaidSourceInfoMessage(info));
+      info = await fetchRaidSourceInfo(this.apiClient, username);
     } catch (e) {
-      logger.error(`❌ Raid元配信情報の送信に失敗しました: ${e}`);
-      const fallbackUserName = username.trim().replace(/^@+/, "").toLowerCase();
-      try {
-        await this.chatClient.say(
-          channel,
-          formatRaidSourceInfoMessage({
-            userName: fallbackUserName,
-            streamUrl: `https://www.twitch.tv/${fallbackUserName}`,
-            title: null,
-            gameName: null,
-          })
-        );
-      } catch (fallbackErr) {
-        logger.error(`❌ Raid元配信URLのフォールバック送信に失敗しました: ${fallbackErr}`);
-      }
+      logger.error(`❌ Raid元配信情報の取得に失敗しました: ${e}`);
+    }
+
+    try {
+      await this.chatClient.say(channel, formatRaidSourceInfoMessage(info));
+    } catch (sendErr) {
+      logger.error(`❌ Raid元配信情報の送信に失敗しました: ${sendErr}`);
+    }
+
+    return info;
+  }
+
+  private async _sendOllamaShoutoutIntroduction(
+    channel: string,
+    info: RaidSourceInfo,
+    viewerCount: number
+  ): Promise<void> {
+    if (!this.config.ollamaShoutoutEnabled) return;
+    if (!this.config.ollamaShoutoutModel) {
+      logger.warn(
+        "⚠️ Ollama shoutout紹介文は有効ですが OLLAMA_SHOUTOUT_MODEL が未設定です。"
+      );
+      return;
+    }
+
+    const intro = await generateShoutoutIntroduction({
+      info,
+      viewerCount,
+      enabled: this.config.ollamaShoutoutEnabled,
+      baseUrl: this.config.ollamaBaseUrl,
+      model: this.config.ollamaShoutoutModel,
+      timeoutMs: this.config.ollamaShoutoutTimeoutMs,
+      keepAlive: this.config.ollamaShoutoutKeepAlive,
+    });
+
+    if (!intro) {
+      logger.warn(`⚠️ Ollama shoutout紹介文を生成できませんでした: ${info.userName}`);
+      return;
+    }
+
+    try {
+      await this.chatClient.say(
+        channel,
+        formatShoutoutIntroductionMessage(info, intro)
+      );
+    } catch (sendErr) {
+      logger.error(`❌ Ollama shoutout紹介文の送信に失敗しました: ${sendErr}`);
     }
   }
 

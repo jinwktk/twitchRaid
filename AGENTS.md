@@ -17,6 +17,7 @@
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `process_restart.py`: 同一コンソール内でのプロセス再起動と、`execv` 失敗時フォールバック起動を担当。
 - `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトと `!shoutout` 手動デバッグコマンドの権限判定・対象ユーザー正規化を担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。Raid自動shoutoutは `ShoutoutQueue` で直列化し、429時は対象をキュー先頭へ戻して2分後に再実行する。
+- `src/commands/shoutout-introduction.ts`: Raid時のshoutout紹介文をOllama `POST /api/generate` で生成し、Twitchチャット向けに単一行・500文字以内へ整形する任意機能を担当。
 - `src/commands/raid-info.ts`: Raid受信時にレイド元の配信URL、配信タイトル、ゲーム名をTwitch APIから取得し、チャット投稿用メッセージへ整形する。配信情報取得不可時もURL付きフォールバック文を返す。
 - `src/commands/boom.ts`: TypeScript版 `!boom` の集計ロジック。過去30日間のアーカイブ配信を Twurple Helix で取得し、Twitch GraphQL の VOD チャプターからゲーム別トータル時間と総配信時間を算出する。
 - `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ軽いAPIフォールバックを使う。
@@ -46,6 +47,7 @@
 - `tests/test_token_refresh_policy.py`: トークンリフレッシュ失敗時のフォールバック判定テスト。
 - `tests/test_process_restart.py`: 同一コンソール再起動とフォールバック経路のユニットテスト。
 - `tests/commands/shoutout.test.ts`: TypeScript版シャウトアウトが Bot/Moderator ユーザーコンテキストで実行されること、手動コマンド権限判定、対象ユーザー名正規化、429時のキュー再実行を検証。
+- `tests/commands/shoutout-introduction.test.ts`: Ollama紹介文生成の無効時スキップ、`/api/generate` リクエスト、HTTP失敗時スキップ、チャット向け整形を検証。
 - `tests/commands/raid-info.test.ts`: Raid元配信情報の取得、指定文言でのチャットメッセージ整形、オフライン時フォールバック、長文タイトルの単一行化/短縮を検証。
 - `tests/commands/boom.test.ts`: TypeScript版 `!boom` のVODチャプター抽出、ゲーム別合算、1時間未満フィルタ、表示文言を検証。
 - `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタを検証。
@@ -94,7 +96,7 @@
 - main へ直接 push しない。レビュー向けには小さな論理単位でブランチを切り、CI テスト (将来導入) の結果を添付。
 
 ## 設定とセキュリティ Tips
-- `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `DISCORD_BOT_TOKEN`, `DISCORD_SUMMARY_CHANNEL_ID`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `LAST_STREAM_TITLE`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS`, 任意で `TWITCH_GQL_CLIENT_ID`, `TWITCH_CLIP_CACHE_DB_PATH`, `STREAM_SUMMARY_STATE_PATH`, `STREAM_SUMMARY_MAX_CLIPS`, `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED` を定義。更新は `Config.update*` と `env-store.ts` が担当。
+- `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `DISCORD_BOT_TOKEN`, `DISCORD_SUMMARY_CHANNEL_ID`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `LAST_STREAM_TITLE`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS`, 任意で `TWITCH_GQL_CLIENT_ID`, `TWITCH_CLIP_CACHE_DB_PATH`, `STREAM_SUMMARY_STATE_PATH`, `STREAM_SUMMARY_MAX_CLIPS`, `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED`, `OLLAMA_SHOUTOUT_ENABLED`, `OLLAMA_BASE_URL`, `OLLAMA_SHOUTOUT_MODEL`, `OLLAMA_SHOUTOUT_TIMEOUT_MS`, `OLLAMA_SHOUTOUT_KEEP_ALIVE` を定義。更新は `Config.update*` と `env-store.ts` が担当。
 - クリップキャッシュは任意で `TWITCH_CLIP_CACHE_DB_PATH` を使用。未設定時は `data/clips.sqlite` を使い、ローカル状態として Git 管理外。
 - Clip全期間バックフィルは通常起動時は完了済み期間をスキップする。配信していない時間に1日1回だけ全期間を再走査し、Twitch APIから返らなくなったClipは `clip_cache.unavailable_at` を設定して `!clip` / `!myclip` / 配信まとめ候補から除外する。再走査の最終時刻は `clip_sync_state.daily_reconcile_at` に保存する。
 - 配信まとめ状態は任意で `STREAM_SUMMARY_STATE_PATH` を使用。未設定時は `data/stream-summary-state.json` を使い、ローカル状態として Git 管理外。
@@ -105,6 +107,15 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-07 作業ログ
+- 要望: Shoutoutの紹介文をサブPC上のOllamaで生成したい
+- 調査: Ollama公式APIは `POST /api/generate` に `model`、`prompt`、`stream:false` を送る非ストリーミング生成で利用可能。BotはNode.js 22.5+のため追加依存なしで `fetch` / `AbortSignal.timeout` を使える
+- サブPC確認: `192.168.0.99` のPM2で `ollama` が online、Ollama API `http://127.0.0.1:11434/api/tags` が応答し、利用可能モデルとして `qwen2.5:7b` を確認
+- 方針: 既存のRaid情報メッセージとTwitch shoutout APIは維持し、`OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` がある場合だけRaid元ユーザー名/ゲーム/タイトル/Raid人数をもとに短い紹介文を追加送信する。Ollama失敗時は紹介文だけスキップする
+- TDD: `tests/commands/shoutout-introduction.test.ts` を追加し、無効時はOllamaを呼ばないこと、`/api/generate` へ `stream:false` で送ること、HTTP失敗時はnullにすること、紹介文を単一行・500文字以内へ整形することを先に定義して未実装失敗を確認
+- 実装: `src/commands/shoutout-introduction.ts` を追加。`src/config.ts` に `OLLAMA_SHOUTOUT_ENABLED` / `OLLAMA_BASE_URL` / `OLLAMA_SHOUTOUT_MODEL` / `OLLAMA_SHOUTOUT_TIMEOUT_MS` / `OLLAMA_SHOUTOUT_KEEP_ALIVE` を追加。`src/bot.ts` のRaid処理で既存shoutoutキュー投入後にOllama紹介文をバックグラウンド生成・送信するよう接続
+- 安全策: Ollamaが英語/中国語など日本語かなを含まない返答をした場合は紹介文を送らない。モデルが本文先頭にユーザー名を含めた場合は、チャット側で付ける `@ユーザー さん紹介D！` と重複しないよう先頭ユーザー名だけ除去する
+- ドキュメント: README、`docs/index.html`、AGENTSにOllama紹介文の設定、失敗時フォールバック、ファイル構成を追記
+- 検証: `npm test -- --run tests/commands/shoutout-introduction.test.ts` 6件、`npm test` 143件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認が通過。サブPC上のNode fetchからOllama `qwen2.5:7b` へUTF-8で実リクエストし、日本語紹介文応答を確認
 - 不具合報告: 配信開始通知がDiscordへ2通流れている
 - 原因: 通常の配信開始通知を投稿した直後にスレッド作成が失敗すると、同じ開始処理内のスレッド補完が保存済み `startMessageId` からの再スレッド化に失敗し、新しい開始通知を投稿し直す経路に入っていた
 - TDD: `tests/streams/stream-summary.test.ts` に、再投稿禁止時は保存済み `startMessageId` からスレッド作成できなくても置き換え開始通知を投稿しないテストを追加し、未実装失敗を確認
