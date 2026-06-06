@@ -104,6 +104,22 @@
         font-size: 0.88rem;
       }
 
+      .navlinks {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .navlinks a {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        color: var(--accent);
+        padding: 8px 10px;
+        text-decoration: none;
+      }
+
       main {
         padding: 10px 0 60px;
       }
@@ -285,6 +301,9 @@
           <span class="tag">Source: TypeScript</span>
           <span class="tag">State: data/stream-summary-state.json</span>
         </div>
+        <nav class="navlinks" aria-label="関連設計書">
+          <a href="./python-bot-spec.html">Python版 Twitch Bot システム仕様書</a>
+        </nav>
       </div>
     </header>
 

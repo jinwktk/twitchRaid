@@ -1,0 +1,727 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Python版 Twitch Bot システム仕様書</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f7fb;
+        --panel: #ffffff;
+        --ink: #17202a;
+        --muted: #5f6b7a;
+        --line: #d8e0ea;
+        --blue: #1d4ed8;
+        --green: #0f766e;
+        --amber: #92400e;
+        --red: #b42318;
+        --code: #111827;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family:
+          "Segoe UI",
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
+        line-height: 1.65;
+      }
+
+      header,
+      footer {
+        background: #fff;
+        border-color: var(--line);
+      }
+
+      header {
+        border-bottom: 1px solid var(--line);
+      }
+
+      footer {
+        border-top: 1px solid var(--line);
+        padding: 24px 0;
+        color: var(--muted);
+      }
+
+      .wrap {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+      }
+
+      .hero {
+        padding: 42px 0 30px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        line-height: 1.25;
+      }
+
+      h1 {
+        font-size: clamp(2rem, 5vw, 3.4rem);
+      }
+
+      h2 {
+        margin-top: 44px;
+        font-size: 1.55rem;
+      }
+
+      h3 {
+        font-size: 1.08rem;
+      }
+
+      p {
+        margin: 10px 0 0;
+      }
+
+      a {
+        color: var(--blue);
+      }
+
+      code {
+        border-radius: 4px;
+        background: #edf2f7;
+        color: var(--code);
+        padding: 0.1rem 0.35rem;
+        font-family: Consolas, "Cascadia Mono", monospace;
+        font-size: 0.92em;
+      }
+
+      main {
+        padding: 10px 0 62px;
+      }
+
+      .lead {
+        max-width: 880px;
+        color: var(--muted);
+        font-size: 1.05rem;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
+      .tag {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #fff;
+        padding: 4px 10px;
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+        margin-top: 18px;
+      }
+
+      .grid.two {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 16px;
+      }
+
+      .card strong {
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      .card p,
+      .card li,
+      td {
+        color: var(--muted);
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 18px;
+        border: 1px solid var(--line);
+        background: #fff;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid var(--line);
+        padding: 10px 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: #eef2f7;
+        color: var(--ink);
+      }
+
+      ul,
+      ol {
+        margin: 10px 0 0;
+        padding-left: 1.25rem;
+      }
+
+      .diagram {
+        margin-top: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        overflow-x: auto;
+        padding: 14px;
+      }
+
+      svg {
+        display: block;
+        width: 100%;
+        min-width: 900px;
+        height: auto;
+      }
+
+      .note {
+        border-left: 4px solid var(--green);
+        background: #ecfdf5;
+        padding: 12px 14px;
+        margin-top: 18px;
+      }
+
+      .warn {
+        border-left-color: var(--amber);
+        background: #fff7ed;
+      }
+
+      .danger {
+        border-left-color: var(--red);
+        background: #fef2f2;
+      }
+
+      .toc {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 20px;
+      }
+
+      .toc a {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        padding: 8px 10px;
+        text-decoration: none;
+      }
+
+      @media (max-width: 900px) {
+        .grid,
+        .grid.two {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap hero">
+        <h1>Python版 Twitch Bot システム仕様書</h1>
+        <p class="lead">
+          <code>main.py</code> を中心としたPython版 Twitch Bot の機能設計書。
+          Twitchチャットコマンド、配信監視、Discord通知、Clip取得、Raid shoutout、
+          トークン更新、Git自動更新、再起動監視を対象に整理する。
+        </p>
+        <div class="meta">
+          <span class="tag">対象言語: Python</span>
+          <span class="tag">対象システム: Twitch Bot</span>
+          <span class="tag">中心ファイル: main.py</span>
+          <span class="tag">更新日: 2026-06-06</span>
+        </div>
+        <nav class="toc" aria-label="目次">
+          <a href="#overview">1. プログラム概要</a>
+          <a href="#features">2. 機能一覧</a>
+          <a href="#sequence">3. 処理フロー</a>
+          <a href="#notes">4. 特記事項</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section id="overview">
+        <h2>1. プログラム概要</h2>
+        <div class="grid">
+          <article class="card">
+            <strong>プログラムの目的</strong>
+            <p>
+              Twitchチャンネル <code>rukalun</code> のチャットを監視し、視聴者向けコマンド応答、
+              配信開始通知、コメント統計、クリップ紹介、Raid時のshoutoutを自動化する。
+            </p>
+          </article>
+          <article class="card">
+            <strong>主な処理内容</strong>
+            <p>
+              TwitchIOでチャットへ接続し、twitchAPIでHelix APIを呼び出す。
+              Discord Webhook通知、DLsiteランキング取得、OAuthトークン更新、Git更新検知、プロセス再起動も同一プロセス内で扱う。
+            </p>
+          </article>
+          <article class="card">
+            <strong>実行単位</strong>
+            <p>
+              <code>asyncio.run(main())</code> で起動し、Twitch Botの非同期処理と、
+              Git更新/定期再起動用のデーモンスレッドを並行稼働させる。
+            </p>
+          </article>
+        </div>
+
+        <div class="diagram" aria-label="システム全体構成図">
+          <svg viewBox="0 0 1120 520" role="img">
+            <defs>
+              <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L9,3 z" fill="#5f6b7a" />
+              </marker>
+              <style>
+                .box { fill: #fff; stroke: #cbd5e1; stroke-width: 2; rx: 8; }
+                .main { fill: #eff6ff; stroke: #1d4ed8; }
+                .store { fill: #f0fdf4; stroke: #0f766e; }
+                .external { fill: #fff7ed; stroke: #92400e; }
+                .text { font: 15px "Segoe UI", sans-serif; fill: #17202a; }
+                .small { font: 12px "Segoe UI", sans-serif; fill: #5f6b7a; }
+                .line { stroke: #5f6b7a; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+              </style>
+            </defs>
+
+            <rect class="box main" x="420" y="40" width="280" height="90" />
+            <text class="text" x="560" y="75" text-anchor="middle">Python TwitchRaid Bot</text>
+            <text class="small" x="560" y="100" text-anchor="middle">main.py / Bot(commands.Bot)</text>
+
+            <rect class="box external" x="60" y="52" width="230" height="76" />
+            <text class="text" x="175" y="82" text-anchor="middle">Twitch IRC</text>
+            <text class="small" x="175" y="104" text-anchor="middle">チャット・USERNOTICE</text>
+
+            <rect class="box external" x="830" y="52" width="230" height="76" />
+            <text class="text" x="945" y="82" text-anchor="middle">Twitch Helix API</text>
+            <text class="small" x="945" y="104" text-anchor="middle">配信/Clip/Shoutout/削除</text>
+
+            <rect class="box external" x="60" y="210" width="230" height="76" />
+            <text class="text" x="175" y="240" text-anchor="middle">Discord Webhook</text>
+            <text class="small" x="175" y="262" text-anchor="middle">配信開始通知</text>
+
+            <rect class="box external" x="830" y="210" width="230" height="76" />
+            <text class="text" x="945" y="240" text-anchor="middle">DLsite</text>
+            <text class="small" x="945" y="262" text-anchor="middle">がるまに日間ランキング</text>
+
+            <rect class="box store" x="60" y="365" width="230" height="78" />
+            <text class="text" x="175" y="395" text-anchor="middle">.env / .env.bak</text>
+            <text class="small" x="175" y="417" text-anchor="middle">認証・状態・クールダウン</text>
+
+            <rect class="box store" x="445" y="365" width="230" height="78" />
+            <text class="text" x="560" y="395" text-anchor="middle">logs/bot_YYYY-MM-DD.log</text>
+            <text class="small" x="560" y="417" text-anchor="middle">RotatingFileHandler</text>
+
+            <rect class="box external" x="830" y="365" width="230" height="78" />
+            <text class="text" x="945" y="395" text-anchor="middle">GitHub / Git</text>
+            <text class="small" x="945" y="417" text-anchor="middle">fetch / pull / restart</text>
+
+            <path class="line" d="M290 90 C340 90 370 85 420 85" />
+            <path class="line" d="M700 85 C750 85 780 90 830 90" />
+            <path class="line" d="M420 110 C330 145 280 190 290 232" />
+            <path class="line" d="M700 110 C785 145 820 190 830 232" />
+            <path class="line" d="M500 130 C380 210 260 315 230 365" />
+            <path class="line" d="M560 130 L560 365" />
+            <path class="line" d="M700 110 C790 190 920 290 945 365" />
+          </svg>
+        </div>
+      </section>
+
+      <section id="features">
+        <h2>2. 機能一覧</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>機能名</th>
+              <th>詳細</th>
+              <th>入力データ</th>
+              <th>出力データ</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>設定管理</td>
+              <td><code>Config</code> が `.env` を読み込み、Twitch/Discord認証情報、コマンド状態、再起動間隔、クールダウンを保持する。</td>
+              <td><code>.env</code>、環境変数、更新メソッド引数</td>
+              <td>メモリ上の設定値、更新後の <code>.env</code> / <code>.env.bak</code></td>
+            </tr>
+            <tr>
+              <td>Bot起動・初期化</td>
+              <td><code>main()</code> がトークン検証後に <code>Bot</code> を生成し、TwitchIOチャット接続とHelix認証を初期化する。</td>
+              <td><code>TWITCH_ACCESS_TOKEN</code>、<code>TWITCH_REFRESH_TOKEN</code>、OAuthスコープ</td>
+              <td>Twitchチャット接続、起動ログ</td>
+            </tr>
+            <tr>
+              <td>配信状態監視</td>
+              <td>180秒ごとに <code>get_streams</code> を呼び、配信開始/終了を検知する。開始時はコメント計測開始とDiscord通知を行う。</td>
+              <td>Twitch Helix streams API、チャンネルログイン名</td>
+              <td>Discord通知、コメント状態更新、ログ</td>
+            </tr>
+            <tr>
+              <td>Discord配信通知</td>
+              <td><code>StreamTitleNotifier</code> が前回タイトルと比較し、新規タイトルならWebhookへ「タイトル + 配信URL」を送信する。</td>
+              <td>配信タイトル、<code>LAST_STREAM_TITLE</code>、<code>DISCORD_WEBHOOK_URL</code></td>
+              <td>Discord Webhook投稿、<code>LAST_STREAM_TITLE</code> 更新</td>
+            </tr>
+            <tr>
+              <td>チャットメッセージ処理</td>
+              <td><code>event_message</code> が受信メッセージをログ化し、コマンド以外ならコメント風速/累計件数に記録する。</td>
+              <td>Twitch IRCメッセージ、送信者、本文</td>
+              <td>コマンド実行、コメント件数保存、ログ</td>
+            </tr>
+            <tr>
+              <td>基本チャットコマンド</td>
+              <td><code>!age</code>、<code>!goods</code>、<code>!weight</code>、<code>!height</code>、<code>!mood</code>、<code>!menu</code> を提供する。</td>
+              <td>Twitchチャットコマンド、乱数、日付</td>
+              <td>Twitchチャット返信</td>
+            </tr>
+            <tr>
+              <td>漫画おすすめ</td>
+              <td><code>!manga</code> がDLsiteがるまに日間ランキングHTMLから作品名を抽出しランダム返却する。返信は5秒後削除を試みる。</td>
+              <td>DLsite HTML、<code>MANGA_COMMAND_ENABLED</code></td>
+              <td>漫画タイトル返信、削除APIまたは <code>/delete</code> フォールバック</td>
+            </tr>
+            <tr>
+              <td>漫画コマンド管理</td>
+              <td><code>!mangaon</code> / <code>!mangaoff</code> で漫画コマンドのON/OFFを切り替える。実行者はbroadcaster/mod/管理者リストに限定。</td>
+              <td>実行者名、mod/broadcasterフラグ、<code>MANGA_ADMIN_USERS</code></td>
+              <td><code>MANGA_COMMAND_ENABLED</code> 更新、チャット返信</td>
+            </tr>
+            <tr>
+              <td>コメント統計</td>
+              <td><code>CommentSpeedMeter</code> が直近60秒の風速と配信開始からの累計コメント数を計測する。</td>
+              <td>通常チャットメッセージ、現在時刻、<code>COMMENT_TOTAL_COUNT</code>、<code>STREAM_STARTED_AT</code></td>
+              <td><code>!speed</code> / <code>!commentcount</code> の返信、`.env` 状態保存</td>
+            </tr>
+            <tr>
+              <td>Clip紹介</td>
+              <td><code>!clip</code> が配信者の直近Clip最大100件からランダム選択する。</td>
+              <td>Twitch clips API、<code>TWITCH_BROADCASTER_ID</code></td>
+              <td>Clip URL返信</td>
+            </tr>
+            <tr>
+              <td>自分のClip紹介</td>
+              <td><code>!myclip</code> がコマンド実行者のIDまたは名前でClip作成者を絞り込む。</td>
+              <td>実行者ID/名前、Twitch clips API</td>
+              <td>実行者作成Clip URL、または未発見メッセージ</td>
+            </tr>
+            <tr>
+              <td>Clipクールダウン</td>
+              <td>一般ユーザーは <code>!clip</code> / <code>!myclip</code> を個別に30分制限する。特別ユーザーは制限なし。</td>
+              <td><code>CLIP_SPECIAL_USERS</code>、<code>LAST_CLIP_TIME</code>、<code>LAST_MYCLIP_TIME</code></td>
+              <td>待ち時間メッセージ、クールダウン保存、リキャスト復帰通知</td>
+            </tr>
+            <tr>
+              <td>Raid shoutout</td>
+              <td><code>event_raw_usernotice</code> がRaid通知を検知し、Twitch Helix shoutout APIを呼ぶ。</td>
+              <td>USERNOTICE tags、raider user-id</td>
+              <td>Shoutout API実行、失敗時ログ/トークン更新リトライ</td>
+            </tr>
+            <tr>
+              <td>トークン検証・更新</td>
+              <td><code>validate_access_token</code> と <code>refresh_access_token_advanced</code> がOAuthトークンを検証し、必要に応じて更新する。</td>
+              <td>Twitch OAuth validate/token API、<code>TWITCH_CLIENT_ID</code>、secret、refresh token</td>
+              <td>新しいaccess/refresh token、スコープログ、`.env` 更新</td>
+            </tr>
+            <tr>
+              <td>WebSocket再接続</td>
+              <td><code>event_error</code> と <code>keep_alive</code> が接続異常を検知し、遅延再接続またはプロセス再起動を行う。</td>
+              <td>WebSocketエラー、最終アクティビティ時刻、接続状態</td>
+              <td>再接続タスク、プロセス再起動、ログ</td>
+            </tr>
+            <tr>
+              <td>Git更新監視</td>
+              <td><code>SystemWatcher.update_watcher</code> が10分ごとに <code>git fetch</code> / 差分確認 / <code>git pull</code> を実行する。</td>
+              <td>Gitリモート、現在ブランチ、更新間隔</td>
+              <td>更新時の再起動保留または再起動</td>
+            </tr>
+            <tr>
+              <td>定期再起動</td>
+              <td><code>restart_watcher</code> が5分ごとに最終再起動時刻を見て、24時間経過または保留更新があれば再起動する。</td>
+              <td><code>last_restart.txt</code>、現在時刻、保留フラグ</td>
+              <td><code>os.execv</code> 優先のプロセス再起動</td>
+            </tr>
+            <tr>
+              <td>ログ管理</td>
+              <td>日次ログファイルへINFO以上を出力し、10MB/10世代のローテーションを行う。</td>
+              <td>各処理のログイベント</td>
+              <td><code>logs/bot_YYYY-MM-DD.log</code>、標準出力</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="sequence">
+        <h2>3. 処理フロー（シーケンス）</h2>
+
+        <h3>3.1 起動シーケンス</h3>
+        <ol>
+          <li><code>Config</code> が `.env` を読み込み、Twitch/Discord/状態管理設定を構築する。</li>
+          <li><code>GitManager.pull_and_restart_if_updated()</code> が起動直後にGit更新を確認する。</li>
+          <li>GitHub更新監視スレッドと定期再起動監視スレッドをdaemonとして起動する。</li>
+          <li><code>get_valid_access_token()</code> がTwitch access tokenを検証し、無効ならrefreshを試みる。</li>
+          <li><code>Bot</code> を生成し、<code>initialize()</code> でHelix APIのユーザー認証を設定する。</li>
+          <li><code>bot.start()</code> でTwitch IRCへ接続し、<code>event_ready</code> で配信監視とkeep-aliveタスクを開始する。</li>
+        </ol>
+
+        <div class="diagram" aria-label="起動シーケンス図">
+          <svg viewBox="0 0 1120 360" role="img">
+            <defs>
+              <marker id="arrow2" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L9,3 z" fill="#5f6b7a" />
+              </marker>
+              <style>
+                .lane { fill: #fff; stroke: #cbd5e1; stroke-width: 2; rx: 8; }
+                .step { fill: #eff6ff; stroke: #1d4ed8; stroke-width: 2; rx: 8; }
+                .text { font: 14px "Segoe UI", sans-serif; fill: #17202a; }
+                .small { font: 12px "Segoe UI", sans-serif; fill: #5f6b7a; }
+                .line { stroke: #5f6b7a; stroke-width: 2; fill: none; marker-end: url(#arrow2); }
+              </style>
+            </defs>
+            <rect class="step" x="35" y="90" width="150" height="78" />
+            <text class="text" x="110" y="122" text-anchor="middle">.env読込</text>
+            <text class="small" x="110" y="145" text-anchor="middle">Config</text>
+            <rect class="step" x="230" y="90" width="150" height="78" />
+            <text class="text" x="305" y="122" text-anchor="middle">Git更新確認</text>
+            <text class="small" x="305" y="145" text-anchor="middle">pull/restart</text>
+            <rect class="step" x="425" y="90" width="150" height="78" />
+            <text class="text" x="500" y="122" text-anchor="middle">監視スレッド</text>
+            <text class="small" x="500" y="145" text-anchor="middle">update/restart</text>
+            <rect class="step" x="620" y="90" width="150" height="78" />
+            <text class="text" x="695" y="122" text-anchor="middle">Token検証</text>
+            <text class="small" x="695" y="145" text-anchor="middle">validate/refresh</text>
+            <rect class="step" x="815" y="90" width="150" height="78" />
+            <text class="text" x="890" y="122" text-anchor="middle">Bot初期化</text>
+            <text class="small" x="890" y="145" text-anchor="middle">Twitch auth</text>
+            <rect class="step" x="620" y="230" width="345" height="78" />
+            <text class="text" x="792" y="262" text-anchor="middle">Twitch IRC接続・event_ready</text>
+            <text class="small" x="792" y="285" text-anchor="middle">配信監視 / keep_alive / recast復元</text>
+            <path class="line" d="M185 129 L230 129" />
+            <path class="line" d="M380 129 L425 129" />
+            <path class="line" d="M575 129 L620 129" />
+            <path class="line" d="M770 129 L815 129" />
+            <path class="line" d="M890 168 C890 208 845 230 790 230" />
+          </svg>
+        </div>
+
+        <h3>3.2 チャットコマンド処理</h3>
+        <ol>
+          <li>Twitch IRCから <code>event_message</code> が呼ばれる。</li>
+          <li>Bot自身のechoメッセージなら、削除予約対象か確認して終了する。</li>
+          <li>空メッセージは無視する。</li>
+          <li>プレフィックス <code>!</code> で始まる場合はコマンドとして扱う。</li>
+          <li>コマンドでない場合はコメント風速・総コメント数へ記録し、`.env` に保存する。</li>
+          <li><code>handle_commands</code> に渡し、該当する <code>@commands.command</code> メソッドを実行する。</li>
+          <li>各コマンドは必要に応じてトークン検証、外部API呼び出し、クールダウン更新、チャット返信を行う。</li>
+        </ol>
+
+        <h3>3.3 配信監視・Discord通知</h3>
+        <ol>
+          <li><code>monitor_stream_status</code> が180秒ごとに <code>get_streams</code> を呼ぶ。</li>
+          <li>配信中かつ前回状態がオフラインなら配信開始として扱う。</li>
+          <li>コメント計測状態を初期化し、<code>StreamTitleNotifier.notify_if_needed</code> を呼ぶ。</li>
+          <li>直前タイトルと異なる場合だけDiscord Webhookへ通知する。</li>
+          <li>配信が見つからず前回状態がライブなら配信終了として扱い、コメント計測をリセットする。</li>
+          <li>認証エラーが連続した場合はトークン更新を試みる。</li>
+        </ol>
+
+        <h3>3.4 Clipコマンド処理</h3>
+        <ol>
+          <li><code>!clip</code> または <code>!myclip</code> が呼ばれる。</li>
+          <li>実行者が <code>CLIP_SPECIAL_USERS</code> でなければ30分クールダウンを確認する。</li>
+          <li>クールダウン中なら残り時間を返信し、リキャスト復帰通知を予約する。</li>
+          <li>実行可能ならTwitch clips APIから最大100件のClipを取得する。</li>
+          <li><code>!myclip</code> は実行者ID/名前で作成者フィルタを適用する。</li>
+          <li>候補からランダムに1件選択しURLを返信する。</li>
+          <li>一般ユーザーの場合は最終実行時刻を `.env` に保存し、復帰通知を予約する。</li>
+        </ol>
+
+        <h3>3.5 自動復旧・再起動</h3>
+        <ol>
+          <li><code>keep_alive</code> が45秒ごとにWebSocket状態と最終アクティビティを確認する。</li>
+          <li>異常を検知した場合、重複しないよう <code>delayed_reconnect</code> を起動する。</li>
+          <li>再接続試行が上限に達した場合は <code>GitManager.restart_process</code> でプロセスを再起動する。</li>
+          <li>2時間ごとに高度なトークンリフレッシュを実行し、Helix認証を再設定する。</li>
+          <li>Git更新監視スレッドはリモート差分を検出し、pull後に再起動判定へ進む。</li>
+          <li>定期再起動監視スレッドは24時間経過または保留更新を見てプロセス再起動する。</li>
+        </ol>
+
+        <div class="diagram" aria-label="主要処理フロー図">
+          <svg viewBox="0 0 1120 460" role="img">
+            <defs>
+              <marker id="arrow3" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L9,3 z" fill="#5f6b7a" />
+              </marker>
+              <style>
+                .box { fill: #fff; stroke: #cbd5e1; stroke-width: 2; rx: 8; }
+                .blue { fill: #eff6ff; stroke: #1d4ed8; }
+                .green { fill: #ecfdf5; stroke: #0f766e; }
+                .orange { fill: #fff7ed; stroke: #92400e; }
+                .text { font: 14px "Segoe UI", sans-serif; fill: #17202a; }
+                .small { font: 12px "Segoe UI", sans-serif; fill: #5f6b7a; }
+                .line { stroke: #5f6b7a; stroke-width: 2; fill: none; marker-end: url(#arrow3); }
+              </style>
+            </defs>
+
+            <rect class="box blue" x="40" y="55" width="180" height="70" />
+            <text class="text" x="130" y="84" text-anchor="middle">event_message</text>
+            <text class="small" x="130" y="106" text-anchor="middle">Twitch IRC受信</text>
+
+            <rect class="box" x="285" y="55" width="180" height="70" />
+            <text class="text" x="375" y="84" text-anchor="middle">コマンド判定</text>
+            <text class="small" x="375" y="106" text-anchor="middle">prefix="!"</text>
+
+            <rect class="box green" x="530" y="25" width="210" height="70" />
+            <text class="text" x="635" y="54" text-anchor="middle">通常コメント</text>
+            <text class="small" x="635" y="76" text-anchor="middle">風速/累計件数を保存</text>
+
+            <rect class="box orange" x="530" y="130" width="210" height="70" />
+            <text class="text" x="635" y="159" text-anchor="middle">チャットコマンド</text>
+            <text class="small" x="635" y="181" text-anchor="middle">age/clip/manga等</text>
+
+            <rect class="box" x="810" y="130" width="240" height="70" />
+            <text class="text" x="930" y="159" text-anchor="middle">Twitchチャット返信</text>
+            <text class="small" x="930" y="181" text-anchor="middle">ctx.send / API送信</text>
+
+            <rect class="box blue" x="40" y="275" width="180" height="70" />
+            <text class="text" x="130" y="304" text-anchor="middle">monitor_stream_status</text>
+            <text class="small" x="130" y="326" text-anchor="middle">180秒ごと</text>
+
+            <rect class="box" x="285" y="275" width="180" height="70" />
+            <text class="text" x="375" y="304" text-anchor="middle">配信開始/終了</text>
+            <text class="small" x="375" y="326" text-anchor="middle">get_streams</text>
+
+            <rect class="box green" x="530" y="250" width="210" height="70" />
+            <text class="text" x="635" y="279" text-anchor="middle">開始通知</text>
+            <text class="small" x="635" y="301" text-anchor="middle">Discord Webhook</text>
+
+            <rect class="box orange" x="530" y="355" width="210" height="70" />
+            <text class="text" x="635" y="384" text-anchor="middle">終了処理</text>
+            <text class="small" x="635" y="406" text-anchor="middle">コメント状態リセット</text>
+
+            <path class="line" d="M220 90 L285 90" />
+            <path class="line" d="M465 88 C500 80 505 64 530 60" />
+            <path class="line" d="M465 100 C500 115 505 155 530 165" />
+            <path class="line" d="M740 165 L810 165" />
+            <path class="line" d="M220 310 L285 310" />
+            <path class="line" d="M465 300 C500 290 505 284 530 285" />
+            <path class="line" d="M465 325 C500 345 505 383 530 390" />
+          </svg>
+        </div>
+      </section>
+
+      <section id="notes">
+        <h2>4. 特記事項</h2>
+        <div class="grid two">
+          <article class="card">
+            <h3>外部API・ライブラリ依存</h3>
+            <ul>
+              <li><code>twitchio==2.9.0</code>: Twitch IRC接続、コマンド処理。</li>
+              <li><code>twitchAPI==4.2.1</code>: Helix API、OAuth、Shoutout、Clip、チャット削除。</li>
+              <li><code>discord-webhook</code>: Discord Webhook通知。</li>
+              <li><code>requests</code>: Twitch OAuth token API、DLsiteランキング取得。</li>
+              <li><code>python-dotenv</code>: `.env` 読み込み。</li>
+              <li><code>aiofiles</code>: 依存関係として定義。現行コードでは主要処理に未使用。</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>永続化ファイル</h3>
+            <ul>
+              <li><code>.env</code>: 認証情報、コマンド状態、コメント状態、クールダウン時刻。</li>
+              <li><code>.env.bak</code>: `.env` 更新前バックアップ。</li>
+              <li><code>.env.tmp</code>: atomic更新用一時ファイル。</li>
+              <li><code>last_restart.txt</code>: 最終再起動時刻。</li>
+              <li><code>logs/bot_YYYY-MM-DD.log</code>: 実行ログ。</li>
+            </ul>
+          </article>
+        </div>
+
+        <h3>エラーハンドリング</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>発生箇所</th>
+              <th>検知条件</th>
+              <th>対応</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>トークン検証</td>
+              <td>validate APIが401、またはlogin欠落</td>
+              <td>高度リフレッシュを試行し、必要に応じてフォールバック再認可。</td>
+            </tr>
+            <tr>
+              <td>配信監視</td>
+              <td><code>TwitchAuthorizationException</code> が連続発生</td>
+              <td>最大5回でトークン更新し、Helix認証を再設定。</td>
+            </tr>
+            <tr>
+              <td>Discord通知</td>
+              <td>Webhook URL未設定、送信例外</td>
+              <td>警告/エラーログを出力し、Bot自体は継続。</td>
+            </tr>
+            <tr>
+              <td>manga取得</td>
+              <td>HTTPエラー、HTMLから作品名を抽出できない</td>
+              <td>エラーログを出し、再試行案内メッセージを返信。</td>
+            </tr>
+            <tr>
+              <td>manga返信削除</td>
+              <td>send_chat_message失敗、message_id未取得、delete API失敗</td>
+              <td><code>ctx.send</code> と <code>/delete</code> コマンドへフォールバック。</td>
+            </tr>
+            <tr>
+              <td>WebSocket</td>
+              <td>接続断、5分間無活動、接続オブジェクト異常</td>
+              <td>遅延再接続を起動し、上限到達時はプロセス再起動。</td>
+            </tr>
+            <tr>
+              <td>Git更新</td>
+              <td>fetch/pull/rev-list失敗</td>
+              <td>エラーログを出し、監視スレッドは5分後に再試行。</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="note warn">
+          <strong>セキュリティ上の注意:</strong>
+          <code>.env</code> にはTwitch/Discordの認証情報が含まれるためGit管理しない。
+          トークン更新時は <code>update_env_file</code> がバックアップを作成し、空ファイル化時はバックアップから復旧する。
+        </div>
+        <div class="note danger">
+          <strong>運用上の注意:</strong>
+          Python版はリポジトリに残る後方互換実装であり、現在のTypeScript版とは機能差がある。
+          Python版のClip取得は最大100件のAPI取得で、TypeScript版のSQLiteキャッシュ/配信まとめスレッド機能とは別設計。
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        Python版 Twitch Bot システム仕様書。関連資料:
+        <a href="./index.html">配信通知・クリップ投稿設計</a>
+      </div>
+    </footer>
+  </body>
+</html>
