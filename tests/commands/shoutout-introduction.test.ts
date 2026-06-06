@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  formatShoutoutIntroductionMessage,
-  generateShoutoutIntroduction,
+  buildRaidGreetingMessage,
+  formatGeneratedRaidGreetingMessage,
+  generateRaidGreetingMessage,
 } from "../../src/commands/shoutout-introduction";
 import type { RaidSourceInfo } from "../../src/commands/raid-info";
 
@@ -12,12 +13,12 @@ const raidInfo: RaidSourceInfo = {
   gameName: "Minecraft",
 };
 
-describe("generateShoutoutIntroduction", () => {
-  it("skips Ollama when the feature is disabled", async () => {
+describe("buildRaidGreetingMessage", () => {
+  it("uses the static raid greeting when Ollama is disabled", async () => {
     const fetchImpl = vi.fn();
 
     await expect(
-      generateShoutoutIntroduction({
+      buildRaidGreetingMessage({
         info: raidInfo,
         viewerCount: 12,
         enabled: false,
@@ -27,20 +28,25 @@ describe("generateShoutoutIntroduction", () => {
         keepAlive: "5m",
         fetchImpl,
       })
-    ).resolves.toBeNull();
+    ).resolves.toBe(
+      "レイドありがとうD！！ @raiduser さんは、「Minecraft」で「たのしい建築配信」をしてたD！お疲れ様D！チャンネルはこD→https://www.twitch.tv/raiduser"
+    );
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+});
 
-  it("requests a short Japanese intro from Ollama", async () => {
+describe("generateRaidGreetingMessage", () => {
+  it("requests a single Japanese raid greeting from Ollama", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        response: "のんびり建築を楽しむ、初見さんにもやさしい配信者さんD！",
+        response:
+          "レイドありがとうD！！ @raiduser さんは、Minecraftでたのしい建築配信をしてたD！チャンネルはこD→https://www.twitch.tv/raiduser",
         done: true,
       }),
     });
 
-    const intro = await generateShoutoutIntroduction({
+    const message = await generateRaidGreetingMessage({
       info: raidInfo,
       viewerCount: 12,
       enabled: true,
@@ -72,7 +78,11 @@ describe("generateShoutoutIntroduction", () => {
     expect(body.prompt).toContain("RaidUser");
     expect(body.prompt).toContain("Minecraft");
     expect(body.prompt).toContain("たのしい建築配信");
-    expect(intro).toBe("のんびり建築を楽しむ、初見さんにもやさしい配信者さんD！");
+    expect(body.prompt).toContain("https://www.twitch.tv/raiduser");
+    expect(body.prompt).toContain("1通のRaid挨拶文");
+    expect(message).toBe(
+      "レイドありがとうD！！ @raiduser さんは、Minecraftでたのしい建築配信をしてたD！チャンネルはこD→https://www.twitch.tv/raiduser"
+    );
   });
 
   it("returns null when Ollama rejects the request", async () => {
@@ -83,7 +93,7 @@ describe("generateShoutoutIntroduction", () => {
     });
 
     await expect(
-      generateShoutoutIntroduction({
+      generateRaidGreetingMessage({
         info: raidInfo,
         viewerCount: 12,
         enabled: true,
@@ -100,13 +110,14 @@ describe("generateShoutoutIntroduction", () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        response: "A friendly Minecraft streamer who enjoys building.",
+        response:
+          "A friendly Minecraft streamer raided in with 12 viewers. https://www.twitch.tv/raiduser",
         done: true,
       }),
     });
 
     await expect(
-      generateShoutoutIntroduction({
+      generateRaidGreetingMessage({
         info: raidInfo,
         viewerCount: 12,
         enabled: true,
@@ -120,25 +131,28 @@ describe("generateShoutoutIntroduction", () => {
   });
 });
 
-describe("formatShoutoutIntroductionMessage", () => {
-  it("keeps the generated intro single-line and under the Twitch chat limit", () => {
-    const message = formatShoutoutIntroductionMessage(
+describe("formatGeneratedRaidGreetingMessage", () => {
+  it("keeps the generated greeting single-line and under the Twitch chat limit", () => {
+    const message = formatGeneratedRaidGreetingMessage(
       raidInfo,
-      ` "すごく${"楽しい".repeat(120)}\n配信者さんD！" `
+      ` "レイドありがとうD！！ @raiduser さん、すごく${"楽しい".repeat(250)}\n配信お疲れ様D！チャンネルはこD→https://www.twitch.tv/raiduser" `
     );
 
     expect(message).not.toContain("\n");
-    expect(message).toContain("@raiduser さん紹介D！");
-    expect(message.length).toBeLessThanOrEqual(500);
+    expect(message).toContain("@raiduser");
+    expect(message).toContain("https://www.twitch.tv/raiduser");
+    expect(message?.length).toBeLessThanOrEqual(500);
     expect(message.endsWith("...")).toBe(true);
   });
 
-  it("removes a duplicated leading user name from the generated intro", () => {
+  it("adds the user mention and channel URL when the model omits them", () => {
     expect(
-      formatShoutoutIntroductionMessage(
+      formatGeneratedRaidGreetingMessage(
         raidInfo,
-        "raiduserのMinecraft建築配信に12人が参加！楽しむぞD！"
+        "レイドありがとうD！！ Minecraftの建築配信お疲れ様D！"
       )
-    ).toBe("@raiduser さん紹介D！Minecraft建築配信に12人が参加！楽しむぞD！");
+    ).toBe(
+      "レイドありがとうD！！ @raiduser さん、Minecraftの建築配信お疲れ様D！ チャンネルはこD→https://www.twitch.tv/raiduser"
+    );
   });
 });
