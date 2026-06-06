@@ -16,16 +16,17 @@ npm run pm2:stop    # 停止
 npm run pm2:restart # 再起動
 npm run pm2:logs    # ログ確認
 ```
+- PM2プロセス名は本番運用に合わせて `twitchRaid` に統一しています
 
 ### ログ確認運用
 - BotはサブPCで動かす運用のため、問題確認時はローカル作業PCのログだけでなく、必ずサブPC側のPM2ログと `logs/bot_YYYY-MM-DD.log` を確認する
 - SQLiteキャッシュ系の調査では、サブPC側の `data/clips.sqlite` の作成状況と更新時刻も確認する
 
 ### 技術設計書
-- 配信通知、配信まとめスレッド、クリップ投稿、配信終了まとめの設計は `docs/index.html` にHTML設計書としてまとめています
-- 現行TypeScript版 Twitch Bot のシステム仕様書/機能設計書は `docs/typescript-bot-spec.html` にまとめています
+- 現行TypeScript版 Twitch Bot のシステム仕様書/機能設計書は `docs/index.html` に統合しています
+- 旧URL互換の `docs/typescript-bot-spec.html` は `docs/index.html` へ案内するだけのページです
 - `main` ブランチの `docs/` 更新時に `.github/workflows/pages.yml` がGitHub Pagesへ公開します
-- 既存のMarkdown設計資料は `docs/ARCHITECTURE.md` / `docs/COMMANDS.md` / `docs/DESIGN_PATTERNS.md` / `docs/TECH_STACK.md` に残しています
+- Markdown設計資料は `docs/ARCHITECTURE.md` / `docs/COMMANDS.md` / `docs/DESIGN_PATTERNS.md` / `docs/TECH_STACK.md` に補助資料として残しています
 
 ### 直接起動
 ```bash
@@ -52,8 +53,8 @@ npm run dev         # ts-nodeで開発実行
 - **言語**: TypeScript 5.7
 - **Twitchライブラリ**: @twurple/api, @twurple/auth, @twurple/chat
 - **ログ**: winston + winston-daily-rotate-file
-- **プロセス管理**: PM2
-- **以前のPython版**: main.py（後方互換性のため残存）
+- **プロセス管理**: PM2（プロセス名: `twitchRaid`）
+- **旧Python版**: `main.py` などは過去資産・互換テスト用に残存。現行運用と仕様書の正本はTypeScript版
 
 ## コマンド一覧
 
@@ -67,7 +68,7 @@ npm run dev         # ts-nodeで開発実行
 | `!menu` | 今日のおすすめメニューをランダム表示 | 70種類以上からランダム |
 | `!clip` | 過去のクリップをランダム表示 | 30分クールダウン（特別ユーザー除外） |
 | `!myclip` | 自分が作成したクリップをランダム表示 | 30分クールダウン（`!clip`とは独立） |
-| `!manga` | DLsite日間ランキングからランダムに1作品表示 | ON/OFF切替可、5秒後自動削除 |
+| `!manga` | DLsite日間ランキングからランダムに1作品表示 | ON/OFF切替可、10秒後自動削除 |
 | `!mangaon` | `!manga` コマンドを有効化 | 管理者のみ |
 | `!mangaoff` | `!manga` コマンドを無効化 | 管理者のみ |
 | `!shoutout <ユーザー名>` | 指定ユーザーへ手動 shoutout を実行 | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ |
@@ -143,48 +144,50 @@ npm run dev         # ts-nodeで開発実行
 
 ```
 src/
-├── index.ts              # エントリーポイント
-├── config.ts             # 設定管理（.env読み込み）
-├── bot.ts                # Bot本体（twurple統合）
-├── git-manager.ts        # Git更新検知・再起動
-├── system-watcher.ts     # 定期監視（更新・再起動）
-├── auth/                 # OAuth認証管理
-│   ├── token-manager.ts
-│   ├── token-refresh-policy.ts
-│   ├── scope-policy.ts
-│   └── auth-scope-sets.ts
-├── commands/             # チャットコマンド
+├── index.ts                       # エントリーポイント
+├── config.ts                      # .env設定管理
+├── bot.ts                         # Bot本体（Twurple統合）
+├── git-manager.ts                 # Git更新検知・build・再起動
+├── system-watcher.ts              # 定期監視（更新・再起動）
+├── auth/
+│   ├── auth-scope-sets.ts         # 必須OAuthスコープ
+│   ├── scope-policy.ts            # スコープ不足判定
+│   ├── token-manager.ts           # token validate/refresh
+│   └── token-refresh-policy.ts    # refresh fallback判定
+├── chat/
+│   ├── command-cooldown-state.ts  # コマンド別クールダウン
+│   ├── comment-count-formatter.ts # コメント数文言
+│   ├── comment-speed-meter.ts     # コメント風速
+│   └── message-filters.ts         # コマンド判定
+├── commands/
 │   ├── age.ts
-│   ├── boom.ts
-│   ├── clip-cache-store.ts
-│   ├── clip-cache-sync.ts
-│   ├── clip.ts
-│   ├── manga.ts
-│   ├── shoutout.ts
-│   └── random-commands.ts
-├── streams/              # 配信まとめ状態と投稿
-│   ├── stream-summary.ts
-│   └── stream-summary-state-store.ts
-├── chat/                 # チャット機能
-│   ├── command-cooldown-state.ts
-│   ├── comment-speed-meter.ts
-│   ├── comment-count-formatter.ts
-│   ├── message-filters.ts
-│   ├── message-delete-tracker.ts
-│   └── chat-message-response.ts
-├── notifications/        # 通知機能
-│   ├── stream-notifications.ts
+│   ├── boom.ts                    # 過去30日ゲーム時間集計
+│   ├── clip-cache-store.ts        # Clip SQLiteキャッシュ
+│   ├── clip-cache-sync.ts         # Clip同期/日次再走査
+│   ├── clip.ts                    # !clip / !myclip
+│   ├── manga.ts                   # !manga / 管理者判定
+│   ├── raid-info.ts               # Raid元配信情報文言
+│   ├── random-commands.ts
+│   ├── shoutout.ts                # shoutout権限/キュー
+│   └── stream-notify.ts           # !streamnotify
+├── notifications/
 │   ├── clip-recast-notifier.ts
-│   └── discord-webhook.ts
-└── utils/                # ユーティリティ
-    ├── logger.ts
-    ├── env-store.ts
-    ├── restart-state-store.ts
+│   ├── discord-webhook.ts         # Discord Bot/Webhook/Thread
+│   └── stream-notifications.ts    # 配信開始通知本文
+├── streams/
+│   ├── stream-summary-state-store.ts
+│   └── stream-summary.ts          # 配信まとめ/Clip投稿/スレッド保証
+└── utils/
     ├── comment-state-store.ts
-    └── process-restart.ts
+    ├── env-store.ts
+    ├── logger.ts
+    ├── process-restart.ts
+    └── restart-state-store.ts
 ```
 
 ## 更新履歴
+- **2026-06-06**: GitHub Pagesの仕様書を `docs/index.html` に一本化し、`docs/typescript-bot-spec.html` は統合先への案内ページへ変更。図解中心のTypeScript版総合仕様書として、配信通知、Clip同期、Raid情報、shoutoutキュー、Boom集計、フォールバック、品質ゲートを追記
+- **2026-06-06**: PM2プロセス名の記述を本番運用に合わせて `twitchRaid` に統一
 - **2026-06-06**: 配信開始通知が漏れた時の復旧用に、管理者限定の `!streamnotify` コマンドを追加
 - **2026-06-06**: 配信開始通知へ `🔴 配信URL: https://www.twitch.tv/rukalun` の表示を復元
 - **2026-06-06**: サブPC本番ログで配信開始通知が `Discord bot message failed: 403` により停止していたことを確認。`DISCORD_WEBHOOK_URL` が設定済みだったため、配信開始通知・配信終了まとめ・配信中クリップ投稿でBot API失敗時にWebhookへフォールバックするよう修正
@@ -192,7 +195,7 @@ src/
 - **2026-06-02**: フォーラム/メディアチャンネルWebhook向けに、Bot Tokenなしで `thread_name` から配信まとめスレッドを作るWebhook-onlyモードを追加
 - **2026-06-03**: Bot Token方式を配信開始通知スレッド化へ変更。配信開始通知から作成したスレッドへ、配信終了まとめとクリップを投稿
 - **2026-06-03**: 再起動時に同一タイトルで開始通知がスキップされても、配信まとめstateにスレッドIDがなければ開始通知メッセージからスレッド作成を補完するよう修正
-- **2026-06-03**: Discordへ投稿する配信開始通知と配信終了まとめから、配信URL行を削除
+- **2026-06-03**: Discordへ投稿する配信開始通知と配信終了まとめから、配信URL行を一度削除（2026-06-06に開始通知の配信URL行を復元済み）
 - **2026-06-03**: 配信中の新規クリップを1分ごとの直近同期で検知して配信まとめスレッドへ随時投稿し、配信終了まとめ後にスレッドをアーカイブして閉じるよう変更
 - **2026-06-03**: 配信まとめ系のDiscord投稿をWebhook優先からBot API優先へ変更。Bot TokenとチャンネルIDがあればWebhook URLなしで開始通知、クリップ、終了まとめを投稿可能
 - **2026-06-03**: Clipキャッシュを配信していない時間に1日1回再走査し、削除済みなどTwitch APIから返らなくなったClipを無効化して候補から除外するよう変更
@@ -205,7 +208,7 @@ src/
 - **2026-05-29**: サブPC側ログを確認。`twitchRaid` はPM2上で online、PM2 error log は空、`data/clips.sqlite` は2736件・全走査窓 completed で稼働中
 - **2026-05-25**: `!myclip` のSQLiteキャッシュ検索を解決済みユーザーID対応にし、ログイン名と表示名が違うユーザーでもキャッシュから選択できるよう修正
 - **2026-05-25**: クリップ全期間走査をSQLiteキャッシュ化し、起動中の新規クリップは直近同期で反映
-- **2026-05-25**: 初コメ保存と `!firstcomment` を削除。`!clip` / `!myclip` を高速ページング最大1000件へ変更
+- **2026-05-25**: 初コメ保存と `!firstcomment` を削除。当時の `!clip` / `!myclip` を高速ページング最大1000件へ変更（現行のコマンド実運用フォールバックは最大200件）
 - **2026-05-25**: `!clip` / `!myclip` を日付窓ページング取得へ変更し、表示履歴で重複をなるべく回避
 - **2026-05-25**: ユーザー別初コメを SQLite に保存し、`!firstcomment` 本人表示を追加。過去アーカイブ抽出は無効化
 - **2026-05-11**: `!shoutout <ユーザー名>` デバッグコマンドと権限設定 `SHOUTOUT_ADMIN_USERS` を追加

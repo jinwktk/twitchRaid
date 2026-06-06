@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: "twitchRaidBot",
+      name: "twitchRaid",
       script: "dist/index.js",
       cwd: __dirname,
       instances: 1,

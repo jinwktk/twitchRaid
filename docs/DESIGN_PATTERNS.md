@@ -1,182 +1,87 @@
-# 設計パターン・コード規約
+# TypeScript版 設計パターン
+
+正本の仕様書は `docs/index.html` です。このMarkdownは実装方針を短く確認するための補助資料です。
 
 ## 設計原則
 
-### 依存性注入（DI）
+### 1. 入出力を薄くし、ロジックをテストしやすくする
 
-Configインスタンスが全主要コンポーネントに渡される。
+外部APIを直接呼ぶ箇所と、判定・整形ロジックを分けています。
 
-```python
-config = Config()                    # 設定読み込み
-git_manager = GitManager(config)     # Git操作にConfig注入
-system_watcher = SystemWatcher(git_manager)  # 監視にGitManager注入
-bot = Bot(valid_token, config)       # BotにConfig注入
+| ロジック | I/O |
+|---|---|
+| `formatRaidSourceInfoMessage()` | Twitch streams API |
+| `formatBoomSummary()` / `parseGameChapters()` | Twitch GraphQL |
+| `mergeStreamStartThreadResult()` | Discord Bot API / Webhook |
+| `isShoutoutAdmin()` / `normalizeShoutoutTarget()` | Twurple shoutout API |
+
+### 2. 永続化して再起動に強くする
+
+- 配信まとめstateは `data/stream-summary-state.json` に保存する。
+- Clipキャッシュ、表示履歴、走査窓、同期状態は `data/clips.sqlite` に保存する。
+- コメント数やコマンドクールダウンなどの互換状態は `.env` に保存する。
+- `.env` 更新は `src/utils/env-store.ts` でバックアップ付きにする。
+
+### 3. 外部API失敗時の逃げ道を持つ
+
+- Discord Bot API失敗時はWebhookへフォールバックする。
+- 開始通知スレッドが無い場合は、保存済み開始通知IDから再作成する。
+- Raid元配信情報が取れない場合も、チャンネルURL付きメッセージを送る。
+- Shoutout 429は即時再試行せず、2分待って再実行する。
+- Twitch APIから消えたClipは日次再走査で候補から外す。
+
+## 状態マージパターン
+
+`!streamnotify` で新しい開始通知を送った場合、その通知から作ったスレッドを以後の集約先にします。
+
+```text
+通常通知:
+  started.startMessageId が同じなら既存 threadId を保持
+  started.startMessageId が新しいなら threadId も started.threadId に置換
+
+手動通知:
+  preferStartedThread=true
+  新しい startMessageId / threadId を既存stateより優先
 ```
 
-- グローバル変数は`config`, `git_manager`, `system_watcher`の3つのみ
-- テスト時にモック可能な設計
+新しい開始通知に `threadId` が無い時は古い `threadId` を消します。これは別配信の古いスレッドへClipを投稿してしまう事故を避けるためです。
 
-### 単一責任原則（SRP）
+## Clipキャッシュパターン
 
-1モジュール = 1つの明確な責任。
+```text
+起動時
+  -> 直近60分を同期
+  -> 全期間バックフィルをバックグラウンド実行
 
-- `clip_selector.py`: クリップ選択ロジックのみ（API呼び出しは呼び出し側）
-- `manga_selector.py`: HTTP取得＋HTML解析
-- `manga_command_control.py`: 権限判定・有効/無効制御
-- `env_store.py`: `.env`ファイルの安全な読み書きのみ
+配信中
+  -> 1分ごとに直近60分を同期
+  -> 新規Clipがあれば配信まとめスレッドへ投稿
 
-### ビジネスロジックとI/Oの分離
-
-```
-ビジネスロジック（テスト容易）     I/O（外部依存）
-─────────────────────────────    ──────────────────────
-clip_selector.select_clip()    ← twitch.get_clips()
-manga_selector.extract_titles() ← requests.get()
-stream_notifications.should_notify() ← Config.get_last_stream_title()
+オフライン時
+  -> 24時間に1回だけ全期間再走査
+  -> Twitch APIから返らないClipを unavailable_at 付きで無効化
 ```
 
-## エラーハンドリング戦略
+## Queueパターン
 
-### 3段階エラー回復
+Raid自動shoutoutは `ShoutoutQueue` で直列化します。
 
-```
-レベル1: 関数レベル
-├── try/except で個別処理
-├── エラーログ出力
-└── 呼び出し元に結果返却
-
-レベル2: 機能レベル
-├── WebSocket切断 → delayed_reconnect（5秒待機→指数バックオフ15-60秒）
-├── トークンエラー → refresh_advanced → refresh_fallback
-└── 配信監視5回連続エラー → トークン自動更新
-
-レベル3: プロセスレベル
-├── 最大再接続試行（10回）超過 → git_manager.restart_process()
-├── メインループ最大再試行（10回）超過 → restart_process()
-└── os.execv失敗 → subprocess.Popen → os._exit
-```
-
-### WebSocket再接続フロー
-
-```python
-delayed_reconnect()
-├── 5秒待機（重複実行防止フラグ）
-├── 再接続試行回数チェック（max 10回）
-├── 指数バックオフ待機（15 + 試行回数×5秒、最大60秒）
-├── 既存接続クローズ → 10秒待機
-├── トークン再検証
-└── 最終的にプロセス全体再起動
-```
-
-### トークンリフレッシュ戦略
-
-```
-refresh_access_token_advanced()
-├── HTTP API直接リフレッシュ（高速、サイレント）
-│   ├── POST /oauth2/token (refresh_token grant)
-│   └── 成功 → 検証 → .env更新
-└── 失敗 → should_try_fallback()
-    └── refresh_access_token_fallback()
-        └── UserAuthenticator（ブラウザ認証、全スコープ要求）
-```
-
-## コールバック・通知パターン
-
-### ClipRecastNotifier
-
-```python
-# arm: クールダウン開始を登録
-notifier.arm(started_at=time.time(), send_coroutine=ctx.send)
-
-# notify_if_ready: keep_aliveループで定期チェック
-await notifier.notify_if_ready(current_time)  # 30分経過で自動通知
-
-# disarm: 通知設定を解除
-notifier.disarm()
-```
-
-### StreamTitleNotifier
-
-```python
-# 配信タイトル差分通知
-notifier.should_notify(stream_title)  # 前回と比較
-notifier.notify_if_needed(stream_title, sender_func)  # 差分あれば通知実行
-```
-
-### PendingDeleteTracker
-
-```python
-# manga返信の削除追跡
-tracker.add(content, channel_name, delete_after_seconds, now)
-matched = tracker.pop_matched(content, channel_name, now)  # echoで一致検索
-# matched.delete_after_seconds 秒後に削除実行
-```
+- enqueue直後、処理中でなければすぐ1件送る。
+- 成功または対象なしなら次の対象へ進む。
+- 429なら同じ対象をキュー先頭へ戻し、2分後に再実行する。
+- 429以外の失敗は再試行せずログへ残す。
 
 ## テストパターン
 
-### テスト構成
+- TypeScriptは Vitest を使う。
+- 外部APIはテスト内のfake clientや関数差し替えで代替する。
+- SQLiteは一時DBを使い、走査窓、履歴、無効化状態を検証する。
+- Discord投稿は `sendWebhook` / `sendBotMessage` / `createThread` を差し替えて、Bot API失敗時のWebhook fallbackを検証する。
+- Python版は現行運用対象ではないが、旧互換モジュールの破損検知として `python -m pytest -q` を通す。
 
-- `tests/`ディレクトリに各モジュール対応の`test_*.py`
-- pytest使用
-- `PYTHONPATH=.`でインポート解決
+## コード規約
 
-### テスト設計方針
-
-- 外部依存（Twitch API、Discord Webhook）はモック化
-- `.env`操作は一時ファイルでテスト
-- 純粋関数（clip_selector, manga_selector等）は入出力で直接テスト
-- 状態管理クラスは状態遷移を網羅的にテスト
-
-## ファイル構成
-
-```
-twitchRaid/
-├── main.py                      # エントリーポイント（Config, GitManager, SystemWatcher, Bot）
-├── requirements.txt             # 依存関係
-├── .env                         # 環境変数設定（自動更新あり）
-├── .gitignore                   # Git除外設定
-├── readme.md                    # プロジェクト概要
-├── CLAUDE.md                    # Claude Code開発ガイドライン
-│
-├── # ビジネスロジックモジュール
-├── env_store.py                 # .env安全更新
-├── stream_notifications.py      # 配信通知制御
-├── clip_selector.py             # クリップ選択
-├── clip_recast_notifier.py      # リキャスト通知
-├── command_cooldown_state.py    # コマンドクールダウン
-├── comment_speed_meter.py       # コメント風速計測
-├── comment_count_formatter.py   # コメント件数フォーマット
-├── comment_state_store.py       # コメント状態永続化
-├── message_filters.py           # メッセージフィルタ
-├── manga_selector.py            # DLsiteスクレイピング
-├── manga_command_control.py     # manga管理制御
-├── chat_message_response.py     # メッセージID取得
-├── message_delete_tracker.py    # 削除予約追跡
-├── auth_scope_sets.py           # 認証スコープ定義
-├── scope_policy.py              # スコープポリシー
-├── token_refresh_policy.py      # トークンリフレッシュ判定
-├── process_restart.py           # プロセス再起動
-├── restart_state_store.py       # 再起動状態管理
-│
-├── tests/                       # テストディレクトリ
-│   ├── test_env_store.py
-│   ├── test_clip_selector.py
-│   ├── test_clip_recast_notifier.py
-│   ├── test_command_cooldown_state.py
-│   ├── test_comment_speed_meter.py
-│   ├── test_manga_selector.py
-│   ├── test_stream_notifications.py
-│   └── ... (その他テストファイル)
-│
-├── docs/                        # ドキュメント
-│   ├── ARCHITECTURE.md
-│   ├── COMMANDS.md
-│   ├── TECH_STACK.md
-│   └── DESIGN_PATTERNS.md
-│
-├── logs/                        # ログディレクトリ（Git管理外）
-│   └── bot_YYYY-MM-DD.log
-│
-├── last_restart.txt             # 最後の再起動時刻
-└── start_services.bat           # サービス起動スクリプト
-```
+- TypeScriptは `npm run lint` と `npm run build` を通す。
+- 非同期処理は外部API失敗をログ化し、Bot全体を止めない。
+- 共有stateを進める処理は、投稿成功後に `persistProgress` でこまめに保存する。
+- 仕様変更時は `docs/index.html`、README、AGENTSを更新する。

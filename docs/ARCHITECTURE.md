@@ -1,112 +1,66 @@
-# アーキテクチャ概要
+# TypeScript版アーキテクチャ概要
+
+正本の仕様書は `docs/index.html` です。このMarkdownは運用時に素早く読むための補助資料です。
 
 ## プロジェクト概要
 
-Twitch配信者「rukalun」向けのチャットBot。Python + twitchio + twitchAPIで構築。
-サブPC（192.168.0.99）で本番稼働中。メインPC（192.168.0.100）からSSHでログ確認可能。
+Twitchチャンネル `rukalun` 向けの常駐Botです。現行運用対象は TypeScript 版のみで、起動入口は `src/index.ts`、Bot本体は `src/bot.ts` です。Twitchチャット、配信状態、Clip、Raid、VODを監視し、Discord通知、配信まとめスレッド、チャットコマンド応答、自動更新を行います。
 
-## 主要クラス構成（main.py）
+## 主要コンポーネント
 
-### Config（設定管理）
+| 領域 | ファイル | 責務 |
+|---|---|---|
+| 起動 | `src/index.ts` | 設定読み込み、Git監視、再起動監視、token検証、Bot起動、Graceful shutdown |
+| Bot本体 | `src/bot.ts` | Twurple ChatClientイベント、コマンド分岐、配信監視、Raid処理、Clip投稿接続 |
+| 設定 | `src/config.ts` | `.env` 読み込み、認証情報、管理者、DB/stateパス、Discord設定 |
+| 認証 | `src/auth/*` | token validate/refresh、必須スコープ、不足スコープ判定、validateキャッシュ |
+| コマンド | `src/commands/*` | `!clip`、`!myclip`、`!manga`、`!boom`、`!shoutout`、`!streamnotify` など |
+| 配信まとめ | `src/streams/*` | state保存、開始通知スレッド保証、Clip投稿、終了まとめ、スレッドクローズ |
+| 通知 | `src/notifications/*` | Discord Bot API/Webhook投稿、開始通知本文、スレッド作成 |
+| 監視 | `src/git-manager.ts` / `src/system-watcher.ts` | Git更新検知、build、PM2再起動、24時間定期再起動 |
 
-- `.env`から全設定を読み込み（`dotenv_values`）
-- スレッドセーフ（`threading.Lock`）
-- トークン、クリップ時間、配信タイトル、mangaコマンド状態を`.env`に書き戻し
-- `env_store.py`経由で安全な`.env`更新（バックアップ→temp→replace）
+## 実行時フロー
 
-### GitManager（Git操作＆プロセス管理）
-
-- `check_for_updates()`: git fetch → rev-list → pull → 再起動判定
-- `restart_with_cooldown()`: 24時間間隔の再起動クールダウン
-- `restart_process()`: `os.execv`優先、失敗時`subprocess.Popen`フォールバック
-- `_current_branch()`: 現在のブランチを動的検出
-
-### SystemWatcher（バックグラウンド監視）
-
-- `update_watcher()`: 10分間隔でGitHub更新チェック
-- `restart_watcher()`: 5分間隔で再起動タイミングチェック
-- デーモンスレッドで実行
-
-### Bot（メインTwitchボット）
-
-`twitchio.ext.commands.Bot`を継承。
-
-- WebSocket再接続ロジック（最大10回、指数バックオフ15〜60秒）
-- `keep_alive`: 45秒間隔の接続チェック＋2時間ごとのトークンリフレッシュ
-- `monitor_stream_status`: 180秒間隔で配信状態監視
-- コメント速度計測（`CommentSpeedMeter`）
-- クリップコマンドクールダウン管理（`CommandCooldownState`）
-- レイド検知→自動シャウトアウト
-
-## スレッドアーキテクチャ
-
-```
-メインスレッド
-└── asyncio.run(main())
-    └── Bot.start()
-        ├── monitor_stream_status (asyncioタスク)
-        ├── keep_alive (asyncioタスク)
-        └── リキャスト通知チェック (keep_alive内)
-
-デーモンスレッド1: update_watcher
-└── 10分間隔でgit fetch → 差分検知 → pull → 再起動
-
-デーモンスレッド2: restart_watcher
-└── 5分間隔で再起動タイミングチェック（24時間間隔）
+```text
+src/index.ts
+  -> Configで.envを読む
+  -> GitManager.pullAndRestartIfUpdated()
+  -> SystemWatcherでGit更新/定期再起動を監視
+  -> getValidAccessToken()でTwitch tokenを検証
+  -> Bot.start()
+      -> RefreshingAuthProvider / ApiClient / ChatClientを初期化
+      -> ClipCacheSynchronizer.start()
+      -> onMessage / onRaid / onDisconnectを登録
+      -> keep-aliveと配信監視を開始
 ```
 
-## モジュール一覧
+## 配信まとめアーキテクチャ
 
-| ファイル | 責任 |
-|---------|------|
-| `env_store.py` | `.env`安全更新（バックアップ付きatomic書き込み） |
-| `stream_notifications.py` | 配信タイトル差分によるDiscord通知制御 |
-| `clip_selector.py` | クリップランダム選択（作成者フィルタ対応） |
-| `clip_recast_notifier.py` | クリップコマンドリキャスト完了通知 |
-| `command_cooldown_state.py` | コマンド別クールダウン状態管理 |
-| `comment_speed_meter.py` | コメント風速計測（直近60秒＋配信全体平均） |
-| `comment_count_formatter.py` | コメント件数フォーマット |
-| `comment_state_store.py` | コメント状態の`.env`永続化 |
-| `message_filters.py` | コマンドメッセージ判定 |
-| `manga_selector.py` | DLsiteランキングスクレイピング |
-| `manga_command_control.py` | manga管理者判定・有効/無効制御 |
-| `chat_message_response.py` | 送信メッセージID取得 |
-| `message_delete_tracker.py` | メッセージ削除予約の追跡 |
-| `auth_scope_sets.py` | OAuth認証スコープ定義 |
-| `scope_policy.py` | スコープ正規化・不足判定 |
-| `token_refresh_policy.py` | トークンリフレッシュフォールバック判定 |
-| `process_restart.py` | プロセス再起動（execv→Popen） |
-| `restart_state_store.py` | 再起動状態の永続化 |
+```text
+配信開始検知
+  -> data/stream-summary-state.json に active state保存
+  -> Discordへ開始通知投稿
+  -> 開始通知メッセージからスレッド作成
+  -> startMessageId / threadId保存
 
-## データフロー
+配信中
+  -> 1分ごとの直近Clip同期
+  -> 未投稿ClipをthreadIdへ投稿
+  -> postedClipIds保存
 
-### メッセージ受信フロー
-
-```
-Twitch IRC → event_message()
-├── echoメッセージ → 削除予約チェック → return
-├── コマンドメッセージ → handle_commands() → 各コマンドハンドラ
-└── 通常メッセージ → CommentSpeedMeter.record() → .envに状態保存
+配信終了
+  -> 配信時間帯Clipを最終同期
+  -> threadIdが無ければ開始通知からスレッド保証
+  -> 未投稿Clipと終了まとめを投稿
+  -> Bot Tokenが使える場合はスレッドをアーカイブ
 ```
 
-### トークンリフレッシュフロー
+## 重要な設計判断
 
-```
-validate_access_token()
-├── 有効 → スコープ確認・ログ出力 → return token
-└── 401 → refresh_access_token_advanced()
-         ├── HTTP API直接リフレッシュ成功 → return new_token
-         └── 失敗 → refresh_access_token_fallback()
-                   ├── UserAuthenticator再認可 → return new_token
-                   └── 失敗 → return None
-```
-
-### デプロイフロー
-
-```
-メインPCで開発・コミット・プッシュ
-→ サブPCのBotが10分間隔でgit fetch
-→ 差分検知 → git pull
-→ 24時間クールダウン考慮
-→ os.execv でプロセス再起動（失敗時subprocess.Popen）
-```
+- TypeScript版を正本とし、GitHub Pagesも `docs/index.html` に一本化する。
+- Discord投稿はBot API優先。403などで失敗し、Webhook URLがある場合はWebhookへフォールバックする。
+- `!streamnotify` は新しい開始通知の `startMessageId` / `threadId` を既存stateより優先する。
+- 新しい開始通知に `threadId` が無い場合、古い `threadId` は保持しない。
+- Raid shoutoutは `ShoutoutQueue` で直列化し、429時は2分後に同一対象を再実行する。
+- ClipはSQLiteキャッシュ優先。削除/非公開化されたClipはオフライン時の日次再走査で `unavailable_at` を入れて候補から外す。
+- `!boom` は過去30日間のVODを対象に、最大4本並列でGraphQLを取得し、結果を5分キャッシュする。
