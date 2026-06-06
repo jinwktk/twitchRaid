@@ -24,7 +24,7 @@ class StreamTitleNotifier:
     def build_message(self, stream_title: str) -> str:
         """Discord送信用メッセージを組み立て"""
         normalized = self._normalize_title(stream_title)
-        return normalized
+        return f"{normalized}\n🔴 配信URL: https://www.twitch.tv/{self.login_channel}"
 
     def should_notify(self, stream_title: str | None) -> bool:
         """直前の配信タイトルとの差分を元に送信可否を返す"""
