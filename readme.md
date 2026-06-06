@@ -108,6 +108,8 @@ npm run dev         # ts-nodeで開発実行
 
 ## レイド自動シャウトアウト
 - レイド検知時は `src/commands/shoutout.ts` でレイド元のユーザーIDを解決し、Bot/Moderator のユーザーコンテキストで `chat.shoutoutUser` を実行
+- レイド検知時は `src/commands/raid-info.ts` でレイド元の配信情報を取得し、チャットへ `レイドありがとうD！！ @ユーザー さんは、「ゲーム名」で「配信タイトル」をしてたD！お疲れ様D！チャンネルはこD→URL` を送信する
+- Raid元の配信がすでにオフライン、またはTwitch APIでタイトル/ゲームを取得できない場合でも、チャンネルURL付きのフォールバック文を送信する
 - Twurple のデフォルト挙動で broadcaster の未登録トークンを探しに行かないよう、`apiClient.asUser(botUserId, ...)` で明示的にコンテキストを切り替える
 - 送信失敗時は登録済み Bot ユーザーのトークンをリフレッシュしてから同じ経路でリトライする
 - デバッグ用に `!shoutout <ユーザー名>` でも同じ送信経路を手動実行できる
