@@ -17,6 +17,7 @@
 - `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ軽いAPIフォールバックを使う。
 - `src/commands/clip-cache-store.ts`: クリップ本体、走査済み期間、削除/非公開化でTwitch APIから返らなくなったClipの無効化状態、`!clip` / `!myclip:<ユーザー>` ごとの表示履歴を `data/clips.sqlite` に保存する。
 - `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期、直近同期完了後コールバック、配信していない時間の1日1回全期間再走査を担当。
+- `src/commands/stream-notify.ts`: TypeScript版 `!streamnotify` の管理者判定と、現在配信中の開始通知をDiscordへ手動送信するためのライブ状態取得ヘルパー。
 - `src/streams/stream-summary.ts`: 配信終了まとめの表示文言作成、Discord Bot API/Webhook投稿、開始通知/まとめメッセージからのスレッド作成、ライブクリップURL投稿、終了時スレッドクローズを担当。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
@@ -38,6 +39,7 @@
 - `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタを検証。
 - `tests/commands/clip-cache-store.test.ts`: クリップSQLiteキャッシュ、履歴上限、走査済み期間、削除済みClipの無効化と候補除外を検証。
 - `tests/commands/clip-cache-sync.test.ts`: クリップ全期間走査用の日付窓、直近同期、完了済み期間スキップ、日次再走査の配信中スキップと削除済みClip無効化を検証。
+- `tests/commands/stream-notify.test.ts`: `!streamnotify` 用の管理者判定、現在配信中/オフライン/Discord投稿失敗時の結果を検証。
 - `tests/streams/stream-summary.test.ts`: 配信終了まとめの整形、Discordスレッドへのライブ/終了時クリップ投稿、開始通知スレッド補完、終了時スレッドクローズ、投稿途中再開時の重複回避を検証。
 - `tests/streams/stream-summary-state-store.test.ts`: 配信まとめ状態JSONの保存・復元・投稿済み更新を検証。
 - `tests/notifications/discord-webhook.test.ts`: Discord Webhookの `wait` / `thread_id` 付与、Bot Tokenによるメッセージ投稿、メッセージスレッド作成、スレッドアーカイブを検証。
@@ -97,6 +99,11 @@
 - TDD: `tests/notifications/stream-notifications.test.ts` と `tests/test_stream_notifications.py` に配信URL行の期待値を追加し、未実装失敗を確認
 - 実装: TypeScript版 `src/notifications/stream-notifications.ts` と旧Python版 `stream_notifications.py` の開始通知本文に配信URL行を追加。重複判定用に保存する `LAST_STREAM_TITLE` は従来どおりタイトル単体のまま維持
 - 検証: `npm test -- --run tests/notifications/stream-notifications.test.ts` 2件、`python -m pytest tests/test_stream_notifications.py -q` 5件、`npm test` 112件、`npm run build`、`npm run lint`、`python -m pytest -q` が通過
+- 追加要望: 配信開始通知が出ていなかった時に手動で出すコマンドがほしい
+- 方針: `!streamnotify` を追加し、broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ実行可能にする。現在配信中のTwitch stream情報を取得し、通常の `LAST_STREAM_TITLE` 重複スキップを通さずDiscordへ開始通知を強制投稿する
+- TDD: `tests/commands/stream-notify.test.ts` を追加し、管理者判定、配信中の手動通知、オフライン時スキップ、Discord投稿失敗時の結果を先に定義して未実装失敗を確認
+- 実装: `src/commands/stream-notify.ts` を追加し、`src/bot.ts` に `!streamnotify` を接続。手動送信時は配信まとめstateを補完し、開始通知メッセージ/スレッドIDを新しい投稿結果で保存する
+- 検証: `npm test -- --run tests/commands/stream-notify.test.ts` 5件、`npm test` 117件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件が通過
 
 ## 2026-06-03 作業ログ
 - 不具合報告: にめいやアカウントで `!mangaon` が実行できなくなった

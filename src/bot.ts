@@ -18,6 +18,7 @@ import {
   ensureStreamSummaryStartThread,
   postStreamSummaryClips,
   postStreamSummary,
+  startStreamSummaryThread,
 } from "./streams/stream-summary";
 import { refreshAccessTokenAdvanced } from "./auth/token-manager";
 import {
@@ -34,6 +35,11 @@ import {
   normalizeShoutoutTarget,
   sendShoutout,
 } from "./commands/shoutout";
+import {
+  isStreamNotifyAdmin,
+  sendManualStreamNotification,
+  type ManualStreamNotificationStream,
+} from "./commands/stream-notify";
 import { calculateAge } from "./commands/age";
 import {
   fetchRandomMangaTitle,
@@ -299,6 +305,9 @@ export class Bot {
       case "shoutout":
         await this._handleShoutoutCommand(channel, user, args[1], msg);
         break;
+      case "streamnotify":
+        await this._handleStreamNotifyCommand(channel, user, msg);
+        break;
       default:
         break;
     }
@@ -520,6 +529,57 @@ export class Bot {
       sent
         ? `✅ @${target} をshoutoutしました。`
         : `⚠️ @${target} のshoutoutに失敗しました。ログを確認してください。`
+    );
+  }
+
+  private async _handleStreamNotifyCommand(
+    channel: string,
+    user: string,
+    msg: ChatMessage
+  ): Promise<void> {
+    if (
+      !isStreamNotifyAdmin(
+        user,
+        this.config.shoutoutAdminUsers,
+        msg.userInfo.isMod,
+        msg.userInfo.isBroadcaster
+      )
+    ) {
+      await this.chatClient.say(
+        channel,
+        "⚠️ `streamnotify` は管理者のみ実行できます。"
+      );
+      return;
+    }
+
+    const result = await sendManualStreamNotification({
+      apiClient: this.apiClient,
+      loginChannel: this.config.loginChannel,
+      postNotification: async (stream) => {
+        await this._postManualStreamStartNotification(stream);
+      },
+    });
+
+    if (result.status === "offline") {
+      await this.chatClient.say(
+        channel,
+        "⚠️ 現在配信中ではないため、配信通知は送信しませんでした。"
+      );
+      return;
+    }
+
+    if (result.status === "failed") {
+      logger.error(`❌ 手動配信通知に失敗しました: ${result.error}`);
+      await this.chatClient.say(
+        channel,
+        "⚠️ 配信通知の手動送信に失敗しました。ログを確認してください。"
+      );
+      return;
+    }
+
+    await this.chatClient.say(
+      channel,
+      `✅ 配信通知をDiscordへ送信しました: ${result.title}`
     );
   }
 
@@ -797,6 +857,17 @@ export class Bot {
     );
   }
 
+  private async _postManualStreamStartNotification(
+    stream: ManualStreamNotificationStream
+  ): Promise<void> {
+    await this._handleStreamStarted(stream);
+    this.streamLive = true;
+
+    const message = this.streamNotifier.buildMessage(stream.title);
+    await this._forceStreamStartSummaryThread(stream.title, message);
+    this.config.updateLastStreamTitle(stream.title.trim());
+  }
+
   private async _notifyStreamStartedOnDiscord(title: string): Promise<void> {
     await this.streamNotifier.notifyIfNeeded(title, async (message) => {
       await this._ensureStreamStartSummaryThread(title, message);
@@ -833,6 +904,41 @@ export class Bot {
     });
 
     if (!started.startMessageId && !started.threadId) return;
+
+    this.streamSummaryStateStore.save({
+      ...state,
+      startMessageId: started.startMessageId ?? state.startMessageId,
+      threadId: started.threadId ?? state.threadId,
+    });
+  }
+
+  private async _forceStreamStartSummaryThread(
+    title: string,
+    message: string
+  ): Promise<void> {
+    if (!this._canPostDiscordSummary()) {
+      throw new Error("Discord posting is not configured");
+    }
+
+    const state = this.streamSummaryStateStore.load();
+    if (!state || state.status === "posted") {
+      throw new Error("Active stream summary state is not available");
+    }
+
+    const started = await startStreamSummaryThread({
+      webhookUrl: this.config.discordWebhookUrl || undefined,
+      botToken: this.config.discordBotToken || undefined,
+      channelId: this.config.discordSummaryChannelId || undefined,
+      webhookThreadName: this.config.discordSummaryWebhookThreadEnabled
+        ? `配信まとめ - ${title}`.slice(0, 100)
+        : undefined,
+      title,
+      message,
+    });
+
+    if (!started.startMessageId && !started.threadId) {
+      throw new Error("Discord start notification did not return message or thread id");
+    }
 
     this.streamSummaryStateStore.save({
       ...state,
