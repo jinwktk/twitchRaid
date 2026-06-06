@@ -24,6 +24,7 @@
 - `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期、直近同期完了後コールバック、配信していない時間の1日1回全期間再走査を担当。
 - `src/commands/stream-notify.ts`: TypeScript版 `!streamnotify` の管理者判定と、現在配信中の開始通知をDiscordへ手動送信するためのライブ状態取得ヘルパー。
 - `src/streams/stream-summary.ts`: 配信終了まとめの表示文言作成、Discord Bot API/Webhook投稿、開始通知/まとめメッセージからのスレッド作成、ライブクリップURL投稿、終了時スレッドクローズを担当。
+- `src/streams/stream-summary-count-buffer.ts`: 通常コメントごとの配信まとめstate同期書き込みを避けるため、コメント数更新を30秒デバウンスし、Raid/停止/配信終了時に即時flushする。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
 - `docs/index.html`: 現行TypeScript版 `src/` を中心に、Twitch Botのプログラム概要、機能一覧、処理フロー、配信まとめ、Clip同期、Raid対応、フォールバック、性能・運用、品質ゲートを図付きでまとめたGitHub Pages用HTML仕様書。
 - `docs/typescript-bot-spec.html`: 旧URL互換ページ。仕様を二重管理しないため、`docs/index.html` へ案内するだけにする。
@@ -52,6 +53,7 @@
 - `tests/commands/clip-cache-sync.test.ts`: クリップ全期間走査用の日付窓、直近同期、完了済み期間スキップ、日次再走査の配信中スキップと削除済みClip無効化を検証。
 - `tests/commands/stream-notify.test.ts`: `!streamnotify` 用の管理者判定、現在配信中/オフライン/Discord投稿失敗時の結果を検証。
 - `tests/streams/stream-summary.test.ts`: 配信終了まとめの整形、Discordスレッドへのライブ/終了時クリップ投稿、開始通知スレッド補完、終了時スレッドクローズ、投稿途中再開時の重複回避を検証。
+- `tests/streams/stream-summary-count-buffer.test.ts`: 配信まとめコメント数更新の30秒デバウンス、flush、Raid即時反映、posted/no-state時のスキップを検証。
 - `tests/streams/stream-summary-state-store.test.ts`: 配信まとめ状態JSONの保存・復元・投稿済み更新を検証。
 - `tests/notifications/discord-webhook.test.ts`: Discord Webhookの `wait` / `thread_id` 付与、Bot Tokenによるメッセージ投稿、メッセージスレッド作成、スレッドアーカイブを検証。
 - `tests/notifications/stream-notifications.test.ts`: TypeScript版配信開始通知の本文生成と、配信URL行を含めつつ保存タイトルはタイトル単体に保つことを検証。
@@ -103,6 +105,11 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-06 作業ログ
+- 追加指摘: 前回はドキュメント中心で、ソースコード側の性能レビュー反映が不足していた
+- TDD: `tests/streams/stream-summary-count-buffer.test.ts` を追加し、コメント数更新の30秒デバウンス、flush、Raid即時反映、state無し/posted時スキップを先に定義して未実装失敗を確認
+- 実装: `src/streams/stream-summary-count-buffer.ts` を追加。`src/bot.ts` の通常コメント受信時は配信まとめstate JSONを即時保存せず30秒デバウンスし、Raid受信・停止・配信終了時は即時flushするよう変更
+- ドキュメント: README、`docs/index.html`、補助Markdownへ、配信まとめコメント数保存のデバウンス仕様と性能レビュー反映を追記
+- 検証: `npm test -- --run tests/streams/stream-summary-count-buffer.test.ts` 5件、`npm test` 136件、`npm run build`、`npm run lint` が通過
 - 要望: パフォーマンスチェック、テスト、コードレビュー、仕様書整合性チェックのループを行い、TS版だけの仕様書に統合し、GitHub Pagesを子供にも分かりやすい図解デザインへ改善したい
 - 調査: 公開URL `https://jinwktk.github.io/twitchRaid/` は配信通知/クリップ特化、`typescript-bot-spec.html` はTS版全体仕様で、二重管理と未記載機能が混在していた。README/AGENTS/Markdown設計資料にも旧Python前提や2ページ併存説明が残っていた
 - レビュー反映: Raid元配信情報チャット投稿、shoutout 429キュー、Clip APIフォールバックの実運用最大200件、manga返信10秒削除、手動通知のstate優先マージ、Bot API失敗時Webhookフォールバック、Clip削除反映、Boomの30日/4並列/5分キャッシュを仕様書へ明記

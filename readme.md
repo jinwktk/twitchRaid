@@ -94,6 +94,7 @@ npm run dev         # ts-nodeで開発実行
 - 配信開始通知が漏れた場合は、管理者が `!streamnotify` を実行すると現在の配信情報でDiscordへ手動送信する。通常のタイトル重複スキップは通さない
 - 直前に通知したタイトルと同一 (`LAST_STREAM_TITLE`) の場合は通知をスキップ
 - 配信開始中は `STREAM_SUMMARY_STATE_PATH` に stream id / タイトル / ゲーム名 / 開始時刻 / コメント数 / Raid数を保存
+- 通常コメントによる配信まとめコメント数更新は30秒デバウンスでJSON保存し、Raid受信・停止・配信終了時は即時flushして取りこぼしを防ぐ
 - `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` がある場合、配信開始通知メッセージからDiscordスレッドを作成し、そのスレッドIDを保存する
 - 同一タイトルで開始通知がスキップされた再起動ケースでも、保存済み開始通知メッセージIDがあれば重複投稿せずスレッド作成だけを再試行する。開始通知メッセージIDも無い場合は開始通知を1回投稿してスレッドIDを保存する
 - `!streamnotify` で手動送信した場合は、新しく送った通知投稿の `startMessageId` / `threadId` を既存stateより優先し、その通知投稿から作成したスレッドへ以後のクリップと終了まとめを集約する
@@ -175,6 +176,7 @@ src/
 │   ├── discord-webhook.ts         # Discord Bot/Webhook/Thread
 │   └── stream-notifications.ts    # 配信開始通知本文
 ├── streams/
+│   ├── stream-summary-count-buffer.ts # コメント数/Raid数のデバウンス保存
 │   ├── stream-summary-state-store.ts
 │   └── stream-summary.ts          # 配信まとめ/Clip投稿/スレッド保証
 └── utils/
@@ -186,6 +188,7 @@ src/
 ```
 
 ## 更新履歴
+- **2026-06-06**: ソース側の性能レビュー反映として、通常コメント1件ごとの配信まとめstate JSON同期書き込みを廃止。`StreamSummaryCountBuffer` で30秒デバウンスし、Raid/停止/配信終了時は即時flushするよう変更
 - **2026-06-06**: GitHub Pagesの仕様書を `docs/index.html` に一本化し、`docs/typescript-bot-spec.html` は統合先への案内ページへ変更。図解中心のTypeScript版総合仕様書として、配信通知、Clip同期、Raid情報、shoutoutキュー、Boom集計、フォールバック、品質ゲートを追記
 - **2026-06-06**: PM2プロセス名の記述を本番運用に合わせて `twitchRaid` に統一
 - **2026-06-06**: 配信開始通知が漏れた時の復旧用に、管理者限定の `!streamnotify` コマンドを追加
