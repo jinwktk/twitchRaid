@@ -116,6 +116,7 @@
 - 安全策: Ollamaが英語/中国語など日本語かなを含まない返答をした場合は紹介文を送らない。モデルが本文先頭にユーザー名を含めた場合は、チャット側で付ける `@ユーザー さん紹介D！` と重複しないよう先頭ユーザー名だけ除去する
 - ドキュメント: README、`docs/index.html`、AGENTSにOllama紹介文の設定、失敗時フォールバック、ファイル構成を追記
 - 検証: `npm test -- --run tests/commands/shoutout-introduction.test.ts` 6件、`npm test` 143件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認が通過。サブPC上のNode fetchからOllama `qwen2.5:7b` へUTF-8で実リクエストし、日本語紹介文応答を確認
+- 本番反映: サブPC `E:\GitHub\twitchRaid` は `main...origin/main` 最新、`npm run build` 通過。`.env.bak-ollama-shoutout-20260607023954` を作成し、`OLLAMA_SHOUTOUT_ENABLED=true`、`OLLAMA_BASE_URL=http://127.0.0.1:11434`、`OLLAMA_SHOUTOUT_MODEL=qwen2.5:7b`、`OLLAMA_SHOUTOUT_TIMEOUT_MS=8000`、`OLLAMA_SHOUTOUT_KEEP_ALIVE=5m` を追加/更新。`pm2 restart twitchRaid --update-env` 後、PM2 `twitchRaid` と `ollama` が online、起動ログに新規致命エラーなしを確認
 - 不具合報告: 配信開始通知がDiscordへ2通流れている
 - 原因: 通常の配信開始通知を投稿した直後にスレッド作成が失敗すると、同じ開始処理内のスレッド補完が保存済み `startMessageId` からの再スレッド化に失敗し、新しい開始通知を投稿し直す経路に入っていた
 - TDD: `tests/streams/stream-summary.test.ts` に、再投稿禁止時は保存済み `startMessageId` からスレッド作成できなくても置き換え開始通知を投稿しないテストを追加し、未実装失敗を確認
