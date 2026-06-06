@@ -68,6 +68,7 @@ npm run dev         # ts-nodeで開発実行
 | `!speed` | コメント風速を表示（直近60秒＋配信全体平均） | コマンドは計測対象外 |
 | `!commentcount` | 配信開始からの累計コメント件数を表示 | 再起動後も引き継ぎ |
 | `!boom` | 過去30日間で1時間以上遊んだゲーム別トータル時間と総配信時間を表示 | VODチャプター情報を集計 |
+| `!streamnotify` | 現在の配信開始通知をDiscordへ手動送信 | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ |
 
 ## .env保護
 - `.env` の更新は `env-store.ts` で実行し、更新前に `.env.backup` を作成
@@ -83,6 +84,7 @@ npm run dev         # ts-nodeで開発実行
 ## 配信通知仕様
 - 配信開始検知時に Discord Bot API で通知（Bot設定が無い場合、またはBot API投稿が失敗した場合はWebhookへフォールバック）
 - 配信開始通知はタイトルに続けて `🔴 配信URL: https://www.twitch.tv/rukalun` を含める
+- 配信開始通知が漏れた場合は、管理者が `!streamnotify` を実行すると現在の配信情報でDiscordへ手動送信する。通常のタイトル重複スキップは通さない
 - 直前に通知したタイトルと同一 (`LAST_STREAM_TITLE`) の場合は通知をスキップ
 - 配信開始中は `STREAM_SUMMARY_STATE_PATH` に stream id / タイトル / ゲーム名 / 開始時刻 / コメント数 / Raid数を保存
 - `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` がある場合、配信開始通知メッセージからDiscordスレッドを作成し、そのスレッドIDを保存する
@@ -170,6 +172,7 @@ src/
 ```
 
 ## 更新履歴
+- **2026-06-06**: 配信開始通知が漏れた時の復旧用に、管理者限定の `!streamnotify` コマンドを追加
 - **2026-06-06**: 配信開始通知へ `🔴 配信URL: https://www.twitch.tv/rukalun` の表示を復元
 - **2026-06-06**: サブPC本番ログで配信開始通知が `Discord bot message failed: 403` により停止していたことを確認。`DISCORD_WEBHOOK_URL` が設定済みだったため、配信開始通知・配信終了まとめ・配信中クリップ投稿でBot API失敗時にWebhookへフォールバックするよう修正
 - **2026-06-02**: 配信終了まとめを追加。配信中状態をJSONに保持し、再起動後も未投稿まとめを復元してDiscordへ再試行。クリップはまとめメッセージのDiscordスレッドへ投稿可能
