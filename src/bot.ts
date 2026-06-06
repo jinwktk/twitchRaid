@@ -44,12 +44,10 @@ import {
 } from "./commands/shoutout";
 import {
   fetchRaidSourceInfo,
-  formatRaidSourceInfoMessage,
   type RaidSourceInfo,
 } from "./commands/raid-info";
 import {
-  formatShoutoutIntroductionMessage,
-  generateShoutoutIntroduction,
+  buildRaidGreetingMessage,
 } from "./commands/shoutout-introduction";
 import {
   isStreamNotifyAdmin,
@@ -290,13 +288,9 @@ export class Bot {
         `Raid detected from ${user}. Viewers: ${raidInfo.viewerCount}. Sending shoutout.`
       );
       this._incrementStreamSummaryRaid();
-      const sourceInfo = await this._sendRaidSourceInfo(channel, user);
+      const sourceInfo = await this._fetchRaidSourceInfo(user);
       this._enqueueRaidShoutout(user);
-      void this._sendOllamaShoutoutIntroduction(
-        channel,
-        sourceInfo,
-        raidInfo.viewerCount
-      );
+      await this._sendRaidGreeting(channel, sourceInfo, raidInfo.viewerCount);
     });
   }
 
@@ -744,8 +738,7 @@ export class Bot {
     }
   }
 
-  private async _sendRaidSourceInfo(
-    channel: string,
+  private async _fetchRaidSourceInfo(
     username: string
   ): Promise<RaidSourceInfo> {
     const fallbackUserName = username.trim().replace(/^@+/, "").toLowerCase();
@@ -762,50 +755,35 @@ export class Bot {
       logger.error(`❌ Raid元配信情報の取得に失敗しました: ${e}`);
     }
 
-    try {
-      await this.chatClient.say(channel, formatRaidSourceInfoMessage(info));
-    } catch (sendErr) {
-      logger.error(`❌ Raid元配信情報の送信に失敗しました: ${sendErr}`);
-    }
-
     return info;
   }
 
-  private async _sendOllamaShoutoutIntroduction(
+  private async _sendRaidGreeting(
     channel: string,
     info: RaidSourceInfo,
     viewerCount: number
   ): Promise<void> {
-    if (!this.config.ollamaShoutoutEnabled) return;
-    if (!this.config.ollamaShoutoutModel) {
+    if (this.config.ollamaShoutoutEnabled && !this.config.ollamaShoutoutModel) {
       logger.warn(
-        "⚠️ Ollama shoutout紹介文は有効ですが OLLAMA_SHOUTOUT_MODEL が未設定です。"
+        "⚠️ Ollama Raid挨拶文は有効ですが OLLAMA_SHOUTOUT_MODEL が未設定です。固定文で送信します。"
       );
-      return;
-    }
-
-    const intro = await generateShoutoutIntroduction({
-      info,
-      viewerCount,
-      enabled: this.config.ollamaShoutoutEnabled,
-      baseUrl: this.config.ollamaBaseUrl,
-      model: this.config.ollamaShoutoutModel,
-      timeoutMs: this.config.ollamaShoutoutTimeoutMs,
-      keepAlive: this.config.ollamaShoutoutKeepAlive,
-    });
-
-    if (!intro) {
-      logger.warn(`⚠️ Ollama shoutout紹介文を生成できませんでした: ${info.userName}`);
-      return;
     }
 
     try {
-      await this.chatClient.say(
-        channel,
-        formatShoutoutIntroductionMessage(info, intro)
-      );
+      const message = await buildRaidGreetingMessage({
+        info,
+        viewerCount,
+        enabled:
+          this.config.ollamaShoutoutEnabled &&
+          Boolean(this.config.ollamaShoutoutModel),
+        baseUrl: this.config.ollamaBaseUrl,
+        model: this.config.ollamaShoutoutModel,
+        timeoutMs: this.config.ollamaShoutoutTimeoutMs,
+        keepAlive: this.config.ollamaShoutoutKeepAlive,
+      });
+      await this.chatClient.say(channel, message);
     } catch (sendErr) {
-      logger.error(`❌ Ollama shoutout紹介文の送信に失敗しました: ${sendErr}`);
+      logger.error(`❌ Raid挨拶文の送信に失敗しました: ${sendErr}`);
     }
   }
 

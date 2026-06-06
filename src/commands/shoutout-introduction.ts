@@ -1,6 +1,9 @@
-import type { RaidSourceInfo } from "./raid-info";
+import {
+  formatRaidSourceInfoMessage,
+  type RaidSourceInfo,
+} from "./raid-info";
 
-export interface GenerateShoutoutIntroductionOptions {
+export interface GenerateRaidGreetingMessageOptions {
   info: RaidSourceInfo;
   viewerCount?: number;
   enabled: boolean;
@@ -17,17 +20,17 @@ interface OllamaGenerateResponse {
 }
 
 const TWITCH_CHAT_MESSAGE_LIMIT = 500;
-const INTRO_BODY_LIMIT = 220;
 const DEFAULT_OLLAMA_TEMPERATURE = 0.8;
 const DEFAULT_OLLAMA_NUM_PREDICT = 80;
 
-const SHOUTOUT_INTRO_SYSTEM_PROMPT = [
-  "あなたはTwitch配信者を短く楽しく紹介する日本語アシスタントです。",
+const RAID_GREETING_SYSTEM_PROMPT = [
+  "あなたはTwitch Raidへのお礼文を短く楽しく作る日本語アシスタントです。",
   "Output Japanese only. Do not answer in English or Chinese.",
   "必ず日本語だけで返答し、ひらがなかカタカナを含めてください。",
   "与えられた情報だけを使い、知らない内容は作らないでください。",
-  "返答は1文だけ。説明、URL、ハッシュタグ、引用符、前置き、箇条書きは禁止です。",
-  "語尾は少し明るく、必要なら「D！」を使ってください。",
+  "返答は1通のTwitchチャット投稿だけ。説明、ハッシュタグ、引用符、前置き、箇条書きは禁止です。",
+  "必ずRaidのお礼、相手のユーザー名、配信情報または取得できなかったこと、チャンネルURLを含めてください。",
+  "口調は「レイドありがとうD！！」に近い明るい雰囲気にしてください。",
 ].join("\n");
 
 function normalizeLoginName(userName: string): string {
@@ -43,6 +46,22 @@ function shorten(value: string, maxLength: number): string {
   return `${value.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
+function shortenKeepingUrl(
+  value: string,
+  streamUrl: string,
+  maxLength: number
+): string {
+  if (value.length <= maxLength) return value;
+
+  const urlIndex = value.indexOf(streamUrl);
+  if (urlIndex < 0) return shorten(value, maxLength);
+
+  const beforeUrl = value.slice(0, urlIndex).trimEnd();
+  const reservedLength = streamUrl.length + 3;
+  const maxBeforeLength = Math.max(0, maxLength - reservedLength);
+  return `${beforeUrl.slice(0, maxBeforeLength).trimEnd()}${streamUrl}...`;
+}
+
 function stripWrappingQuotes(value: string): string {
   return value.replace(/^[`"'「『]+/, "").replace(/[`"'」』]+$/, "").trim();
 }
@@ -51,15 +70,23 @@ function includesJapaneseKana(value: string): boolean {
   return /[\u3040-\u30ff]/.test(value);
 }
 
-function normalizeGeneratedIntro(value: string): string | null {
+function normalizeGeneratedGreeting(value: string): string | null {
   const normalized = stripWrappingQuotes(singleLine(value));
   if (!normalized) return null;
   if (!includesJapaneseKana(normalized)) return null;
-  return shorten(normalized, INTRO_BODY_LIMIT);
+  return normalized;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function includesUserName(value: string, userName: string): boolean {
+  return new RegExp(`@?${escapeRegExp(userName)}\\b`, "i").test(value);
 }
 
 function removeLeadingUserName(value: string, userName: string): string {
-  const escapedUserName = userName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escapedUserName = escapeRegExp(userName);
   return value
     .replace(
       new RegExp(`^@?${escapedUserName}\\s*(?:さん|氏)?\\s*(?:の|は|:|：|、)?\\s*`, "i"),
@@ -68,11 +95,28 @@ function removeLeadingUserName(value: string, userName: string): string {
     .trim();
 }
 
+function ensureUserMention(value: string, userName: string): string {
+  if (includesUserName(value, userName)) return value;
+
+  const raidThanks = "レイドありがとうD！！";
+  if (value.startsWith(raidThanks)) {
+    const rest = value.slice(raidThanks.length).trim();
+    return `${raidThanks} @${userName} さん、${rest}`;
+  }
+
+  return `レイドありがとうD！！ @${userName} さん、${value}`;
+}
+
+function ensureStreamUrl(value: string, streamUrl: string): string {
+  if (value.includes(streamUrl)) return value;
+  return `${value} チャンネルはこD→${streamUrl}`;
+}
+
 function buildOllamaGenerateUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/api/generate`;
 }
 
-function buildShoutoutIntroductionPrompt(
+function buildRaidGreetingPrompt(
   info: RaidSourceInfo,
   viewerCount?: number
 ): string {
@@ -84,17 +128,33 @@ function buildShoutoutIntroductionPrompt(
       : "不明";
 
   return [
-    "次のTwitch配信者を、配信に遊びに来た人へ紹介する短い文章を作ってください。",
+    "次のRaidに対して、Twitchチャットへ送る1通のRaid挨拶文を作ってください。",
     `ユーザー名: ${info.userName}`,
     `ゲーム: ${gameName}`,
     `配信タイトル: ${title}`,
     `Raid人数: ${viewers}`,
-    "条件: 80文字以内、日本語、1文、事実だけ、チャンネルURLは書かない。",
-    "最終的な紹介文だけを返してください。説明は不要です。",
+    `チャンネルURL: ${info.streamUrl}`,
+    "条件: 250文字以内、日本語、1通、事実だけ、チャンネルURLを必ず最後の方に入れる。",
+    "タイトル/ゲームが不明なら、配信情報は取得できなかったと正直に書いてください。",
+    "完成したRaid挨拶文だけを返してください。説明は不要です。",
   ].join("\n");
 }
 
-export async function generateShoutoutIntroduction({
+export function formatGeneratedRaidGreetingMessage(
+  info: RaidSourceInfo,
+  generated: string
+): string | null {
+  const userName = normalizeLoginName(info.userName);
+  const normalized = normalizeGeneratedGreeting(generated);
+  if (!normalized) return null;
+
+  const withoutDuplicateLead = removeLeadingUserName(normalized, userName);
+  const withUser = ensureUserMention(withoutDuplicateLead, userName);
+  const withUrl = ensureStreamUrl(withUser, info.streamUrl);
+  return shortenKeepingUrl(withUrl, info.streamUrl, TWITCH_CHAT_MESSAGE_LIMIT);
+}
+
+export async function generateRaidGreetingMessage({
   info,
   viewerCount,
   enabled,
@@ -103,7 +163,7 @@ export async function generateShoutoutIntroduction({
   timeoutMs,
   keepAlive,
   fetchImpl = fetch,
-}: GenerateShoutoutIntroductionOptions): Promise<string | null> {
+}: GenerateRaidGreetingMessageOptions): Promise<string | null> {
   const trimmedModel = model.trim();
   if (!enabled || !trimmedModel) return null;
 
@@ -113,8 +173,8 @@ export async function generateShoutoutIntroduction({
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model: trimmedModel,
-        system: SHOUTOUT_INTRO_SYSTEM_PROMPT,
-        prompt: buildShoutoutIntroductionPrompt(info, viewerCount),
+        system: RAID_GREETING_SYSTEM_PROMPT,
+        prompt: buildRaidGreetingPrompt(info, viewerCount),
         stream: false,
         keep_alive: keepAlive,
         options: {
@@ -129,22 +189,17 @@ export async function generateShoutoutIntroduction({
 
     const body = (await response.json()) as OllamaGenerateResponse;
     if (typeof body.response !== "string") return null;
-    return normalizeGeneratedIntro(body.response);
+    return formatGeneratedRaidGreetingMessage(info, body.response);
   } catch {
     return null;
   }
 }
 
-export function formatShoutoutIntroductionMessage(
-  info: RaidSourceInfo,
-  intro: string
-): string {
-  const userName = normalizeLoginName(info.userName);
-  const body =
-    normalizeGeneratedIntro(removeLeadingUserName(intro, userName)) ??
-    "遊びに行ってみてD！";
-  return shorten(
-    `@${userName} さん紹介D！${body}`,
-    TWITCH_CHAT_MESSAGE_LIMIT
+export async function buildRaidGreetingMessage(
+  options: GenerateRaidGreetingMessageOptions
+): Promise<string> {
+  return (
+    (await generateRaidGreetingMessage(options)) ??
+    formatRaidSourceInfoMessage(options.info)
   );
 }
