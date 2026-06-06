@@ -1,85 +1,73 @@
-# コマンド仕様書
+# TypeScript版コマンド仕様
 
-## チャットコマンド一覧
+正本の仕様書は `docs/index.html` です。このMarkdownはチャットコマンド確認用の補助資料です。
 
-### 基本コマンド
+## 基本コマンド
 
-| コマンド | 機能 | 詳細 |
-|---------|------|------|
-| `!age` | 年齢表示 | 1982年8月14日生まれ基準で現在の年齢を計算 |
-| `!goods` | グッズURL表示 | https://rukalun.booth.pm を送信 |
-| `!weight` | ランダム体重 | 15〜200kgの範囲でランダム生成（ネタ枠） |
-| `!height` | ランダム身長 | 120〜220cmの範囲でランダム生成（ネタ枠） |
-| `!mood` | 今日の気分 | 15種類（絶好調、眠い、お腹すいた等）からランダム選択 |
-| `!menu` | おすすめメニュー | 70種類以上の料理名からランダム選択 |
+| コマンド | 機能 | 備考 |
+|---|---|---|
+| `!age` | 年齢を表示 | `src/commands/age.ts` |
+| `!goods` | グッズ販売ページURLを表示 | `https://rukalun.booth.pm` |
+| `!weight` | ランダム体重を表示 | 15から200kg |
+| `!height` | ランダム身長を表示 | 120から220cm |
+| `!mood` | 今日の気分を表示 | ランダム |
+| `!menu` | おすすめメニューを表示 | ランダム |
 
-### クリップコマンド
+## Clipコマンド
 
 | コマンド | 機能 | クールダウン |
-|---------|------|------------|
-| `!clip` | 過去のクリップをランダム表示 | 一般: 30分 / 特別ユーザー: なし |
-| `!myclip` | 自分が作成したクリップをランダム表示 | 一般: 30分（`!clip`とは独立管理） |
+|---|---|---|
+| `!clip` | 過去Clipをランダム表示 | 一般ユーザー30分、特別ユーザーなし |
+| `!myclip` | 実行者が作成したClipをランダム表示 | `!clip` とは独立して30分 |
 
-#### クールダウン仕様
+- 特別ユーザーは `.env` の `CLIP_SPECIAL_USERS` で管理する。既定値は `nyme_ia,rukalun`。
+- 通常は `data/clips.sqlite` のキャッシュから選ぶ。
+- キャッシュ未準備時のみTwitch APIへフォールバックする。実運用のコマンド経路では最大200件、低レベル関数の既定値は最大1000件。
+- 表示履歴は `clip_history` に保存し、`!clip` と `!myclip:<ユーザー>` ごとに重複を避ける。
+- 削除/非公開化でTwitch APIから返らなくなったClipは、日次再走査で `unavailable_at` を付けて候補から外す。
 
-- **特別ユーザー**: `.env`の`CLIP_SPECIAL_USERS`で定義（デフォルト: `nyme_ia,rukalun`）
-- **リキャスト通知**: 一般ユーザーがクールダウン中に使用した場合、30分後にチャットで復帰通知
-- **状態永続化**: `LAST_CLIP_TIME` / `LAST_MYCLIP_TIME`を`.env`に保存し再起動後も引き継ぎ
-
-#### `!myclip`の制限事項
-
-- Twitch APIの`Get Clips`は作成者での直接フィルタに非対応
-- Bot側で最大100件取得→作成者名/IDで一致を抽出
-- 作成者の一致判定: `creator_id`優先、なければ`creator_name`で比較
-
-### 漫画コマンド
+## mangaコマンド
 
 | コマンド | 機能 | 権限 |
-|---------|------|------|
-| `!manga` | DLsite日間ランキングからランダム1作品表示 | `MANGA_COMMAND_ENABLED`がON時のみ |
-| `!mangaon` | `!manga`コマンドを有効化 | 管理者のみ |
-| `!mangaoff` | `!manga`コマンドを無効化 | 管理者のみ |
+|---|---|---|
+| `!manga` | DLsiteがるまに日間ランキングからランダム1作品を表示 | `MANGA_COMMAND_ENABLED=true` の時のみ |
+| `!mangaon` | `!manga` をONにする | broadcaster / mod / `MANGA_ADMIN_USERS` |
+| `!mangaoff` | `!manga` をOFFにする | broadcaster / mod / `MANGA_ADMIN_USERS` |
 
-#### manga仕様詳細
+- `!manga` の返信はBot APIで送信できた場合、10秒後にTwitch chat message delete APIで削除する。
+- Bot API送信に失敗した場合は `chatClient.say` へフォールバックする。
 
-- **データソース**: `https://www.dlsite.com/girls/ranking/day`をスクレイピング
-- **管理者判定**: モデレーター / 配信者 / `.env`の`MANGA_ADMIN_USERS`に含まれるユーザー
-- **自動削除**: 送信5秒後に自動削除
-  - 優先: `send_chat_message` API → `message_id`で`delete_chat_message`
-  - フォールバック: `ctx.send` → echoメッセージの`message_id`取得 → `/delete`コマンド
-- **状態永続化**: `MANGA_COMMAND_ENABLED`（0/1）を`.env`に保存
+## 統計コマンド
 
-### 統計コマンド
+| コマンド | 機能 | 備考 |
+|---|---|---|
+| `!speed` | 直近60秒のコメント風速と配信全体平均を表示 | コマンドは計測対象外 |
+| `!commentcount` | 配信開始からの累計コメント件数を表示 | 再起動後も復元 |
+| `!boom` | 過去30日間のゲーム別配信時間と総配信時間を表示 | 1時間以上のゲームを最大6件 |
 
-| コマンド | 機能 | 詳細 |
-|---------|------|------|
-| `!speed` | コメント風速表示 | 直近60秒のコメント/分 + 配信全体の平均コメント/分 |
-| `!commentcount` | 累計コメント件数 | 配信開始からの合計（再起動後も引き継ぎ） |
+- `!boom` はTwitch VODチャプターをGraphQLで取得する。
+- VOD単位の取得は最大4本並列。
+- 結果は5分間メモリキャッシュする。
+- 長文読み上げを避けるため、返却文頭に `!` を付ける。
 
-#### 計測仕様
+## 管理・復旧コマンド
 
-- コマンドメッセージ（`!`で始まるもの）は計測対象外
-- `CommentSpeedMeter`: 60秒ウィンドウのデック + 配信全体カウンタ
-- 状態は`.env`に永続化（`comment_state_store.py`経由）
+| コマンド | 機能 | 権限 |
+|---|---|---|
+| `!shoutout <ユーザー名>` | 指定ユーザーへ手動shoutout | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` |
+| `!streamnotify` | 現在の配信開始通知をDiscordへ強制送信 | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` |
 
-## 自動機能
+- `!streamnotify` は `LAST_STREAM_TITLE` の重複スキップを通さない。
+- 手動通知で得た `startMessageId` / `threadId` は既存の配信まとめstateより優先する。
+- `!shoutout` とRaid自動shoutoutはBot/Moderatorユーザーコンテキストで実行する。
+- Raid自動shoutoutはキューで直列化し、429時は同じ対象をキュー先頭へ戻して2分後に再実行する。
 
-### レイド自動シャウトアウト
+## Raid時の自動チャット
 
-- `event_raw_usernotice`でレイドイベントを検知
-- `tags['msg-id'] == 'raid'`を判定
-- `send_a_shoutout` APIで自動シャウトアウト実行
-- 認証エラー時は1回だけトークンリフレッシュ後にリトライ
+Raid検知時は `src/commands/raid-info.ts` でRaid元の配信URL、タイトル、ゲーム名を取得し、次の形式でチャットへ投稿する。
 
-### 配信開始Discord通知
+```text
+レイドありがとうD！！ @ユーザー さんは、「ゲーム名」で「配信タイトル」をしてたD！お疲れ様D！チャンネルはこD→URL
+```
 
-- 180秒間隔で配信状態を監視
-- 配信開始検知時、タイトルが前回通知と異なる場合のみDiscord Webhookで通知
-- 通知メッセージ: `{タイトル}\n🔴 配信URL: https://www.twitch.tv/rukalun`
-- `LAST_STREAM_TITLE`を`.env`に保存し重複通知を防止
-
-### Git自動更新＆再起動
-
-- 10分間隔で`git fetch` → `rev-list`で差分確認
-- 更新あり → `git pull` → 24時間クールダウン考慮 → プロセス再起動
-- 24時間間隔の定期再起動（保留中の更新がある場合も再起動）
+配信情報が取得できない場合でも、チャンネルURL付きのフォールバック文を送信する。

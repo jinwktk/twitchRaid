@@ -11,9 +11,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "pm2:start": "pm2 start ecosystem.config.js",
-    "pm2:stop": "pm2 stop twitchRaidBot",
-    "pm2:restart": "pm2 restart twitchRaidBot",
-    "pm2:logs": "pm2 logs twitchRaidBot"
+    "pm2:stop": "pm2 stop twitchRaid",
+    "pm2:restart": "pm2 restart twitchRaid",
+    "pm2:logs": "pm2 logs twitchRaid"
   },
   "dependencies": {
     "@twurple/api": "^7.2.0",

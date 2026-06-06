@@ -1,7 +1,11 @@
 # Repository Guidelines
 
 ## プロジェクト構成とモジュール配置
-- `main.py`: Twitch 配信監視と Discord 通知を統括するエントリーポイント。Bot 設定、ログ収集、Git 自動更新を内包。
+- 現行運用対象は TypeScript版のみ。仕様書の正本は `docs/index.html`。
+- `src/index.ts`: TypeScript版のエントリーポイント。設定読み込み、Git更新監視、定期再起動監視、Twitch token検証、Bot起動、Graceful shutdownを担当。
+- `src/bot.ts`: TypeScript版Bot本体。Twurple ChatClientイベント、チャットコマンド分岐、配信監視、Raid処理、Clip同期後投稿、配信まとめ接続を担当。
+- `src/config.ts`: `.env` からTwitch/Discord/DB/state/管理者/クールダウン設定を読み込み、必要な状態更新を `env-store.ts` 経由で保存する。
+- `main.py`: 旧Python版エントリーポイント。過去資産・互換テスト用に残すが、現行仕様や本番運用の正本ではない。
 - `clip_selector.py`: クリップ一覧取得と、必要に応じた作成者絞り込み後のランダム選択を担当。
 - `command_cooldown_state.py`: `clip` / `myclip` のクールダウン時刻をコマンド別に管理。
 - `manga_selector.py`: DLsite がるまに日間ランキングから作品タイトルを抽出し、ランダム選択するロジックを担当。
@@ -21,8 +25,10 @@
 - `src/commands/stream-notify.ts`: TypeScript版 `!streamnotify` の管理者判定と、現在配信中の開始通知をDiscordへ手動送信するためのライブ状態取得ヘルパー。
 - `src/streams/stream-summary.ts`: 配信終了まとめの表示文言作成、Discord Bot API/Webhook投稿、開始通知/まとめメッセージからのスレッド作成、ライブクリップURL投稿、終了時スレッドクローズを担当。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
-- `docs/index.html`: 配信通知、配信まとめスレッド、クリップ検知、配信終了まとめの技術設計をGitHub Pages向けに可視化したHTML設計書。
-- `docs/typescript-bot-spec.html`: 現行TypeScript版 `src/` を中心に、Twitch Botのプログラム概要、機能一覧、処理フロー、依存関係、エラーハンドリングを図付きでまとめたHTML仕様書。
+- `docs/index.html`: 現行TypeScript版 `src/` を中心に、Twitch Botのプログラム概要、機能一覧、処理フロー、配信まとめ、Clip同期、Raid対応、フォールバック、性能・運用、品質ゲートを図付きでまとめたGitHub Pages用HTML仕様書。
+- `docs/typescript-bot-spec.html`: 旧URL互換ページ。仕様を二重管理しないため、`docs/index.html` へ案内するだけにする。
+- `docs/ARCHITECTURE.md` / `docs/COMMANDS.md` / `docs/DESIGN_PATTERNS.md` / `docs/TECH_STACK.md`: `docs/index.html` を正本とするTypeScript版補助資料。
+- `ecosystem.config.js`: PM2プロセス定義。プロセス名は本番運用に合わせて `twitchRaid`。
 - `.github/workflows/pages.yml`: `docs/` をGitHub Pagesへ公開するGitHub Actions workflow。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
@@ -54,22 +60,27 @@
 ## ビルド・テスト・開発コマンド
 - `python -m venv venv && source venv/bin/activate`: Linux/Mac の仮想環境作成と有効化。Windows は `venv\Scripts\activate` を使用。
 - `pip install -r requirements.txt`: 依存パッケージをローカル環境に導入。
-- `python main.py`: Bot を前景で起動。手動停止時は `Ctrl+C`。
-- `pytest -q`: テストが追加された後の標準実行。CI 導入前でもローカルで失敗確認を徹底。
+- `python main.py`: 旧Python版の前景起動。現行本番の起動手順ではない。
+- `python -m pytest -q`: 旧Python互換モジュールの破損検知として実行。
 - `npm test`: TypeScript版の Vitest ユニットテストを実行。
 - `npm run build`: TypeScript版を `dist/` へビルドし、型エラーを確認。
+- `npm run lint`: TypeScript版 `src/` のESLintを実行。
+- `npm run pm2:start` / `npm run pm2:restart` / `npm run pm2:logs`: PM2プロセス `twitchRaid` の起動・再起動・ログ確認。
 - Node.js は `node:sqlite` を使用するため 22.5 以上が必要。
 
 ## 運用ルール
 - Botは主にサブPCで稼働するため、ログ確認依頼ではローカル作業PCだけで判断しない。必ずサブPC側のPM2ログ、`logs/bot_YYYY-MM-DD.log`、関連するSQLite DB（例: `data/clips.sqlite`）の有無と更新時刻を確認する。
 
 ## コーディングスタイルと命名規約
+- TypeScript版が現行正本。TypeScriptは既存のESLint/tsconfigに従い、関数・変数は `camelCase`、クラス・型は `PascalCase`、ファイルは既存の kebab-case に合わせる。
+- 外部API失敗はログ化し、可能なフォールバックを通してBot全体を止めない。Discord投稿、Raid情報取得、Clip同期、token更新は特にこの方針を守る。
 - Python 3 系、PEP 8 準拠、インデントはスペース 4 個。関数名・変数名は `snake_case`、クラス名は `PascalCase`。
 - Docstring は日本語で要約 → 実装ノートの順に記述。外部 API 名は英語表記を保持。
 - フォーマッタは未バンドル。`pip install black isort` 後に `black .` と `isort .` を推奨。ログメッセージは INFO 基調で事実を簡潔に記録。
 
 ## テスト指針
-- 新機能はまず `tests/` 配下に `test_<機能>.py` を作成し、期待値を `pytest` 形式で定義。
+- TypeScript新機能はまず `tests/` 配下に `*.test.ts` を作成し、期待値をVitest形式で定義。
+- Python互換モジュールを触る場合は `tests/test_<機能>.py` を作成し、期待値を `pytest` 形式で定義。
 - Twitch や Discord など外部依存は `unittest.mock` または `pytest-mock` を用いてスタブ化。実トークンは `.env` から分離。
 - エッジケース: トークン期限切れ、API エラー、ログファイル書き込み失敗などを必ず網羅。
 - カバレッジ 80% 以上を目安。足りない場合はリファクタリング前に欠落分のテストを追加。
@@ -81,7 +92,7 @@
 - main へ直接 push しない。レビュー向けには小さな論理単位でブランチを切り、CI テスト (将来導入) の結果を添付。
 
 ## 設定とセキュリティ Tips
-- `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS`, 任意で `TWITCH_GQL_CLIENT_ID` を定義。更新は `Config.update_*` が担当。
+- `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `DISCORD_BOT_TOKEN`, `DISCORD_SUMMARY_CHANNEL_ID`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `LAST_STREAM_TITLE`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS`, 任意で `TWITCH_GQL_CLIENT_ID`, `TWITCH_CLIP_CACHE_DB_PATH`, `STREAM_SUMMARY_STATE_PATH`, `STREAM_SUMMARY_MAX_CLIPS`, `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED` を定義。更新は `Config.update*` と `env-store.ts` が担当。
 - クリップキャッシュは任意で `TWITCH_CLIP_CACHE_DB_PATH` を使用。未設定時は `data/clips.sqlite` を使い、ローカル状態として Git 管理外。
 - Clip全期間バックフィルは通常起動時は完了済み期間をスキップする。配信していない時間に1日1回だけ全期間を再走査し、Twitch APIから返らなくなったClipは `clip_cache.unavailable_at` を設定して `!clip` / `!myclip` / 配信まとめ候補から除外する。再走査の最終時刻は `clip_sync_state.daily_reconcile_at` に保存する。
 - 配信まとめ状態は任意で `STREAM_SUMMARY_STATE_PATH` を使用。未設定時は `data/stream-summary-state.json` を使い、ローカル状態として Git 管理外。
@@ -92,6 +103,14 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-06 作業ログ
+- 要望: パフォーマンスチェック、テスト、コードレビュー、仕様書整合性チェックのループを行い、TS版だけの仕様書に統合し、GitHub Pagesを子供にも分かりやすい図解デザインへ改善したい
+- 調査: 公開URL `https://jinwktk.github.io/twitchRaid/` は配信通知/クリップ特化、`typescript-bot-spec.html` はTS版全体仕様で、二重管理と未記載機能が混在していた。README/AGENTS/Markdown設計資料にも旧Python前提や2ページ併存説明が残っていた
+- レビュー反映: Raid元配信情報チャット投稿、shoutout 429キュー、Clip APIフォールバックの実運用最大200件、manga返信10秒削除、手動通知のstate優先マージ、Bot API失敗時Webhookフォールバック、Clip削除反映、Boomの30日/4並列/5分キャッシュを仕様書へ明記
+- ドキュメント: `docs/index.html` をTypeScript版総合仕様書「twitchRaid Bot しくみ図鑑」として再設計し、全体マップ、処理フロー図、機能一覧、ファイル構成、保存データ、フォールバック、性能・運用、品質ゲートを統合
+- ドキュメント: `docs/typescript-bot-spec.html` は内容を重複させず、`docs/index.html` へ案内する旧URL互換ページへ変更
+- ドキュメント: `docs/ARCHITECTURE.md` / `docs/COMMANDS.md` / `docs/DESIGN_PATTERNS.md` / `docs/TECH_STACK.md` をTypeScript版補助資料へ更新し、Python前提の説明を除去
+- 設定整理: `ecosystem.config.js` と `package.json` のPM2プロセス名を、本番運用ログとdeploy workflowに合わせて `twitchRaid` に統一
+- ドキュメント: `README.md` の技術設計書リンク、manga自動削除秒数、PM2名、プロジェクト構成、更新履歴を現行TS仕様へ更新
 - 不具合報告: Raidが同時に来た時などにTwitch shoutout APIが `429 Too Many Requests` を返し、即時リトライも同じ429で失敗する
 - TDD: `tests/commands/shoutout.test.ts` に429判定、初回即時送信と後続2分待機、429時の同一対象再キュー、非429失敗は再試行しないテストを追加し、未実装失敗を確認
 - 実装: `src/commands/shoutout.ts` に `ShoutoutQueue` と `isShoutoutRateLimitError` を追加。`src/bot.ts` のRaid自動shoutoutはキューへ投入し、429時は2分後に再実行するよう変更。429時はトークン更新による即時リトライを行わない
@@ -276,7 +295,7 @@
 - 原因: 日付窓ごとの全期間ページングをコマンド実行時に毎回行っていたため、チャット応答として重すぎた
 - 実装: `src/bot.ts` から通常コメント受信時の初コメ保存、起動時バックフィル、`!firstcomment` コマンド、初コメDB close を削除
 - 実装: `src/first-comment/` と `tests/first-comment/` を削除し、`src/config.ts` から `TWITCH_FIRST_COMMENT_DB_PATH` / `FIRST_COMMENT_*` 設定を削除
-- 実装: `src/commands/clip.ts` は日付窓の全期間走査をやめ、Twurple のページング取得を最大1000件で打ち切る高速経路へ変更。表示履歴による重複回避は維持
+- 実装: `src/commands/clip.ts` は日付窓の全期間走査をやめ、当時のTwurpleページング取得を最大1000件で打ち切る高速経路へ変更。表示履歴による重複回避は維持（現行のコマンド実運用フォールバックは最大200件）
 - ドキュメント更新: `readme.md` から初コメ機能説明と `!firstcomment` を削除し、clip取得方針を高速ページングへ更新
 - 要望: 全期間走査は維持したまま、`!clip` / `!myclip` のパフォーマンスを保ち、起動中に作成された新規クリップも候補へ入れたい
 - 方針: Twitch API の重い全期間走査をチャットコマンド実行時から分離し、SQLiteキャッシュへバックグラウンド同期する
