@@ -233,6 +233,41 @@ describe("stream summary", () => {
     });
   });
 
+  it("does not post a replacement start notification when reposting is disabled", async () => {
+    const sendBotMessage = vi.fn();
+    const createThread = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Discord thread creation failed: 404"));
+
+    const started = await ensureStreamSummaryStartThread({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      title: "回変り金み",
+      message: "回変り金み",
+      state: {
+        ...state,
+        status: "active",
+        startMessageId: "stale-start-message-id",
+      },
+      allowStartNotificationRepost: false,
+      sendBotMessage,
+      createThread,
+    });
+
+    expect(createThread).toHaveBeenCalledOnce();
+    expect(createThread).toHaveBeenCalledWith({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      messageId: "stale-start-message-id",
+      name: "配信まとめ - 回変り金み",
+    });
+    expect(sendBotMessage).not.toHaveBeenCalled();
+    expect(started).toEqual({
+      startMessageId: "stale-start-message-id",
+      threadId: undefined,
+    });
+  });
+
   it("does not duplicate start notifications when the start thread already exists", async () => {
     const sendWebhook = vi.fn();
     const createThread = vi.fn();
