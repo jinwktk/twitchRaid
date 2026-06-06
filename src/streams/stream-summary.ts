@@ -395,10 +395,12 @@ export async function ensureStreamSummaryStartThread({
       }
     }
 
-    return {
-      startMessageId: state.startMessageId,
-      threadId,
-    };
+    if (threadId) {
+      return {
+        startMessageId: state.startMessageId,
+        threadId,
+      };
+    }
   }
 
   return startStreamSummaryThread({

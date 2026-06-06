@@ -12,7 +12,7 @@
 - `scope_policy.py`: 付与済みスコープから不足スコープ判定・適用スコープ解決・ログ表示用正規化を担当。
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `process_restart.py`: 同一コンソール内でのプロセス再起動と、`execv` 失敗時フォールバック起動を担当。
-- `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトと `!shoutout` 手動デバッグコマンドの権限判定・対象ユーザー正規化を担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。
+- `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトと `!shoutout` 手動デバッグコマンドの権限判定・対象ユーザー正規化を担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。Raid自動shoutoutは `ShoutoutQueue` で直列化し、429時は対象をキュー先頭へ戻して2分後に再実行する。
 - `src/commands/raid-info.ts`: Raid受信時にレイド元の配信URL、配信タイトル、ゲーム名をTwitch APIから取得し、チャット投稿用メッセージへ整形する。配信情報取得不可時もURL付きフォールバック文を返す。
 - `src/commands/boom.ts`: TypeScript版 `!boom` の集計ロジック。過去30日間のアーカイブ配信を Twurple Helix で取得し、Twitch GraphQL の VOD チャプターからゲーム別トータル時間と総配信時間を算出する。
 - `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ軽いAPIフォールバックを使う。
@@ -38,7 +38,7 @@
 - `tests/test_scope_policy.py`: 不足スコープ判定ロジックのユニットテスト。
 - `tests/test_token_refresh_policy.py`: トークンリフレッシュ失敗時のフォールバック判定テスト。
 - `tests/test_process_restart.py`: 同一コンソール再起動とフォールバック経路のユニットテスト。
-- `tests/commands/shoutout.test.ts`: TypeScript版シャウトアウトが Bot/Moderator ユーザーコンテキストで実行されること、手動コマンド権限判定、対象ユーザー名正規化を検証。
+- `tests/commands/shoutout.test.ts`: TypeScript版シャウトアウトが Bot/Moderator ユーザーコンテキストで実行されること、手動コマンド権限判定、対象ユーザー名正規化、429時のキュー再実行を検証。
 - `tests/commands/raid-info.test.ts`: Raid元配信情報の取得、指定文言でのチャットメッセージ整形、オフライン時フォールバック、長文タイトルの単一行化/短縮を検証。
 - `tests/commands/boom.test.ts`: TypeScript版 `!boom` のVODチャプター抽出、ゲーム別合算、1時間未満フィルタ、表示文言を検証。
 - `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタを検証。
@@ -92,6 +92,13 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-06 作業ログ
+- 不具合報告: Raidが同時に来た時などにTwitch shoutout APIが `429 Too Many Requests` を返し、即時リトライも同じ429で失敗する
+- TDD: `tests/commands/shoutout.test.ts` に429判定、初回即時送信と後続2分待機、429時の同一対象再キュー、非429失敗は再試行しないテストを追加し、未実装失敗を確認
+- 実装: `src/commands/shoutout.ts` に `ShoutoutQueue` と `isShoutoutRateLimitError` を追加。`src/bot.ts` のRaid自動shoutoutはキューへ投入し、429時は2分後に再実行するよう変更。429時はトークン更新による即時リトライを行わない
+- 不具合報告: `配信まとめスレッドへ新規クリップを投稿しました` とログにあるが、実際にはスレッドが作成されていないケースがある
+- TDD: `tests/streams/stream-summary.test.ts` に、保存済み `startMessageId` からスレッド作成できない場合は新しい開始通知を投稿し直してスレッド作成するテストを追加し、未実装失敗を確認
+- 実装: `ensureStreamSummaryStartThread` で保存済み開始通知からのスレッド作成に失敗した場合、開始通知を新規投稿し、その新規投稿からスレッド作成を再試行するよう変更。Bot側もスレッド保証失敗時に警告ログを出すようにした
+- 検証: `npm test -- --run tests/commands/shoutout.test.ts` 13件、`npm test -- --run tests/streams/stream-summary.test.ts` 19件、`npm test` 130件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件が通過
 - 要望: レイドをもらった時に、レイド者の配信URL、配信タイトル、ゲームをチャットへ送信したい
 - 文言指定: `レイドありがとうD！！ ○○さんは、「（ゲーム名）」で「（配信タイトル）」をしてたD！お疲れ様D！チャンネルはこD→（URL）`
 - TDD: `tests/commands/raid-info.test.ts` を追加し、Raid元ライブ情報取得、指定文言整形、配信情報取得不可時のURL付きフォールバック、改行除去と長文タイトル短縮を先に定義して未実装失敗を確認
