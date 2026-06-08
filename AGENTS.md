@@ -25,8 +25,8 @@
 - `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期、直近同期完了後コールバック、配信していない時間の1日1回全期間再走査を担当。
 - `src/commands/stream-notify.ts`: TypeScript版 `!streamnotify` の管理者判定と、現在配信中の開始通知をDiscordへ手動送信するためのライブ状態取得ヘルパー。配信開始Embed用に視聴者数・サムネイルURLも通す。
 - `src/notifications/stream-notifications.ts`: 配信開始通知の重複抑止、`@everyone` 付きDiscord Embed payload生成、保存タイトルをタイトル単体に保つ処理を担当。
-- `src/notifications/discord-webhook.ts`: Discord Webhook/Bot API投稿、Embed/allowed_mentions payload、メッセージ起点スレッド作成、スレッドアーカイブを担当。
-- `src/streams/stream-summary.ts`: 配信終了まとめの表示文言作成、Discord Bot API/Webhook投稿、開始通知/まとめメッセージからのスレッド作成、ライブクリップURL投稿、終了時スレッドクローズを担当。開始通知は文字列だけでなくEmbed payloadも受け取る。
+- `src/notifications/discord-webhook.ts`: Discord Webhook/Bot API投稿、Embed/allowed_mentions payload、メッセージ起点スレッド作成、Discord thread API操作を担当。
+- `src/streams/stream-summary.ts`: 配信終了まとめの表示文言作成、Discord Bot API/Webhook投稿、開始通知/まとめメッセージからのスレッド作成、ライブクリップURL投稿を担当。開始通知は文字列だけでなくEmbed payloadも受け取り、終了まとめ後もスレッドはアーカイブしない。
 - `src/streams/stream-summary-count-buffer.ts`: 通常コメントごとの配信まとめstate同期書き込みを避けるため、コメント数更新を30秒デバウンスし、Raid/停止/配信終了時に即時flushする。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
 - `docs/index.html`: 現行TypeScript版 `src/` を中心に、Twitch Botのプログラム概要、機能一覧、処理フロー、配信まとめ、Clip同期、Raid対応、フォールバック、性能・運用、品質ゲートを図付きでまとめたGitHub Pages用HTML仕様書。
@@ -57,7 +57,7 @@
 - `tests/commands/clip-cache-store.test.ts`: クリップSQLiteキャッシュ、履歴上限、走査済み期間、削除済みClipの無効化と候補除外を検証。
 - `tests/commands/clip-cache-sync.test.ts`: クリップ全期間走査用の日付窓、直近同期、完了済み期間スキップ、日次再走査の配信中スキップと削除済みClip無効化を検証。
 - `tests/commands/stream-notify.test.ts`: `!streamnotify` 用の管理者判定、現在配信中/オフライン/Discord投稿失敗時の結果を検証。
-- `tests/streams/stream-summary.test.ts`: 配信終了まとめの整形、Discordスレッドへのライブ/終了時クリップ投稿、開始通知Embedからのスレッド作成、開始通知スレッド補完、終了時スレッドクローズ、投稿途中再開時の重複回避を検証。
+- `tests/streams/stream-summary.test.ts`: 配信終了まとめの整形、Discordスレッドへのライブ/終了時クリップ投稿、開始通知Embedからのスレッド作成、開始通知スレッド補完、終了後もスレッドを表示維持すること、投稿途中再開時の重複回避を検証。
 - `tests/streams/stream-summary-count-buffer.test.ts`: 配信まとめコメント数更新の30秒デバウンス、flush、Raid即時反映、posted/no-state時のスキップを検証。
 - `tests/streams/stream-summary-state-store.test.ts`: 配信まとめ状態JSONの保存・復元・投稿済み更新を検証。
 - `tests/notifications/discord-webhook.test.ts`: Discord Webhookの `wait` / `thread_id` 付与、Bot Tokenによるcontent/Embed/allowed_mentions投稿、メッセージスレッド作成、スレッドアーカイブを検証。
@@ -110,6 +110,14 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-08 作業ログ
+- 不具合報告: `【🎣FF14】プテラッ！！再現したな、このるっかを…！【Mana/🍞でも】` の配信開始通知にスレッドが建てられていないように見えた
+- 調査: サブPC `data/stream-summary-state.json` は `startMessageId=1513338717035696250` / `threadId=1513338717035696250` を保存済み。Discord APIでも同IDのthreadは存在し、開始メッセージにもthreadが紐づいていたが、`thread_metadata.archived=true` だった
+- 原因: 配信終了まとめ投稿後に `postStreamSummary` が `closeThreadAfterPost=true` でDiscord threadをアーカイブしていたため、Discord上でスレッド未作成のように見えた
+- TDD: `tests/streams/stream-summary.test.ts` の終了まとめ後スレッド挙動を、`closeThreadAfterPost` が渡っても `closeThread` を呼ばず `threadClosedAt` を保存しない期待値へ変更し、未実装失敗を確認
+- 実装: `src/streams/stream-summary.ts` から終了まとめ後のスレッドアーカイブ処理を外し、`src/bot.ts` から `closeThreadAfterPost: true` 指定を削除。終了まとめとクリップは従来通り開始通知スレッドへ投稿し、スレッドは見える状態のまま残す
+- 復旧: 既存スレッド `1513338717035696250` をDiscord APIで `archived=false` に戻し、サブPC `data/stream-summary-state.json` から古い `threadClosedAt` を削除。更新前に `data/stream-summary-state.json.bak-unarchive-20260608` を作成
+- ドキュメント: README、`docs/index.html`、`docs/ARCHITECTURE.md`、AGENTSに終了後もスレッドをアーカイブしない仕様と調査結果を追記
+- 検証: `npm test -- --run tests/streams/stream-summary.test.ts` 22件、`npm test` 149件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認が通過
 - 要望: 配信開始通知を `@everyone` 付きで、StreamcordのようなDiscord Embed表示にしたい
 - 方針: Discord通知として鳴らすため `@everyone` はEmbed内ではなくpayloadの `content` に置き、見た目の配信情報はEmbedへ入れる。既存のBot API/Webhookフォールバックと開始通知起点スレッド作成は維持する
 - TDD: `tests/notifications/stream-notifications.test.ts` に `@everyone` / Embed / Game / Viewers / preview画像の期待値、`tests/notifications/discord-webhook.test.ts` にBot APIでEmbedとallowed_mentionsを送る期待値、`tests/streams/stream-summary.test.ts` にEmbed開始通知からスレッド作成する期待値を追加し、未実装失敗を確認
@@ -273,7 +281,7 @@
 - 追加修正: 再起動時に現在配信中のstateへ `threadId` が無いケースを確認。同一タイトルで開始通知がスキップされても、保存済み開始通知メッセージIDがあればスレッド作成だけを再試行し、無ければ開始通知を1回投稿して `threadId` を保存するよう補完した
 - 表示調整: Discordへ投稿する配信開始通知と配信終了まとめから配信URL行を削除し、タイトル・配信統計・クリップ中心の表示にした
 - 追加実装: 直近クリップ同期を1分間隔に変更し、同期完了時に配信中stateの未投稿クリップを配信まとめスレッドへ投稿して `postedClipIds` に保存するよう変更
-- 追加実装: 配信終了時は最終クリップ同期後に未投稿クリップを先にスレッドへ投稿し、終了まとめ投稿後にBot Tokenでスレッドをアーカイブして閉じるよう変更
+- 追加実装: 配信終了時は最終クリップ同期後に未投稿クリップを先にスレッドへ投稿し、終了まとめも同じスレッドへ投稿するよう変更。当時は終了後にスレッドをアーカイブしていたが、2026-06-08の修正で現在はアーカイブしない
 - 追加実装: 配信まとめ系の開始通知、ライブクリップ、終了まとめ投稿をWebhook優先からBot API優先へ変更。`DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` があれば `DISCORD_WEBHOOK_URL` なしで投稿できるようにした
 - 設定: `STREAM_SUMMARY_STATE_PATH`、`STREAM_SUMMARY_MAX_CLIPS`、`DISCORD_BOT_TOKEN`、`DISCORD_SUMMARY_CHANNEL_ID`、`DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED` を追加。Discordスレッド作成に必要な設定がない場合は通常Webhook投稿へフォールバック
 - 検証: `npm test` 102件、`npm run build`、`npm run lint`、`python -m pytest -q` 106件が通過
