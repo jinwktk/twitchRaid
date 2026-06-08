@@ -22,6 +22,14 @@ interface OllamaGenerateResponse {
 const GENERATED_RAID_GREETING_LIMIT = 250;
 const DEFAULT_OLLAMA_TEMPERATURE = 0.8;
 const DEFAULT_OLLAMA_NUM_PREDICT = 80;
+const NEGATIVE_RAID_SIZE_PATTERNS = [
+  /人数\s*(?:が|は|も|の)?\s*(?:少な|すくな)/i,
+  /(?:少な|すくな)かった/i,
+  /少人数/i,
+  /(?:寂し|さみし)/i,
+  /人数\s*(?:控えめ|ひかえめ)/i,
+  /(?:たった|小規模|こじんまり)/i,
+];
 
 const RAID_GREETING_SYSTEM_PROMPT = [
   "あなたはTwitch Raidへのお礼文を短く楽しく作る日本語アシスタントです。",
@@ -82,6 +90,10 @@ function normalizeGeneratedGreeting(value: string): string | null {
   return normalized;
 }
 
+function hasNegativeRaidSizePhrasing(value: string): boolean {
+  return NEGATIVE_RAID_SIZE_PATTERNS.some((pattern) => pattern.test(value));
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -126,25 +138,18 @@ function buildOllamaGenerateUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/api/generate`;
 }
 
-function buildRaidGreetingPrompt(
-  info: RaidSourceInfo,
-  viewerCount?: number
-): string {
+function buildRaidGreetingPrompt(info: RaidSourceInfo): string {
   const title = info.title ? singleLine(info.title) : "不明";
   const gameName = info.gameName ? singleLine(info.gameName) : "不明";
-  const viewers =
-    typeof viewerCount === "number" && Number.isFinite(viewerCount)
-      ? `${viewerCount}人`
-      : "不明";
 
   return [
     "次のRaidに対して、Twitchチャットへ送る1通のRaid挨拶文を作ってください。",
     `ユーザー名: ${info.userName}`,
     `ゲーム: ${gameName}`,
     `配信タイトル: ${title}`,
-    `Raid人数: ${viewers}`,
     `チャンネルURL: ${info.streamUrl}`,
     "条件: 日本語、1通、事実だけ、短い文、チャンネルURLを必ず最後の方に入れる。",
+    "人数の多い少ないには触れないでください。",
     "タイトル/ゲームが不明なら、配信情報は取得できなかったと正直に書いてください。",
     "完成したRaid挨拶文だけを返してください。説明は不要です。",
   ].join("\n");
@@ -157,6 +162,7 @@ export function formatGeneratedRaidGreetingMessage(
   const userName = normalizeLoginName(info.userName);
   const normalized = normalizeGeneratedGreeting(generated);
   if (!normalized) return null;
+  if (hasNegativeRaidSizePhrasing(normalized)) return null;
 
   const withoutDuplicateLead = removeLeadingUserName(normalized, userName);
   const withUser = ensureUserMention(withoutDuplicateLead, userName);
@@ -170,7 +176,6 @@ export function formatGeneratedRaidGreetingMessage(
 
 export async function generateRaidGreetingMessage({
   info,
-  viewerCount,
   enabled,
   baseUrl,
   model,
@@ -188,7 +193,7 @@ export async function generateRaidGreetingMessage({
       body: JSON.stringify({
         model: trimmedModel,
         system: RAID_GREETING_SYSTEM_PROMPT,
-        prompt: buildRaidGreetingPrompt(info, viewerCount),
+        prompt: buildRaidGreetingPrompt(info),
         stream: false,
         keep_alive: keepAlive,
         options: {
