@@ -4,6 +4,7 @@ import {
   executeDiscordWebhook,
   sendDiscordBotMessage,
   type CloseDiscordThreadOptions,
+  type DiscordMessagePayload,
   type DiscordThread,
   type DiscordWebhookMessage,
   type DiscordWebhookPayload,
@@ -75,7 +76,7 @@ export interface StartStreamSummaryThreadOptions {
   channelId?: string;
   webhookThreadName?: string;
   title: string;
-  message: string;
+  message: string | DiscordMessagePayload;
   sendWebhook?: SendWebhook;
   sendBotMessage?: SendBotMessage;
   createThread?: CreateThread;
@@ -318,6 +319,7 @@ export async function startStreamSummaryThread({
   sendBotMessage = sendDiscordBotMessage,
   createThread = createDiscordThreadFromMessage,
 }: StartStreamSummaryThreadOptions): Promise<StartStreamSummaryThreadResult> {
+  const payload = toDiscordMessagePayload(message);
   let startMessage: DiscordWebhookMessage | null = null;
   let threadId: string | undefined;
   let postedWithBot = false;
@@ -327,29 +329,29 @@ export async function startStreamSummaryThread({
       startMessage = await sendBotMessage({
         botToken,
         channelId,
-        content: message,
+        ...payload,
       });
       postedWithBot = true;
     } catch (error) {
       if (!webhookUrl) throw error;
-      startMessage = await sendWebhook(webhookUrl, { content: message }, { wait: true });
+      startMessage = await sendWebhook(webhookUrl, payload, { wait: true });
     }
   } else if (webhookThreadName) {
     try {
       if (!webhookUrl) throw new Error("Discord webhook URL is not configured");
       startMessage = await sendWebhook(
         webhookUrl,
-        { content: message, thread_name: webhookThreadName },
+        { ...payload, thread_name: webhookThreadName },
         { wait: true }
       );
       threadId = startMessage?.channelId;
     } catch {
       if (!webhookUrl) throw new Error("Discord webhook URL is not configured");
-      startMessage = await sendWebhook(webhookUrl, { content: message }, { wait: true });
+      startMessage = await sendWebhook(webhookUrl, payload, { wait: true });
     }
   } else {
     if (!webhookUrl) throw new Error("Discord webhook URL is not configured");
-    startMessage = await sendWebhook(webhookUrl, { content: message }, { wait: true });
+    startMessage = await sendWebhook(webhookUrl, payload, { wait: true });
   }
 
   if (!threadId && botToken && channelId && startMessage?.id && postedWithBot) {
@@ -433,6 +435,12 @@ export async function ensureStreamSummaryStartThread({
     sendBotMessage,
     createThread,
   });
+}
+
+function toDiscordMessagePayload(
+  message: string | DiscordMessagePayload
+): DiscordMessagePayload {
+  return typeof message === "string" ? { content: message } : message;
 }
 
 async function sendInitialSummaryMessage(

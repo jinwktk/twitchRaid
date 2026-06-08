@@ -122,6 +122,40 @@ describe("discord webhook helpers", () => {
     expect(message).toEqual({ id: "message-id", channelId: "channel-id" });
   });
 
+  it("sends embeds and everyone mentions with a bot token", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: "message-id", channel_id: "channel-id" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const embed = {
+      title: "配信タイトル",
+      url: "https://www.twitch.tv/rukalun",
+      fields: [{ name: "Game", value: "FINAL FANTASY XIV ONLINE", inline: true }],
+    };
+
+    await sendDiscordBotMessage({
+      botToken: "secret",
+      channelId: "channel-id",
+      content: "@everyone",
+      allowed_mentions: { parse: ["everyone"] },
+      embeds: [embed],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://discord.com/api/v10/channels/channel-id/messages",
+      expect.objectContaining({
+        body: JSON.stringify({
+          content: "@everyone",
+          allowed_mentions: { parse: ["everyone"] },
+          embeds: [embed],
+        }),
+      })
+    );
+  });
+
   it("closes a Discord thread by archiving it", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

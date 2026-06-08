@@ -122,6 +122,38 @@ describe("stream summary", () => {
     });
   });
 
+  it("starts a thread from an embed stream-start notification", async () => {
+    const sendBotMessage = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "start-message-id", channelId: "channel-id" });
+    const createThread = vi.fn().mockResolvedValue({ id: "thread-id" });
+    const payload = {
+      content: "@everyone",
+      allowed_mentions: { parse: ["everyone" as const] },
+      embeds: [
+        {
+          title: "回変り金み",
+          url: "https://www.twitch.tv/rukalun",
+        },
+      ],
+    };
+
+    await startStreamSummaryThread({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      title: "回変り金み",
+      message: payload,
+      sendBotMessage,
+      createThread,
+    });
+
+    expect(sendBotMessage).toHaveBeenCalledWith({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      ...payload,
+    });
+  });
+
   it("falls back to webhook when bot start notification is rejected", async () => {
     const sendBotMessage = vi
       .fn()

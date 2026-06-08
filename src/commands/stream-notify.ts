@@ -4,7 +4,11 @@ import { isShoutoutAdmin } from "./shoutout";
 export interface ManualStreamNotificationStream {
   id: string;
   title: string;
+  userDisplayName?: string;
   gameName?: string;
+  viewers?: number;
+  thumbnailUrl?: string;
+  getThumbnailUrl?: (width: number, height: number) => string;
   startDate: Date;
 }
 

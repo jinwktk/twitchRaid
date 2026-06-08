@@ -91,7 +91,7 @@ npm run dev         # ts-nodeで開発実行
 
 ## 配信通知仕様
 - 配信開始検知時に Discord Bot API で通知（Bot設定が無い場合、またはBot API投稿が失敗した場合はWebhookへフォールバック）
-- 配信開始通知はタイトルに続けて `🔴 配信URL: https://www.twitch.tv/rukalun` を含める
+- 配信開始通知は本文 `@everyone` とDiscord Embedで投稿する。Embedには配信タイトル、Twitch URL、ゲーム名、視聴者数、Twitchプレビュー画像を含める
 - 配信開始通知が漏れた場合は、管理者が `!streamnotify` を実行すると現在の配信情報でDiscordへ手動送信する。通常のタイトル重複スキップは通さない
 - 直前に通知したタイトルと同一 (`LAST_STREAM_TITLE`) の場合は通知をスキップ
 - 配信開始中は `STREAM_SUMMARY_STATE_PATH` に stream id / タイトル / ゲーム名 / 開始時刻 / コメント数 / Raid数を保存
@@ -179,7 +179,7 @@ src/
 ├── notifications/
 │   ├── clip-recast-notifier.ts
 │   ├── discord-webhook.ts         # Discord Bot/Webhook/Thread
-│   └── stream-notifications.ts    # 配信開始通知本文
+│   └── stream-notifications.ts    # 配信開始通知Embed
 ├── streams/
 │   ├── stream-summary-count-buffer.ts # コメント数/Raid数のデバウンス保存
 │   ├── stream-summary-state-store.ts
@@ -193,6 +193,7 @@ src/
 ```
 
 ## 更新履歴
+- **2026-06-08**: 配信開始通知を `@everyone` 付きDiscord Embedへ変更。タイトル、ゲーム名、視聴者数、Twitchプレビュー画像をEmbedに入れ、Bot API/Webhookどちらの投稿でも同じ見た目になるようにした
 - **2026-06-08**: Ollama Raid挨拶文をコード側で250文字以内へ制限。プロンプトから `250文字以内` の数値指示を外し、モデルが文字数を人数として誤読するリスクを下げる
 - **2026-06-08**: Ollama Raid挨拶文の低人数ネガティブ表現を禁止。AI入力からRaid人数を外し、`人数少なかった` / `少人数` / `寂しい` 系の生成文は採用せず固定Raid挨拶文へフォールバックする
 - **2026-06-08**: Ollama Raid挨拶文を紹介文として強化。AI文にゲーム名と配信タイトルが含まれない場合は採用せず、何をして遊んでいたかが手短に分かる文だけを使う

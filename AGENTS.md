@@ -23,8 +23,10 @@
 - `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ軽いAPIフォールバックを使う。
 - `src/commands/clip-cache-store.ts`: クリップ本体、走査済み期間、削除/非公開化でTwitch APIから返らなくなったClipの無効化状態、`!clip` / `!myclip:<ユーザー>` ごとの表示履歴を `data/clips.sqlite` に保存する。
 - `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期、直近同期完了後コールバック、配信していない時間の1日1回全期間再走査を担当。
-- `src/commands/stream-notify.ts`: TypeScript版 `!streamnotify` の管理者判定と、現在配信中の開始通知をDiscordへ手動送信するためのライブ状態取得ヘルパー。
-- `src/streams/stream-summary.ts`: 配信終了まとめの表示文言作成、Discord Bot API/Webhook投稿、開始通知/まとめメッセージからのスレッド作成、ライブクリップURL投稿、終了時スレッドクローズを担当。
+- `src/commands/stream-notify.ts`: TypeScript版 `!streamnotify` の管理者判定と、現在配信中の開始通知をDiscordへ手動送信するためのライブ状態取得ヘルパー。配信開始Embed用に視聴者数・サムネイルURLも通す。
+- `src/notifications/stream-notifications.ts`: 配信開始通知の重複抑止、`@everyone` 付きDiscord Embed payload生成、保存タイトルをタイトル単体に保つ処理を担当。
+- `src/notifications/discord-webhook.ts`: Discord Webhook/Bot API投稿、Embed/allowed_mentions payload、メッセージ起点スレッド作成、スレッドアーカイブを担当。
+- `src/streams/stream-summary.ts`: 配信終了まとめの表示文言作成、Discord Bot API/Webhook投稿、開始通知/まとめメッセージからのスレッド作成、ライブクリップURL投稿、終了時スレッドクローズを担当。開始通知は文字列だけでなくEmbed payloadも受け取る。
 - `src/streams/stream-summary-count-buffer.ts`: 通常コメントごとの配信まとめstate同期書き込みを避けるため、コメント数更新を30秒デバウンスし、Raid/停止/配信終了時に即時flushする。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
 - `docs/index.html`: 現行TypeScript版 `src/` を中心に、Twitch Botのプログラム概要、機能一覧、処理フロー、配信まとめ、Clip同期、Raid対応、フォールバック、性能・運用、品質ゲートを図付きでまとめたGitHub Pages用HTML仕様書。
@@ -55,11 +57,11 @@
 - `tests/commands/clip-cache-store.test.ts`: クリップSQLiteキャッシュ、履歴上限、走査済み期間、削除済みClipの無効化と候補除外を検証。
 - `tests/commands/clip-cache-sync.test.ts`: クリップ全期間走査用の日付窓、直近同期、完了済み期間スキップ、日次再走査の配信中スキップと削除済みClip無効化を検証。
 - `tests/commands/stream-notify.test.ts`: `!streamnotify` 用の管理者判定、現在配信中/オフライン/Discord投稿失敗時の結果を検証。
-- `tests/streams/stream-summary.test.ts`: 配信終了まとめの整形、Discordスレッドへのライブ/終了時クリップ投稿、開始通知スレッド補完、終了時スレッドクローズ、投稿途中再開時の重複回避を検証。
+- `tests/streams/stream-summary.test.ts`: 配信終了まとめの整形、Discordスレッドへのライブ/終了時クリップ投稿、開始通知Embedからのスレッド作成、開始通知スレッド補完、終了時スレッドクローズ、投稿途中再開時の重複回避を検証。
 - `tests/streams/stream-summary-count-buffer.test.ts`: 配信まとめコメント数更新の30秒デバウンス、flush、Raid即時反映、posted/no-state時のスキップを検証。
 - `tests/streams/stream-summary-state-store.test.ts`: 配信まとめ状態JSONの保存・復元・投稿済み更新を検証。
-- `tests/notifications/discord-webhook.test.ts`: Discord Webhookの `wait` / `thread_id` 付与、Bot Tokenによるメッセージ投稿、メッセージスレッド作成、スレッドアーカイブを検証。
-- `tests/notifications/stream-notifications.test.ts`: TypeScript版配信開始通知の本文生成と、配信URL行を含めつつ保存タイトルはタイトル単体に保つことを検証。
+- `tests/notifications/discord-webhook.test.ts`: Discord Webhookの `wait` / `thread_id` 付与、Bot Tokenによるcontent/Embed/allowed_mentions投稿、メッセージスレッド作成、スレッドアーカイブを検証。
+- `tests/notifications/stream-notifications.test.ts`: TypeScript版配信開始通知の `@everyone` 付きEmbed生成と、保存タイトルはタイトル単体に保つことを検証。
 - `tests/git-manager.test.ts`: TypeScript版Git更新検知がpull/build後にクールダウンを挟まずPM2再起動をトリガーすることを検証。
 
 ## ビルド・テスト・開発コマンド
@@ -108,6 +110,12 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-08 作業ログ
+- 要望: 配信開始通知を `@everyone` 付きで、StreamcordのようなDiscord Embed表示にしたい
+- 方針: Discord通知として鳴らすため `@everyone` はEmbed内ではなくpayloadの `content` に置き、見た目の配信情報はEmbedへ入れる。既存のBot API/Webhookフォールバックと開始通知起点スレッド作成は維持する
+- TDD: `tests/notifications/stream-notifications.test.ts` に `@everyone` / Embed / Game / Viewers / preview画像の期待値、`tests/notifications/discord-webhook.test.ts` にBot APIでEmbedとallowed_mentionsを送る期待値、`tests/streams/stream-summary.test.ts` にEmbed開始通知からスレッド作成する期待値を追加し、未実装失敗を確認
+- 実装: `src/notifications/discord-webhook.ts` のpayload型をEmbed/allowed_mentions対応へ拡張。`src/notifications/stream-notifications.ts` で `buildPayload` を追加し、Twitch配信タイトル、ゲーム名、視聴者数、1280x720プレビュー画像、Twitch URLをEmbed化。`src/bot.ts` はTwurple streamオブジェクトを開始通知payloadへ渡すよう変更し、`!streamnotify` も同じEmbed経路を使うようにした
+- ドキュメント: README、`docs/index.html`、AGENTSに配信開始通知Embed仕様を追記
+- 検証: `npm test -- --run tests/notifications/stream-notifications.test.ts tests/notifications/discord-webhook.test.ts tests/streams/stream-summary.test.ts tests/commands/stream-notify.test.ts` 35件、`npm test` 149件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認が通過。ビルド済みJSで `content="@everyone"`、`allowed_mentions.parse=["everyone"]`、Embed title/game/viewers/1280x720 preview URL が出ることを確認
 - 要望: Ollama Raid挨拶文は、どんなゲームで、どんな配信タイトルで、何をして遊んでいたかが手短に分かる紹介文にしたい
 - 方針: プロンプトで「紹介文」であることを明示し、ゲーム名と配信タイトルを必ず入れるよう指示する。生成後チェックでも、取得済みのゲーム名または配信タイトルを落としたAI文は採用せず固定Raid挨拶文へフォールバックする
 - TDD: `tests/commands/shoutout-introduction.test.ts` に、Ollamaプロンプトが `紹介文`、`ゲーム名と配信タイトル`、`何をして遊んでいたか` を含むこと、AI生成文がゲーム名または配信タイトルを省いた場合はnullになることを追加し、未実装失敗を確認
