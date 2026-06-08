@@ -19,7 +19,7 @@ interface OllamaGenerateResponse {
   done?: unknown;
 }
 
-const TWITCH_CHAT_MESSAGE_LIMIT = 500;
+const GENERATED_RAID_GREETING_LIMIT = 250;
 const DEFAULT_OLLAMA_TEMPERATURE = 0.8;
 const DEFAULT_OLLAMA_NUM_PREDICT = 80;
 
@@ -144,7 +144,7 @@ function buildRaidGreetingPrompt(
     `配信タイトル: ${title}`,
     `Raid人数: ${viewers}`,
     `チャンネルURL: ${info.streamUrl}`,
-    "条件: 250文字以内、日本語、1通、事実だけ、チャンネルURLを必ず最後の方に入れる。",
+    "条件: 日本語、1通、事実だけ、短い文、チャンネルURLを必ず最後の方に入れる。",
     "タイトル/ゲームが不明なら、配信情報は取得できなかったと正直に書いてください。",
     "完成したRaid挨拶文だけを返してください。説明は不要です。",
   ].join("\n");
@@ -161,7 +161,11 @@ export function formatGeneratedRaidGreetingMessage(
   const withoutDuplicateLead = removeLeadingUserName(normalized, userName);
   const withUser = ensureUserMention(withoutDuplicateLead, userName);
   const withUrl = ensureStreamUrl(withUser, info.streamUrl);
-  return shortenKeepingUrl(withUrl, info.streamUrl, TWITCH_CHAT_MESSAGE_LIMIT);
+  return shortenKeepingUrl(
+    withUrl,
+    info.streamUrl,
+    GENERATED_RAID_GREETING_LIMIT
+  );
 }
 
 export async function generateRaidGreetingMessage({
