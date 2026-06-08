@@ -80,6 +80,9 @@ describe("generateRaidGreetingMessage", () => {
     expect(body.prompt).toContain("たのしい建築配信");
     expect(body.prompt).toContain("https://www.twitch.tv/raiduser");
     expect(body.prompt).toContain("1通のRaid挨拶文");
+    expect(body.prompt).toContain("紹介文");
+    expect(body.prompt).toContain("ゲーム名と配信タイトル");
+    expect(body.prompt).toContain("何をして遊んでいたか");
     expect(body.prompt).not.toContain("250文字");
     expect(body.prompt).not.toContain("Raid人数");
     expect(body.prompt).not.toContain("12人");
@@ -139,7 +142,7 @@ describe("formatGeneratedRaidGreetingMessage", () => {
   it("keeps the generated greeting single-line and under the AI greeting limit", () => {
     const message = formatGeneratedRaidGreetingMessage(
       raidInfo,
-      ` "レイドありがとうD！！ @raiduser さん、すごく${"楽しい".repeat(250)}\n配信お疲れ様D！チャンネルはこD→https://www.twitch.tv/raiduser" `
+      ` "レイドありがとうD！！ @raiduser さん、Minecraftでたのしい建築配信をしながら、すごく${"楽しい".repeat(250)}\n配信お疲れ様D！チャンネルはこD→https://www.twitch.tv/raiduser" `
     );
 
     expect(message).not.toContain("\n");
@@ -153,10 +156,10 @@ describe("formatGeneratedRaidGreetingMessage", () => {
     expect(
       formatGeneratedRaidGreetingMessage(
         raidInfo,
-        "レイドありがとうD！！ Minecraftの建築配信お疲れ様D！"
+        "レイドありがとうD！！ Minecraftでたのしい建築配信をしてたD！"
       )
     ).toBe(
-      "レイドありがとうD！！ @raiduser さん、Minecraftの建築配信お疲れ様D！ チャンネルはこD→https://www.twitch.tv/raiduser"
+      "レイドありがとうD！！ @raiduser さん、Minecraftでたのしい建築配信をしてたD！ チャンネルはこD→https://www.twitch.tv/raiduser"
     );
   });
 
@@ -164,10 +167,10 @@ describe("formatGeneratedRaidGreetingMessage", () => {
     expect(
       formatGeneratedRaidGreetingMessage(
         raidInfo,
-        "レイドありがとうraiduser！1人で来てくれてありがとう🎉 https://www.twitch.tv/raiduser"
+        "レイドありがとうraiduser！Minecraftでたのしい建築配信をしてたD！来てくれてありがとう🎉 https://www.twitch.tv/raiduser"
       )
     ).toBe(
-      "レイドありがとう@raiduser！1人で来てくれてありがとう https://www.twitch.tv/raiduser"
+      "レイドありがとう@raiduser！Minecraftでたのしい建築配信をしてたD！来てくれてありがとう https://www.twitch.tv/raiduser"
     );
   });
 
@@ -179,6 +182,18 @@ describe("formatGeneratedRaidGreetingMessage", () => {
     ];
 
     for (const greeting of negativeGreetings) {
+      expect(formatGeneratedRaidGreetingMessage(raidInfo, greeting)).toBeNull();
+    }
+  });
+
+  it("rejects generated greetings that omit the game or stream title", () => {
+    const missingDetails = [
+      "レイドありがとうD！！ @raiduser さん、たのしい建築配信お疲れ様D！ https://www.twitch.tv/raiduser",
+      "レイドありがとうD！！ @raiduser さん、Minecraftで遊んでたD！ https://www.twitch.tv/raiduser",
+      "レイドありがとうD！！ @raiduser さん、来てくれてありがとうD！ https://www.twitch.tv/raiduser",
+    ];
+
+    for (const greeting of missingDetails) {
       expect(formatGeneratedRaidGreetingMessage(raidInfo, greeting)).toBeNull();
     }
   });
