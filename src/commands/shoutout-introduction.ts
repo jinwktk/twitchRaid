@@ -94,6 +94,30 @@ function hasNegativeRaidSizePhrasing(value: string): boolean {
   return NEGATIVE_RAID_SIZE_PATTERNS.some((pattern) => pattern.test(value));
 }
 
+function normalizeRequiredContent(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{Letter}\p{Number}]/gu, "");
+}
+
+function includesRequiredContent(value: string, required: string | null): boolean {
+  if (!required) return true;
+  const normalizedRequired = normalizeRequiredContent(required);
+  if (!normalizedRequired) return true;
+  return normalizeRequiredContent(value).includes(normalizedRequired);
+}
+
+function includesRequiredStreamDetails(
+  value: string,
+  info: RaidSourceInfo
+): boolean {
+  return (
+    includesRequiredContent(value, info.gameName) &&
+    includesRequiredContent(value, info.title)
+  );
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -144,10 +168,12 @@ function buildRaidGreetingPrompt(info: RaidSourceInfo): string {
 
   return [
     "次のRaidに対して、Twitchチャットへ送る1通のRaid挨拶文を作ってください。",
+    "この文はRaid元配信者の紹介文です。",
     `ユーザー名: ${info.userName}`,
     `ゲーム: ${gameName}`,
     `配信タイトル: ${title}`,
     `チャンネルURL: ${info.streamUrl}`,
+    "ゲーム名と配信タイトルを必ず入れ、何をして遊んでいたかが手短に分かる文にしてください。",
     "条件: 日本語、1通、事実だけ、短い文、チャンネルURLを必ず最後の方に入れる。",
     "人数の多い少ないには触れないでください。",
     "タイトル/ゲームが不明なら、配信情報は取得できなかったと正直に書いてください。",
@@ -163,6 +189,7 @@ export function formatGeneratedRaidGreetingMessage(
   const normalized = normalizeGeneratedGreeting(generated);
   if (!normalized) return null;
   if (hasNegativeRaidSizePhrasing(normalized)) return null;
+  if (!includesRequiredStreamDetails(normalized, info)) return null;
 
   const withoutDuplicateLead = removeLeadingUserName(normalized, userName);
   const withUser = ensureUserMention(withoutDuplicateLead, userName);
