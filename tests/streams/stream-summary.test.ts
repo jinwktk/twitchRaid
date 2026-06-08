@@ -414,7 +414,7 @@ describe("stream summary", () => {
     expect(posted.threadId).toBe("thread-id");
   });
 
-  it("closes the stream thread after posting the ending summary", async () => {
+  it("keeps the stream thread visible after posting the ending summary", async () => {
     const sendBotMessage = vi.fn().mockResolvedValue({
       id: "summary-message-id",
       channelId: "thread-id",
@@ -439,11 +439,8 @@ describe("stream summary", () => {
       channelId: "thread-id",
       content: expect.stringContaining("配信終了まとめ"),
     });
-    expect(closeThread).toHaveBeenCalledWith({
-      botToken: "bot-token",
-      threadId: "thread-id",
-    });
-    expect(posted.threadClosedAt).toBeDefined();
+    expect(closeThread).not.toHaveBeenCalled();
+    expect(posted.threadClosedAt).toBeUndefined();
   });
 
   it("creates a forum/media thread using only webhook thread_name", async () => {

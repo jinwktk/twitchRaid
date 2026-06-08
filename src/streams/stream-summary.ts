@@ -1,5 +1,4 @@
 import {
-  closeDiscordThread,
   createDiscordThreadFromMessage,
   executeDiscordWebhook,
   sendDiscordBotMessage,
@@ -157,13 +156,11 @@ export async function postStreamSummary({
   sendWebhook = executeDiscordWebhook,
   sendBotMessage = sendDiscordBotMessage,
   createThread = createDiscordThreadFromMessage,
-  closeThread = closeDiscordThread,
-  closeThreadAfterPost = false,
   persistProgress,
 }: PostStreamSummaryOptions): Promise<StreamSummaryState> {
   let summaryMessageId = state.summaryMessageId;
   let threadId = state.threadId;
-  let threadClosedAt = state.threadClosedAt;
+  const threadClosedAt = state.threadClosedAt;
   let summaryPostedWithBot = Boolean(state.summaryMessageId);
   const postedClipIds = new Set(state.postedClipIds ?? []);
 
@@ -242,16 +239,6 @@ export async function postStreamSummary({
   postedClipIds.clear();
   for (const clipId of clipPostedState.postedClipIds) {
     postedClipIds.add(clipId);
-  }
-
-  if (closeThreadAfterPost && botToken && threadId && !threadClosedAt) {
-    try {
-      await closeThread({ botToken, threadId });
-      threadClosedAt = new Date().toISOString();
-      persist();
-    } catch {
-      threadClosedAt = undefined;
-    }
   }
 
   const postedState: StreamSummaryState = {

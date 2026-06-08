@@ -1205,7 +1205,6 @@ export class Bot {
           : undefined,
         state: ensuredPending,
         clips,
-        closeThreadAfterPost: true,
         persistProgress: (state) => this.streamSummaryStateStore.save(state),
       });
       this.streamSummaryStateStore.save(posted);
