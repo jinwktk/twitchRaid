@@ -81,6 +81,9 @@ describe("generateRaidGreetingMessage", () => {
     expect(body.prompt).toContain("https://www.twitch.tv/raiduser");
     expect(body.prompt).toContain("1通のRaid挨拶文");
     expect(body.prompt).not.toContain("250文字");
+    expect(body.prompt).not.toContain("Raid人数");
+    expect(body.prompt).not.toContain("12人");
+    expect(body.prompt).toContain("人数の多い少ないには触れない");
     expect(message).toBe(
       "レイドありがとうD！！ @raiduser さんは、Minecraftでたのしい建築配信をしてたD！チャンネルはこD→https://www.twitch.tv/raiduser"
     );
@@ -166,5 +169,17 @@ describe("formatGeneratedRaidGreetingMessage", () => {
     ).toBe(
       "レイドありがとう@raiduser！1人で来てくれてありがとう https://www.twitch.tv/raiduser"
     );
+  });
+
+  it("rejects negative comments about low raid size", () => {
+    const negativeGreetings = [
+      "レイドありがとう@raiduserさん！人数少なかったけど、大感謝だよ チャンネルURL→https://www.twitch.tv/raiduser",
+      "レイドありがとうD！！ @raiduser さん、少人数だけど来てくれてありがとう https://www.twitch.tv/raiduser",
+      "レイドありがとうD！！ @raiduser さん、ちょっと寂しいRaidだけどありがとう https://www.twitch.tv/raiduser",
+    ];
+
+    for (const greeting of negativeGreetings) {
+      expect(formatGeneratedRaidGreetingMessage(raidInfo, greeting)).toBeNull();
+    }
   });
 });
