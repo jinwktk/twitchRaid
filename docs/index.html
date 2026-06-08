@@ -600,8 +600,8 @@
               <h3>Discordへ届ける</h3>
             </div>
             <p>
-              配信開始通知、配信まとめ、Clip URLをDiscordへ投稿し、可能なら開始通知から
-              まとめスレッドを作ります。
+              配信開始は <code>@everyone</code> とEmbedカードで知らせます。
+              配信まとめ、Clip URLもDiscordへ投稿し、可能なら開始通知からまとめスレッドを作ります。
             </p>
           </article>
         </div>
@@ -752,7 +752,7 @@
           <tbody>
             <tr>
               <td>配信開始通知</td>
-              <td>180秒ごとにライブ状態を確認し、タイトルと配信URLをDiscordへ送る。</td>
+              <td>180秒ごとにライブ状態を確認し、<code>@everyone</code> とEmbedでタイトル、ゲーム、視聴者数、配信プレビュー、Twitch URLをDiscordへ送る。</td>
               <td><code>LAST_STREAM_TITLE</code>、<code>startMessageId</code>、<code>threadId</code></td>
             </tr>
             <tr>
@@ -993,7 +993,7 @@
             </tr>
             <tr>
               <td><code>src/commands/stream-notify.ts</code></td>
-              <td><code>!streamnotify</code> の権限判定、現在ライブ取得、手動通知結果の分類。</td>
+              <td><code>!streamnotify</code> の権限判定、現在ライブ取得、視聴者数/サムネイルを含む手動通知結果の分類。</td>
             </tr>
             <tr>
               <td><code>src/streams/*</code></td>
@@ -1001,7 +1001,7 @@
             </tr>
             <tr>
               <td><code>src/notifications/*</code></td>
-              <td>Discord Bot API/Webhook投稿、メッセージ起点スレッド作成、Webhook-onlyスレッド、配信通知本文。</td>
+              <td>Discord Bot API/Webhook投稿、Embed/allowed_mentions、メッセージ起点スレッド作成、Webhook-onlyスレッド、配信開始通知カード。</td>
             </tr>
             <tr>
               <td><code>src/git-manager.ts</code> / <code>src/system-watcher.ts</code></td>

@@ -1,7 +1,44 @@
 import logger from "../utils/logger";
 
-export interface DiscordWebhookPayload {
+export interface DiscordAllowedMentions {
+  parse?: Array<"roles" | "users" | "everyone">;
+  users?: string[];
+  roles?: string[];
+  replied_user?: boolean;
+}
+
+export interface DiscordEmbedField {
+  name: string;
+  value: string;
+  inline?: boolean;
+}
+
+export interface DiscordEmbed {
+  author?: {
+    name: string;
+    icon_url?: string;
+    url?: string;
+  };
+  title?: string;
+  description?: string;
+  url?: string;
+  color?: number;
+  fields?: DiscordEmbedField[];
+  image?: { url: string };
+  thumbnail?: { url: string };
+  footer?: {
+    text: string;
+    icon_url?: string;
+  };
+}
+
+export interface DiscordMessagePayload {
   content: string;
+  embeds?: DiscordEmbed[];
+  allowed_mentions?: DiscordAllowedMentions;
+}
+
+export interface DiscordWebhookPayload extends DiscordMessagePayload {
   thread_name?: string;
 }
 
@@ -36,6 +73,8 @@ export interface SendDiscordBotMessageOptions {
   botToken: string;
   channelId: string;
   content: string;
+  embeds?: DiscordEmbed[];
+  allowed_mentions?: DiscordAllowedMentions;
 }
 
 /**
@@ -127,7 +166,13 @@ export async function sendDiscordBotMessage({
   botToken,
   channelId,
   content,
+  embeds,
+  allowed_mentions,
 }: SendDiscordBotMessageOptions): Promise<DiscordWebhookMessage> {
+  const payload: DiscordMessagePayload = { content };
+  if (allowed_mentions) payload.allowed_mentions = allowed_mentions;
+  if (embeds) payload.embeds = embeds;
+
   const response = await fetch(
     `https://discord.com/api/v10/channels/${channelId}/messages`,
     {
@@ -136,7 +181,7 @@ export async function sendDiscordBotMessage({
         Authorization: `Bot ${botToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify(payload),
     }
   );
 

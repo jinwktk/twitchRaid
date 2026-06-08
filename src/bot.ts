@@ -4,6 +4,7 @@ import { RefreshingAuthProvider } from "@twurple/auth";
 import type { Config } from "./config";
 import logger from "./utils/logger";
 import { StreamTitleNotifier } from "./notifications/stream-notifications";
+import type { DiscordWebhookPayload } from "./notifications/discord-webhook";
 import { ClipRecastNotifier } from "./notifications/clip-recast-notifier";
 import { CommentSpeedMeter } from "./chat/comment-speed-meter";
 import { CommandCooldownState } from "./chat/command-cooldown-state";
@@ -886,7 +887,7 @@ export class Bot {
             logger.info(`🎥 配信が開始されました！タイトル: ${stream.title}`);
             await this._handleStreamStarted(stream);
             this.streamLive = true;
-            await this._notifyStreamStartedOnDiscord(stream.title);
+            await this._notifyStreamStartedOnDiscord(stream);
             await this._postNewStreamClipsToSummaryThread();
           }
 
@@ -979,21 +980,31 @@ export class Bot {
     await this._handleStreamStarted(stream);
     this.streamLive = true;
 
-    const message = this.streamNotifier.buildMessage(stream.title);
+    const message = this.streamNotifier.buildPayload(this._streamNotificationDetails(stream));
     await this._forceStreamStartSummaryThread(stream.title, message);
     this.config.updateLastStreamTitle(stream.title.trim());
   }
 
-  private async _notifyStreamStartedOnDiscord(title: string): Promise<void> {
-    await this.streamNotifier.notifyIfNeeded(title, async (message) => {
-      await this._ensureStreamStartSummaryThread(title, message);
-    });
+  private async _notifyStreamStartedOnDiscord(stream: {
+    title: string;
+    userDisplayName?: string;
+    gameName?: string;
+    viewers?: number;
+    thumbnailUrl?: string;
+    getThumbnailUrl?: (width: number, height: number) => string;
+  }): Promise<void> {
+    await this.streamNotifier.notifyIfNeeded(
+      this._streamNotificationDetails(stream),
+      async (message) => {
+        await this._ensureStreamStartSummaryThread(stream.title, message);
+      }
+    );
 
     const state = this.streamSummaryStateStore.load();
     if (state && state.status !== "posted" && !state.threadId) {
       await this._ensureStreamStartSummaryThread(
-        title,
-        this.streamNotifier.buildMessage(title),
+        stream.title,
+        this.streamNotifier.buildPayload(this._streamNotificationDetails(stream)),
         { allowStartNotificationRepost: false }
       );
     }
@@ -1001,7 +1012,7 @@ export class Bot {
 
   private async _ensureStreamStartSummaryThread(
     title: string,
-    message: string,
+    message: DiscordWebhookPayload,
     options: { allowStartNotificationRepost?: boolean } = {}
   ): Promise<void> {
     if (!this._canPostDiscordSummary()) return;
@@ -1031,7 +1042,7 @@ export class Bot {
 
   private async _forceStreamStartSummaryThread(
     title: string,
-    message: string
+    message: DiscordWebhookPayload
   ): Promise<void> {
     if (!this._canPostDiscordSummary()) {
       throw new Error("Discord posting is not configured");
@@ -1069,7 +1080,11 @@ export class Bot {
 
     await this._ensureStreamStartSummaryThread(
       state.title,
-      this.streamNotifier.buildMessage(state.title)
+      this.streamNotifier.buildPayload({
+        title: state.title,
+        gameName: state.gameName,
+        streamUrl: state.streamUrl,
+      })
     );
 
     const current = this.streamSummaryStateStore.load();
@@ -1117,6 +1132,33 @@ export class Bot {
     } catch (e) {
       logger.warn(`⚠️ 配信まとめスレッドへのクリップ投稿に失敗: ${e}`);
     }
+  }
+
+  private _streamNotificationDetails(stream: {
+    title: string;
+    userDisplayName?: string | null;
+    gameName?: string | null;
+    viewers?: number | null;
+    thumbnailUrl?: string | null;
+    getThumbnailUrl?: (width: number, height: number) => string;
+  }): {
+    title: string;
+    gameName?: string | null;
+    viewers?: number | null;
+    streamUrl: string;
+    thumbnailUrl?: string | null;
+    getThumbnailUrl?: (width: number, height: number) => string;
+    displayName?: string | null;
+  } {
+    return {
+      title: stream.title,
+      gameName: stream.gameName,
+      viewers: stream.viewers,
+      streamUrl: `https://www.twitch.tv/${this.config.loginChannel}`,
+      thumbnailUrl: stream.thumbnailUrl,
+      getThumbnailUrl: stream.getThumbnailUrl?.bind(stream),
+      displayName: stream.userDisplayName,
+    };
   }
 
   private async _finalizeAndPostStreamSummary(endedAt: string): Promise<void> {
