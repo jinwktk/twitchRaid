@@ -17,7 +17,7 @@
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `process_restart.py`: 同一コンソール内でのプロセス再起動と、`execv` 失敗時フォールバック起動を担当。
 - `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトと `!shoutout` 手動デバッグコマンドの権限判定・対象ユーザー正規化を担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。Raid自動shoutoutは `ShoutoutQueue` で直列化し、429時は対象をキュー先頭へ戻して2分後に再実行する。
-- `src/commands/shoutout-introduction.ts`: Raid時の挨拶文をOllama `POST /api/generate` で生成し、失敗時は固定Raid挨拶文へフォールバックする任意機能を担当。Twitchチャット向けに単一行・500文字以内へ整形し、`@ユーザー名` とURLを保証して絵文字を除去する。
+- `src/commands/shoutout-introduction.ts`: Raid時の挨拶文をOllama `POST /api/generate` で生成し、失敗時は固定Raid挨拶文へフォールバックする任意機能を担当。AI生成文は単一行・250文字以内へ整形し、`@ユーザー名` とURLを保証して絵文字を除去する。
 - `src/commands/raid-info.ts`: Raid受信時にレイド元の配信URL、配信タイトル、ゲーム名をTwitch APIから取得し、チャット投稿用メッセージへ整形する。配信情報取得不可時もURL付きフォールバック文を返す。
 - `src/commands/boom.ts`: TypeScript版 `!boom` の集計ロジック。過去30日間のアーカイブ配信を Twurple Helix で取得し、Twitch GraphQL の VOD チャプターからゲーム別トータル時間と総配信時間を算出する。
 - `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ軽いAPIフォールバックを使う。
@@ -47,7 +47,7 @@
 - `tests/test_token_refresh_policy.py`: トークンリフレッシュ失敗時のフォールバック判定テスト。
 - `tests/test_process_restart.py`: 同一コンソール再起動とフォールバック経路のユニットテスト。
 - `tests/commands/shoutout.test.ts`: TypeScript版シャウトアウトが Bot/Moderator ユーザーコンテキストで実行されること、手動コマンド権限判定、対象ユーザー名正規化、429時のキュー再実行を検証。
-- `tests/commands/shoutout-introduction.test.ts`: Ollama Raid挨拶文生成の無効時固定文フォールバック、`/api/generate` リクエスト、HTTP失敗時フォールバック、`@ユーザー名` とURL保証、絵文字除去を含むチャット向け整形を検証。
+- `tests/commands/shoutout-introduction.test.ts`: Ollama Raid挨拶文生成の無効時固定文フォールバック、`/api/generate` リクエスト、HTTP失敗時フォールバック、250文字制限、`@ユーザー名` とURL保証、絵文字除去を含むチャット向け整形を検証。
 - `tests/bot-raid-greeting.test.ts`: BotのRaid情報取得ではチャット送信せず、Raid挨拶文送信経路だけが1通送ることを検証。
 - `tests/commands/raid-info.test.ts`: Raid元配信情報の取得、指定文言でのチャットメッセージ整形、オフライン時フォールバック、長文タイトルの単一行化/短縮を検証。
 - `tests/commands/boom.test.ts`: TypeScript版 `!boom` のVODチャプター抽出、ゲーム別合算、1時間未満フィルタ、表示文言を検証。
@@ -106,6 +106,14 @@
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
+
+## 2026-06-08 作業ログ
+- 要望: Ollama Raid挨拶文に文字数制限を入れたい
+- 背景: 実リクエスト確認で、プロンプトの `250文字以内` をモデルがRaid人数のように誤読する出力が見えた。プロンプト上の数値指定だけに頼らず、コード側で最終文字数を制御する方針にした
+- TDD: `tests/commands/shoutout-introduction.test.ts` に、Ollamaプロンプトから `250文字` 指示を外すこと、長いAI生成文でもURLを残して250文字以内へ丸めることを先に追加し、未実装失敗を確認
+- 実装: `src/commands/shoutout-introduction.ts` に `GENERATED_RAID_GREETING_LIMIT = 250` を追加。`formatGeneratedRaidGreetingMessage` で `@ユーザー名` とURLを補正した後、URLを保持しながら250文字以内へ切り詰めるよう変更。プロンプトは数値を含めず「短い文」とだけ指示する形へ変更
+- ドキュメント: README、`docs/index.html`、AGENTSにOllama Raid挨拶文の250文字制限を追記
+- 検証: `npm test -- --run tests/commands/shoutout-introduction.test.ts` 7件、`npm test` 145件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認、ビルド済みJSでの250文字制限とURL保持確認が通過
 
 ## 2026-06-07 作業ログ
 - 追加不具合報告: Raid時に固定のRaidお礼文とOllama紹介文が2通送信されていた。ユーザー要望は、1通目のようなRaid挨拶文そのものをAIで生成すること

@@ -47,7 +47,7 @@ npm run dev         # ts-nodeで開発実行
 - `STREAM_SUMMARY_MAX_CLIPS` に配信まとめスレッドへ投稿する最大クリップ数を設定できます（未設定時は `10`）
 - `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を設定すると、Bot APIで配信開始通知、クリップURL、終了まとめを投稿し、配信開始通知メッセージからDiscordスレッドを作成します。`DISCORD_WEBHOOK_URL` はBot設定が無い場合、またはBot API投稿が403などで失敗した場合のフォールバックです
 - `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定すると、Webhookだけで `thread_name` によるスレッド作成を試します。この方式はDiscordのフォーラム/メディアチャンネルWebhook向けです。通常テキストチャンネルWebhookではDiscord側で拒否されるため、自動で通常Webhook投稿へフォールバックします
-- `OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` を設定すると、Raid時にOllama `POST /api/generate` で1通のRaid挨拶文を生成してチャットへ送信します。`OLLAMA_BASE_URL` は未設定時 `http://127.0.0.1:11434`、`OLLAMA_SHOUTOUT_TIMEOUT_MS` は未設定時 `8000`、`OLLAMA_SHOUTOUT_KEEP_ALIVE` は未設定時 `5m` です
+- `OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` を設定すると、Raid時にOllama `POST /api/generate` で1通のRaid挨拶文を生成してチャットへ送信します。AI生成文はコード側で250文字以内に丸めます。`OLLAMA_BASE_URL` は未設定時 `http://127.0.0.1:11434`、`OLLAMA_SHOUTOUT_TIMEOUT_MS` は未設定時 `8000`、`OLLAMA_SHOUTOUT_KEEP_ALIVE` は未設定時 `5m` です
 
 ## 技術スタック
 - **ランタイム**: Node.js 22.5+（`node:sqlite` を使用）
@@ -116,7 +116,7 @@ npm run dev         # ts-nodeで開発実行
 - レイド検知時は `src/commands/shoutout.ts` でレイド元のユーザーIDを解決し、Bot/Moderator のユーザーコンテキストで `chat.shoutoutUser` を実行
 - レイド検知時は `src/commands/raid-info.ts` でレイド元の配信情報を取得し、Ollamaが無効または失敗した場合はチャットへ `レイドありがとうD！！ @ユーザー さんは、「ゲーム名」で「配信タイトル」をしてたD！お疲れ様D！チャンネルはこD→URL` を1通だけ送信する
 - `OLLAMA_SHOUTOUT_ENABLED=true` の場合は、取得したRaid元のユーザー名/ゲーム/タイトル/Raid人数/URLをもとに `src/commands/shoutout-introduction.ts` で同じ役割のRaid挨拶文を生成し、固定文の代わりに1通だけ送信する
-- Ollama挨拶文生成はshoutoutキュー投入後に実行する。AI生成文は `@ユーザー名` とチャンネルURLを必ず含むよう補正し、絵文字を除去する。Ollamaが未設定、タイムアウト、HTTPエラー、空応答、日本語かなを含まない返答の場合は固定のRaid挨拶文へフォールバックし、Twitch shoutout APIは継続する
+- Ollama挨拶文生成はshoutoutキュー投入後に実行する。AI生成文は `@ユーザー名` とチャンネルURLを必ず含むよう補正し、絵文字を除去し、URLを残したまま250文字以内へ丸める。Ollamaが未設定、タイムアウト、HTTPエラー、空応答、日本語かなを含まない返答の場合は固定のRaid挨拶文へフォールバックし、Twitch shoutout APIは継続する
 - Raid元の配信がすでにオフライン、またはTwitch APIでタイトル/ゲームを取得できない場合でも、チャンネルURL付きのフォールバック文を送信する
 - Raid自動shoutoutは `ShoutoutQueue` で直列化し、Twitchの `429 Too Many Requests` に当たった対象はキュー先頭へ戻して2分後に再実行する
 - Twurple のデフォルト挙動で broadcaster の未登録トークンを探しに行かないよう、`apiClient.asUser(botUserId, ...)` で明示的にコンテキストを切り替える
@@ -193,6 +193,7 @@ src/
 ```
 
 ## 更新履歴
+- **2026-06-08**: Ollama Raid挨拶文をコード側で250文字以内へ制限。プロンプトから `250文字以内` の数値指示を外し、モデルが文字数を人数として誤読するリスクを下げる
 - **2026-06-07**: Raid時の挨拶文をOllamaで生成する任意機能を追加。`OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` 設定時だけ、サブPC上のOllama APIへ1通のRaid挨拶文を依頼し、失敗時は固定Raid挨拶文へフォールバックする。生成文は `@ユーザー名` とURLを保証し、絵文字は除去する
 - **2026-06-07**: 配信開始通知直後のスレッド補完で、保存済み `startMessageId` からスレッド作成に失敗しても同じ開始処理内では開始通知を投稿し直さないよう修正。クリップ/終了まとめ前の保証処理では従来どおり必要時のみ再投稿する
 - **2026-06-06**: ソース側の性能レビュー反映として、通常コメント1件ごとの配信まとめstate JSON同期書き込みを廃止。`StreamSummaryCountBuffer` で30秒デバウンスし、Raid/停止/配信終了時は即時flushするよう変更
