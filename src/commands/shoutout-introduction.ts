@@ -12,11 +12,29 @@ export interface GenerateRaidGreetingMessageOptions {
   timeoutMs: number;
   keepAlive?: string;
   fetchImpl?: typeof fetch;
+  onDecision?: (decision: RaidGreetingDecision) => void;
 }
 
 interface OllamaGenerateResponse {
   response?: unknown;
   done?: unknown;
+}
+
+export type RaidGreetingFallbackReason =
+  | "disabled"
+  | "missing_model"
+  | "http_error"
+  | "invalid_response"
+  | "empty_or_non_japanese"
+  | "negative_raid_size"
+  | "request_failed";
+
+export interface RaidGreetingDecision {
+  status: "generated" | "fallback";
+  userName: string;
+  reason?: RaidGreetingFallbackReason;
+  elapsedMs?: number;
+  detail?: string;
 }
 
 const GENERATED_RAID_GREETING_LIMIT = 250;
@@ -118,6 +136,38 @@ function includesRequiredStreamDetails(
   );
 }
 
+function buildStreamDetailsClause(info: RaidSourceInfo): string | null {
+  const gameName = info.gameName ? singleLine(info.gameName) : null;
+  const title = info.title ? singleLine(info.title) : null;
+  if (gameName && title) {
+    return `配信では「${gameName}」で「${title}」をしてたD！`;
+  }
+  if (gameName) return `配信では「${gameName}」で遊んでたD！`;
+  if (title) return `配信では「${title}」をしてたD！`;
+  return null;
+}
+
+function insertBeforeStreamUrl(
+  value: string,
+  streamUrl: string,
+  insertion: string
+): string {
+  const urlIndex = value.indexOf(streamUrl);
+  if (urlIndex < 0) return `${value} ${insertion}`;
+
+  const beforeUrl = value.slice(0, urlIndex).trimEnd();
+  const afterUrl = value.slice(urlIndex + streamUrl.length);
+  return `${beforeUrl} ${insertion} ${streamUrl}${afterUrl}`;
+}
+
+function ensureStreamDetails(value: string, info: RaidSourceInfo): string {
+  if (includesRequiredStreamDetails(value, info)) return value;
+
+  const details = buildStreamDetailsClause(info);
+  if (!details || value.includes(details)) return value;
+  return insertBeforeStreamUrl(value, info.streamUrl, details);
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -189,16 +239,26 @@ export function formatGeneratedRaidGreetingMessage(
   const normalized = normalizeGeneratedGreeting(generated);
   if (!normalized) return null;
   if (hasNegativeRaidSizePhrasing(normalized)) return null;
-  if (!includesRequiredStreamDetails(normalized, info)) return null;
 
   const withoutDuplicateLead = removeLeadingUserName(normalized, userName);
   const withUser = ensureUserMention(withoutDuplicateLead, userName);
   const withUrl = ensureStreamUrl(withUser, info.streamUrl);
+  const withStreamDetails = ensureStreamDetails(withUrl, info);
   return shortenKeepingUrl(
-    withUrl,
+    withStreamDetails,
     info.streamUrl,
     GENERATED_RAID_GREETING_LIMIT
   );
+}
+
+function notifyDecision(
+  options: GenerateRaidGreetingMessageOptions,
+  decision: Omit<RaidGreetingDecision, "userName">
+): void {
+  options.onDecision?.({
+    userName: normalizeLoginName(options.info.userName),
+    ...decision,
+  });
 }
 
 export async function generateRaidGreetingMessage({
@@ -209,9 +269,28 @@ export async function generateRaidGreetingMessage({
   timeoutMs,
   keepAlive,
   fetchImpl = fetch,
+  onDecision,
 }: GenerateRaidGreetingMessageOptions): Promise<string | null> {
+  const options = {
+    info,
+    enabled,
+    baseUrl,
+    model,
+    timeoutMs,
+    keepAlive,
+    fetchImpl,
+    onDecision,
+  };
+  const startedAt = Date.now();
   const trimmedModel = model.trim();
-  if (!enabled || !trimmedModel) return null;
+  if (!enabled) {
+    notifyDecision(options, { status: "fallback", reason: "disabled" });
+    return null;
+  }
+  if (!trimmedModel) {
+    notifyDecision(options, { status: "fallback", reason: "missing_model" });
+    return null;
+  }
 
   try {
     const response = await fetchImpl(buildOllamaGenerateUrl(baseUrl), {
@@ -230,13 +309,71 @@ export async function generateRaidGreetingMessage({
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });
+    const elapsedMs = Date.now() - startedAt;
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      notifyDecision(options, {
+        status: "fallback",
+        reason: "http_error",
+        elapsedMs,
+        detail: `HTTP ${response.status}`,
+      });
+      return null;
+    }
 
     const body = (await response.json()) as OllamaGenerateResponse;
-    if (typeof body.response !== "string") return null;
-    return formatGeneratedRaidGreetingMessage(info, body.response);
-  } catch {
+    if (typeof body.response !== "string") {
+      notifyDecision(options, {
+        status: "fallback",
+        reason: "invalid_response",
+        elapsedMs,
+      });
+      return null;
+    }
+
+    const normalized = normalizeGeneratedGreeting(body.response);
+    if (!normalized) {
+      notifyDecision(options, {
+        status: "fallback",
+        reason: "empty_or_non_japanese",
+        elapsedMs,
+      });
+      return null;
+    }
+    if (hasNegativeRaidSizePhrasing(normalized)) {
+      notifyDecision(options, {
+        status: "fallback",
+        reason: "negative_raid_size",
+        elapsedMs,
+      });
+      return null;
+    }
+
+    const message = formatGeneratedRaidGreetingMessage(info, normalized);
+    if (!message) {
+      notifyDecision(options, {
+        status: "fallback",
+        reason: "invalid_response",
+        elapsedMs,
+      });
+      return null;
+    }
+
+    notifyDecision(options, {
+      status: "generated",
+      elapsedMs,
+      detail: includesRequiredStreamDetails(normalized, info)
+        ? undefined
+        : "stream_details_repaired",
+    });
+    return message;
+  } catch (error) {
+    notifyDecision(options, {
+      status: "fallback",
+      reason: "request_failed",
+      elapsedMs: Date.now() - startedAt,
+      detail: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+    });
     return null;
   }
 }
