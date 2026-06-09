@@ -26,7 +26,7 @@
 - `src/commands/stream-notify.ts`: TypeScript版 `!streamnotify` の管理者判定と、現在配信中の開始通知をDiscordへ手動送信するためのライブ状態取得ヘルパー。配信開始Embed用に視聴者数・サムネイルURLも通す。
 - `src/notifications/stream-notifications.ts`: 配信開始通知の重複抑止、`@everyone` 付きDiscord Embed payload生成、保存タイトルをタイトル単体に保つ処理を担当。
 - `src/notifications/discord-webhook.ts`: Discord Webhook/Bot API投稿、Embed/allowed_mentions payload、メッセージ起点スレッド作成、Discord thread API操作を担当。
-- `src/streams/stream-summary.ts`: 配信終了まとめの表示文言作成、Discord Bot API/Webhook投稿、開始通知/まとめメッセージからのスレッド作成、ライブクリップURL投稿を担当。開始通知は文字列だけでなくEmbed payloadも受け取り、終了まとめ後もスレッドはアーカイブしない。
+- `src/streams/stream-summary.ts`: 配信終了まとめの表示文言作成、Discord Bot API/Webhook投稿、開始通知/まとめメッセージからのスレッド作成、ライブクリップURL投稿を担当。開始通知は文字列だけでなくEmbed payloadも受け取り、終了まとめ後もスレッドはアーカイブしない。自動スレッド保証処理では開始通知を再投稿せず、保存済み開始通知からのスレッド作成だけを再試行する。
 - `src/streams/stream-summary-count-buffer.ts`: 通常コメントごとの配信まとめstate同期書き込みを避けるため、コメント数更新を30秒デバウンスし、Raid/停止/配信終了時に即時flushする。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
 - `docs/index.html`: 現行TypeScript版 `src/` を中心に、Twitch Botのプログラム概要、機能一覧、処理フロー、配信まとめ、Clip同期、Raid対応、フォールバック、性能・運用、品質ゲートを図付きでまとめたGitHub Pages用HTML仕様書。
@@ -57,7 +57,7 @@
 - `tests/commands/clip-cache-store.test.ts`: クリップSQLiteキャッシュ、履歴上限、走査済み期間、削除済みClipの無効化と候補除外を検証。
 - `tests/commands/clip-cache-sync.test.ts`: クリップ全期間走査用の日付窓、直近同期、完了済み期間スキップ、日次再走査の配信中スキップと削除済みClip無効化を検証。
 - `tests/commands/stream-notify.test.ts`: `!streamnotify` 用の管理者判定、現在配信中/オフライン/Discord投稿失敗時の結果を検証。
-- `tests/streams/stream-summary.test.ts`: 配信終了まとめの整形、Discordスレッドへのライブ/終了時クリップ投稿、開始通知Embedからのスレッド作成、開始通知スレッド補完、終了後もスレッドを表示維持すること、投稿途中再開時の重複回避を検証。
+- `tests/streams/stream-summary.test.ts`: 配信終了まとめの整形、Discordスレッドへのライブ/終了時クリップ投稿、開始通知Embedからのスレッド作成、開始通知スレッド補完、開始通知ID未保存時の自動再投稿防止、終了後もスレッドを表示維持すること、投稿途中再開時の重複回避を検証。
 - `tests/streams/stream-summary-count-buffer.test.ts`: 配信まとめコメント数更新の30秒デバウンス、flush、Raid即時反映、posted/no-state時のスキップを検証。
 - `tests/streams/stream-summary-state-store.test.ts`: 配信まとめ状態JSONの保存・復元・投稿済み更新を検証。
 - `tests/notifications/discord-webhook.test.ts`: Discord Webhookの `wait` / `thread_id` 付与、Bot Tokenによるcontent/Embed/allowed_mentions投稿、メッセージスレッド作成、スレッドアーカイブを検証。
@@ -108,6 +108,16 @@
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
+
+## 2026-06-09 作業ログ
+- 不具合報告: 配信開始通知がDiscordへ2通流れている。スクリーンショットでは、1通目は視聴者数/画像付きの正しいEmbed、2通目は `Viewers=不明` で画像なしの開始通知Embedだった
+- 調査: サブPC `data/stream-summary-state.json` は正しい開始通知 `startMessageId=1513749630985441414` / `threadId=1513749630985441414` を保存済み。Discord APIでは重複メッセージ `1513749634076508220` が同じ時刻に別投稿され、2通目にはスレッドが無かった
+- 原因: 通常開始通知の投稿/スレッド作成と直近Clip同期後の配信まとめスレッド保証が競合し、`startMessageId` がまだ見えない状態で `_ensureCurrentStreamSummaryThread` がstateだけから開始通知を新規投稿していた。2通目の `Viewers=不明` / 画像なしはこのstate由来payloadだった
+- TDD: `tests/streams/stream-summary.test.ts` に、`allowStartNotificationRepost=false` かつ保存済み `startMessageId` が無い場合はBot API/Webhook/createThreadを一切呼ばず `{}` を返すテストを追加
+- 実装: `ensureStreamSummaryStartThread` で再投稿禁止時に保存済み `startMessageId` が無ければ即returnするよう変更。`src/bot.ts` の現在配信スレッド保証も `allowStartNotificationRepost=false` を明示し、Clip/終了まとめ前の自動保証では開始通知を再投稿しないようにした
+- ドキュメント: README、`docs/index.html`、`docs/ARCHITECTURE.md`、AGENTSに、自動スレッド保証処理は開始通知を再投稿せず、再送は `!streamnotify` で明示する仕様を追記
+- 復旧: 重複したDiscordメッセージ `1513749634076508220` をDiscord APIで削除。削除後の最新メッセージ一覧で同IDが表示されず、正しい開始通知 `1513749630985441414` だけが残ることを確認
+- 検証: `npm test -- --run tests/streams/stream-summary.test.ts` 23件、`npm test` 150件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認、`git diff --check` が通過。サブPC反映はこの後実施
 
 ## 2026-06-08 作業ログ
 - 不具合報告: `【🎣FF14】プテラッ！！再現したな、このるっかを…！【Mana/🍞でも】` の配信開始通知にスレッドが建てられていないように見えた

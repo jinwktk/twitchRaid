@@ -300,6 +300,33 @@ describe("stream summary", () => {
     });
   });
 
+  it("does not post a start notification without a saved message when reposting is disabled", async () => {
+    const sendBotMessage = vi.fn();
+    const sendWebhook = vi.fn();
+    const createThread = vi.fn();
+
+    const started = await ensureStreamSummaryStartThread({
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+      botToken: "bot-token",
+      channelId: "channel-id",
+      title: "回変り金み",
+      message: "回変り金み",
+      state: {
+        ...state,
+        status: "active",
+      },
+      allowStartNotificationRepost: false,
+      sendBotMessage,
+      sendWebhook,
+      createThread,
+    });
+
+    expect(sendBotMessage).not.toHaveBeenCalled();
+    expect(sendWebhook).not.toHaveBeenCalled();
+    expect(createThread).not.toHaveBeenCalled();
+    expect(started).toEqual({});
+  });
+
   it("does not duplicate start notifications when the start thread already exists", async () => {
     const sendWebhook = vi.fn();
     const createThread = vi.fn();
