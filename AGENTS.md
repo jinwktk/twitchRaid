@@ -117,6 +117,7 @@
 - 設定: 冷間ロード時の8秒タイムアウトを避けるため、既定値を `OLLAMA_SHOUTOUT_TIMEOUT_MS=15000`、`OLLAMA_SHOUTOUT_KEEP_ALIVE=30m` に変更
 - ドキュメント: README、`docs/index.html`、AGENTSにOllama Raid挨拶文のログ、補完、タイムアウト/keep_alive変更を追記
 - 検証: `npm test -- --run tests/commands/shoutout-introduction.test.ts` 10件、`npm test` 151件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認、`git diff --check` が通過
+- 本番反映: コミット `2b81452` をサブPC `E:\GitHub\twitchRaid` へ反映し、`.env.bak-ollama-timeout-20260609044504` を作成して `OLLAMA_SHOUTOUT_TIMEOUT_MS=15000` / `OLLAMA_SHOUTOUT_KEEP_ALIVE=30m` に更新。サブPCで `npm run build` と `npm test -- --run tests/commands/shoutout-introduction.test.ts` 10件が通過し、`pm2 restart twitchRaid --update-env` 後に `twitchRaid` と `ollama` は online。`nyme_ia` の配信情報取得不可ケースを実コードでOllama生成し、`status=generated` / 約3.5秒でAI文が返ることを確認
 
 - 不具合報告: 配信開始通知がDiscordへ2通流れている。スクリーンショットでは、1通目は視聴者数/画像付きの正しいEmbed、2通目は `Viewers=不明` で画像なしの開始通知Embedだった
 - 調査: サブPC `data/stream-summary-state.json` は正しい開始通知 `startMessageId=1513749630985441414` / `threadId=1513749630985441414` を保存済み。Discord APIでは重複メッセージ `1513749634076508220` が同じ時刻に別投稿され、2通目にはスレッドが無かった
