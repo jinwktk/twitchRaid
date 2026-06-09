@@ -1084,7 +1084,8 @@ export class Bot {
         title: state.title,
         gameName: state.gameName,
         streamUrl: state.streamUrl,
-      })
+      }),
+      { allowStartNotificationRepost: false }
     );
 
     const current = this.streamSummaryStateStore.load();

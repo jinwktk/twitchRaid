@@ -411,6 +411,10 @@ export async function ensureStreamSummaryStartThread({
     }
   }
 
+  if (!allowStartNotificationRepost) {
+    return {};
+  }
+
   return startStreamSummaryThread({
     webhookUrl,
     botToken,
