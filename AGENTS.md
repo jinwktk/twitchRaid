@@ -117,7 +117,8 @@
 - 実装: `ensureStreamSummaryStartThread` で再投稿禁止時に保存済み `startMessageId` が無ければ即returnするよう変更。`src/bot.ts` の現在配信スレッド保証も `allowStartNotificationRepost=false` を明示し、Clip/終了まとめ前の自動保証では開始通知を再投稿しないようにした
 - ドキュメント: README、`docs/index.html`、`docs/ARCHITECTURE.md`、AGENTSに、自動スレッド保証処理は開始通知を再投稿せず、再送は `!streamnotify` で明示する仕様を追記
 - 復旧: 重複したDiscordメッセージ `1513749634076508220` をDiscord APIで削除。削除後の最新メッセージ一覧で同IDが表示されず、正しい開始通知 `1513749630985441414` だけが残ることを確認
-- 検証: `npm test -- --run tests/streams/stream-summary.test.ts` 23件、`npm test` 150件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認、`git diff --check` が通過。サブPC反映はこの後実施
+- 検証: `npm test -- --run tests/streams/stream-summary.test.ts` 23件、`npm test` 150件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認、`git diff --check` が通過
+- 本番反映: 実装コミット `b981104` をサブPC `E:\GitHub\twitchRaid` へ反映済み。サブPCで `npm run build` と `npm test -- --run tests/streams/stream-summary.test.ts` 23件が通過し、`pm2 restart twitchRaid --update-env` 後に `twitchRaid` は online。Discord最新10件で現在配信タイトルの開始通知は1件のみ、`Viewers=13` / 画像あり / threadありを確認
 
 ## 2026-06-08 作業ログ
 - 不具合報告: `【🎣FF14】プテラッ！！再現したな、このるっかを…！【Mana/🍞でも】` の配信開始通知にスレッドが建てられていないように見えた
