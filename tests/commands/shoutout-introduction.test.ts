@@ -93,6 +93,7 @@ describe("generateRaidGreetingMessage", () => {
   });
 
   it("returns null when Ollama rejects the request", async () => {
+    const decisions: unknown[] = [];
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: false,
       status: 500,
@@ -109,11 +110,21 @@ describe("generateRaidGreetingMessage", () => {
         timeoutMs: 3000,
         keepAlive: "5m",
         fetchImpl,
+        onDecision: (decision) => decisions.push(decision),
       })
     ).resolves.toBeNull();
+    expect(decisions).toEqual([
+      expect.objectContaining({
+        status: "fallback",
+        reason: "http_error",
+        userName: "raiduser",
+        detail: "HTTP 500",
+      }),
+    ]);
   });
 
   it("returns null when Ollama responds without Japanese kana", async () => {
+    const decisions: unknown[] = [];
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -133,8 +144,47 @@ describe("generateRaidGreetingMessage", () => {
         timeoutMs: 3000,
         keepAlive: "5m",
         fetchImpl,
+        onDecision: (decision) => decisions.push(decision),
       })
     ).resolves.toBeNull();
+    expect(decisions).toEqual([
+      expect.objectContaining({
+        status: "fallback",
+        reason: "empty_or_non_japanese",
+        userName: "raiduser",
+      }),
+    ]);
+  });
+
+  it("reports when a valid Ollama greeting is adopted", async () => {
+    const decisions: unknown[] = [];
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response:
+          "レイドありがとうD！！ @raiduser さん、Minecraftでたのしい建築配信をしてたD！ https://www.twitch.tv/raiduser",
+      }),
+    });
+
+    await expect(
+      generateRaidGreetingMessage({
+        info: raidInfo,
+        viewerCount: 12,
+        enabled: true,
+        baseUrl: "http://127.0.0.1:11434",
+        model: "qwen2.5:7b",
+        timeoutMs: 3000,
+        keepAlive: "5m",
+        fetchImpl,
+        onDecision: (decision) => decisions.push(decision),
+      })
+    ).resolves.toContain("@raiduser");
+    expect(decisions).toEqual([
+      expect.objectContaining({
+        status: "generated",
+        userName: "raiduser",
+      }),
+    ]);
   });
 });
 
@@ -186,7 +236,7 @@ describe("formatGeneratedRaidGreetingMessage", () => {
     }
   });
 
-  it("rejects generated greetings that omit the game or stream title", () => {
+  it("repairs generated greetings that omit the game or stream title", () => {
     const missingDetails = [
       "レイドありがとうD！！ @raiduser さん、たのしい建築配信お疲れ様D！ https://www.twitch.tv/raiduser",
       "レイドありがとうD！！ @raiduser さん、Minecraftで遊んでたD！ https://www.twitch.tv/raiduser",
@@ -194,7 +244,10 @@ describe("formatGeneratedRaidGreetingMessage", () => {
     ];
 
     for (const greeting of missingDetails) {
-      expect(formatGeneratedRaidGreetingMessage(raidInfo, greeting)).toBeNull();
+      const message = formatGeneratedRaidGreetingMessage(raidInfo, greeting);
+      expect(message).toContain("Minecraft");
+      expect(message).toContain("たのしい建築配信");
+      expect(message).toContain("https://www.twitch.tv/raiduser");
     }
   });
 });

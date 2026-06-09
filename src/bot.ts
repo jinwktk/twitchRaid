@@ -781,6 +781,18 @@ export class Bot {
         model: this.config.ollamaShoutoutModel,
         timeoutMs: this.config.ollamaShoutoutTimeoutMs,
         keepAlive: this.config.ollamaShoutoutKeepAlive,
+        onDecision: (decision) => {
+          if (decision.status === "generated") {
+            logger.info(
+              `✅ Ollama Raid挨拶文を採用: target=${decision.userName}, elapsedMs=${decision.elapsedMs ?? "unknown"}, detail=${decision.detail ?? "ok"}`
+            );
+            return;
+          }
+
+          logger.warn(
+            `⚠️ Ollama Raid挨拶文を固定文へフォールバック: target=${decision.userName}, reason=${decision.reason ?? "unknown"}, elapsedMs=${decision.elapsedMs ?? "unknown"}, detail=${decision.detail ?? "none"}`
+          );
+        },
       });
       await this.chatClient.say(channel, message);
     } catch (sendErr) {

@@ -17,7 +17,7 @@
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `process_restart.py`: 同一コンソール内でのプロセス再起動と、`execv` 失敗時フォールバック起動を担当。
 - `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトと `!shoutout` 手動デバッグコマンドの権限判定・対象ユーザー正規化を担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。Raid自動shoutoutは `ShoutoutQueue` で直列化し、429時は対象をキュー先頭へ戻して2分後に再実行する。
-- `src/commands/shoutout-introduction.ts`: Raid時の挨拶文をOllama `POST /api/generate` で生成し、失敗時は固定Raid挨拶文へフォールバックする任意機能を担当。AI生成文は単一行・250文字以内へ整形し、`@ユーザー名` とURLを保証して絵文字を除去する。Raid人数はAI入力に含めず、低人数を下げる表現はAI文として採用しない。ゲーム名と配信タイトルを含み、何をして遊んでいたかが手短に分かる紹介文だけを採用する。
+- `src/commands/shoutout-introduction.ts`: Raid時の挨拶文をOllama `POST /api/generate` で生成し、失敗時は固定Raid挨拶文へフォールバックする任意機能を担当。AI生成文は単一行・250文字以内へ整形し、`@ユーザー名` とURLを保証して絵文字を除去する。Raid人数はAI入力に含めず、低人数を下げる表現はAI文として採用しない。ゲーム名と配信タイトルが抜けた場合は取得済み情報を補って採用し、採用/フォールバック理由をログへ出す。
 - `src/commands/raid-info.ts`: Raid受信時にレイド元の配信URL、配信タイトル、ゲーム名をTwitch APIから取得し、チャット投稿用メッセージへ整形する。配信情報取得不可時もURL付きフォールバック文を返す。
 - `src/commands/boom.ts`: TypeScript版 `!boom` の集計ロジック。過去30日間のアーカイブ配信を Twurple Helix で取得し、Twitch GraphQL の VOD チャプターからゲーム別トータル時間と総配信時間を算出する。
 - `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ軽いAPIフォールバックを使う。
@@ -49,7 +49,7 @@
 - `tests/test_token_refresh_policy.py`: トークンリフレッシュ失敗時のフォールバック判定テスト。
 - `tests/test_process_restart.py`: 同一コンソール再起動とフォールバック経路のユニットテスト。
 - `tests/commands/shoutout.test.ts`: TypeScript版シャウトアウトが Bot/Moderator ユーザーコンテキストで実行されること、手動コマンド権限判定、対象ユーザー名正規化、429時のキュー再実行を検証。
-- `tests/commands/shoutout-introduction.test.ts`: Ollama Raid挨拶文生成の無効時固定文フォールバック、`/api/generate` リクエスト、HTTP失敗時フォールバック、250文字制限、Raid人数をAIへ渡さないこと、低人数ネガティブ表現の拒否、ゲーム名/配信タイトル必須チェック、`@ユーザー名` とURL保証、絵文字除去を含むチャット向け整形を検証。
+- `tests/commands/shoutout-introduction.test.ts`: Ollama Raid挨拶文生成の無効時固定文フォールバック、`/api/generate` リクエスト、HTTP失敗時フォールバック、採用/フォールバック理由通知、250文字制限、Raid人数をAIへ渡さないこと、低人数ネガティブ表現の拒否、ゲーム名/配信タイトル補完、`@ユーザー名` とURL保証、絵文字除去を含むチャット向け整形を検証。
 - `tests/bot-raid-greeting.test.ts`: BotのRaid情報取得ではチャット送信せず、Raid挨拶文送信経路だけが1通送ることを検証。
 - `tests/commands/raid-info.test.ts`: Raid元配信情報の取得、指定文言でのチャットメッセージ整形、オフライン時フォールバック、長文タイトルの単一行化/短縮を検証。
 - `tests/commands/boom.test.ts`: TypeScript版 `!boom` のVODチャプター抽出、ゲーム別合算、1時間未満フィルタ、表示文言を検証。
@@ -110,6 +110,14 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-09 作業ログ
+- 不具合報告: 直近Raidの挨拶で再びOllamaが通っていないように見える
+- 調査: サブPC `OLLAMA_SHOUTOUT_ENABLED=true` / `OLLAMA_SHOUTOUT_MODEL=qwen2.5:7b`、PM2 `ollama` はonline。13:19の `t2maekawa` Raidでは Ollama `/api/generate` が `7.9998275s` でHTTP 500となり、Bot側の `OLLAMA_SHOUTOUT_TIMEOUT_MS=8000` に当たって固定文へフォールバックしていた。13:37の `nyme_ia` Raidでは Ollama `/api/generate` はHTTP 200 / 約2.96秒だったため、生成後の採用条件で固定文へ戻った可能性が高い
+- TDD: `tests/commands/shoutout-introduction.test.ts` に、HTTP失敗時のフォールバック理由通知、採用時の通知、ゲーム名/配信タイトルをAIが落とした場合に固定文へ戻さず補完する期待値を追加
+- 実装: `src/commands/shoutout-introduction.ts` に `RaidGreetingDecision` を追加し、Ollama採用/フォールバック理由、対象ユーザー、所要時間、補足detailを通知できるよう変更。`src/bot.ts` で `Ollama Raid挨拶文を採用` / `固定文へフォールバック` ログを出すよう接続。AI文がゲーム名/配信タイトルを落とした場合は取得済み情報をURL直前へ補って採用する
+- 設定: 冷間ロード時の8秒タイムアウトを避けるため、既定値を `OLLAMA_SHOUTOUT_TIMEOUT_MS=15000`、`OLLAMA_SHOUTOUT_KEEP_ALIVE=30m` に変更
+- ドキュメント: README、`docs/index.html`、AGENTSにOllama Raid挨拶文のログ、補完、タイムアウト/keep_alive変更を追記
+- 検証: `npm test -- --run tests/commands/shoutout-introduction.test.ts` 10件、`npm test` 151件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認、`git diff --check` が通過
+
 - 不具合報告: 配信開始通知がDiscordへ2通流れている。スクリーンショットでは、1通目は視聴者数/画像付きの正しいEmbed、2通目は `Viewers=不明` で画像なしの開始通知Embedだった
 - 調査: サブPC `data/stream-summary-state.json` は正しい開始通知 `startMessageId=1513749630985441414` / `threadId=1513749630985441414` を保存済み。Discord APIでは重複メッセージ `1513749634076508220` が同じ時刻に別投稿され、2通目にはスレッドが無かった
 - 原因: 通常開始通知の投稿/スレッド作成と直近Clip同期後の配信まとめスレッド保証が競合し、`startMessageId` がまだ見えない状態で `_ensureCurrentStreamSummaryThread` がstateだけから開始通知を新規投稿していた。2通目の `Viewers=不明` / 画像なしはこのstate由来payloadだった

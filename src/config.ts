@@ -118,10 +118,10 @@ export class Config {
       env["OLLAMA_SHOUTOUT_MODEL"]?.trim() || env["OLLAMA_MODEL"]?.trim() || "";
     this.ollamaShoutoutTimeoutMs = parsePositiveInt(
       env["OLLAMA_SHOUTOUT_TIMEOUT_MS"],
-      8_000
+      15_000
     );
     this.ollamaShoutoutKeepAlive =
-      env["OLLAMA_SHOUTOUT_KEEP_ALIVE"]?.trim() || "5m";
+      env["OLLAMA_SHOUTOUT_KEEP_ALIVE"]?.trim() || "30m";
 
     // 特別ユーザー
     const specialUsersStr = env["CLIP_SPECIAL_USERS"] ?? "nyme_ia,rukalun";
