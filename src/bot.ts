@@ -29,8 +29,11 @@ import {
 import { refreshAccessTokenAdvanced } from "./auth/token-manager";
 import {
   clipHistoryKey,
+  clipSearchHistoryKey,
+  normalizeClipSearchQuery,
   resolveClipCreatorId,
   selectCachedClip,
+  selectCachedClipSearch,
   selectClip,
   type ClipCommandName,
 } from "./commands/clip";
@@ -301,8 +304,10 @@ export class Bot {
     text: string,
     msg: ChatMessage
   ): Promise<void> {
-    const args = text.slice(this.config.commandPrefix.length).split(/\s+/);
+    const commandText = text.slice(this.config.commandPrefix.length).trim();
+    const args = commandText.split(/\s+/);
     const cmd = args[0].toLowerCase();
+    const restText = commandText.slice(args[0].length).trim();
 
     switch (cmd) {
       case "age":
@@ -338,6 +343,9 @@ export class Bot {
       case "myclip":
         await this._handleClipCommand(channel, user, "myclip", user);
         break;
+      case "clipsearch":
+        await this._handleClipSearchCommand(channel, restText);
+        break;
       case "manga":
         await this._handleMangaCommand(channel, user);
         break;
@@ -356,6 +364,34 @@ export class Bot {
       default:
         break;
     }
+  }
+
+  private async _handleClipSearchCommand(
+    channel: string,
+    query: string
+  ): Promise<void> {
+    const normalizedQuery = normalizeClipSearchQuery(query);
+    if (!normalizedQuery) {
+      await this.chatClient.say(channel, "⚠️ 使い方: !clipsearch <キーワード>");
+      return;
+    }
+
+    this.clipCacheSynchronizer?.syncRecentIfStale();
+    const clip = selectCachedClipSearch(this.clipCacheStore, normalizedQuery);
+
+    if (clip) {
+      await this.chatClient.say(channel, clip.url);
+      this.clipCacheStore.recordHistory(
+        clipSearchHistoryKey(normalizedQuery),
+        clip.id
+      );
+      return;
+    }
+
+    await this.chatClient.say(
+      channel,
+      `⚠️ \`${normalizedQuery}\` に一致するクリップが見つかりませんでした。`
+    );
   }
 
   private async _handleSpeedCommand(channel: string): Promise<void> {

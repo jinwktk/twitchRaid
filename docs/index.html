@@ -717,7 +717,9 @@
             <ul>
               <li><code>!clip</code>: ランダムClip</li>
               <li><code>!myclip</code>: 自分作成Clip</li>
-              <li>SQLite優先、APIはフォールバック</li>
+              <li><code>!clipsearch &lt;キーワード&gt;</code>: タイトル/作成者名検索</li>
+              <li><code>!clip</code> / <code>!myclip</code> はSQLite優先、APIはフォールバック</li>
+              <li><code>!clipsearch</code> はSQLiteキャッシュ検索のみ</li>
               <li>通常ユーザーは30分クールダウン</li>
             </ul>
           </article>
@@ -970,7 +972,7 @@
             </tr>
             <tr>
               <td><code>src/commands/clip*.ts</code></td>
-              <td>Clip選択、SQLiteキャッシュ、表示履歴、全期間バックフィル、直近同期、日次再走査。</td>
+              <td>Clip選択、タイトル/作成者名検索、SQLiteキャッシュ、表示履歴、全期間バックフィル、直近同期、日次再走査。</td>
             </tr>
             <tr>
               <td><code>src/commands/boom.ts</code></td>
@@ -1041,9 +1043,10 @@
             </p>
             <ul>
               <li><code>clip_cache</code>: Clip情報と有効/無効状態</li>
-              <li><code>clip_history</code>: <code>!clip</code> / <code>!myclip:user</code> ごとの表示履歴</li>
+              <li><code>clip_history</code>: <code>!clip</code> / <code>!myclip:user</code> / <code>!clipsearch:query</code> ごとの表示履歴</li>
               <li><code>clip_scan_windows</code>: 全期間バックフィルの完了窓</li>
               <li><code>clip_sync_state</code>: 直近同期と日次再走査の時刻</li>
+              <li><code>!clipsearch</code> がClip件数増加で遅くなった場合はFTS5または検索専用テーブルへの移行を検討</li>
             </ul>
           </article>
         </div>

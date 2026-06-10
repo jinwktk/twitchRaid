@@ -20,8 +20,8 @@
 - `src/commands/shoutout-introduction.ts`: Raid時の挨拶文をOllama `POST /api/generate` で生成し、失敗時は固定Raid挨拶文へフォールバックする任意機能を担当。AI生成文は単一行・250文字以内へ整形し、`@ユーザー名` とURLを保証して絵文字を除去する。Raid人数はAI入力に含めず、低人数を下げる表現はAI文として採用しない。ゲーム名と配信タイトルが抜けた場合は不足分だけ補って採用し、タイトル主要部が既に含まれている場合は長い定型紹介文を追記しない。採用/フォールバック理由をログへ出す。
 - `src/commands/raid-info.ts`: Raid受信時にレイド元の配信URL、配信タイトル、ゲーム名をTwitch APIから取得し、チャット投稿用メッセージへ整形する。配信情報取得不可時もURL付きフォールバック文を返す。
 - `src/commands/boom.ts`: TypeScript版 `!boom` の集計ロジック。過去30日間のアーカイブ配信を Twurple Helix で取得し、Twitch GraphQL の VOD チャプターからゲーム別トータル時間と総配信時間を算出する。
-- `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ軽いAPIフォールバックを使う。
-- `src/commands/clip-cache-store.ts`: クリップ本体、走査済み期間、削除/非公開化でTwitch APIから返らなくなったClipの無効化状態、`!clip` / `!myclip:<ユーザー>` ごとの表示履歴を `data/clips.sqlite` に保存する。
+- `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` / `!clipsearch` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、`!clip` / `!myclip` はキャッシュ未準備時のみ軽いAPIフォールバックを使う。`!clipsearch` はタイトル/作成者表示名のキャッシュ検索に限定する。
+- `src/commands/clip-cache-store.ts`: クリップ本体、走査済み期間、削除/非公開化でTwitch APIから返らなくなったClipの無効化状態、`!clip` / `!myclip:<ユーザー>` / `!clipsearch:<検索語>` ごとの表示履歴、Clipタイトル/作成者表示名の部分一致検索を `data/clips.sqlite` に保存・提供する。
 - `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期、直近同期完了後コールバック、配信していない時間の1日1回全期間再走査を担当。
 - `src/commands/stream-notify.ts`: TypeScript版 `!streamnotify` の管理者判定と、現在配信中の開始通知をDiscordへ手動送信するためのライブ状態取得ヘルパー。配信開始Embed用に視聴者数・サムネイルURLも通す。
 - `src/notifications/stream-notifications.ts`: 配信開始通知の重複抑止、`@everyone` 付きDiscord Embed payload生成、保存タイトルをタイトル単体に保つ処理を担当。
@@ -51,10 +51,11 @@
 - `tests/commands/shoutout.test.ts`: TypeScript版シャウトアウトが Bot/Moderator ユーザーコンテキストで実行されること、手動コマンド権限判定、対象ユーザー名正規化、429時のキュー再実行を検証。
 - `tests/commands/shoutout-introduction.test.ts`: Ollama Raid挨拶文生成の無効時固定文フォールバック、`/api/generate` リクエスト、HTTP失敗時フォールバック、採用/フォールバック理由通知、250文字制限、Raid人数をAIへ渡さないこと、低人数ネガティブ表現の拒否、ゲーム名/配信タイトルの不足分補完、主要部を含むAI文への二重紹介追記防止、`@ユーザー名` とURL保証、絵文字除去を含むチャット向け整形を検証。
 - `tests/bot-raid-greeting.test.ts`: BotのRaid情報取得ではチャット送信せず、Raid挨拶文送信経路だけが1通送ることを検証。
+- `tests/bot-clipsearch.test.ts`: TypeScript版 `!clipsearch` の使い方表示、空白入り検索語の保持、URL送信、履歴保存、結果なしメッセージを検証。
 - `tests/commands/raid-info.test.ts`: Raid元配信情報の取得、指定文言でのチャットメッセージ整形、オフライン時フォールバック、長文タイトルの単一行化/短縮を検証。
 - `tests/commands/boom.test.ts`: TypeScript版 `!boom` のVODチャプター抽出、ゲーム別合算、1時間未満フィルタ、表示文言を検証。
-- `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタを検証。
-- `tests/commands/clip-cache-store.test.ts`: クリップSQLiteキャッシュ、履歴上限、走査済み期間、削除済みClipの無効化と候補除外を検証。
+- `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタ、`clipsearch:<検索語>` 履歴キーとキャッシュ検索ラッパーを検証。
+- `tests/commands/clip-cache-store.test.ts`: クリップSQLiteキャッシュ、履歴上限、走査済み期間、削除済みClipの無効化と候補除外、Clipタイトル/作成者表示名検索、`%` / `_` のリテラル検索を検証。
 - `tests/commands/clip-cache-sync.test.ts`: クリップ全期間走査用の日付窓、直近同期、完了済み期間スキップ、日次再走査の配信中スキップと削除済みClip無効化を検証。
 - `tests/commands/stream-notify.test.ts`: `!streamnotify` 用の管理者判定、現在配信中/オフライン/Discord投稿失敗時の結果を検証。
 - `tests/streams/stream-summary.test.ts`: 配信終了まとめの整形、Discordスレッドへのライブ/終了時クリップ投稿、開始通知Embedからのスレッド作成、開始通知スレッド補完、開始通知ID未保存時の自動再投稿防止、終了後もスレッドを表示維持すること、投稿途中再開時の重複回避を検証。
@@ -110,6 +111,17 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-10 作業ログ
+- 要望: `!clipsearch` コマンドを作成したい
+- Autopilot: `.omx/context/clipsearch-command-20260610T144956Z.md`、`.omx/specs/deep-interview-clipsearch-command.md`、`.omx/plans/prd-clipsearch-command.md`、`.omx/plans/test-spec-clipsearch-command.md` を作成。Architectレビューは `LIKE` の `%` / `_` リテラル検索と空白入り検索語のテスト追加をWATCHとして承認し、PRD/テスト仕様に反映。Criticレビューはapprove
+- TDD: `tests/commands/clip-cache-store.test.ts` にタイトル/作成者表示名検索、case-insensitive、履歴回避、無効Clip除外、`%` / `_` リテラル検索を追加。`tests/commands/clip.test.ts` に `clipSearchHistoryKey` と `selectCachedClipSearch` を追加。`tests/bot-clipsearch.test.ts` に使い方表示、空白入り検索語、URL送信と履歴保存、結果なしを追加し、未実装失敗を確認
+- 実装: `src/commands/clip-cache-store.ts` に `searchRandomClip` とLIKEエスケープを追加。`src/commands/clip.ts` に `normalizeClipSearchQuery` / `clipSearchHistoryKey` / `selectCachedClipSearch` を追加。`src/bot.ts` に `!clipsearch` 分岐と `_handleClipSearchCommand` を追加し、コマンド名以降の残り文字列を検索語として扱うよう変更
+- ドキュメント: README、`docs/index.html`、`docs/COMMANDS.md`、`docs/ARCHITECTURE.md`、AGENTSに `!clipsearch` のキャッシュ検索、検索対象、履歴キー、APIフォールバックなし、Clip件数増加時のFTS5/検索専用テーブル検討条件を追記
+- レビュー対応: Code Reviewで検索件数増加時のFTS移行判断がArchitect WATCHになったため、初回は単純LIKE検索に留め、遅延や件数増加が見えた時にFTS5または検索専用テーブルへ移行する方針をPRD/README/docsへ明記
+- 検証: `npm test -- --run tests/commands/clip-cache-store.test.ts tests/commands/clip.test.ts tests/bot-clipsearch.test.ts` 26件、`npm test` 163件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認、`git diff --check` が通過
+- Code Review: 再レビューで Code-reviewer は `APPROVE` / no issues、Architectural Status は `CLEAR`
+- UltraQA: `npm test -- --run tests/bot-clipsearch.test.ts tests/commands/clip-cache-store.test.ts` 17件と、ビルド済みJSを使った一時SQLiteハーネスで `%` / `_` リテラル検索、SQL注入風入力の非マッチ、検索後も `clip_cache` が利用可能なことを確認
+- GitHub: `codex/clipsearch-command` ブランチへpushし、PR #1 `!clipsearchコマンドを追加` を作成
+
 - 不具合報告: Ollama Raid挨拶文で、AI文が既に `Just Chattingの今日の固定活動終わり...` と紹介しているのに、後ろへ `配信では「Just Chatting」で「...」をしてたD！` が追記され、二重紹介になっていた
 - 原因: 前回追加した `ensureStreamDetails` が、配信タイトルの完全正規化文字列をAI文に要求していたため。AI文がタイトル主要部を含んでいても、括弧内装飾や `@miiyuetaro` まで完全一致しないと「タイトル欠落」と判定し、長い定型紹介文をURL直前へ挿入していた
 - TDD: `tests/commands/shoutout-introduction.test.ts` に、ユーザー報告例相当のAI文へ `配信では...` を追記しないこと、ゲーム名だけ/タイトルだけ欠けた場合は不足分だけ補うことを追加し、未実装失敗を確認

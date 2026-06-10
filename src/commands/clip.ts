@@ -77,6 +77,14 @@ export function clipHistoryKey(
   return "clip";
 }
 
+export function normalizeClipSearchQuery(query: string): string {
+  return query.trim().replace(/\s+/g, " ");
+}
+
+export function clipSearchHistoryKey(query: string): string {
+  return `clipsearch:${normalizeClipSearchQuery(query).toLowerCase()}`;
+}
+
 export function selectCachedClip(
   store: ClipCacheStore,
   commandName: ClipCommandName,
@@ -88,6 +96,21 @@ export function selectCachedClip(
     historyKey: clipHistoryKey(commandName, creatorName),
     creatorName,
     creatorId,
+    random,
+  });
+}
+
+export function selectCachedClipSearch(
+  store: ClipCacheStore,
+  query: string,
+  random: () => number = Math.random
+): ClipInfo | null {
+  const normalizedQuery = normalizeClipSearchQuery(query);
+  if (!normalizedQuery) return null;
+
+  return store.searchRandomClip({
+    historyKey: clipSearchHistoryKey(normalizedQuery),
+    query: normalizedQuery,
     random,
   });
 }

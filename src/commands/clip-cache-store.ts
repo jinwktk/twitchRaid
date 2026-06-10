@@ -53,6 +53,20 @@ export interface SelectCachedClipParams {
   random?: () => number;
 }
 
+export interface SearchCachedClipParams {
+  historyKey: string;
+  query: string;
+  random?: () => number;
+}
+
+function normalizeSearchQuery(query: string): string {
+  return query.trim().replace(/\s+/g, " ");
+}
+
+function escapeSqlLike(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
+
 export class ClipCacheStore {
   private readonly db: DatabaseSync;
 
@@ -178,6 +192,32 @@ export class ClipCacheStore {
     const clip =
       freshClip ??
       this.findRandomCandidateRow(creatorId, creatorName, [], random);
+
+    if (!clip) return null;
+
+    return {
+      id: clip.id,
+      url: clip.url,
+      title: clip.title,
+    };
+  }
+
+  searchRandomClip({
+    historyKey,
+    query,
+    random = Math.random,
+  }: SearchCachedClipParams): ClipInfo | null {
+    const normalizedQuery = normalizeSearchQuery(query);
+    if (!normalizedQuery) return null;
+
+    const recentIds = new Set(this.getRecentIds(historyKey));
+    const freshClip = this.findRandomSearchCandidateRow(
+      normalizedQuery,
+      [...recentIds],
+      random
+    );
+    const clip =
+      freshClip ?? this.findRandomSearchCandidateRow(normalizedQuery, [], random);
 
     if (!clip) return null;
 
@@ -362,6 +402,51 @@ export class ClipCacheStore {
     }
 
     filters.push("unavailable_at IS NULL");
+
+    const where = `WHERE ${filters.join(" AND ")}`;
+    const countRow = this.db
+      .prepare(`SELECT COUNT(*) AS count FROM clip_cache ${where}`)
+      .get(...params) as unknown as CountRow;
+
+    if (countRow.count === 0) return null;
+
+    const offset = Math.min(
+      Math.floor(random() * countRow.count),
+      countRow.count - 1
+    );
+
+    return this.db
+      .prepare(
+        `
+        SELECT *
+        FROM clip_cache
+        ${where}
+        ORDER BY created_at DESC, id ASC
+        LIMIT 1 OFFSET ?
+      `
+      )
+      .get(...params, offset) as unknown as ClipRow;
+  }
+
+  private findRandomSearchCandidateRow(
+    query: string,
+    excludeIds: string[] = [],
+    random: () => number = Math.random
+  ): ClipRow | null {
+    const escapedQuery = escapeSqlLike(query);
+    const escapedLowerQuery = escapeSqlLike(query.toLowerCase());
+    const pattern = `%${escapedQuery}%`;
+    const lowerPattern = `%${escapedLowerQuery}%`;
+    const filters = [
+      "(title LIKE ? ESCAPE '\\' OR creator_name_lower LIKE ? ESCAPE '\\')",
+      "unavailable_at IS NULL",
+    ];
+    const params: (string | number)[] = [pattern, lowerPattern];
+
+    if (excludeIds.length > 0) {
+      filters.push(`id NOT IN (${excludeIds.map(() => "?").join(", ")})`);
+      params.push(...excludeIds);
+    }
 
     const where = `WHERE ${filters.join(" AND ")}`;
     const countRow = this.db
