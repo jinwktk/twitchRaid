@@ -1,9 +1,11 @@
 import type { HelixClip } from "@twurple/api";
 import { describe, expect, it, vi } from "vitest";
 import {
+  clipSearchHistoryKey,
   clipHistoryKey,
   pickClipAvoidingRecent,
   selectCachedClip,
+  selectCachedClipSearch,
   selectClip,
 } from "../../src/commands/clip";
 import type { ClipCacheStore } from "../../src/commands/clip-cache-store";
@@ -61,6 +63,14 @@ describe("clipHistoryKey", () => {
   });
 });
 
+describe("clipSearchHistoryKey", () => {
+  it("normalizes whitespace and case for clipsearch history", () => {
+    expect(clipSearchHistoryKey("  Just   Chatting  ")).toBe(
+      "clipsearch:just chatting"
+    );
+  });
+});
+
 describe("selectCachedClip", () => {
   it("uses the resolved creator id for myclip cache lookup", () => {
     const selectedClip = {
@@ -83,6 +93,30 @@ describe("selectCachedClip", () => {
       historyKey: "myclip:nyme_ia",
       creatorName: "nyme_ia",
       creatorId: "creator-me",
+      random: expect.any(Function),
+    });
+  });
+});
+
+describe("selectCachedClipSearch", () => {
+  it("uses the normalized query for clipsearch cache lookup", () => {
+    const selectedClip = {
+      id: "matched",
+      url: "https://clips.twitch.tv/matched",
+      title: "matched",
+    };
+    const searchRandomClip = vi.fn().mockReturnValue(selectedClip);
+
+    const selected = selectCachedClipSearch(
+      { searchRandomClip } as unknown as ClipCacheStore,
+      "  Just   Chatting  ",
+      () => 0
+    );
+
+    expect(selected).toBe(selectedClip);
+    expect(searchRandomClip).toHaveBeenCalledWith({
+      historyKey: "clipsearch:just chatting",
+      query: "Just Chatting",
       random: expect.any(Function),
     });
   });
