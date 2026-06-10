@@ -990,7 +990,7 @@
             </tr>
             <tr>
               <td><code>src/commands/shoutout-introduction.ts</code></td>
-              <td>Ollama <code>/api/generate</code> でRaid挨拶文を作り、Twitchチャット向けに単一行・250文字以内へ整形。URLは残し、絵文字は除去。Raid人数はAI入力に含めず、低人数を下げる表現は採用しない。AI文がゲーム名や配信タイトルを落とした場合は、取得済み情報を補って採用する。採用/フォールバック理由もログ化する。</td>
+              <td>Ollama <code>/api/generate</code> でRaid挨拶文を作り、Twitchチャット向けに単一行・250文字以内へ整形。URLは残し、絵文字は除去。Raid人数はAI入力に含めず、低人数を下げる表現は採用しない。AI文がゲーム名や配信タイトルを落とした場合は不足分だけを補って採用する。タイトル主要部が既に含まれていれば、長い <code>配信では...</code> 定型文は追記しない。採用/フォールバック理由もログ化する。</td>
             </tr>
             <tr>
               <td><code>src/commands/stream-notify.ts</code></td>
@@ -1090,7 +1090,7 @@
             </tr>
             <tr>
               <td>Ollama挨拶文が生成できない</td>
-              <td>固定Raid挨拶文へフォールバックし、Twitch shoutout APIは継続。AI生成文はコード側で250文字以内に丸め、`人数少なかった` などの表現は採用しない。ゲーム名/配信タイトルが抜けた場合はコード側で補う。</td>
+              <td>固定Raid挨拶文へフォールバックし、Twitch shoutout APIは継続。AI生成文はコード側で250文字以内に丸め、`人数少なかった` などの表現は採用しない。ゲーム名/配信タイトルが抜けた場合は不足分だけコード側で補う。</td>
               <td><code>OLLAMA_SHOUTOUT_ENABLED=true</code> と <code>OLLAMA_SHOUTOUT_MODEL</code> 設定時だけ有効。既定は <code>timeout=15000ms</code> / <code>keep_alive=30m</code>。採用/フォールバック理由はログで確認できる。</td>
             </tr>
             <tr>

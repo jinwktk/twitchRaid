@@ -13,6 +13,14 @@ const raidInfo: RaidSourceInfo = {
   gameName: "Minecraft",
 };
 
+const miiyuetaroRaidInfo: RaidSourceInfo = {
+  userName: "miiyuetaro",
+  streamUrl: "https://www.twitch.tv/miiyuetaro",
+  title:
+    "今日の固定活動終わり！明日のお知らせ作る裏作業雑談！【わちゃわちゃおおかみべいびー🐺🍑🍼】 @miiyuetaro",
+  gameName: "Just Chatting",
+};
+
 describe("buildRaidGreetingMessage", () => {
   it("uses the static raid greeting when Ollama is disabled", async () => {
     const fetchImpl = vi.fn();
@@ -237,17 +245,42 @@ describe("formatGeneratedRaidGreetingMessage", () => {
   });
 
   it("repairs generated greetings that omit the game or stream title", () => {
-    const missingDetails = [
-      "レイドありがとうD！！ @raiduser さん、たのしい建築配信お疲れ様D！ https://www.twitch.tv/raiduser",
-      "レイドありがとうD！！ @raiduser さん、Minecraftで遊んでたD！ https://www.twitch.tv/raiduser",
-      "レイドありがとうD！！ @raiduser さん、来てくれてありがとうD！ https://www.twitch.tv/raiduser",
-    ];
+    const titleOnly = formatGeneratedRaidGreetingMessage(
+      raidInfo,
+      "レイドありがとうD！！ @raiduser さん、たのしい建築配信お疲れ様D！ https://www.twitch.tv/raiduser"
+    );
+    expect(titleOnly).toContain("Minecraft");
+    expect(titleOnly?.match(/たのしい建築配信/g)).toHaveLength(1);
 
-    for (const greeting of missingDetails) {
-      const message = formatGeneratedRaidGreetingMessage(raidInfo, greeting);
-      expect(message).toContain("Minecraft");
-      expect(message).toContain("たのしい建築配信");
-      expect(message).toContain("https://www.twitch.tv/raiduser");
-    }
+    const gameOnly = formatGeneratedRaidGreetingMessage(
+      raidInfo,
+      "レイドありがとうD！！ @raiduser さん、Minecraftで遊んでたD！ https://www.twitch.tv/raiduser"
+    );
+    expect(gameOnly).toContain("たのしい建築配信");
+    expect(gameOnly?.match(/Minecraft/g)).toHaveLength(1);
+
+    const missingBoth = formatGeneratedRaidGreetingMessage(
+      raidInfo,
+      "レイドありがとうD！！ @raiduser さん、来てくれてありがとうD！ https://www.twitch.tv/raiduser"
+    );
+    expect(missingBoth).toContain("Minecraft");
+    expect(missingBoth).toContain("たのしい建築配信");
+    expect(missingBoth).toContain("https://www.twitch.tv/raiduser");
+  });
+
+  it("does not append a full stream detail sentence when the generated greeting already summarizes the stream", () => {
+    const message = formatGeneratedRaidGreetingMessage(
+      miiyuetaroRaidInfo,
+      "レイドありがとうmiiyuetaro！Just Chattingの今日の固定活動終わり！明日のお知らせ作る裏作業雑談見守らせて頂きます！@miiyuetaro チャンネルはこD→ https://www.twitch.tv/miiyuetaro"
+    );
+
+    expect(message).toContain("Just Chatting");
+    expect(message).toContain("今日の固定活動終わり");
+    expect(message).toContain("明日のお知らせ作る裏作業雑談");
+    expect(message).not.toContain("配信では");
+    expect(message?.match(/Just Chatting/g)).toHaveLength(1);
+    expect(message).toBe(
+      "レイドありがとうmiiyuetaro！Just Chattingの今日の固定活動終わり！明日のお知らせ作る裏作業雑談見守らせて頂きます！@miiyuetaro チャンネルはこD→ https://www.twitch.tv/miiyuetaro"
+    );
   });
 });
