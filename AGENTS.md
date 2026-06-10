@@ -116,6 +116,7 @@
 - 実装: `src/commands/shoutout-introduction.ts` にタイトル主要部判定を追加。タイトルからURL、`@ユーザー名`、括弧内装飾を除いた候補も含有判定に使い、既に主要部が含まれるAI文には補完しないよう変更。補完文もゲーム名のみ、タイトルのみ、両方欠落の3パターンで最小化した
 - ドキュメント: README、`docs/index.html`、AGENTSに、Ollama Raid挨拶文は不足分だけ補い、タイトル主要部が含まれている場合は長い定型紹介文を追記しない仕様を追記
 - 検証: `npm test -- --run tests/commands/shoutout-introduction.test.ts` 11件、`npm test` 152件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認、`git diff --check` が通過。ビルド済みJSでユーザー報告例を整形し、`配信では` を含まず `Just Chatting` が1回だけになることを確認
+- 本番反映: コミット `500ea47` をGitHubへpushし、サブPC `E:\GitHub\twitchRaid` は同コミットへ反映済み。サブPCで `npm run build` と `npm test -- --run tests/commands/shoutout-introduction.test.ts` 11件が通過し、ビルド済みJSでもユーザー報告例が二重紹介にならないことを確認。`pm2 restart twitchRaid --update-env` 後に `twitchRaid` と `ollama` はonline、起動ログに致命的エラーなし
 
 ## 2026-06-09 作業ログ
 - 不具合報告: 直近Raidの挨拶で再びOllamaが通っていないように見える
