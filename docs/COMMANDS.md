@@ -19,11 +19,16 @@
 |---|---|---|
 | `!clip` | 過去Clipをランダム表示 | 一般ユーザー30分、特別ユーザーなし |
 | `!myclip` | 実行者が作成したClipをランダム表示 | `!clip` とは独立して30分 |
+| `!clipsearch <キーワード>` | Clipタイトル/作成者表示名から検索して1件表示 | なし |
 
 - 特別ユーザーは `.env` の `CLIP_SPECIAL_USERS` で管理する。既定値は `nyme_ia,rukalun`。
 - 通常は `data/clips.sqlite` のキャッシュから選ぶ。
 - キャッシュ未準備時のみTwitch APIへフォールバックする。実運用のコマンド経路では最大200件、低レベル関数の既定値は最大1000件。
 - 表示履歴は `clip_history` に保存し、`!clip` と `!myclip:<ユーザー>` ごとに重複を避ける。
+- `!clipsearch` はSQLiteキャッシュのみを検索し、Twitch API全件検索へはフォールバックしない。
+- `!clipsearch` の検索対象はClipタイトルと作成者表示名。空白入り検索語を保持し、`%` / `_` は通常文字として扱う。
+- `!clipsearch` がClip件数増加で遅くなった場合は、SQLite FTS5 または検索専用テーブルへの移行を検討する。
+- `!clipsearch` の表示履歴は `clipsearch:<検索語>` ごとに保存する。
 - 削除/非公開化でTwitch APIから返らなくなったClipは、日次再走査で `unavailable_at` を付けて候補から外す。
 
 ## mangaコマンド

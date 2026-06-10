@@ -8,12 +8,13 @@ import { ClipCacheStore, type CachedClip } from "../../src/commands/clip-cache-s
 function clip(
   id: string,
   creatorDisplayName = "viewer",
-  createdAt = "2026-05-25T10:00:00.000Z"
+  createdAt = "2026-05-25T10:00:00.000Z",
+  title = `clip ${id}`
 ): CachedClip {
   return {
     id,
     url: `https://clips.twitch.tv/${id}`,
-    title: `clip ${id}`,
+    title,
     creatorId: `creator-${creatorDisplayName.toLowerCase()}`,
     creatorDisplayName,
     createdAt,
@@ -57,6 +58,109 @@ describe("ClipCacheStore", () => {
     });
 
     expect(selected?.id).toBe("mine");
+  });
+
+  it("searches cached clips by title keyword", () => {
+    store.saveClips([
+      clip("other", "Viewer", "2026-05-25T10:00:00.000Z", "雑談クリップ"),
+      clip("raid", "Viewer", "2026-05-25T10:10:00.000Z", "Raidの名場面"),
+    ]);
+
+    const selected = store.searchRandomClip({
+      historyKey: "clipsearch:raid",
+      query: "raid",
+      random: () => 0,
+    });
+
+    expect(selected?.id).toBe("raid");
+  });
+
+  it("searches cached clips by creator display name", () => {
+    store.saveClips([
+      clip("other", "OtherViewer"),
+      clip("mine", "Nyme_IA"),
+    ]);
+
+    const selected = store.searchRandomClip({
+      historyKey: "clipsearch:nyme",
+      query: "nyme",
+      random: () => 0,
+    });
+
+    expect(selected?.id).toBe("mine");
+  });
+
+  it("searches without ASCII case sensitivity", () => {
+    store.saveClips([
+      clip("target", "Viewer", "2026-05-25T10:00:00.000Z", "Just Chatting Highlight"),
+    ]);
+
+    const selected = store.searchRandomClip({
+      historyKey: "clipsearch:just chatting",
+      query: "just chatting",
+      random: () => 0,
+    });
+
+    expect(selected?.id).toBe("target");
+  });
+
+  it("avoids recent clipsearch history before falling back to all matches", () => {
+    store.saveClips([
+      clip("seen", "Viewer", "2026-05-25T10:00:00.000Z", "Raid moment"),
+      clip("fresh", "Viewer", "2026-05-25T10:10:00.000Z", "Another raid moment"),
+    ]);
+    store.recordHistory("clipsearch:raid", "seen");
+
+    const selected = store.searchRandomClip({
+      historyKey: "clipsearch:raid",
+      query: "raid",
+      random: () => 0,
+    });
+
+    expect(selected?.id).toBe("fresh");
+  });
+
+  it("excludes unavailable clips from clipsearch results", () => {
+    store.saveClips([
+      clip("kept", "Viewer", "2026-05-25T10:10:00.000Z", "Rare clip"),
+      clip("deleted", "Viewer", "2026-05-25T10:20:00.000Z", "Rare deleted clip"),
+    ]);
+    store.markMissingClipsUnavailable(
+      "2026-05-25T10:00:00.000Z",
+      "2026-05-25T11:00:00.000Z",
+      ["kept"]
+    );
+
+    const selected = store.searchRandomClip({
+      historyKey: "clipsearch:rare",
+      query: "rare",
+      random: () => 0.9,
+    });
+
+    expect(selected?.id).toBe("kept");
+  });
+
+  it("treats LIKE wildcard characters as literal search text", () => {
+    store.saveClips([
+      clip("plain", "Viewer", "2026-05-25T10:00:00.000Z", "plain clip"),
+      clip("percent", "Viewer", "2026-05-25T10:10:00.000Z", "100% clear"),
+      clip("underscore", "Viewer", "2026-05-25T10:20:00.000Z", "line_up clip"),
+    ]);
+
+    expect(
+      store.searchRandomClip({
+        historyKey: "clipsearch:%",
+        query: "%",
+        random: () => 0,
+      })?.id
+    ).toBe("percent");
+    expect(
+      store.searchRandomClip({
+        historyKey: "clipsearch:_",
+        query: "_",
+        random: () => 0,
+      })?.id
+    ).toBe("underscore");
   });
 
   it("keeps clip history bounded per key", () => {

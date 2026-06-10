@@ -41,7 +41,7 @@ npm run dev         # ts-nodeで開発実行
 - 起動時の有効トークン検証と再取得成功時に、付与済みスコープ一覧を `[ECHO]` ログとして出力します
 - `SHOUTOUT_ADMIN_USERS` に `!shoutout` を実行できる追加ユーザーをカンマ区切りで設定できます（未設定時は `rukalun`）
 - `MANGA_ADMIN_USERS` に `!mangaon` / `!mangaoff` を実行できる追加ユーザーをカンマ区切りで設定できます。にめいやアカウントは表示名ではなくTwitchログイン名 `nyme_ia` で登録します
-- `TWITCH_CLIP_CACHE_DB_PATH` に `!clip` / `!myclip` のクリップキャッシュ SQLite DB パスを設定できます（未設定時は `data/clips.sqlite`）
+- `TWITCH_CLIP_CACHE_DB_PATH` に `!clip` / `!myclip` / `!clipsearch` のクリップキャッシュ SQLite DB パスを設定できます（未設定時は `data/clips.sqlite`）
 - `TWITCH_GQL_CLIENT_ID` に Twitch GraphQL 用 Client-ID を任意設定できます（未設定時はTwitch Webの公開Client-IDを使用し、指定値が拒否された場合も公開Client-IDへフォールバック）
 - `STREAM_SUMMARY_STATE_PATH` に配信まとめの再起動復元用JSONパスを設定できます（未設定時は `data/stream-summary-state.json`）
 - `STREAM_SUMMARY_MAX_CLIPS` に配信まとめスレッドへ投稿する最大クリップ数を設定できます（未設定時は `10`）
@@ -69,6 +69,7 @@ npm run dev         # ts-nodeで開発実行
 | `!menu` | 今日のおすすめメニューをランダム表示 | 70種類以上からランダム |
 | `!clip` | 過去のクリップをランダム表示 | 30分クールダウン（特別ユーザー除外） |
 | `!myclip` | 自分が作成したクリップをランダム表示 | 30分クールダウン（`!clip`とは独立） |
+| `!clipsearch <キーワード>` | Clipタイトル/作成者名から過去クリップを検索して1件表示 | SQLiteキャッシュ検索、クールダウンなし |
 | `!manga` | DLsite日間ランキングからランダムに1作品表示 | ON/OFF切替可、10秒後自動削除 |
 | `!mangaon` | `!manga` コマンドを有効化 | 管理者のみ |
 | `!mangaoff` | `!manga` コマンドを無効化 | 管理者のみ |
@@ -137,7 +138,11 @@ npm run dev         # ts-nodeで開発実行
 - 日次再走査の最終実行時刻は `clip_sync_state` の `daily_reconcile_at` に保存する
 - 直近1時間のクリップは起動直後と1分ごとに再同期し、起動中に作られたクリップも候補へ入れる
 - `!clip` / `!myclip` 実行時はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ最大200件の軽いAPIフォールバックを使う
+- `!clipsearch <キーワード>` はSQLiteキャッシュ内のClipタイトルと作成者表示名を部分一致検索し、履歴を避けて1件のURLを返す。検索語に空白を含められ、`%` / `_` はワイルドカードではなく通常文字として扱う
+- `!clipsearch` はTwitch API全件検索へフォールバックしない。キャッシュ未準備や一致なしの場合は見つからない旨を返す
+- `!clipsearch` がClip件数増加で遅くなった場合は、SQLite FTS5 または検索専用テーブルへの移行を検討する。初回実装では単純部分一致に留める
 - 直近に表示したクリップIDはSQLite内の `clip_history` に保存し、`!clip` 全体と `!myclip:<ユーザー>` ごとに重複を避ける。全候補を出し切った場合のみ履歴内のクリップも再候補に戻す
+- `!clipsearch` の表示履歴は `clipsearch:<検索語>` ごとに保存する
 
 ## Boomコマンドメモ
 - `!boom` は過去30日間のアーカイブ配信を対象に、Twitch GraphQL の VOD チャプターからゲーム別の配信時間と総配信時間を集計する
@@ -170,7 +175,7 @@ src/
 │   ├── boom.ts                    # 過去30日ゲーム時間集計
 │   ├── clip-cache-store.ts        # Clip SQLiteキャッシュ
 │   ├── clip-cache-sync.ts         # Clip同期/日次再走査
-│   ├── clip.ts                    # !clip / !myclip
+│   ├── clip.ts                    # !clip / !myclip / !clipsearch
 │   ├── manga.ts                   # !manga / 管理者判定
 │   ├── raid-info.ts               # Raid元配信情報文言
 │   ├── random-commands.ts
@@ -194,6 +199,7 @@ src/
 ```
 
 ## 更新履歴
+- **2026-06-10**: `!clipsearch <キーワード>` を追加。SQLite Clipキャッシュのタイトル/作成者表示名を部分一致検索し、`clipsearch:<検索語>` 履歴で重複を避けて1件URLを返す
 - **2026-06-10**: Ollama Raid挨拶文の配信情報補完を調整。AI文がゲーム名とタイトル主要部を既に含む場合は、`配信では...` の長い定型紹介文を追記せず、完全に抜けた項目だけ最小限補うよう変更
 - **2026-06-09**: Ollama Raid挨拶文の採用/フォールバック理由ログを追加。冷間ロード対策として既定タイムアウトを15秒、keep_aliveを30分へ変更し、AI文がゲーム名/配信タイトルを落とした場合はコード側で補って採用するよう変更
 - **2026-06-09**: 配信開始通知の二重送信を防ぐため、配信まとめスレッド保証処理が開始通知を自動再投稿しないよう変更。保存済み `startMessageId` が無い競合タイミングでは送信せず、必要時は `!streamnotify` で明示的に再送する
