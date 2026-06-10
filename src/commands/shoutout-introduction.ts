@@ -119,11 +119,33 @@ function normalizeRequiredContent(value: string): string {
     .replace(/[^\p{Letter}\p{Number}]/gu, "");
 }
 
+function removeDecorativeTitleParts(value: string): string {
+  return value
+    .replace(/https?:\/\/\S+/gi, " ")
+    .replace(/@\w+/g, " ")
+    .replace(/[「『【［\[].*?[」』】］\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function titleCoverageCandidates(title: string | null): string[] {
+  if (!title) return [];
+  const candidates = [title, removeDecorativeTitleParts(title)];
+  return [...new Set(candidates.map(normalizeRequiredContent).filter(Boolean))];
+}
+
 function includesRequiredContent(value: string, required: string | null): boolean {
   if (!required) return true;
   const normalizedRequired = normalizeRequiredContent(required);
   if (!normalizedRequired) return true;
   return normalizeRequiredContent(value).includes(normalizedRequired);
+}
+
+function includesTitleContent(value: string, title: string | null): boolean {
+  const normalizedValue = normalizeRequiredContent(value);
+  const candidates = titleCoverageCandidates(title);
+  if (candidates.length === 0) return true;
+  return candidates.some((candidate) => normalizedValue.includes(candidate));
 }
 
 function includesRequiredStreamDetails(
@@ -132,18 +154,21 @@ function includesRequiredStreamDetails(
 ): boolean {
   return (
     includesRequiredContent(value, info.gameName) &&
-    includesRequiredContent(value, info.title)
+    includesTitleContent(value, info.title)
   );
 }
 
-function buildStreamDetailsClause(info: RaidSourceInfo): string | null {
+function buildStreamDetailsClause(
+  info: RaidSourceInfo,
+  missing: { gameName: boolean; title: boolean }
+): string | null {
   const gameName = info.gameName ? singleLine(info.gameName) : null;
   const title = info.title ? singleLine(info.title) : null;
-  if (gameName && title) {
+  if (missing.gameName && missing.title && gameName && title) {
     return `配信では「${gameName}」で「${title}」をしてたD！`;
   }
-  if (gameName) return `配信では「${gameName}」で遊んでたD！`;
-  if (title) return `配信では「${title}」をしてたD！`;
+  if (missing.gameName && gameName) return `「${gameName}」で遊んでたD！`;
+  if (missing.title && title) return `「${title}」をしてたD！`;
   return null;
 }
 
@@ -161,9 +186,14 @@ function insertBeforeStreamUrl(
 }
 
 function ensureStreamDetails(value: string, info: RaidSourceInfo): string {
-  if (includesRequiredStreamDetails(value, info)) return value;
+  const missing = {
+    gameName: !includesRequiredContent(value, info.gameName),
+    title: !includesTitleContent(value, info.title),
+  };
 
-  const details = buildStreamDetailsClause(info);
+  if (!missing.gameName && !missing.title) return value;
+
+  const details = buildStreamDetailsClause(info, missing);
   if (!details || value.includes(details)) return value;
   return insertBeforeStreamUrl(value, info.streamUrl, details);
 }

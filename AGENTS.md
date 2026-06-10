@@ -17,7 +17,7 @@
 - `token_refresh_policy.py`: 高度トークンリフレッシュ失敗時にフォールバック実行可否を判定するロジックを担当。
 - `process_restart.py`: 同一コンソール内でのプロセス再起動と、`execv` 失敗時フォールバック起動を担当。
 - `src/commands/shoutout.ts`: TypeScript版のレイド自動シャウトアウトと `!shoutout` 手動デバッグコマンドの権限判定・対象ユーザー正規化を担当。Twurple の `asUser` で Bot/Moderator ユーザーコンテキストへ切り替えて実行する。Raid自動shoutoutは `ShoutoutQueue` で直列化し、429時は対象をキュー先頭へ戻して2分後に再実行する。
-- `src/commands/shoutout-introduction.ts`: Raid時の挨拶文をOllama `POST /api/generate` で生成し、失敗時は固定Raid挨拶文へフォールバックする任意機能を担当。AI生成文は単一行・250文字以内へ整形し、`@ユーザー名` とURLを保証して絵文字を除去する。Raid人数はAI入力に含めず、低人数を下げる表現はAI文として採用しない。ゲーム名と配信タイトルが抜けた場合は取得済み情報を補って採用し、採用/フォールバック理由をログへ出す。
+- `src/commands/shoutout-introduction.ts`: Raid時の挨拶文をOllama `POST /api/generate` で生成し、失敗時は固定Raid挨拶文へフォールバックする任意機能を担当。AI生成文は単一行・250文字以内へ整形し、`@ユーザー名` とURLを保証して絵文字を除去する。Raid人数はAI入力に含めず、低人数を下げる表現はAI文として採用しない。ゲーム名と配信タイトルが抜けた場合は不足分だけ補って採用し、タイトル主要部が既に含まれている場合は長い定型紹介文を追記しない。採用/フォールバック理由をログへ出す。
 - `src/commands/raid-info.ts`: Raid受信時にレイド元の配信URL、配信タイトル、ゲーム名をTwitch APIから取得し、チャット投稿用メッセージへ整形する。配信情報取得不可時もURL付きフォールバック文を返す。
 - `src/commands/boom.ts`: TypeScript版 `!boom` の集計ロジック。過去30日間のアーカイブ配信を Twurple Helix で取得し、Twitch GraphQL の VOD チャプターからゲーム別トータル時間と総配信時間を算出する。
 - `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ軽いAPIフォールバックを使う。
@@ -49,7 +49,7 @@
 - `tests/test_token_refresh_policy.py`: トークンリフレッシュ失敗時のフォールバック判定テスト。
 - `tests/test_process_restart.py`: 同一コンソール再起動とフォールバック経路のユニットテスト。
 - `tests/commands/shoutout.test.ts`: TypeScript版シャウトアウトが Bot/Moderator ユーザーコンテキストで実行されること、手動コマンド権限判定、対象ユーザー名正規化、429時のキュー再実行を検証。
-- `tests/commands/shoutout-introduction.test.ts`: Ollama Raid挨拶文生成の無効時固定文フォールバック、`/api/generate` リクエスト、HTTP失敗時フォールバック、採用/フォールバック理由通知、250文字制限、Raid人数をAIへ渡さないこと、低人数ネガティブ表現の拒否、ゲーム名/配信タイトル補完、`@ユーザー名` とURL保証、絵文字除去を含むチャット向け整形を検証。
+- `tests/commands/shoutout-introduction.test.ts`: Ollama Raid挨拶文生成の無効時固定文フォールバック、`/api/generate` リクエスト、HTTP失敗時フォールバック、採用/フォールバック理由通知、250文字制限、Raid人数をAIへ渡さないこと、低人数ネガティブ表現の拒否、ゲーム名/配信タイトルの不足分補完、主要部を含むAI文への二重紹介追記防止、`@ユーザー名` とURL保証、絵文字除去を含むチャット向け整形を検証。
 - `tests/bot-raid-greeting.test.ts`: BotのRaid情報取得ではチャット送信せず、Raid挨拶文送信経路だけが1通送ることを検証。
 - `tests/commands/raid-info.test.ts`: Raid元配信情報の取得、指定文言でのチャットメッセージ整形、オフライン時フォールバック、長文タイトルの単一行化/短縮を検証。
 - `tests/commands/boom.test.ts`: TypeScript版 `!boom` のVODチャプター抽出、ゲーム別合算、1時間未満フィルタ、表示文言を検証。
@@ -108,6 +108,14 @@
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
+
+## 2026-06-10 作業ログ
+- 不具合報告: Ollama Raid挨拶文で、AI文が既に `Just Chattingの今日の固定活動終わり...` と紹介しているのに、後ろへ `配信では「Just Chatting」で「...」をしてたD！` が追記され、二重紹介になっていた
+- 原因: 前回追加した `ensureStreamDetails` が、配信タイトルの完全正規化文字列をAI文に要求していたため。AI文がタイトル主要部を含んでいても、括弧内装飾や `@miiyuetaro` まで完全一致しないと「タイトル欠落」と判定し、長い定型紹介文をURL直前へ挿入していた
+- TDD: `tests/commands/shoutout-introduction.test.ts` に、ユーザー報告例相当のAI文へ `配信では...` を追記しないこと、ゲーム名だけ/タイトルだけ欠けた場合は不足分だけ補うことを追加し、未実装失敗を確認
+- 実装: `src/commands/shoutout-introduction.ts` にタイトル主要部判定を追加。タイトルからURL、`@ユーザー名`、括弧内装飾を除いた候補も含有判定に使い、既に主要部が含まれるAI文には補完しないよう変更。補完文もゲーム名のみ、タイトルのみ、両方欠落の3パターンで最小化した
+- ドキュメント: README、`docs/index.html`、AGENTSに、Ollama Raid挨拶文は不足分だけ補い、タイトル主要部が含まれている場合は長い定型紹介文を追記しない仕様を追記
+- 検証: `npm test -- --run tests/commands/shoutout-introduction.test.ts` 11件、`npm test` 152件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認、`git diff --check` が通過。ビルド済みJSでユーザー報告例を整形し、`配信では` を含まず `Just Chatting` が1回だけになることを確認
 
 ## 2026-06-09 作業ログ
 - 不具合報告: 直近Raidの挨拶で再びOllamaが通っていないように見える
