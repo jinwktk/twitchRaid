@@ -85,6 +85,26 @@ describe("GitHub Pages clip search page", () => {
     expect(html).toContain('second: "2-digit"');
   });
 
+  it("collapses the mobile search controls behind a compact toggle", () => {
+    const html = fs.readFileSync(
+      path.join(process.cwd(), "docs", "clip-search.html"),
+      "utf8"
+    );
+
+    expect(html).toContain('id="searchPanel" class="search-panel is-collapsed"');
+    expect(html).toContain('id="searchPanelToggle"');
+    expect(html).toContain('aria-controls="searchControls"');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('id="searchControls"');
+    expect(html).toContain('id="searchPanelSummary"');
+    expect(html).toContain("検索条件を開く");
+    expect(html).toContain("検索条件を閉じる");
+    expect(html).toContain(".search-toggle-wrap");
+    expect(html).toContain(".search-panel.is-collapsed .search-grid");
+    expect(html).toContain("setSearchPanelExpanded");
+    expect(html).toContain("updateSearchPanelSummary");
+  });
+
   it("does not expose internal documentation or operation links on the public page", () => {
     const html = fs.readFileSync(
       path.join(process.cwd(), "docs", "clip-search.html"),

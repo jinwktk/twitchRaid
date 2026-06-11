@@ -243,6 +243,55 @@
         backdrop-filter: blur(10px);
       }
 
+      .search-toggle-wrap {
+        display: none;
+      }
+
+      .search-toggle {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        width: 100%;
+        min-height: 44px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.88);
+        color: var(--ink);
+        padding: 9px 12px;
+        text-align: left;
+        box-shadow: 0 10px 22px rgba(88, 55, 88, 0.06);
+      }
+
+      .search-toggle::after {
+        width: 9px;
+        height: 9px;
+        border-right: 2px solid #b63d74;
+        border-bottom: 2px solid #b63d74;
+        content: "";
+        transform: translateY(-2px) rotate(45deg);
+        transition: transform 0.18s ease;
+      }
+
+      .search-toggle[aria-expanded="true"]::after {
+        transform: translateY(2px) rotate(225deg);
+      }
+
+      .search-toggle-label {
+        font-size: 0.95rem;
+        font-weight: 900;
+      }
+
+      .search-toggle-summary {
+        grid-column: 1 / -1;
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 800;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
       .search-grid {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 190px 170px auto;
@@ -563,6 +612,19 @@
           grid-template-columns: 1fr;
         }
 
+        .search-toggle-wrap {
+          display: block;
+          padding: 10px 0;
+        }
+
+        .search-panel.is-collapsed .search-grid {
+          display: none;
+        }
+
+        .search-grid {
+          padding: 0 0 14px;
+        }
+
         h1 {
           font-size: 2.25rem;
         }
@@ -608,8 +670,20 @@
       </div>
     </section>
 
-    <section class="search-panel" aria-label="Clip検索">
-      <div class="wrap search-grid">
+    <section id="searchPanel" class="search-panel is-collapsed" aria-label="Clip検索">
+      <div class="wrap search-toggle-wrap">
+        <button
+          id="searchPanelToggle"
+          class="search-toggle"
+          type="button"
+          aria-controls="searchControls"
+          aria-expanded="false"
+        >
+          <span id="searchPanelToggleLabel" class="search-toggle-label">検索条件を開く</span>
+          <span id="searchPanelSummary" class="search-toggle-summary">検索条件を確認中</span>
+        </button>
+      </div>
+      <div id="searchControls" class="wrap search-grid">
         <div class="field">
           <label for="searchInput">キーワード</label>
           <input id="searchInput" type="search" placeholder="例: FF14 / 雑談 / 迷子 / 作成者名" autocomplete="off" />
@@ -667,6 +741,10 @@
       const MORE_STEP = 48;
 
       const elements = {
+        searchPanel: document.querySelector("#searchPanel"),
+        searchPanelToggle: document.querySelector("#searchPanelToggle"),
+        searchPanelToggleLabel: document.querySelector("#searchPanelToggleLabel"),
+        searchPanelSummary: document.querySelector("#searchPanelSummary"),
         searchInput: document.querySelector("#searchInput"),
         creatorFilter: document.querySelector("#creatorFilter"),
         sortSelect: document.querySelector("#sortSelect"),
@@ -865,6 +943,24 @@
         );
       }
 
+      function getSelectedSortLabel() {
+        const selected = elements.sortSelect.options[elements.sortSelect.selectedIndex];
+        return selected?.textContent?.trim() || "新しい順";
+      }
+
+      function updateSearchPanelSummary() {
+        const query = elements.searchInput.value.trim();
+        const creator = elements.creatorFilter.value || "すべて";
+        const queryLabel = query ? `検索: ${query}` : "検索なし";
+        elements.searchPanelSummary.textContent = `${queryLabel} / ${creator} / ${getSelectedSortLabel()}`;
+      }
+
+      function setSearchPanelExpanded(expanded) {
+        elements.searchPanel.classList.toggle("is-collapsed", !expanded);
+        elements.searchPanelToggle.setAttribute("aria-expanded", String(expanded));
+        elements.searchPanelToggleLabel.textContent = expanded ? "検索条件を閉じる" : "検索条件を開く";
+      }
+
       function renderCard(clip) {
         const card = document.createElement("article");
         card.className = "clip-card";
@@ -942,6 +1038,7 @@
       }
 
       function render() {
+        updateSearchPanelSummary();
         filterClips();
         const visible = filteredClips.slice(0, visibleLimit);
 
@@ -1005,6 +1102,10 @@
       elements.searchInput.addEventListener("input", resetVisibleAndRender);
       elements.creatorFilter.addEventListener("change", resetVisibleAndRender);
       elements.sortSelect.addEventListener("change", resetVisibleAndRender);
+      elements.searchPanelToggle.addEventListener("click", () => {
+        const isExpanded = elements.searchPanelToggle.getAttribute("aria-expanded") === "true";
+        setSearchPanelExpanded(!isExpanded);
+      });
       elements.clearButton.addEventListener("click", () => {
         elements.searchInput.value = "";
         elements.creatorFilter.value = "";
