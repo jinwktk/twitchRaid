@@ -97,9 +97,14 @@ describe("GitHub Pages clip search page", () => {
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('id="searchControls"');
     expect(html).toContain('id="searchPanelSummary"');
+    expect(html).toContain('class="search-toggle-copy"');
+    expect(html).toContain('class="search-toggle-icon" aria-hidden="true">▽</span>');
     expect(html).toContain("検索条件を開く");
     expect(html).toContain("検索条件を閉じる");
     expect(html).toContain(".search-toggle-wrap");
+    expect(html).toContain("grid-template-columns: minmax(0, 1fr) 24px;");
+    expect(html).toContain('.search-toggle[aria-expanded="true"] .search-toggle-icon');
+    expect(html).not.toContain(".search-toggle::after");
     expect(html).toContain(".search-panel.is-collapsed .search-grid");
     expect(html).toContain("setSearchPanelExpanded");
     expect(html).toContain("updateSearchPanelSummary");

@@ -32,7 +32,7 @@
 - `src/streams/stream-summary-count-buffer.ts`: 通常コメントごとの配信まとめstate同期書き込みを避けるため、コメント数更新を30秒デバウンスし、Raid/停止/配信終了時に即時flushする。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
 - `docs/index.html`: 公開ルート入口。内部仕様書を置かず、Clip検索画面 `docs/clip-search.html` へ案内するだけにする。
-- `docs/clip-search.html`: GitHub Pages用Clip検索画面。`docs/clip-search-data.json` を読み込み、タイトル/作成者表示名/ゲーム名検索、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、追加表示、Clip最終同期時刻のJST秒単位表示、サムネイル、ゲーム名、`Twitchで見る` 外部リンクを表示する。ページ内Twitch iframe再生は置かない。SP幅では検索条件を初期折りたたみの開閉パネルにして、PC/タブレット幅では検索条件を常時表示する。お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存し、公開JSONやサーバー側状態には持たせない。淡いピンク、ミント、空色、レモン色のゆるふわ系デザイン。生成画像 `docs/assets/clip-search-og.png` をヒーロー背景とOG画像に使い、`docs/assets/clip-search-favicon.png` / `docs/favicon.ico` / `docs/assets/apple-touch-icon.png` をfaviconやホーム画面アイコンに使う。description/canonical/robots/OGP/Twitter Card/JSON-LD `CollectionPage` / `SearchAction` を持つ。`?q=検索語` がある場合は検索欄へ初期入力する。公開ページとして使うため、仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明は画面に出さない。
+- `docs/clip-search.html`: GitHub Pages用Clip検索画面。`docs/clip-search-data.json` を読み込み、タイトル/作成者表示名/ゲーム名検索、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、追加表示、Clip最終同期時刻のJST秒単位表示、サムネイル、ゲーム名、`Twitchで見る` 外部リンクを表示する。ページ内Twitch iframe再生は置かない。SP幅では検索条件を初期折りたたみの開閉パネルにして、検索条件概要テキストと右端固定の `▽` アイコンを別カラムで表示し、PC/タブレット幅では検索条件を常時表示する。お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存し、公開JSONやサーバー側状態には持たせない。淡いピンク、ミント、空色、レモン色のゆるふわ系デザイン。生成画像 `docs/assets/clip-search-og.png` をヒーロー背景とOG画像に使い、`docs/assets/clip-search-favicon.png` / `docs/favicon.ico` / `docs/assets/apple-touch-icon.png` をfaviconやホーム画面アイコンに使う。description/canonical/robots/OGP/Twitter Card/JSON-LD `CollectionPage` / `SearchAction` を持つ。`?q=検索語` がある場合は検索欄へ初期入力する。公開ページとして使うため、仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明は画面に出さない。
 - `docs/assets/clip-search-og.png`: Clip検索画面のOGP/ヒーロー用に生成した1200x630 PNG。SNS共有とファーストビューのビジュアルに使う。
 - `docs/assets/clip-search-favicon.png`: Clip検索画面のPNG favicon。512x512の生成アイコン。
 - `docs/assets/apple-touch-icon.png`: iOS/ホーム画面向けの180x180 PNGアイコン。
@@ -64,7 +64,7 @@
 - `tests/config.test.ts`: TypeScript版 `Config` のClip検索JSON自動公開設定読み込みを検証。
 - `tests/docs/clip-search-data-publisher.test.ts`: Clip検索JSON publisherが保存0件でも初回公開し、保存0件の連続同期は間隔で間引き、保存ありは即公開し、差分なしではcommitしないこと、再起動後も既存JSONの `generatedAt` で間隔を引き継ぐことを検証。
 - `tests/docs-clip-search-data.test.ts`: GitHub Pages用Clip検索JSONの生成で、有効Clipのみ、公開項目のみ、新しい順、件数一致、直近Clip同期時刻、ゲーム名、サムネイルURLの出力になることを検証。
-- `tests/docs-clip-search-page.test.ts`: `docs/clip-search.html` の検索UI要素、SP検索条件の開閉パネル、OGP/Twitter Card/JSON-LD/OG画像、favicon/Apple touch icon、`?q=` 初期検索、古い順/お気に入り順、お気に入りlocalStorage、Clip最終同期時刻表示、サムネイル/ゲーム名表示、Twitch外部リンクのみ、公開ページ上の内部導線非表示、`docs/index.html` に内部仕様書を置かないことを検証。
+- `tests/docs-clip-search-page.test.ts`: `docs/clip-search.html` の検索UI要素、SP検索条件の開閉パネル、右端固定の `▽` アイコン、OGP/Twitter Card/JSON-LD/OG画像、favicon/Apple touch icon、`?q=` 初期検索、古い順/お気に入り順、お気に入りlocalStorage、Clip最終同期時刻表示、サムネイル/ゲーム名表示、Twitch外部リンクのみ、公開ページ上の内部導線非表示、`docs/index.html` に内部仕様書を置かないことを検証。
 - `tests/commands/raid-info.test.ts`: Raid元配信情報の取得、指定文言でのチャットメッセージ整形、オフライン時フォールバック、長文タイトルの単一行化/短縮を検証。
 - `tests/commands/boom.test.ts`: TypeScript版 `!boom` のVODチャプター抽出、ゲーム別合算、1時間未満フィルタ、表示文言を検証。
 - `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタ、`clipsearch:<検索語>` 履歴キーとキャッシュ検索ラッパーを検証。
@@ -128,6 +128,11 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-11 作業ログ
+- 要望: SPの検索トグル表示が崩れて見え、`▽` は右側に置いてほしい
+- TDD: `tests/docs-clip-search-page.test.ts` に、SP検索トグルが `search-toggle-copy` と `search-toggle-icon` に分かれ、`▽` が `aria-hidden` の明示要素として右端固定カラムに置かれる期待値を追加し、未実装失敗を確認
+- 実装: `docs/clip-search.html` の検索トグルを2カラム構成へ変更し、ラベル/条件概要を左カラム、`▽` アイコンを24px幅の右カラムへ分離。疑似要素の矢印を廃止し、開いた時はアイコン要素を180度回転させる
+- 検証: `npm test -- --run tests/docs-clip-search-page.test.ts` 8件、`npm test` 180件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/clip-search.html` / `docs/index.html` / `docs/typescript-bot-spec.html` / `internal-docs/twitchraid-bot-zukan.html` 構文確認、`git diff --check` が通過。ローカルHTTPサーバーとPlaywrightで390px幅の初期折りたたみ時に `▽` が右端から13px・24px幅カラム・中央揃え、開閉後も同じ右端位置、検索条件表示、横はみ出しなしを確認。サブPC自動JSON更新をmainへfast-forward後、`npm test -- --run tests/docs-clip-search-page.test.ts tests/docs-clip-search-data.test.ts` 9件と `git diff --check` も通過
+
 - 不具合報告: サブPCログでは `直近clip同期完了: saved=0` が毎分出ているのに、GitHub Pages Clip検索画面の `Clip最終同期` が `2026/06/11 15:38:20 JST` のまま更新されない
 - 原因: `syncRecentClips()` はSQLiteの `clip_sync_state.recent_sync_at` を更新していたが、直近同期完了後コールバックは配信まとめスレッド投稿にしか接続されていなかった。GitHub Pagesはコミット済みの `docs/clip-search-data.json` を読むため、JSON再生成とmainへのpushが行われない限り公開時刻は古いままになる
 - TDD: `tests/docs/clip-search-data-publisher.test.ts` を追加し、保存0件でも初回はJSON export/git commit/pushすること、保存0件の連続同期は最小公開間隔で間引くこと、保存ありは間隔内でも公開すること、差分なしではcommitしないことを検証。`tests/config.test.ts` に `CLIP_SEARCH_AUTO_PUBLISH_ENABLED`、出力先、公開間隔、remote/branchの読み込み期待を追加
