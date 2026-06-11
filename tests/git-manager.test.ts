@@ -49,8 +49,11 @@ describe("GitManager", () => {
   it("restarts immediately after git pull updates even during restart cooldown", () => {
     const manager = new GitManager(makeConfig());
     vi.spyOn(manager, "shouldRestart").mockReturnValue(false);
+    const headResponses = ["abc123\n", "def456\n"];
     mocks.execSync.mockImplementation((command: string) => {
+      if (command === "git rev-parse HEAD") return headResponses.shift();
       if (command === "git pull") return "Updating 1..2\nFast-forward";
+      if (command === "git diff --name-only abc123 def456") return "src/bot.ts\n";
       if (command === "npm run build") return "build ok";
       throw new Error(`unexpected command: ${command}`);
     });
@@ -62,6 +65,28 @@ describe("GitManager", () => {
     expect(manager.restartPending).toBe(false);
   });
 
+  it("pulls clip search data updates without rebuilding or restarting", () => {
+    const manager = new GitManager(makeConfig());
+    const headResponses = ["abc123\n", "def456\n"];
+    mocks.execSync.mockImplementation((command: string) => {
+      if (command === "git rev-parse HEAD") return headResponses.shift();
+      if (command === "git pull") return "Updating 1..2\nFast-forward";
+      if (command === "git diff --name-only abc123 def456") {
+        return "docs/clip-search-data.json\n";
+      }
+      throw new Error(`unexpected command: ${command}`);
+    });
+
+    manager.pullAndRestartIfUpdated();
+
+    expect(mocks.execSync).not.toHaveBeenCalledWith(
+      "npm run build",
+      expect.anything()
+    );
+    expect(mocks.restartProcess).not.toHaveBeenCalled();
+    expect(manager.restartPending).toBe(false);
+  });
+
   it("restarts immediately after update watcher pulls remote changes", () => {
     const manager = new GitManager(makeConfig());
     vi.spyOn(manager, "shouldRestart").mockReturnValue(false);
@@ -69,6 +94,7 @@ describe("GitManager", () => {
       if (command === "git rev-parse --abbrev-ref HEAD") return "main\n";
       if (command === "git fetch") return "";
       if (command === "git rev-list HEAD...origin/main --count") return "1\n";
+      if (command === "git diff --name-only HEAD origin/main") return "src/bot.ts\n";
       if (command === "git pull") return "Updating 1..2\nFast-forward";
       if (command === "npm run build") return "build ok";
       throw new Error(`unexpected command: ${command}`);
@@ -79,6 +105,30 @@ describe("GitManager", () => {
     expect(updated).toBe(true);
     expect(mocks.restartProcess).toHaveBeenCalledOnce();
     expect(manager.shouldRestart).not.toHaveBeenCalled();
+    expect(manager.restartPending).toBe(false);
+  });
+
+  it("pulls remote clip search data updates without restarting", () => {
+    const manager = new GitManager(makeConfig());
+    mocks.execSync.mockImplementation((command: string) => {
+      if (command === "git rev-parse --abbrev-ref HEAD") return "main\n";
+      if (command === "git fetch") return "";
+      if (command === "git rev-list HEAD...origin/main --count") return "1\n";
+      if (command === "git diff --name-only HEAD origin/main") {
+        return "docs/clip-search-data.json\n";
+      }
+      if (command === "git pull") return "Updating 1..2\nFast-forward";
+      throw new Error(`unexpected command: ${command}`);
+    });
+
+    const updated = manager.checkForUpdates();
+
+    expect(updated).toBe(true);
+    expect(mocks.execSync).not.toHaveBeenCalledWith(
+      "npm run build",
+      expect.anything()
+    );
+    expect(mocks.restartProcess).not.toHaveBeenCalled();
     expect(manager.restartPending).toBe(false);
   });
 });

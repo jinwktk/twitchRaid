@@ -92,6 +92,7 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 ## 再起動ポリシー
 - 定期再起動は 1 日 1 回
 - GitHub 更新による再起動はクールダウン対象外。pull と build が終わったら即 `process.exit(0)` でPM2再起動をトリガーする
+- `docs/clip-search-data.json` だけの更新は公開データのみの差分としてpullだけ行い、build/再起動はしない
 - PM2管理下では `process.exit(0)` でPM2が自動再起動
 - TypeScript版は `dist/` を Git 管理しないため、GitHub更新検知後に自動で `npm run build` を実行
 - 定期再起動だけは `last_restart.txt` による1日クールダウンを維持する
@@ -161,7 +162,7 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 - 公開JSONは `scripts/export-clip-search-data.mjs` で `data/clips.sqlite` から生成する。既定コマンドは `npm run docs:export-clips`。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する。自動公開時は毎回API全補完を行わず、既存の `docs/clip-search-data.json` にあるサムネイルURL/ゲーム名をDB欠落分へ引き継ぐ
 - Bot運用時に `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定している場合、直近Clip同期完了後に `src/docs/clip-search-data-publisher.ts` が公開JSONを再生成し、差分があれば `main` へcommit/pushする。保存0件の同期も既定5分ごとに公開し、Clip保存があった場合は間隔内でも公開する。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぐ
 - 公開JSONへ含めるClip項目は `id`、`url`、`title`、`creator`、`gameName`、`thumbnailUrl`、`createdAt`、`views` のみ。同期stateは `clipSync.recentSyncedAt` のみ公開し、`creator_id`、ゲームID、履歴、その他の内部state、認証情報は含めない
-- `unavailable_at` が入った削除/非公開Clipは公開JSONから除外する
+- `unavailable_at` が入った削除/非公開Clipは公開JSONから除外する。そのためログの `clip全期間バックフィル完了: total=...` はDB内総件数、Clip検索画面の件数は公開対象件数として差が出ることがある
 - サブPCの実データをPagesへ反映する場合は、サブPCの `data/clips.sqlite` を元にJSONを生成し、`main` へコミット・プッシュする
 
 ## Boomコマンドメモ
@@ -239,6 +240,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-11**: Clip検索公開JSONの自動pushをGit更新監視が検知し、Botが数分おきに自己再起動して起動時バックフィルを繰り返す問題を修正。`docs/clip-search-data.json` だけの更新ではpullのみ行い、build/再起動しないようにした。DB総件数と公開件数の差は、削除/非公開化で `unavailable_at` が入ったClipを公開JSONから除外しているため
 - **2026-06-11**: GitHub Pages Clip検索画面のSP検索トグルを調整。条件概要テキストと右端の `▽` を別カラムに分け、開閉アイコンが右側に固定されるようにした
 - **2026-06-11**: Clip同期ログでは `直近clip同期完了: saved=0` が続いていたが、GitHub Pages用 `docs/clip-search-data.json` が再生成・pushされず `Clip最終同期` が古いままになる問題を修正。`CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` で同期後に公開JSONを自動生成し、保存0件でも既定5分ごとにmainへcommit/pushするようにした
 - **2026-06-11**: GitHub Pages Clip検索画面のSP表示で、上部検索条件を開閉式に変更。初期状態は折りたたみ、条件概要を表示して検索結果の縦領域を確保するようにした

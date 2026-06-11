@@ -8,6 +8,15 @@ import {
 } from "./utils/restart-state-store";
 import { restartProcess } from "./utils/process-restart";
 
+const RESTART_IGNORED_CHANGED_PATHS = new Set(["docs/clip-search-data.json"]);
+
+function parseChangedPaths(output: string): string[] {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/\\/g, "/"))
+    .filter(Boolean);
+}
+
 export class GitManager {
   private readonly config: Config;
   restartPending = false;
@@ -60,9 +69,21 @@ export class GitManager {
 
   pullAndRestartIfUpdated(): void {
     try {
+      const beforeHead = this._currentCommit();
       const result = execSync("git pull", { encoding: "utf-8" });
       logger.info(`Git pull結果: ${result}`);
       if (!result.includes("Already up to date")) {
+        const afterHead = this._currentCommit();
+        const changedPaths =
+          beforeHead && afterHead
+            ? this._changedPathsBetween(beforeHead, afterHead)
+            : [];
+        if (this._isRestartIgnoredUpdate(changedPaths)) {
+          logger.info(
+            `再起動不要の更新のみ反映しました: ${changedPaths.join(", ")}`
+          );
+          return;
+        }
         this._buildAfterPull();
         this.restartAfterUpdate("更新があったので再起動します");
       }
@@ -109,11 +130,21 @@ export class GitManager {
       ).trim();
 
       if (countStr !== "0") {
+        const changedPaths = this._changedPathsBetween(
+          "HEAD",
+          `origin/${branch}`
+        );
         logger.info(
           `リモートに ${countStr} 件の更新があります。プルして再起動します...`
         );
         const pullResult = execSync("git pull", { encoding: "utf-8" });
         logger.info(`プル結果: ${pullResult}`);
+        if (this._isRestartIgnoredUpdate(changedPaths)) {
+          logger.info(
+            `再起動不要の更新のみ反映しました: ${changedPaths.join(", ")}`
+          );
+          return true;
+        }
         this._buildAfterPull();
         this.restartAfterUpdate("更新があったので再起動します");
         return true;
@@ -125,5 +156,34 @@ export class GitManager {
       logger.error(`GitHub更新確認エラー: ${e}`);
       return false;
     }
+  }
+
+  private _currentCommit(): string | null {
+    try {
+      return execSync("git rev-parse HEAD", {
+        encoding: "utf-8",
+      }).trim();
+    } catch {
+      return null;
+    }
+  }
+
+  private _changedPathsBetween(baseRevision: string, targetRevision: string): string[] {
+    try {
+      return parseChangedPaths(
+        execSync(`git diff --name-only ${baseRevision} ${targetRevision}`, {
+          encoding: "utf-8",
+        })
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  private _isRestartIgnoredUpdate(changedPaths: string[]): boolean {
+    return (
+      changedPaths.length > 0 &&
+      changedPaths.every((path) => RESTART_IGNORED_CHANGED_PATHS.has(path))
+    );
   }
 }
