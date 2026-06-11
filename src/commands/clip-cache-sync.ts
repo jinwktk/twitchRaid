@@ -9,6 +9,11 @@ interface ClipSyncApiClient {
       filter?: { startDate?: string; endDate?: string; isFeatured?: boolean }
     ): AsyncIterable<HelixClip>;
   };
+  games?: ClipSyncGameApi;
+}
+
+interface ClipSyncGameApi {
+  getGamesByIds(ids: string[]): Promise<Array<{ id: string; name: string }>>;
 }
 
 export interface ClipDateWindow {
@@ -55,6 +60,14 @@ const DEFAULT_DAILY_RECONCILE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const RECENT_SYNC_STATE_KEY = "recent_sync_at";
 export const DAILY_RECONCILE_STATE_KEY = "daily_reconcile_at";
 
+function chunkArray<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
+}
+
 export function buildClipDateWindows(
   oldest: Date,
   now: Date,
@@ -81,9 +94,45 @@ export function clipToCachedClip(clip: HelixClip): CachedClip {
     title: clip.title,
     creatorId: clip.creatorId,
     creatorDisplayName: clip.creatorDisplayName,
+    gameId: clip.gameId || null,
+    gameName: null,
+    thumbnailUrl: clip.thumbnailUrl || null,
     createdAt: clip.creationDate?.toISOString() ?? null,
     views: clip.views ?? null,
   };
+}
+
+export async function clipsToCachedClips(
+  clips: HelixClip[],
+  gameApi?: ClipSyncGameApi
+): Promise<CachedClip[]> {
+  const cachedClips = clips.map(clipToCachedClip);
+  if (!gameApi || cachedClips.length === 0) return cachedClips;
+
+  const gameIds = [
+    ...new Set(
+      cachedClips
+        .map((clip) => clip.gameId)
+        .filter((gameId): gameId is string => Boolean(gameId))
+    ),
+  ];
+  if (gameIds.length === 0) return cachedClips;
+
+  try {
+    const games = (
+      await Promise.all(
+        chunkArray(gameIds, 100).map((ids) => gameApi.getGamesByIds(ids))
+      )
+    ).flat();
+    const gameNamesById = new Map(games.map((game) => [game.id, game.name]));
+    return cachedClips.map((clip) => ({
+      ...clip,
+      gameName: clip.gameId ? gameNamesById.get(clip.gameId) ?? null : null,
+    }));
+  } catch (e) {
+    logger.warn(`⚠️ Clipゲーム名取得失敗: ${e}`);
+    return cachedClips;
+  }
 }
 
 export class ClipCacheSynchronizer {
@@ -168,7 +217,11 @@ export class ClipCacheSynchronizer {
         now.getTime() - this.recentWindowMinutes * 60 * 1000
       );
       const clips = await this.fetchWindow({ start, end: now });
-      const saved = this.options.store.saveClips(clips.map(clipToCachedClip));
+      const cachedClips = await clipsToCachedClips(
+        clips,
+        this.options.apiClient.games
+      );
+      const saved = this.options.store.saveClips(cachedClips);
       this.options.store.setSyncState(
         RECENT_SYNC_STATE_KEY,
         now.toISOString()
@@ -284,7 +337,11 @@ export class ClipCacheSynchronizer {
       return first + second;
     }
 
-    const saved = this.options.store.saveClips(clips.map(clipToCachedClip));
+    const cachedClips = await clipsToCachedClips(
+      clips,
+      this.options.apiClient.games
+    );
+    const saved = this.options.store.saveClips(cachedClips);
     const unavailable = options.reconcileMissing
       ? this.options.store.markMissingClipsUnavailable(
           startAt,

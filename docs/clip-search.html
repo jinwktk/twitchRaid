@@ -283,50 +283,6 @@
         font-weight: 800;
       }
 
-      .clip-player-panel {
-        display: grid;
-        gap: 14px;
-        margin-bottom: 18px;
-        border: 1px solid #cfe7f7;
-        border-radius: 8px;
-        background:
-          linear-gradient(180deg, rgba(232, 245, 255, 0.86), rgba(255, 255, 255, 0.92)),
-          var(--paper);
-        padding: 14px;
-        box-shadow: 0 12px 28px rgba(53, 107, 163, 0.08);
-      }
-
-      .clip-player-panel[hidden] {
-        display: none;
-      }
-
-      .player-header {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 12px;
-        align-items: start;
-      }
-
-      .player-label {
-        color: var(--sky-ink);
-        font-size: 0.84rem;
-        font-weight: 900;
-      }
-
-      .player-title {
-        margin-top: 2px;
-        font-size: 1.18rem;
-        line-height: 1.45;
-      }
-
-      .player-meta {
-        margin-top: 4px;
-        color: var(--muted);
-        font-size: 0.9rem;
-        font-weight: 800;
-      }
-
-      .player-actions,
       .clip-actions {
         display: flex;
         flex-wrap: wrap;
@@ -335,23 +291,6 @@
 
       .clip-actions > * {
         flex: 1 1 128px;
-      }
-
-      .clip-player-frame {
-        display: grid;
-        min-height: 300px;
-        overflow: hidden;
-        border: 1px solid #b9d8f2;
-        border-radius: 8px;
-        background: #11131a;
-      }
-
-      .clip-player-frame iframe {
-        display: block;
-        width: 100%;
-        height: 100%;
-        min-height: 300px;
-        border: 0;
       }
 
       .results {
@@ -370,6 +309,32 @@
           var(--paper);
         box-shadow: 0 12px 28px rgba(88, 55, 88, 0.08);
         overflow: hidden;
+      }
+
+      .clip-thumbnail {
+        position: relative;
+        display: grid;
+        aspect-ratio: 16 / 9;
+        min-height: 0;
+        place-items: center;
+        background:
+          linear-gradient(135deg, rgba(255, 231, 240, 0.88), rgba(232, 245, 255, 0.9)),
+          var(--paper);
+        color: var(--muted);
+        font-size: 0.9rem;
+        font-weight: 900;
+        overflow: hidden;
+      }
+
+      .clip-thumbnail img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .clip-thumbnail-placeholder {
+        padding: 10px;
+        text-align: center;
       }
 
       .clip-card:nth-child(4n + 1) .clip-ribbon {
@@ -439,7 +404,7 @@
       }
 
       .clip-link,
-      .clip-play-button {
+      .clip-favorite-button {
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -452,9 +417,21 @@
         text-decoration: none;
       }
 
-      .clip-play-button {
-        background: var(--pink);
-        color: #fff;
+      .clip-favorite-button {
+        border-color: #d9bf57;
+        background: var(--lemon);
+        color: #705200;
+      }
+
+      .clip-favorite-button[aria-pressed="true"] {
+        border-color: #e86f9f;
+        background: var(--pink-soft);
+        color: #a43c70;
+      }
+
+      .clip-card.is-favorite {
+        border-color: #f2b4ce;
+        box-shadow: 0 14px 30px rgba(232, 111, 159, 0.14);
       }
 
       .empty {
@@ -521,10 +498,6 @@
           grid-template-columns: 1fr;
         }
 
-        .player-header {
-          grid-template-columns: 1fr;
-        }
-
         h1 {
           font-size: 2.25rem;
         }
@@ -582,7 +555,7 @@
       <div class="wrap search-grid">
         <div class="field">
           <label for="searchInput">キーワード</label>
-          <input id="searchInput" type="search" placeholder="例: おなら / FF14 / 作成者名" autocomplete="off" />
+          <input id="searchInput" type="search" placeholder="例: FF14 / 雑談 / 迷子 / 作成者名" autocomplete="off" />
         </div>
         <div class="field">
           <label for="creatorFilter">作成者</label>
@@ -594,6 +567,8 @@
           <label for="sortSelect">並び替え</label>
           <select id="sortSelect">
             <option value="newest">新しい順</option>
+            <option value="oldest">古い順</option>
+            <option value="favorites">お気に入り順</option>
             <option value="views">再生数順</option>
             <option value="title">タイトル順</option>
           </select>
@@ -615,21 +590,6 @@
       </div>
 
       <div id="notice" class="notice" hidden></div>
-      <section id="clipPlayerPanel" class="clip-player-panel" aria-live="polite" hidden>
-        <div class="player-header">
-          <div>
-            <p class="player-label">ページ内再生</p>
-            <h2 id="clipPlayerTitle" class="player-title">Clipを選択してください</h2>
-            <p id="clipPlayerMeta" class="player-meta"></p>
-          </div>
-          <div class="player-actions">
-            <a id="clipPlayerOpen" class="clip-link" href="https://www.twitch.tv/rukalun" rel="noreferrer" target="_blank">Twitchで見る</a>
-            <button id="clipPlayerClose" class="button" type="button">閉じる</button>
-          </div>
-        </div>
-        <div id="clipPlayerFrame" class="clip-player-frame"></div>
-      </section>
-
       <section id="emptyState" class="empty">
         <h2>見つかりませんでした</h2>
         <p>検索語を短くするか、作成者の絞り込みを外してください。</p>
@@ -645,6 +605,7 @@
 
     <script>
       const DATA_URL = "clip-search-data.json";
+      const CLIP_FAVORITES_STORAGE_KEY = "rukalun.clipSearch.favorites.v1";
       const INITIAL_LIMIT = 48;
       const MORE_STEP = 48;
 
@@ -661,18 +622,13 @@
         resultCount: document.querySelector("#resultCount"),
         updatedAt: document.querySelector("#updatedAt"),
         clipSyncedAt: document.querySelector("#clipSyncedAt"),
-        clipPlayerPanel: document.querySelector("#clipPlayerPanel"),
-        clipPlayerTitle: document.querySelector("#clipPlayerTitle"),
-        clipPlayerMeta: document.querySelector("#clipPlayerMeta"),
-        clipPlayerOpen: document.querySelector("#clipPlayerOpen"),
-        clipPlayerClose: document.querySelector("#clipPlayerClose"),
-        clipPlayerFrame: document.querySelector("#clipPlayerFrame"),
         notice: document.querySelector("#notice"),
       };
 
       let allClips = [];
       let filteredClips = [];
       let visibleLimit = INITIAL_LIMIT;
+      let favoriteClips = loadFavoriteClips();
 
       function normalizeText(value) {
         return String(value ?? "")
@@ -720,6 +676,44 @@
         return `${value.toLocaleString("ja-JP")} views`;
       }
 
+      function loadFavoriteClips() {
+        try {
+          const raw = localStorage.getItem(CLIP_FAVORITES_STORAGE_KEY);
+          if (!raw) return {};
+          const parsed = JSON.parse(raw);
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+          return Object.fromEntries(
+            Object.entries(parsed).filter((entry) => typeof entry[0] === "string" && Number.isFinite(entry[1]))
+          );
+        } catch {
+          return {};
+        }
+      }
+
+      function saveFavoriteClips() {
+        try {
+          localStorage.setItem(CLIP_FAVORITES_STORAGE_KEY, JSON.stringify(favoriteClips));
+        } catch {
+          setNotice("お気に入りをブラウザに保存できませんでした。");
+        }
+      }
+
+      function isFavoriteClip(clip) {
+        return Boolean(clip?.id && favoriteClips[clip.id]);
+      }
+
+      function toggleFavoriteClip(clip) {
+        if (!clip?.id) return;
+        if (isFavoriteClip(clip)) {
+          delete favoriteClips[clip.id];
+        } else {
+          favoriteClips[clip.id] = Date.now();
+        }
+        saveFavoriteClips();
+        render();
+      }
+
       function isSafeTwitchClipUrl(url) {
         try {
           const parsed = new URL(url);
@@ -732,50 +726,13 @@
         }
       }
 
-      function getEmbedParentHost() {
-        return window.location.hostname || "jinwktk.github.io";
-      }
-
-      function buildClipEmbedUrl(clip) {
-        const url = new URL("https://clips.twitch.tv/embed");
-        url.searchParams.set("clip", clip.id);
-        url.searchParams.set("parent", getEmbedParentHost());
-        url.searchParams.set("autoplay", "false");
-        return url.toString();
-      }
-
-      function openClipPlayer(clip) {
-        if (!clip?.id) {
-          setNotice("このClipはページ内再生に必要なIDがありません。");
-          return;
+      function isSafeImageUrl(url) {
+        try {
+          const parsed = new URL(url);
+          return parsed.protocol === "https:";
+        } catch {
+          return false;
         }
-
-        const iframe = document.createElement("iframe");
-        iframe.src = buildClipEmbedUrl(clip);
-        iframe.title = `${clip.title || "Clip"} を再生`;
-        iframe.loading = "lazy";
-        iframe.allow = "autoplay";
-        iframe.allowFullscreen = true;
-        iframe.referrerPolicy = "strict-origin-when-cross-origin";
-
-        elements.clipPlayerTitle.textContent = clip.title || "無題のClip";
-        elements.clipPlayerMeta.textContent = [
-          clip.creator ? `作成: ${clip.creator}` : "作成者不明",
-          formatDate(clip.createdAt),
-          formatViews(clip.views),
-        ].join(" / ");
-        elements.clipPlayerOpen.href = isSafeTwitchClipUrl(clip.url) ? clip.url : "https://www.twitch.tv/rukalun";
-        elements.clipPlayerFrame.replaceChildren(iframe);
-        elements.clipPlayerPanel.hidden = false;
-        elements.clipPlayerPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-
-      function closeClipPlayer() {
-        elements.clipPlayerPanel.hidden = true;
-        elements.clipPlayerFrame.replaceChildren();
-        elements.clipPlayerTitle.textContent = "Clipを選択してください";
-        elements.clipPlayerMeta.textContent = "";
-        elements.clipPlayerOpen.href = "https://www.twitch.tv/rukalun";
       }
 
       function setNotice(message) {
@@ -803,6 +760,16 @@
       function sortClips(clips) {
         const sort = elements.sortSelect.value;
         return [...clips].sort((a, b) => {
+          if (sort === "oldest") {
+            return compareCreatedAtAsc(a, b);
+          }
+          if (sort === "favorites") {
+            const favoriteDiff = Number(isFavoriteClip(b)) - Number(isFavoriteClip(a));
+            if (favoriteDiff !== 0) return favoriteDiff;
+            const favoriteTimeDiff = (favoriteClips[b.id] ?? 0) - (favoriteClips[a.id] ?? 0);
+            if (favoriteTimeDiff !== 0) return favoriteTimeDiff;
+            return compareCreatedAtDesc(a, b);
+          }
           if (sort === "views") {
             return (b.views ?? -1) - (a.views ?? -1) || compareCreatedAtDesc(a, b);
           }
@@ -815,6 +782,10 @@
 
       function compareCreatedAtDesc(a, b) {
         return String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")) || a.id.localeCompare(b.id);
+      }
+
+      function compareCreatedAtAsc(a, b) {
+        return String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")) || a.id.localeCompare(b.id);
       }
 
       function filterClips() {
@@ -835,6 +806,7 @@
       function renderCard(clip) {
         const card = document.createElement("article");
         card.className = "clip-card";
+        card.classList.toggle("is-favorite", isFavoriteClip(clip));
 
         const ribbon = document.createElement("div");
         ribbon.className = "clip-ribbon";
@@ -843,6 +815,29 @@
         const views = document.createElement("span");
         views.textContent = formatViews(clip.views);
         ribbon.append(date, views);
+
+        const thumbnail = document.createElement("div");
+        thumbnail.className = "clip-thumbnail";
+        if (isSafeImageUrl(clip.thumbnailUrl)) {
+          const image = document.createElement("img");
+          image.src = clip.thumbnailUrl;
+          image.alt = clip.title ? `${clip.title}のサムネイル` : "Clipサムネイル";
+          image.loading = "lazy";
+          image.decoding = "async";
+          image.addEventListener("error", () => {
+            thumbnail.replaceChildren();
+            const placeholder = document.createElement("span");
+            placeholder.className = "clip-thumbnail-placeholder";
+            placeholder.textContent = "サムネイル準備中";
+            thumbnail.append(placeholder);
+          });
+          thumbnail.append(image);
+        } else {
+          const placeholder = document.createElement("span");
+          placeholder.className = "clip-thumbnail-placeholder";
+          placeholder.textContent = "サムネイル準備中";
+          thumbnail.append(placeholder);
+        }
 
         const body = document.createElement("div");
         body.className = "clip-card-body";
@@ -856,16 +851,20 @@
         const creator = document.createElement("span");
         creator.className = "meta-chip";
         creator.textContent = clip.creator ? `作成: ${clip.creator}` : "作成者不明";
-        meta.append(creator);
+        const game = document.createElement("span");
+        game.className = "meta-chip";
+        game.textContent = clip.gameName ? `ゲーム: ${clip.gameName}` : "ゲーム不明";
+        meta.append(game, creator);
 
         const actions = document.createElement("div");
         actions.className = "clip-actions";
 
-        const playButton = document.createElement("button");
-        playButton.className = "clip-play-button";
-        playButton.type = "button";
-        playButton.textContent = "ページで再生";
-        playButton.addEventListener("click", () => openClipPlayer(clip));
+        const favoriteButton = document.createElement("button");
+        favoriteButton.className = "clip-favorite-button";
+        favoriteButton.type = "button";
+        favoriteButton.setAttribute("aria-pressed", String(isFavoriteClip(clip)));
+        favoriteButton.textContent = isFavoriteClip(clip) ? "お気に入り済み" : "お気に入りに追加";
+        favoriteButton.addEventListener("click", () => toggleFavoriteClip(clip));
 
         const link = document.createElement("a");
         link.className = "clip-link";
@@ -874,9 +873,9 @@
         link.rel = "noreferrer";
         link.href = isSafeTwitchClipUrl(clip.url) ? clip.url : "https://www.twitch.tv/rukalun";
 
-        actions.append(playButton, link);
+        actions.append(favoriteButton, link);
         body.append(title, meta, actions);
-        card.append(ribbon, body);
+        card.append(ribbon, thumbnail, body);
         return card;
       }
 
@@ -917,27 +916,26 @@
           allClips = Array.isArray(data.clips)
             ? data.clips.map((clip) => ({
                 ...clip,
-                searchText: normalizeText(`${clip.title} ${clip.creator}`),
+                searchText: normalizeText(`${clip.title} ${clip.creator} ${clip.gameName}`),
               }))
             : [];
           buildCreatorOptions(allClips);
           elements.updatedAt.textContent = data.generatedAt
             ? `JSON生成: ${formatDateTimeWithSeconds(data.generatedAt)}`
-            : "更新日時なし";
+            : "JSON生成: 未記録";
           const recentSyncedAt = data.clipSync?.recentSyncedAt ?? null;
           elements.clipSyncedAt.textContent = recentSyncedAt
             ? `Clip最終同期: ${formatDateTimeWithSeconds(recentSyncedAt)}`
             : "Clip最終同期: 未記録";
-          setNotice(allClips.length === 0 ? "公開用Clipデータが空です。運用側でJSONを生成してください。" : "");
+          setNotice(allClips.length === 0 ? "Clipデータがまだありません。しばらくしてから再読み込みしてください。" : "");
           render();
         } catch (error) {
           allClips = [];
           filteredClips = [];
           elements.resultCount.textContent = "読み込み失敗";
-          elements.updatedAt.textContent = "更新日時なし";
+          elements.updatedAt.textContent = "JSON生成: 未記録";
           elements.clipSyncedAt.textContent = "Clip最終同期: 未記録";
-          closeClipPlayer();
-          setNotice(`Clipデータを読み込めませんでした。${DATA_URL} を生成して配置してください。`);
+          setNotice("Clipデータを読み込めませんでした。しばらくしてから再読み込みしてください。");
           render();
         }
       }
@@ -952,7 +950,6 @@
         resetVisibleAndRender();
       });
       elements.randomButton.addEventListener("click", pickRandomClip);
-      elements.clipPlayerClose.addEventListener("click", closeClipPlayer);
       elements.loadMoreButton.addEventListener("click", () => {
         visibleLimit += MORE_STEP;
         render();

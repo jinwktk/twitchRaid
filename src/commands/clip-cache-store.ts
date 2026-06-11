@@ -9,6 +9,9 @@ export interface CachedClip {
   title: string;
   creatorId: string;
   creatorDisplayName: string;
+  gameId: string | null;
+  gameName: string | null;
+  thumbnailUrl: string | null;
   createdAt: string | null;
   views: number | null;
 }
@@ -29,6 +32,9 @@ interface ClipRow {
   creator_id: string;
   creator_display_name: string;
   creator_name_lower: string;
+  game_id: string | null;
+  game_name: string | null;
+  thumbnail_url: string | null;
   created_at: string | null;
   views: number | null;
   unavailable_at: string | null;
@@ -94,19 +100,25 @@ export class ClipCacheStore {
         creator_id,
         creator_display_name,
         creator_name_lower,
+        game_id,
+        game_name,
+        thumbnail_url,
         created_at,
         views,
         last_seen_at,
         unavailable_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
       ON CONFLICT(id) DO UPDATE SET
         url = excluded.url,
         title = excluded.title,
         creator_id = excluded.creator_id,
         creator_display_name = excluded.creator_display_name,
         creator_name_lower = excluded.creator_name_lower,
+        game_id = excluded.game_id,
+        game_name = excluded.game_name,
+        thumbnail_url = excluded.thumbnail_url,
         created_at = excluded.created_at,
         views = excluded.views,
         last_seen_at = excluded.last_seen_at,
@@ -126,6 +138,9 @@ export class ClipCacheStore {
           clip.creatorId,
           clip.creatorDisplayName,
           clip.creatorDisplayName.toLowerCase(),
+          clip.gameId ?? null,
+          clip.gameName ?? null,
+          clip.thumbnailUrl ?? null,
           clip.createdAt,
           clip.views,
           now,
@@ -438,10 +453,10 @@ export class ClipCacheStore {
     const pattern = `%${escapedQuery}%`;
     const lowerPattern = `%${escapedLowerQuery}%`;
     const filters = [
-      "(title LIKE ? ESCAPE '\\' OR creator_name_lower LIKE ? ESCAPE '\\')",
+      "(title LIKE ? ESCAPE '\\' OR creator_name_lower LIKE ? ESCAPE '\\' OR game_name LIKE ? ESCAPE '\\')",
       "unavailable_at IS NULL",
     ];
-    const params: (string | number)[] = [pattern, lowerPattern];
+    const params: (string | number)[] = [pattern, lowerPattern, pattern];
 
     if (excludeIds.length > 0) {
       filters.push(`id NOT IN (${excludeIds.map(() => "?").join(", ")})`);
@@ -482,6 +497,9 @@ export class ClipCacheStore {
         creator_id TEXT NOT NULL,
         creator_display_name TEXT NOT NULL,
         creator_name_lower TEXT NOT NULL,
+        game_id TEXT,
+        game_name TEXT,
+        thumbnail_url TEXT,
         created_at TEXT,
         views INTEGER,
         last_seen_at TEXT,
@@ -523,6 +541,9 @@ export class ClipCacheStore {
     `);
     this.addColumnIfMissing("clip_cache", "last_seen_at", "TEXT");
     this.addColumnIfMissing("clip_cache", "unavailable_at", "TEXT");
+    this.addColumnIfMissing("clip_cache", "game_id", "TEXT");
+    this.addColumnIfMissing("clip_cache", "game_name", "TEXT");
+    this.addColumnIfMissing("clip_cache", "thumbnail_url", "TEXT");
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_clip_cache_available_created_at
         ON clip_cache (unavailable_at, created_at);

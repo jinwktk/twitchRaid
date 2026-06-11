@@ -19,6 +19,9 @@ function createClipCache(dbPath: string): DatabaseSync {
       creator_id TEXT NOT NULL,
       creator_display_name TEXT NOT NULL,
       creator_name_lower TEXT NOT NULL,
+      game_id TEXT,
+      game_name TEXT,
+      thumbnail_url TEXT,
       created_at TEXT,
       views INTEGER,
       last_seen_at TEXT,
@@ -50,13 +53,16 @@ describe("export-clip-search-data", () => {
         creator_id,
         creator_display_name,
         creator_name_lower,
+        game_id,
+        game_name,
+        thumbnail_url,
         created_at,
         views,
         last_seen_at,
         unavailable_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     db.prepare(
       "INSERT INTO clip_sync_state (key, value, updated_at) VALUES (?, ?, ?)"
@@ -72,6 +78,9 @@ describe("export-clip-search-data", () => {
       "creator-secret",
       "Alice",
       "alice",
+      "509658",
+      "Just Chatting",
+      "https://clips-media-assets2.twitch.tv/old-preview-480x272.jpg",
       "2026-01-01T00:00:00.000Z",
       12,
       "2026-01-01T00:00:00.000Z",
@@ -85,6 +94,9 @@ describe("export-clip-search-data", () => {
       "creator-secret-2",
       "Bob",
       "bob",
+      "24241",
+      "FINAL FANTASY XIV ONLINE",
+      "https://clips-media-assets2.twitch.tv/new-preview-480x272.jpg",
       "2026-01-02T00:00:00.000Z",
       34,
       "2026-01-02T00:00:00.000Z",
@@ -98,6 +110,9 @@ describe("export-clip-search-data", () => {
       "creator-secret-3",
       "Carol",
       "carol",
+      "999",
+      "Hidden Game",
+      "https://clips-media-assets2.twitch.tv/hidden-preview-480x272.jpg",
       "2026-01-03T00:00:00.000Z",
       56,
       "2026-01-03T00:00:00.000Z",
@@ -134,13 +149,17 @@ describe("export-clip-search-data", () => {
       url: "https://www.twitch.tv/rukalun/clip/new",
       title: "新しいふわふわClip",
       creator: "Bob",
+      gameName: "FINAL FANTASY XIV ONLINE",
+      thumbnailUrl: "https://clips-media-assets2.twitch.tv/new-preview-480x272.jpg",
       createdAt: "2026-01-02T00:00:00.000Z",
       views: 34,
     });
     expect(Object.keys(exported.clips[0]).sort()).toEqual([
       "createdAt",
       "creator",
+      "gameName",
       "id",
+      "thumbnailUrl",
       "title",
       "url",
       "views",

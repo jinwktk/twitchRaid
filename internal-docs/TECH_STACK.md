@@ -1,6 +1,6 @@
 # TypeScript版 技術スタック・運用環境
 
-正本の仕様書は `docs/index.html` です。このMarkdownは依存関係と運用確認用の補助資料です。
+内部仕様書の正本は `internal-docs/twitchraid-bot-zukan.html` です。このMarkdownは依存関係と運用確認用の補助資料です。
 
 ## 使用技術
 
@@ -14,7 +14,7 @@
 | ログ | `winston` / `winston-daily-rotate-file` | 日次ローテーションログ |
 | テスト | Vitest / pytest | TS版テストと旧Python互換テスト |
 | プロセス | PM2 | サブPC本番常駐 |
-| 公開ドキュメント | GitHub Pages | `docs/index.html` を公開 |
+| 公開ページ | GitHub Pages | `docs/index.html` と `docs/clip-search.html` を公開 |
 
 ## 運用環境
 

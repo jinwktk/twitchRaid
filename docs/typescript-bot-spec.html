@@ -3,18 +3,18 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="refresh" content="0; url=index.html" />
-    <link rel="canonical" href="index.html" />
-    <title>統合仕様書へ移動します</title>
+    <meta http-equiv="refresh" content="0; url=clip-search.html" />
+    <link rel="canonical" href="clip-search.html" />
+    <title>るっかるん Clip検索</title>
     <style>
       :root {
         color-scheme: light;
-        --bg: #f6f8fb;
+        --bg: #fff8fb;
         --paper: #ffffff;
-        --ink: #17202a;
-        --muted: #596579;
-        --line: #dbe3ee;
-        --bot: #0f8b8d;
+        --ink: #30283a;
+        --muted: #756b7f;
+        --line: #eadde8;
+        --pink: #e86f9f;
       }
 
       * {
@@ -26,30 +26,31 @@
         min-height: 100vh;
         margin: 0;
         place-items: center;
-        background: var(--bg);
+        background: linear-gradient(180deg, #fffdf8 0, var(--bg) 100%);
         color: var(--ink);
         font-family:
           "Segoe UI",
+          "Hiragino Kaku Gothic ProN",
+          "Yu Gothic",
           system-ui,
-          -apple-system,
-          BlinkMacSystemFont,
           sans-serif;
         line-height: 1.65;
       }
 
       main {
-        width: min(680px, calc(100% - 32px));
+        width: min(560px, calc(100% - 28px));
         border: 1px solid var(--line);
         border-radius: 8px;
         background: var(--paper);
-        padding: 28px;
-        box-shadow: 0 10px 28px rgba(35, 44, 65, 0.08);
+        padding: 26px;
+        text-align: center;
+        box-shadow: 0 14px 36px rgba(88, 55, 88, 0.1);
       }
 
       h1 {
         margin: 0;
-        font-size: clamp(1.7rem, 4vw, 2.4rem);
-        line-height: 1.25;
+        font-size: clamp(1.8rem, 5vw, 2.6rem);
+        line-height: 1.2;
       }
 
       p {
@@ -58,19 +59,26 @@
       }
 
       a {
-        color: var(--bot);
-        font-weight: 800;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        margin-top: 18px;
+        border: 1px solid #d94f89;
+        border-radius: 8px;
+        background: var(--pink);
+        color: #fff;
+        padding: 10px 14px;
+        font-weight: 900;
+        text-decoration: none;
       }
     </style>
   </head>
   <body>
     <main>
-      <h1>TypeScript版仕様書は統合されました</h1>
-      <p>
-        仕様書を二重管理しないため、このページの内容は
-        <a href="index.html">twitchRaid Bot しくみ図鑑</a> へ統合しました。
-        自動で移動しない場合はリンクを開いてください。
-      </p>
+      <h1>るっかるん Clip検索</h1>
+      <p>Clip検索画面へ移動します。</p>
+      <a href="clip-search.html">Clip検索を開く</a>
     </main>
   </body>
 </html>

@@ -1,0 +1,1245 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>twitchRaid Bot しくみ図鑑 - TypeScript版仕様書</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f8fb;
+        --paper: #ffffff;
+        --ink: #17202a;
+        --muted: #596579;
+        --line: #dbe3ee;
+        --twitch: #6d4aff;
+        --bot: #0f8b8d;
+        --discord: #2864d8;
+        --clip: #d8572a;
+        --sun: #f2b705;
+        --mint: #e8f7f1;
+        --sky: #eef5ff;
+        --peach: #fff1e9;
+        --lemon: #fff8d8;
+        --code: #111827;
+        --shadow: 0 10px 28px rgba(35, 44, 65, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background:
+          linear-gradient(180deg, #ffffff 0, #f6f8fb 520px),
+          var(--bg);
+        color: var(--ink);
+        font-family:
+          "Segoe UI",
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
+        line-height: 1.65;
+      }
+
+      a {
+        color: var(--discord);
+      }
+
+      code {
+        border: 1px solid #d6deea;
+        border-radius: 5px;
+        background: #eef2f7;
+        color: var(--code);
+        padding: 0.08rem 0.35rem;
+        font-family: Consolas, "Cascadia Mono", monospace;
+        font-size: 0.92em;
+      }
+
+      .wrap {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+      }
+
+      header {
+        border-bottom: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.92);
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+        gap: 28px;
+        align-items: center;
+        min-height: 560px;
+        padding: 42px 0 28px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--paper);
+        padding: 5px 12px;
+        color: var(--muted);
+        font-size: 0.9rem;
+        font-weight: 700;
+      }
+
+      h1,
+      h2,
+      h3,
+      h4 {
+        margin: 0;
+        line-height: 1.25;
+      }
+
+      h1 {
+        margin-top: 16px;
+        font-size: clamp(2rem, 5vw, 3.5rem);
+      }
+
+      h2 {
+        margin-top: 48px;
+        font-size: clamp(1.45rem, 3vw, 2rem);
+      }
+
+      h3 {
+        font-size: 1.08rem;
+      }
+
+      p {
+        margin: 10px 0 0;
+      }
+
+      .lead {
+        max-width: 760px;
+        color: var(--muted);
+        font-size: 1.08rem;
+      }
+
+      .nowrap {
+        white-space: nowrap;
+      }
+
+      .hero-actions,
+      .meta,
+      .toc {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .hero-actions {
+        margin-top: 22px;
+      }
+
+      .button,
+      .toc a,
+      .tag {
+        border: 1px solid var(--line);
+        background: var(--paper);
+        text-decoration: none;
+      }
+
+      .button {
+        border-radius: 8px;
+        padding: 10px 13px;
+        color: var(--ink);
+        font-weight: 700;
+      }
+
+      .button.primary {
+        border-color: #1e6b6d;
+        background: var(--bot);
+        color: #fff;
+      }
+
+      .meta {
+        margin-top: 18px;
+      }
+
+      .tag {
+        border-radius: 999px;
+        padding: 5px 10px;
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      .hero-board {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        box-shadow: var(--shadow);
+        padding: 18px;
+      }
+
+      .hero-board svg,
+      .diagram svg {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      main {
+        padding: 18px 0 64px;
+      }
+
+      .toc {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        border-bottom: 1px solid var(--line);
+        background: rgba(246, 248, 251, 0.95);
+        padding: 10px 0;
+        backdrop-filter: blur(8px);
+      }
+
+      .toc a {
+        border-radius: 8px;
+        padding: 8px 10px;
+        color: var(--discord);
+        font-weight: 700;
+        font-size: 0.92rem;
+      }
+
+      .section-lead {
+        max-width: 900px;
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 18px;
+      }
+
+      .grid.two {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .grid.four {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        padding: 16px;
+        box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+      }
+
+      .card.tint-sky {
+        background: var(--sky);
+      }
+
+      .card.tint-mint {
+        background: var(--mint);
+      }
+
+      .card.tint-peach {
+        background: var(--peach);
+      }
+
+      .card.tint-lemon {
+        background: var(--lemon);
+      }
+
+      .icon-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .mini-icon {
+        display: inline-grid;
+        place-items: center;
+        flex: 0 0 auto;
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        color: #fff;
+        font-weight: 800;
+      }
+
+      .mini-icon.twitch {
+        background: var(--twitch);
+      }
+
+      .mini-icon.bot {
+        background: var(--bot);
+      }
+
+      .mini-icon.discord {
+        background: var(--discord);
+      }
+
+      .mini-icon.clip {
+        background: var(--clip);
+      }
+
+      .card p,
+      .card li,
+      td {
+        color: var(--muted);
+      }
+
+      ul,
+      ol {
+        margin: 10px 0 0;
+        padding-left: 1.25rem;
+      }
+
+      .story {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(130px, 1fr));
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .step {
+        position: relative;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        min-height: 132px;
+        padding: 14px;
+      }
+
+      .step::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        right: -9px;
+        width: 16px;
+        height: 2px;
+        background: var(--line);
+      }
+
+      .step:last-child::after {
+        display: none;
+      }
+
+      .num {
+        display: inline-grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: var(--bot);
+        color: #fff;
+        font-size: 0.85rem;
+        font-weight: 800;
+      }
+
+      .diagram {
+        margin-top: 18px;
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        padding: 12px;
+        box-shadow: var(--shadow);
+      }
+
+      .diagram svg {
+        min-width: 860px;
+      }
+
+      table {
+        width: 100%;
+        margin-top: 18px;
+        border-collapse: collapse;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        overflow: hidden;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid var(--line);
+        padding: 10px 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: #eef2f7;
+        color: var(--ink);
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .note {
+        border: 1px solid #b7e0d4;
+        border-left: 5px solid var(--bot);
+        border-radius: 8px;
+        background: var(--mint);
+        padding: 14px 16px;
+        margin-top: 18px;
+      }
+
+      .warn {
+        border-color: #f0cf8b;
+        border-left-color: var(--sun);
+        background: var(--lemon);
+      }
+
+      .danger {
+        border-color: #f4b8a2;
+        border-left-color: var(--clip);
+        background: var(--peach);
+      }
+
+      pre {
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #111827;
+        color: #eef2ff;
+        padding: 16px;
+        font-size: 0.9rem;
+      }
+
+      .code-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        margin-top: 18px;
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 12px;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      .legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+      }
+
+      footer {
+        border-top: 1px solid var(--line);
+        background: var(--paper);
+        padding: 24px 0;
+        color: var(--muted);
+      }
+
+      @media (max-width: 980px) {
+        .hero {
+          grid-template-columns: 1fr;
+          min-height: auto;
+        }
+
+        .grid,
+        .grid.two,
+        .grid.four,
+        .code-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .story {
+          grid-template-columns: 1fr;
+        }
+
+        .step::after {
+          top: auto;
+          right: 50%;
+          bottom: -9px;
+          width: 2px;
+          height: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap hero">
+        <div>
+          <span class="eyebrow">TypeScript版だけの総合仕様書</span>
+          <h1>twitchRaid Bot <span class="nowrap">しくみ図鑑</span></h1>
+          <p class="lead">
+            Twitchのチャットと配信状態を見張り、Discordへ通知し、クリップや配信まとめを整理する
+            TypeScript版 Bot のシステム仕様書です。子供でも流れを追えるように、
+            「見る」「考える」「届ける」の3つの役割で図解しています。
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#map">全体マップを見る</a>
+            <a class="button" href="#flows">処理フローを見る</a>
+            <a class="button" href="#quality">テストを見る</a>
+          </div>
+          <div class="meta" aria-label="基本情報">
+            <span class="tag">Runtime: Node.js 22.5+</span>
+            <span class="tag">Language: TypeScript 5.7</span>
+            <span class="tag">Entry: src/index.ts</span>
+            <span class="tag">Main: src/bot.ts</span>
+            <span class="tag">更新日: 2026-06-11</span>
+          </div>
+        </div>
+
+        <div class="hero-board" aria-label="Botの大まかな役割">
+          <svg viewBox="0 0 620 420" role="img" aria-labelledby="heroTitle heroDesc">
+            <title id="heroTitle">twitchRaid Botの全体像</title>
+            <desc id="heroDesc">
+              Twitchから届いた配信情報とチャットをBotが処理し、Discord、SQLite、ログへ届ける図。
+            </desc>
+            <rect x="14" y="22" width="592" height="372" rx="18" fill="#f7fbff" stroke="#dbe3ee" />
+            <rect x="42" y="64" width="132" height="92" rx="12" fill="#f0ecff" stroke="#b8a8ff" />
+            <text x="108" y="96" text-anchor="middle" fill="#2f1c8f" font-weight="800">Twitch</text>
+            <text x="108" y="122" text-anchor="middle" fill="#4b3ba3" font-size="14">チャット</text>
+            <text x="108" y="143" text-anchor="middle" fill="#4b3ba3" font-size="14">配信・Raid</text>
+
+            <rect x="244" y="44" width="132" height="132" rx="18" fill="#e8f7f1" stroke="#8ed1bd" />
+            <circle cx="310" cy="92" r="28" fill="#0f8b8d" />
+            <rect x="288" y="122" width="44" height="22" rx="6" fill="#0f8b8d" />
+            <circle cx="301" cy="90" r="4" fill="#fff" />
+            <circle cx="319" cy="90" r="4" fill="#fff" />
+            <path d="M299 106 Q310 116 321 106" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" />
+            <text x="310" y="164" text-anchor="middle" fill="#0b595b" font-weight="800">Botの作業台</text>
+
+            <rect x="446" y="64" width="132" height="92" rx="12" fill="#eef5ff" stroke="#a8c4ff" />
+            <text x="512" y="96" text-anchor="middle" fill="#173f96" font-weight="800">Discord</text>
+            <text x="512" y="122" text-anchor="middle" fill="#315ca8" font-size="14">通知</text>
+            <text x="512" y="143" text-anchor="middle" fill="#315ca8" font-size="14">まとめスレッド</text>
+
+            <rect x="86" y="244" width="116" height="72" rx="10" fill="#fff1e9" stroke="#efb090" />
+            <text x="144" y="273" text-anchor="middle" fill="#954319" font-weight="800">SQLite</text>
+            <text x="144" y="296" text-anchor="middle" fill="#954319" font-size="14">Clip倉庫</text>
+
+            <rect x="252" y="244" width="116" height="72" rx="10" fill="#fff8d8" stroke="#e0c158" />
+            <text x="310" y="273" text-anchor="middle" fill="#7c5d00" font-weight="800">JSON/.env</text>
+            <text x="310" y="296" text-anchor="middle" fill="#7c5d00" font-size="14">状態ノート</text>
+
+            <rect x="418" y="244" width="116" height="72" rx="10" fill="#f2f5f8" stroke="#c6d0dc" />
+            <text x="476" y="273" text-anchor="middle" fill="#334155" font-weight="800">Git/PM2</text>
+            <text x="476" y="296" text-anchor="middle" fill="#334155" font-size="14">自動更新</text>
+
+            <path d="M174 110 H238" stroke="#596579" stroke-width="4" stroke-linecap="round" />
+            <path d="M376 110 H440" stroke="#596579" stroke-width="4" stroke-linecap="round" />
+            <path d="M310 176 V236" stroke="#596579" stroke-width="4" stroke-linecap="round" />
+            <path d="M246 262 H205" stroke="#596579" stroke-width="4" stroke-linecap="round" />
+            <path d="M374 262 H415" stroke="#596579" stroke-width="4" stroke-linecap="round" />
+            <polygon points="232,102 244,110 232,118" fill="#596579" />
+            <polygon points="434,102 446,110 434,118" fill="#596579" />
+            <polygon points="302,230 310,242 318,230" fill="#596579" />
+          </svg>
+        </div>
+      </div>
+    </header>
+
+    <nav class="toc" aria-label="目次">
+      <div class="wrap toc">
+        <a href="#overview">概要</a>
+        <a href="#map">全体マップ</a>
+        <a href="#features">機能一覧</a>
+        <a href="#flows">処理フロー</a>
+        <a href="#files">ファイル構成</a>
+        <a href="#fallback">失敗時の守り</a>
+        <a href="#performance">性能・運用</a>
+        <a href="#quality">品質ゲート</a>
+      </div>
+    </nav>
+
+    <main class="wrap">
+      <section id="overview">
+        <h2>1. プログラム概要</h2>
+        <p class="section-lead">
+          このBotは Twitch チャンネル <code>rukalun</code> のチャット、配信開始/終了、
+          Raid、Clipを見張る常駐プログラムです。現行の運用対象はTypeScript版だけです。
+          Python版のファイルは過去資産とテスト互換のため残っていますが、仕様書とGitHub Pagesは
+          TypeScript版へ一本化しています。
+        </p>
+        <div class="grid three">
+          <article class="card tint-sky">
+            <div class="icon-title">
+              <span class="mini-icon twitch">1</span>
+              <h3>Twitchを見る</h3>
+            </div>
+            <p>
+              Twurpleの <code>ChatClient</code> と Helix API で、チャット、配信状態、
+              Clip、VOD、Raidを取得します。
+            </p>
+          </article>
+          <article class="card tint-mint">
+            <div class="icon-title">
+              <span class="mini-icon bot">2</span>
+              <h3>Botが考える</h3>
+            </div>
+            <p>
+              <code>src/bot.ts</code> が中心になり、コマンド処理、クールダウン、状態保存、
+              再接続、トークン更新を進めます。
+            </p>
+          </article>
+          <article class="card tint-peach">
+            <div class="icon-title">
+              <span class="mini-icon discord">3</span>
+              <h3>Discordへ届ける</h3>
+            </div>
+            <p>
+              配信開始は <code>@everyone</code> とEmbedカードで知らせます。
+              配信まとめ、Clip URLもDiscordへ投稿し、可能なら開始通知からまとめスレッドを作ります。
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section id="map">
+        <h2>2. 全体マップ</h2>
+        <p class="section-lead">
+          Botは「駅の案内係」のように、Twitchから届く出来事を受け取り、必要な箱へしまい、
+          必要な場所へ知らせます。
+        </p>
+        <div class="diagram">
+          <svg viewBox="0 0 1120 520" role="img" aria-labelledby="mapTitle mapDesc">
+            <title id="mapTitle">TypeScript版Botの構成図</title>
+            <desc id="mapDesc">
+              Twitch、Bot、保存先、Discord、GitHubとPM2の関係を示す構成図。
+            </desc>
+            <defs>
+              <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b" />
+              </marker>
+            </defs>
+
+            <rect x="18" y="28" width="1084" height="464" rx="18" fill="#fbfdff" stroke="#dbe3ee" />
+            <text x="560" y="68" text-anchor="middle" font-size="24" font-weight="800" fill="#17202a">
+              Twitchで起きたことを、Botが整理してDiscordへ届ける
+            </text>
+
+            <g>
+              <rect x="58" y="116" width="210" height="220" rx="14" fill="#f0ecff" stroke="#b8a8ff" />
+              <text x="163" y="150" text-anchor="middle" font-size="20" font-weight="800" fill="#39218f">Twitch</text>
+              <rect x="86" y="176" width="154" height="34" rx="8" fill="#fff" stroke="#c9bdff" />
+              <text x="163" y="198" text-anchor="middle" fill="#3d2a93">チャットコマンド</text>
+              <rect x="86" y="224" width="154" height="34" rx="8" fill="#fff" stroke="#c9bdff" />
+              <text x="163" y="246" text-anchor="middle" fill="#3d2a93">配信開始/終了</text>
+              <rect x="86" y="272" width="154" height="34" rx="8" fill="#fff" stroke="#c9bdff" />
+              <text x="163" y="294" text-anchor="middle" fill="#3d2a93">Raid・Clip・VOD</text>
+            </g>
+
+            <g>
+              <rect x="346" y="100" width="244" height="252" rx="16" fill="#e8f7f1" stroke="#8ed1bd" />
+              <text x="468" y="136" text-anchor="middle" font-size="20" font-weight="800" fill="#0b595b">Bot本体</text>
+              <rect x="374" y="164" width="188" height="34" rx="8" fill="#fff" stroke="#bde2d5" />
+              <text x="468" y="186" text-anchor="middle" fill="#0b595b">src/index.ts 起動</text>
+              <rect x="374" y="212" width="188" height="34" rx="8" fill="#fff" stroke="#bde2d5" />
+              <text x="468" y="234" text-anchor="middle" fill="#0b595b">src/bot.ts 分岐</text>
+              <rect x="374" y="260" width="188" height="34" rx="8" fill="#fff" stroke="#bde2d5" />
+              <text x="468" y="282" text-anchor="middle" fill="#0b595b">commands / streams</text>
+              <rect x="374" y="308" width="188" height="34" rx="8" fill="#fff" stroke="#bde2d5" />
+              <text x="468" y="330" text-anchor="middle" fill="#0b595b">auth / utils</text>
+            </g>
+
+            <g>
+              <rect x="660" y="116" width="190" height="220" rx="14" fill="#fff8d8" stroke="#e0c158" />
+              <text x="755" y="150" text-anchor="middle" font-size="20" font-weight="800" fill="#7c5d00">保存箱</text>
+              <rect x="690" y="176" width="130" height="34" rx="8" fill="#fff" stroke="#e6cf73" />
+              <text x="755" y="198" text-anchor="middle" fill="#7c5d00">.env</text>
+              <rect x="690" y="224" width="130" height="34" rx="8" fill="#fff" stroke="#e6cf73" />
+              <text x="755" y="246" text-anchor="middle" fill="#7c5d00">clips.sqlite</text>
+              <rect x="690" y="272" width="130" height="34" rx="8" fill="#fff" stroke="#e6cf73" />
+              <text x="755" y="294" text-anchor="middle" fill="#7c5d00">summary JSON</text>
+            </g>
+
+            <g>
+              <rect x="900" y="116" width="164" height="220" rx="14" fill="#eef5ff" stroke="#a8c4ff" />
+              <text x="982" y="150" text-anchor="middle" font-size="20" font-weight="800" fill="#173f96">Discord</text>
+              <rect x="926" y="176" width="112" height="34" rx="8" fill="#fff" stroke="#b9ccff" />
+              <text x="982" y="198" text-anchor="middle" fill="#173f96">開始通知</text>
+              <rect x="926" y="224" width="112" height="34" rx="8" fill="#fff" stroke="#b9ccff" />
+              <text x="982" y="246" text-anchor="middle" fill="#173f96">Clip投稿</text>
+              <rect x="926" y="272" width="112" height="34" rx="8" fill="#fff" stroke="#b9ccff" />
+              <text x="982" y="294" text-anchor="middle" fill="#173f96">終了まとめ</text>
+            </g>
+
+            <g>
+              <rect x="346" y="394" width="244" height="54" rx="12" fill="#f2f5f8" stroke="#c6d0dc" />
+              <text x="468" y="427" text-anchor="middle" fill="#334155" font-weight="800">GitHub更新 → npm run build → PM2再起動</text>
+            </g>
+
+            <path d="M268 226 H338" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)" />
+            <path d="M590 226 H652" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)" />
+            <path d="M850 226 H892" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)" />
+            <path d="M468 352 V386" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)" />
+            <path d="M755 336 C755 386 982 386 982 340" fill="none" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)" />
+          </svg>
+        </div>
+        <div class="legend">
+          <span><i class="dot" style="background: var(--twitch)"></i>Twitch入力</span>
+          <span><i class="dot" style="background: var(--bot)"></i>Bot処理</span>
+          <span><i class="dot" style="background: var(--sun)"></i>永続化</span>
+          <span><i class="dot" style="background: var(--discord)"></i>Discord出力</span>
+        </div>
+      </section>
+
+      <section id="features">
+        <h2>3. 機能一覧</h2>
+        <p class="section-lead">
+          ここでは「人がチャットで呼ぶ機能」と「Botが自動で動く機能」に分けて見ます。
+        </p>
+
+        <div class="grid four">
+          <article class="card">
+            <h3>基本コマンド</h3>
+            <ul>
+              <li><code>!age</code>: 年齢を返す</li>
+              <li><code>!goods</code>: BOOTH URL</li>
+              <li><code>!weight</code> / <code>!height</code></li>
+              <li><code>!mood</code> / <code>!menu</code></li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>Clipコマンド</h3>
+            <ul>
+              <li><code>!clip</code>: ランダムClip</li>
+              <li><code>!myclip</code>: 自分作成Clip</li>
+              <li><code>!clipsearch &lt;キーワード&gt;</code>: タイトル/作成者名検索</li>
+              <li><code>!clip</code> / <code>!myclip</code> はSQLite優先、APIはフォールバック</li>
+              <li><code>!clipsearch</code> はSQLiteキャッシュ検索のみ</li>
+              <li>通常ユーザーは30分クールダウン</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>管理系コマンド</h3>
+            <ul>
+              <li><code>!mangaon</code> / <code>!mangaoff</code></li>
+              <li><code>!shoutout &lt;name&gt;</code></li>
+              <li><code>!streamnotify</code></li>
+              <li>broadcaster / mod / 管理者リストで判定</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>統計コマンド</h3>
+            <ul>
+              <li><code>!speed</code>: 直近60秒の風速</li>
+              <li><code>!commentcount</code>: 配信中コメント数</li>
+              <li><code>!boom</code>: 過去30日ゲーム時間</li>
+              <li>GraphQL結果は5分キャッシュ</li>
+            </ul>
+          </article>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>自動機能</th>
+              <th>何をするか</th>
+              <th>保存/出力</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>配信開始通知</td>
+              <td>180秒ごとにライブ状態を確認し、<code>@everyone</code> とEmbedでタイトル、ゲーム、視聴者数、配信プレビュー、Twitch URLをDiscordへ送る。</td>
+              <td><code>LAST_STREAM_TITLE</code>、<code>startMessageId</code>、<code>threadId</code></td>
+            </tr>
+            <tr>
+              <td>配信まとめ</td>
+              <td>配信中のコメント数、Raid数、ClipをJSONへ保存し、終了時にまとめる。</td>
+              <td><code>data/stream-summary-state.json</code>、Discordスレッド</td>
+            </tr>
+            <tr>
+              <td>Clip同期</td>
+              <td>起動時バックフィル、1分ごとの直近同期、オフライン時の日次再走査を行う。</td>
+              <td><code>data/clips.sqlite</code>、削除/非公開Clipの無効化</td>
+            </tr>
+            <tr>
+              <td>Raid対応</td>
+              <td>Raid元のURL、タイトル、ゲームを取得し、Ollamaまたは固定文で1通のRaid挨拶文を出して、shoutoutをキューに入れる。</td>
+              <td>Twitchチャット、Twitch shoutout API、Ollama API</td>
+            </tr>
+            <tr>
+              <td>自動復旧</td>
+              <td>切断時の再接続、2時間ごとのtoken refresh、Git更新後build、PM2再起動。</td>
+              <td><code>logs/bot_YYYY-MM-DD.log</code>、<code>last_restart.txt</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="flows">
+        <h2>4. 処理フロー</h2>
+        <p class="section-lead">
+          重要な流れを「一本道」にしました。左から右、または上から下へ進みます。
+        </p>
+
+        <h3>4.1 起動フロー</h3>
+        <div class="story">
+          <article class="step">
+            <span class="num">1</span>
+            <h4>設定を読む</h4>
+            <p><code>Config</code> が <code>.env</code> を読み込む。</p>
+          </article>
+          <article class="step">
+            <span class="num">2</span>
+            <h4>Git確認</h4>
+            <p>更新があれば <code>git pull</code> と <code>npm run build</code>。</p>
+          </article>
+          <article class="step">
+            <span class="num">3</span>
+            <h4>Token確認</h4>
+            <p>Twitch tokenをvalidateし、必要ならrefresh。</p>
+          </article>
+          <article class="step">
+            <span class="num">4</span>
+            <h4>接続準備</h4>
+            <p>Twurple API、ChatClient、SQLite同期器を作る。</p>
+          </article>
+          <article class="step">
+            <span class="num">5</span>
+            <h4>監視開始</h4>
+            <p>keep-alive、配信監視、Clip同期を開始。</p>
+          </article>
+        </div>
+
+        <h3 style="margin-top: 28px">4.2 配信開始から終了まとめまで</h3>
+        <div class="diagram">
+          <svg viewBox="0 0 1120 420" role="img" aria-labelledby="streamTitle streamDesc">
+            <title id="streamTitle">配信開始、Clip投稿、終了まとめの流れ</title>
+            <desc id="streamDesc">
+              配信開始通知からDiscordスレッドを作り、Clipと終了まとめを同じスレッドへ投稿する流れ。
+            </desc>
+            <defs>
+              <marker id="arrow2" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b" />
+              </marker>
+            </defs>
+            <rect x="24" y="26" width="1072" height="360" rx="18" fill="#fbfdff" stroke="#dbe3ee" />
+            <g font-size="15">
+              <rect x="60" y="90" width="150" height="72" rx="10" fill="#f0ecff" stroke="#b8a8ff" />
+              <text x="135" y="122" text-anchor="middle" font-weight="800" fill="#39218f">配信検知</text>
+              <text x="135" y="145" text-anchor="middle" fill="#39218f">180秒ごと</text>
+
+              <rect x="260" y="90" width="150" height="72" rx="10" fill="#fff8d8" stroke="#e0c158" />
+              <text x="335" y="122" text-anchor="middle" font-weight="800" fill="#7c5d00">state保存</text>
+              <text x="335" y="145" text-anchor="middle" fill="#7c5d00">active</text>
+
+              <rect x="460" y="90" width="150" height="72" rx="10" fill="#eef5ff" stroke="#a8c4ff" />
+              <text x="535" y="122" text-anchor="middle" font-weight="800" fill="#173f96">開始通知</text>
+              <text x="535" y="145" text-anchor="middle" fill="#173f96">URL付き</text>
+
+              <rect x="660" y="90" width="150" height="72" rx="10" fill="#e8f7f1" stroke="#8ed1bd" />
+              <text x="735" y="122" text-anchor="middle" font-weight="800" fill="#0b595b">スレッド作成</text>
+              <text x="735" y="145" text-anchor="middle" fill="#0b595b">開始通知から</text>
+
+              <rect x="860" y="90" width="150" height="72" rx="10" fill="#fff1e9" stroke="#efb090" />
+              <text x="935" y="122" text-anchor="middle" font-weight="800" fill="#954319">ID保存</text>
+              <text x="935" y="145" text-anchor="middle" fill="#954319">start/thread</text>
+
+              <path d="M210 126 H252" stroke="#64748b" stroke-width="4" marker-end="url(#arrow2)" />
+              <path d="M410 126 H452" stroke="#64748b" stroke-width="4" marker-end="url(#arrow2)" />
+              <path d="M610 126 H652" stroke="#64748b" stroke-width="4" marker-end="url(#arrow2)" />
+              <path d="M810 126 H852" stroke="#64748b" stroke-width="4" marker-end="url(#arrow2)" />
+
+              <rect x="160" y="250" width="170" height="72" rx="10" fill="#fff1e9" stroke="#efb090" />
+              <text x="245" y="282" text-anchor="middle" font-weight="800" fill="#954319">Clip検知</text>
+              <text x="245" y="305" text-anchor="middle" fill="#954319">1分ごと直近同期</text>
+
+              <rect x="420" y="250" width="170" height="72" rx="10" fill="#e8f7f1" stroke="#8ed1bd" />
+              <text x="505" y="282" text-anchor="middle" font-weight="800" fill="#0b595b">スレッド保証</text>
+              <text x="505" y="305" text-anchor="middle" fill="#0b595b">無ければ再作成</text>
+
+              <rect x="680" y="250" width="170" height="72" rx="10" fill="#eef5ff" stroke="#a8c4ff" />
+              <text x="765" y="282" text-anchor="middle" font-weight="800" fill="#173f96">投稿と保存</text>
+              <text x="765" y="305" text-anchor="middle" fill="#173f96">postedClipIds</text>
+
+              <rect x="900" y="250" width="150" height="72" rx="10" fill="#f2f5f8" stroke="#c6d0dc" />
+              <text x="975" y="282" text-anchor="middle" font-weight="800" fill="#334155">終了まとめ</text>
+              <text x="975" y="305" text-anchor="middle" fill="#334155">投稿後クローズ</text>
+
+              <path d="M330 286 H412" stroke="#64748b" stroke-width="4" marker-end="url(#arrow2)" />
+              <path d="M590 286 H672" stroke="#64748b" stroke-width="4" marker-end="url(#arrow2)" />
+              <path d="M850 286 H892" stroke="#64748b" stroke-width="4" marker-end="url(#arrow2)" />
+              <path d="M935 166 C935 210 505 210 505 242" fill="none" stroke="#64748b" stroke-width="4" marker-end="url(#arrow2)" />
+            </g>
+          </svg>
+        </div>
+
+        <div class="grid two">
+          <article class="card">
+            <h3><code>!streamnotify</code> の特別ルール</h3>
+            <p>
+              配信開始通知が漏れた時、管理者が <code>!streamnotify</code> を実行すると、
+              タイトル重複スキップを通さずDiscordへ開始通知を送ります。
+              その新しい投稿の <code>startMessageId</code> と <code>threadId</code> を既存stateより優先します。
+            </p>
+          </article>
+          <article class="card">
+            <h3>古いスレッドを使わないルール</h3>
+            <p>
+              新しい開始通知が作られたのに <code>threadId</code> が返らない場合は、
+              古い <code>threadId</code> を残しません。これで別配信のスレッドへClipを送る事故を防ぎます。
+            </p>
+          </article>
+          <article class="card">
+            <h3>開始通知を2通にしないルール</h3>
+            <p>
+              通常の開始通知を送った直後にスレッド作成だけ失敗しても、同じ開始処理内では
+              開始通知を投稿し直しません。Clipや終了まとめを投稿する前の保証処理でも、
+              保存済みの開始通知からスレッド作成だけを再試行し、新しい開始通知は自動投稿しません。
+              再送したい時は <code>!streamnotify</code> で明示的に送ります。
+            </p>
+          </article>
+        </div>
+
+        <h3 style="margin-top: 28px">4.3 Raid対応フロー</h3>
+        <div class="story">
+          <article class="step">
+            <span class="num">1</span>
+            <h4>Raid検知</h4>
+            <p><code>onRaid</code> でRaid元と人数を受け取る。</p>
+          </article>
+          <article class="step">
+            <span class="num">2</span>
+            <h4>情報取得</h4>
+            <p>Raid元のURL、タイトル、ゲーム名をTwitch APIで取得。</p>
+          </article>
+          <article class="step">
+            <span class="num">3</span>
+            <h4>キュー投入</h4>
+            <p><code>ShoutoutQueue</code> に対象を入れる。</p>
+          </article>
+          <article class="step">
+            <span class="num">4</span>
+            <h4>挨拶文作成</h4>
+            <p>Ollamaが有効ならRaid挨拶文を生成。採用/失敗理由はログへ残し、失敗時は固定文へ戻る。</p>
+          </article>
+          <article class="step">
+            <span class="num">5</span>
+            <h4>1通だけ投稿</h4>
+            <p>AI文または固定文のどちらか1通だけをチャットへ送る。</p>
+          </article>
+          <article class="step">
+            <span class="num">6</span>
+            <h4>429なら待つ</h4>
+            <p>レート制限時は同じ対象を先頭へ戻し2分後に再実行。</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="files">
+        <h2>5. ファイル構成と責務</h2>
+        <p class="section-lead">
+          設計書だけ読んでも、あとからコードへたどれるように主要ファイルを対応付けます。
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>ファイル</th>
+              <th>役割</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>src/index.ts</code></td>
+              <td>起動入口。設定、Git監視、再起動監視、Twitch token検証、Bot起動、Graceful shutdownを担当。</td>
+            </tr>
+            <tr>
+              <td><code>src/bot.ts</code></td>
+              <td>Bot本体。ChatClientイベント、コマンド分岐、配信監視、Clip同期後投稿、Raid処理を接続。</td>
+            </tr>
+            <tr>
+              <td><code>src/config.ts</code></td>
+              <td><code>.env</code> 読み込み、Discord/Twitch/DB/state/管理者/クールダウン設定、状態更新。</td>
+            </tr>
+            <tr>
+              <td><code>src/auth/*</code></td>
+              <td>Twitch token validate/refresh、必須スコープ、スコープ不足判定、5分TTLのvalidateキャッシュ。</td>
+            </tr>
+            <tr>
+              <td><code>src/commands/clip*.ts</code></td>
+              <td>Clip選択、タイトル/作成者名/ゲーム名検索、SQLiteキャッシュ、サムネイルURL/ゲーム名保存、表示履歴、全期間バックフィル、直近同期、日次再走査。</td>
+            </tr>
+            <tr>
+              <td><code>scripts/export-clip-search-data.mjs</code> / <code>docs/clip-search.html</code></td>
+              <td>SQLite Clipキャッシュから公開用JSONを生成し、GitHub Pages上でタイトル/作成者名/ゲーム名検索できる画面を提供。</td>
+            </tr>
+            <tr>
+              <td><code>src/commands/boom.ts</code></td>
+              <td>過去30日のVODを取得し、Twitch GraphQLのチャプター/メタデータからゲーム時間を集計。</td>
+            </tr>
+            <tr>
+              <td><code>src/commands/manga.ts</code></td>
+              <td>DLsiteランキングHTMLからタイトルを抽出し、管理者によるON/OFFを判定。</td>
+            </tr>
+            <tr>
+              <td><code>src/commands/raid-info.ts</code></td>
+              <td>Raid元のライブ情報を取得し、チャット投稿文を単一行・長さ制限付きで整形。</td>
+            </tr>
+            <tr>
+              <td><code>src/commands/shoutout.ts</code></td>
+              <td>手動/自動shoutout、対象名正規化、権限判定、429時再キュー。</td>
+            </tr>
+            <tr>
+              <td><code>src/commands/shoutout-introduction.ts</code></td>
+              <td>Ollama <code>/api/generate</code> でRaid挨拶文を作り、Twitchチャット向けに単一行・250文字以内へ整形。URLは残し、絵文字は除去。Raid人数はAI入力に含めず、低人数を下げる表現は採用しない。AI文がゲーム名や配信タイトルを落とした場合は不足分だけを補って採用する。タイトル主要部が既に含まれていれば、長い <code>配信では...</code> 定型文は追記しない。採用/フォールバック理由もログ化する。</td>
+            </tr>
+            <tr>
+              <td><code>src/commands/stream-notify.ts</code></td>
+              <td><code>!streamnotify</code> の権限判定、現在ライブ取得、視聴者数/サムネイルを含む手動通知結果の分類。</td>
+            </tr>
+            <tr>
+              <td><code>src/streams/*</code></td>
+              <td>配信中/投稿待ち/投稿済みstate保存、コメント数/Raid数のデバウンス保存、開始通知スレッド保証、Clip投稿、終了まとめ。自動保証処理では開始通知を再投稿せず、終了後もスレッドはアーカイブしない。</td>
+            </tr>
+            <tr>
+              <td><code>src/notifications/*</code></td>
+              <td>Discord Bot API/Webhook投稿、Embed/allowed_mentions、メッセージ起点スレッド作成、Webhook-onlyスレッド、配信開始通知カード。</td>
+            </tr>
+            <tr>
+              <td><code>src/git-manager.ts</code> / <code>src/system-watcher.ts</code></td>
+              <td>10分ごとのGit更新確認、pull後build、即時PM2再起動、24時間間隔の定期再起動。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="data">
+        <h2>6. 保存するデータ</h2>
+        <div class="grid two">
+          <article class="card">
+            <h3>配信まとめstate</h3>
+            <p>
+              再起動しても配信まとめを失わないよう、配信中の状態をJSONで保存します。
+            </p>
+            <pre><code>{
+  "status": "active",
+  "streamId": "316055131251",
+  "title": "配信タイトル",
+  "gameName": "ゲーム名",
+  "startedAt": "2026-06-06T01:05:28.000Z",
+  "startMessageId": "1512655504424570990",
+  "threadId": "1512655504424570990",
+  "commentCount": 123,
+  "raidCount": 1,
+  "postedClipIds": []
+}</code></pre>
+          </article>
+          <article class="card">
+            <h3>Clip SQLite</h3>
+            <p>
+              <code>data/clips.sqlite</code> にはClip本体、サムネイルURL、ゲームID/ゲーム名、表示履歴、走査済み期間、
+              同期時刻、削除/非公開化されたClipの <code>unavailable_at</code> を保存します。
+            </p>
+            <ul>
+              <li><code>clip_cache</code>: Clip情報と有効/無効状態</li>
+              <li><code>clip_history</code>: <code>!clip</code> / <code>!myclip:user</code> / <code>!clipsearch:query</code> ごとの表示履歴</li>
+              <li><code>clip_scan_windows</code>: 全期間バックフィルの完了窓</li>
+              <li><code>clip_sync_state</code>: 直近同期と日次再走査の時刻</li>
+              <li><code>!clipsearch</code> がClip件数増加で遅くなった場合はFTS5または検索専用テーブルへの移行を検討</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>GitHub Pages Clip検索データ</h3>
+            <p>
+              <code>docs/clip-search-data.json</code> は
+              <code>data/clips.sqlite</code> から生成する公開用データです。
+              Clip検索画面 <code>docs/clip-search.html</code> が読み込みます。
+            </p>
+            <ul>
+              <li>公開項目は <code>id</code>、URL、タイトル、作成者表示名、ゲーム名、サムネイルURL、作成日、再生数、<code>clipSync.recentSyncedAt</code> のみ</li>
+              <li><code>unavailable_at</code> があるClipは除外</li>
+              <li>Clip最終同期時刻は <code>clip_sync_state.recent_sync_at</code> を元にJSTの秒単位で表示</li>
+              <li>各カードにサムネイルとゲーム名を表示し、再生は <code>Twitchで見る</code> 外部リンクだけにする</li>
+              <li><code>creator_id</code>、ゲームID、表示履歴、その他の内部state、認証情報は公開しない</li>
+              <li>更新は <code>npm run docs:export-clips</code> で行い、必要時は <code>--enrich-from-twitch</code> でTwitch API補完する</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section id="fallback">
+        <h2>7. 失敗時の守り方</h2>
+        <p class="section-lead">
+          外部APIは失敗します。だから、失敗してもBot全体が止まらない道を用意しています。
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>場面</th>
+              <th>守り方</th>
+              <th>注意点</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Discord Bot APIが403などで失敗</td>
+              <td><code>DISCORD_WEBHOOK_URL</code> があればWebhook投稿へフォールバック。</td>
+              <td>Webhook fallbackは本文欠落防止。メッセージ起点スレッド作成はBot権限に依存。</td>
+            </tr>
+            <tr>
+              <td><code>threadId</code> が無い</td>
+              <td>保存済み <code>startMessageId</code> からスレッド作成を再試行。</td>
+              <td>保存済み開始通知が無い、またはスレッド作成に失敗した場合も自動再投稿しない。必要なら <code>!streamnotify</code> で手動再送する。</td>
+            </tr>
+            <tr>
+              <td>開始通知は新しいがスレッドが無い</td>
+              <td>古い <code>threadId</code> を明示的に消す。</td>
+              <td>別配信のスレッドへ投稿済み扱いで進む事故を防ぐ。</td>
+            </tr>
+            <tr>
+              <td>Raid shoutoutが429</td>
+              <td>対象をキュー先頭へ戻し、2分後に同じ対象を再実行。</td>
+              <td>429時はtoken refreshによる即時リトライをしない。</td>
+            </tr>
+            <tr>
+              <td>Raid元の配信情報が取れない</td>
+              <td>タイトル/ゲームなしでもチャンネルURL付きフォールバック文を送る。</td>
+              <td>Raid直後は元配信が既にオフラインのことがある。</td>
+            </tr>
+            <tr>
+              <td>Ollama挨拶文が生成できない</td>
+              <td>固定Raid挨拶文へフォールバックし、Twitch shoutout APIは継続。AI生成文はコード側で250文字以内に丸め、`人数少なかった` などの表現は採用しない。ゲーム名/配信タイトルが抜けた場合は不足分だけコード側で補う。</td>
+              <td><code>OLLAMA_SHOUTOUT_ENABLED=true</code> と <code>OLLAMA_SHOUTOUT_MODEL</code> 設定時だけ有効。既定は <code>timeout=15000ms</code> / <code>keep_alive=30m</code>。採用/フォールバック理由はログで確認できる。</td>
+            </tr>
+            <tr>
+              <td>ClipがTwitch APIから消えた</td>
+              <td>オフライン時の日次再走査で <code>unavailable_at</code> を入れて候補から外す。</td>
+              <td>APIに再登場したClipは自動で有効化される。</td>
+            </tr>
+            <tr>
+              <td>チャット接続が切れた</td>
+              <td>最大10回まで遅延再接続し、上限到達時はプロセス再起動。</td>
+              <td>遅延は15秒から最大60秒。</td>
+            </tr>
+            <tr>
+              <td>token validateが401</td>
+              <td>refresh token APIで更新し、成功したら <code>.env</code> を安全更新。</td>
+              <td>validate結果は5分TTLでキャッシュし、API負荷を下げる。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="performance">
+        <h2>8. パフォーマンス・運用メモ</h2>
+        <div class="grid three">
+          <article class="card">
+            <h3>APIを呼びすぎない工夫</h3>
+            <ul>
+              <li>ClipはSQLiteキャッシュ優先。</li>
+              <li>直近Clip同期は1分ごと。</li>
+              <li>全期間再走査は配信していない時に1日1回。</li>
+              <li>token validateは5分TTLキャッシュ。</li>
+              <li>配信まとめのコメント数JSON保存は30秒デバウンス。</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>重い処理の抑制</h3>
+            <ul>
+              <li><code>!boom</code> はVODを最大4本並列で処理。</li>
+              <li><code>!boom</code> 結果は5分メモリキャッシュ。</li>
+              <li>Clip全期間走査は30日窓に分割し、多すぎる窓は再分割。</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>運用で見るログ</h3>
+            <ul>
+              <li><code>直近clip同期完了: saved=...</code></li>
+              <li><code>配信まとめスレッドへ新規クリップを投稿しました</code></li>
+              <li><code>Discord bot message failed: 403</code></li>
+              <li><code>Shoutout rate limited</code></li>
+            </ul>
+          </article>
+        </div>
+        <div class="note warn">
+          <strong>サブPC確認ルール:</strong>
+          Botは主にサブPCで稼働します。通知やClipの問題調査では、ローカル作業PCだけでなく、
+          サブPC側のPM2ログ、<code>logs/bot_YYYY-MM-DD.log</code>、<code>data/clips.sqlite</code>、
+          <code>data/stream-summary-state.json</code> を確認します。
+        </div>
+      </section>
+
+      <section id="quality">
+        <h2>9. テストと品質ゲート</h2>
+        <p class="section-lead">
+          仕様書更新でも、実装とずれていないことを確かめるために通常の品質ゲートを通します。
+        </p>
+        <div class="code-grid">
+          <article class="card">
+            <h3>TypeScript</h3>
+            <pre><code>npm test
+npm run build
+npm run lint</code></pre>
+            <p>
+              Vitestでコマンド、通知、Clip同期、配信まとめ、Git更新を検証し、
+              TypeScriptの型チェックとESLintを通します。
+            </p>
+          </article>
+          <article class="card">
+            <h3>Python互換テスト</h3>
+            <pre><code>python -m pytest -q</code></pre>
+            <p>
+              Python版は現行運用対象ではありませんが、リポジトリに残る互換ロジックの破損を検知するために実行します。
+            </p>
+          </article>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>確認対象</th>
+              <th>見ること</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>仕様書整合性</td>
+              <td>実装済み機能がこのHTML、README、AGENTSに記録されていること。</td>
+            </tr>
+            <tr>
+              <td>HTML表示</td>
+              <td>デスクトップ/モバイル幅で文字や図が重ならず、横スクロールが必要な図は図だけに閉じること。</td>
+            </tr>
+            <tr>
+              <td>パフォーマンス</td>
+              <td>1分同期、30日窓、日次再走査、5分キャッシュ、429時2分待機などの制御が仕様に載っていること。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="pages">
+        <h2>10. GitHub PagesのURL</h2>
+        <div class="note">
+          <p>
+            内部仕様書の本体は <code>internal-docs/twitchraid-bot-zukan.html</code> です。
+            公開ルート <code>docs/index.html</code> はClip検索入口だけにしています。
+            Clip検索画面は <code>docs/clip-search.html</code> です。
+            以前の <code>docs/typescript-bot-spec.html</code> は、分割管理をやめるため、
+            公開Clip検索画面へ案内する互換ページにしています。
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        twitchRaid TypeScript Bot specification. Source of truth: <code>internal-docs/twitchraid-bot-zukan.html</code>.
+      </div>
+    </footer>
+  </body>
+</html>
