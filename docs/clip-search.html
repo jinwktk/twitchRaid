@@ -3,8 +3,48 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="るっかるんのTwitch Clipをタイトル、作成者名、ゲーム名で探せる公開Clip検索ページです。" />
+    <meta name="keywords" content="るっかるん, rukalun, Twitch, Clip, クリップ, 配信, FF14, 雑談" />
+    <meta name="robots" content="index,follow" />
+    <meta name="theme-color" content="#fff8fb" />
+    <link rel="canonical" href="https://jinwktk.github.io/twitchRaid/clip-search.html" />
+    <link rel="preload" as="image" href="./assets/clip-search-og.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="るっかるん Clip検索" />
+    <meta property="og:title" content="るっかるん Clip検索" />
+    <meta property="og:description" content="るっかるんのTwitch Clipをタイトル、作成者名、ゲーム名で探せる公開Clip検索ページです。" />
+    <meta property="og:url" content="https://jinwktk.github.io/twitchRaid/clip-search.html" />
+    <meta property="og:image" content="https://jinwktk.github.io/twitchRaid/assets/clip-search-og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="るっかるん Clip検索のパステル調キービジュアル" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="るっかるん Clip検索" />
+    <meta name="twitter:description" content="るっかるんのTwitch Clipをタイトル、作成者名、ゲーム名で探せる公開Clip検索ページです。" />
+    <meta name="twitter:image" content="https://jinwktk.github.io/twitchRaid/assets/clip-search-og.png" />
     <title>るっかるん Clip検索</title>
     <link rel="icon" href="data:," />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": "るっかるん Clip検索",
+        "description": "るっかるんのTwitch Clipをタイトル、作成者名、ゲーム名で探せる公開Clip検索ページです。",
+        "url": "https://jinwktk.github.io/twitchRaid/clip-search.html",
+        "image": "https://jinwktk.github.io/twitchRaid/assets/clip-search-og.png",
+        "inLanguage": "ja",
+        "isPartOf": {
+          "@type": "WebSite",
+          "name": "るっかるん Clip検索",
+          "url": "https://jinwktk.github.io/twitchRaid/",
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": "https://jinwktk.github.io/twitchRaid/clip-search.html?q={search_term_string}",
+            "query-input": "required name=search_term_string"
+          }
+        }
+      }
+    </script>
     <style>
       :root {
         color-scheme: light;
@@ -119,11 +159,42 @@
       }
 
       .hero {
+        position: relative;
         display: grid;
-        grid-template-columns: minmax(0, 1.02fr) minmax(300px, 0.86fr);
-        gap: 28px;
+        min-height: clamp(340px, 43vw, 500px);
         align-items: center;
-        padding: 34px 0 20px;
+        overflow: hidden;
+        isolation: isolate;
+        border-bottom: 1px solid rgba(234, 221, 232, 0.86);
+        background: #fff8fb;
+      }
+
+      .hero::after {
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        background:
+          linear-gradient(90deg, rgba(255, 253, 248, 0.96) 0%, rgba(255, 253, 248, 0.86) 42%, rgba(255, 248, 251, 0.42) 68%, rgba(232, 245, 255, 0.22) 100%),
+          linear-gradient(180deg, rgba(255, 248, 251, 0.18), rgba(255, 253, 248, 0.72));
+        content: "";
+      }
+
+      .hero-image {
+        position: absolute;
+        inset: 0;
+        z-index: -2;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center;
+      }
+
+      .hero-content {
+        padding: clamp(42px, 7vw, 76px) 0;
+      }
+
+      .hero-copy {
+        max-width: 690px;
       }
 
       .eyebrow {
@@ -158,16 +229,6 @@
         margin-top: 14px;
         color: var(--muted);
         font-size: 1.05rem;
-      }
-
-      .hero-art {
-        display: block;
-        width: 100%;
-        min-height: 280px;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: var(--paper);
-        box-shadow: var(--shadow);
       }
 
       .search-panel {
@@ -464,8 +525,10 @@
       }
 
       @media (max-width: 900px) {
-        .hero {
-          grid-template-columns: 1fr;
+        .hero::after {
+          background:
+            linear-gradient(180deg, rgba(255, 253, 248, 0.94) 0%, rgba(255, 248, 251, 0.86) 58%, rgba(232, 245, 255, 0.34) 100%),
+            linear-gradient(90deg, rgba(255, 253, 248, 0.9), rgba(255, 248, 251, 0.42));
         }
 
         .search-grid {
@@ -502,8 +565,12 @@
           font-size: 2.25rem;
         }
 
-        .hero-art {
-          min-height: 220px;
+        .hero {
+          min-height: 330px;
+        }
+
+        .hero-content {
+          padding: 34px 0;
         }
       }
     </style>
@@ -518,37 +585,25 @@
       </div>
     </header>
 
-    <section class="wrap hero">
-      <div>
+    <section class="hero" aria-labelledby="pageTitle">
+      <img
+        class="hero-image"
+        src="./assets/clip-search-og.png"
+        width="1200"
+        height="630"
+        alt=""
+        decoding="async"
+      />
+      <div class="wrap hero-content">
+        <div class="hero-copy">
         <span class="eyebrow">Rukalun Clip Library</span>
-        <h1>かわいい瞬間を、ふわっと探す。</h1>
+        <h1 id="pageTitle">かわいい瞬間を、ふわっと探す。</h1>
         <p class="lead">
-          るっかるんの配信で生まれたClipを、タイトルや作成者名から探せます。
+          るっかるんの配信で生まれたClipを、タイトル、作成者名、ゲーム名から探せます。
           見たい言葉を入れて、気になるClipを開いてください。
         </p>
+        </div>
       </div>
-
-      <svg class="hero-art" viewBox="0 0 560 360" role="img" aria-labelledby="heroArtTitle heroArtDesc">
-        <title id="heroArtTitle">Clip検索画面のイメージ</title>
-        <desc id="heroArtDesc">淡い色の棚にClipカードが並び、検索で見つける様子。</desc>
-        <rect x="24" y="32" width="512" height="292" rx="18" fill="#fffdf8" stroke="#eadde8" />
-        <path d="M86 118 H474" stroke="#f0d6e4" stroke-width="12" stroke-linecap="round" />
-        <path d="M86 228 H474" stroke="#d4eee4" stroke-width="12" stroke-linecap="round" />
-        <rect x="82" y="76" width="108" height="72" rx="10" fill="#ffe7f0" stroke="#f3bad2" />
-        <rect x="226" y="64" width="108" height="84" rx="10" fill="#e8f5ff" stroke="#b9d8f2" />
-        <rect x="370" y="82" width="108" height="66" rx="10" fill="#fff4c9" stroke="#ead27c" />
-        <rect x="106" y="186" width="108" height="72" rx="10" fill="#efe9ff" stroke="#cfc2f2" />
-        <rect x="250" y="174" width="108" height="84" rx="10" fill="#dff7ed" stroke="#a7dfce" />
-        <rect x="394" y="196" width="72" height="62" rx="10" fill="#ffe7f0" stroke="#f3bad2" />
-        <circle cx="154" cy="104" r="6" fill="#e86f9f" />
-        <circle cx="298" cy="94" r="6" fill="#356ba3" />
-        <circle cx="438" cy="110" r="6" fill="#d2a52f" />
-        <circle cx="178" cy="214" r="6" fill="#7b61d4" />
-        <circle cx="320" cy="206" r="6" fill="#26796f" />
-        <path d="M242 288 C255 270, 302 270, 318 288" fill="none" stroke="#e86f9f" stroke-width="8" stroke-linecap="round" />
-        <path d="M274 280 L290 264 L306 280" fill="none" stroke="#e86f9f" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" />
-        <text x="280" y="318" text-anchor="middle" fill="#756b7f" font-size="18" font-weight="800">Find a soft moment</text>
-      </svg>
     </section>
 
     <section class="search-panel" aria-label="Clip検索">
@@ -624,6 +679,11 @@
         clipSyncedAt: document.querySelector("#clipSyncedAt"),
         notice: document.querySelector("#notice"),
       };
+
+      const initialQuery = new URLSearchParams(window.location.search).get("q");
+      if (initialQuery) {
+        elements.searchInput.value = initialQuery;
+      }
 
       let allClips = [];
       let filteredClips = [];

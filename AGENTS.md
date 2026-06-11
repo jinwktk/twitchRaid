@@ -20,7 +20,7 @@
 - `src/commands/shoutout-introduction.ts`: Raid時の挨拶文をOllama `POST /api/generate` で生成し、失敗時は固定Raid挨拶文へフォールバックする任意機能を担当。AI生成文は単一行・250文字以内へ整形し、`@ユーザー名` とURLを保証して絵文字を除去する。Raid人数はAI入力に含めず、低人数を下げる表現はAI文として採用しない。ゲーム名と配信タイトルが抜けた場合は不足分だけ補って採用し、タイトル主要部が既に含まれている場合は長い定型紹介文を追記しない。採用/フォールバック理由をログへ出す。
 - `src/commands/raid-info.ts`: Raid受信時にレイド元の配信URL、配信タイトル、ゲーム名をTwitch APIから取得し、チャット投稿用メッセージへ整形する。配信情報取得不可時もURL付きフォールバック文を返す。
 - `src/commands/boom.ts`: TypeScript版 `!boom` の集計ロジック。過去30日間のアーカイブ配信を Twurple Helix で取得し、Twitch GraphQL の VOD チャプターからゲーム別トータル時間と総配信時間を算出する。
-- `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` / `!clipsearch` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、`!clip` / `!myclip` はキャッシュ未準備時のみ軽いAPIフォールバックを使う。`!clipsearch` はタイトル/作成者表示名のキャッシュ検索に限定する。
+- `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` / `!clipsearch` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、`!clip` / `!myclip` はキャッシュ未準備時のみ軽いAPIフォールバックを使う。`!clipsearch` はタイトル/作成者表示名/ゲーム名のキャッシュ検索に限定する。
 - `src/commands/clip-cache-store.ts`: クリップ本体、サムネイルURL、ゲームID/ゲーム名、走査済み期間、削除/非公開化でTwitch APIから返らなくなったClipの無効化状態、`!clip` / `!myclip:<ユーザー>` / `!clipsearch:<検索語>` ごとの表示履歴、Clipタイトル/作成者表示名/ゲーム名の部分一致検索を `data/clips.sqlite` に保存・提供する。
 - `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期、Clipサムネイル/ゲームID保存、Twitch games APIによるゲーム名解決、直近同期完了後コールバック、配信していない時間の1日1回全期間再走査を担当。
 - `scripts/export-clip-search-data.mjs`: `data/clips.sqlite` の `clip_cache` と `clip_sync_state.recent_sync_at` からGitHub Pages用の `docs/clip-search-data.json` を生成する。公開項目はClip ID、URL、タイトル、作成者表示名、ゲーム名、サムネイルURL、作成日、再生数、`clipSync.recentSyncedAt` のみで、`unavailable_at` が入ったClipやゲームID/履歴/その他の内部state/認証情報は出力しない。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する。
@@ -31,7 +31,8 @@
 - `src/streams/stream-summary-count-buffer.ts`: 通常コメントごとの配信まとめstate同期書き込みを避けるため、コメント数更新を30秒デバウンスし、Raid/停止/配信終了時に即時flushする。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
 - `docs/index.html`: 公開ルート入口。内部仕様書を置かず、Clip検索画面 `docs/clip-search.html` へ案内するだけにする。
-- `docs/clip-search.html`: GitHub Pages用Clip検索画面。`docs/clip-search-data.json` を読み込み、タイトル/作成者表示名/ゲーム名検索、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、追加表示、Clip最終同期時刻のJST秒単位表示、サムネイル、ゲーム名、`Twitchで見る` 外部リンクを表示する。ページ内Twitch iframe再生は置かない。お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存し、公開JSONやサーバー側状態には持たせない。淡いピンク、ミント、空色、レモン色のゆるふわ系デザイン。公開ページとして使うため、仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明は画面に出さない。
+- `docs/clip-search.html`: GitHub Pages用Clip検索画面。`docs/clip-search-data.json` を読み込み、タイトル/作成者表示名/ゲーム名検索、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、追加表示、Clip最終同期時刻のJST秒単位表示、サムネイル、ゲーム名、`Twitchで見る` 外部リンクを表示する。ページ内Twitch iframe再生は置かない。お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存し、公開JSONやサーバー側状態には持たせない。淡いピンク、ミント、空色、レモン色のゆるふわ系デザイン。生成画像 `docs/assets/clip-search-og.png` をヒーロー背景とOG画像に使い、description/canonical/robots/OGP/Twitter Card/JSON-LD `CollectionPage` / `SearchAction` を持つ。`?q=検索語` がある場合は検索欄へ初期入力する。公開ページとして使うため、仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明は画面に出さない。
+- `docs/assets/clip-search-og.png`: Clip検索画面のOGP/ヒーロー用に生成した1200x630 PNG。SNS共有とファーストビューのビジュアルに使う。
 - `docs/clip-search-data.json`: `scripts/export-clip-search-data.mjs` で生成する公開用Clip検索データ。サブPCの `data/clips.sqlite` から生成してmainへ反映する。`clipSync.recentSyncedAt` に直近Clip同期時刻を保持する。
 - `docs/typescript-bot-spec.html`: 旧URL互換ページ。内部仕様書へ誘導せず、公開Clip検索画面へ案内するだけにする。
 - `internal-docs/twitchraid-bot-zukan.html`: 現行TypeScript版 `src/` を中心に、Twitch Botのプログラム概要、機能一覧、処理フロー、配信まとめ、Clip同期、Raid対応、フォールバック、性能・運用、品質ゲートを図付きでまとめた内部向けHTML仕様書。
@@ -57,7 +58,7 @@
 - `tests/bot-raid-greeting.test.ts`: BotのRaid情報取得ではチャット送信せず、Raid挨拶文送信経路だけが1通送ることを検証。
 - `tests/bot-clipsearch.test.ts`: TypeScript版 `!clipsearch` の使い方表示、空白入り検索語の保持、URL送信、履歴保存、結果なしメッセージを検証。
 - `tests/docs-clip-search-data.test.ts`: GitHub Pages用Clip検索JSONの生成で、有効Clipのみ、公開項目のみ、新しい順、件数一致、直近Clip同期時刻、ゲーム名、サムネイルURLの出力になることを検証。
-- `tests/docs-clip-search-page.test.ts`: `docs/clip-search.html` の検索UI要素、古い順/お気に入り順、お気に入りlocalStorage、Clip最終同期時刻表示、サムネイル/ゲーム名表示、Twitch外部リンクのみ、公開ページ上の内部導線非表示、`docs/index.html` に内部仕様書を置かないことを検証。
+- `tests/docs-clip-search-page.test.ts`: `docs/clip-search.html` の検索UI要素、OGP/Twitter Card/JSON-LD/OG画像、`?q=` 初期検索、古い順/お気に入り順、お気に入りlocalStorage、Clip最終同期時刻表示、サムネイル/ゲーム名表示、Twitch外部リンクのみ、公開ページ上の内部導線非表示、`docs/index.html` に内部仕様書を置かないことを検証。
 - `tests/commands/raid-info.test.ts`: Raid元配信情報の取得、指定文言でのチャットメッセージ整形、オフライン時フォールバック、長文タイトルの単一行化/短縮を検証。
 - `tests/commands/boom.test.ts`: TypeScript版 `!boom` のVODチャプター抽出、ゲーム別合算、1時間未満フィルタ、表示文言を検証。
 - `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタ、`clipsearch:<検索語>` 履歴キーとキャッシュ検索ラッパーを検証。
@@ -120,6 +121,11 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-11 作業ログ
+- 要望: Clip検索画面にOGImageを追加し、検索に引っかかるようにして、画像も生成してリッチなサイトにしたい
+- TDD: `tests/docs-clip-search-page.test.ts` に、OG画像ファイル、description/canonical/robots/OGP/Twitter Card/JSON-LD `CollectionPage` / `SearchAction`、`clip-search.html?q={search_term_string}`、`?q=` 初期検索、ヒーロー画像参照、公開ルートのOG画像設定を追加し、未実装失敗を確認
+- 実装: built-in image generationでClip検索向けのパステル調キービジュアルを生成し、1200x630へ正規化して `docs/assets/clip-search-og.png` として配置。`docs/clip-search.html` にOGP/Twitter Card/description/canonical/robots/JSON-LDを追加し、生成画像をヒーロー背景に採用。`docs/index.html` と `docs/typescript-bot-spec.html` にもClip検索へ集約するOG情報を追加し、`?q=検索語` で検索欄を初期化するようにした
+- 検証: `npm test -- --run tests/docs-clip-search-page.test.ts` 7件が通過。ローカルHTTPサーバーとPlaywright MCPで `http://127.0.0.1:8766/clip-search.html?q=FF14` を開き、デスクトップ/390px幅でヒーロー画像、`FF14` 初期検索、`68 / 2,750 clips`、OG画像meta、横はみ出しなしを確認。`docs/assets/clip-search-og.png` は1200x630 PNGとして確認
+
 - 要望: Clip検索画面でサムネイルと何のゲームか分かる表記を出したい
 - TDD: `tests/docs-clip-search-data.test.ts` に `gameName` / `thumbnailUrl` の公開JSON期待、`tests/docs-clip-search-page.test.ts` に `clip-thumbnail`、`thumbnailUrl`、`ゲーム:`、`gameName` の期待、`tests/commands/clip-cache-sync.test.ts` / `tests/commands/clip-cache-store.test.ts` にClipサムネイル/ゲーム情報の保存期待を追加し、未実装失敗を確認
 - 実装: `clip_cache` に `game_id` / `game_name` / `thumbnail_url` を追加し、同期時にTwurple Clipの `gameId` / `thumbnailUrl` を保存、Twitch games APIでゲーム名を解決するよう変更。公開JSONは `gameName` / `thumbnailUrl` を含め、既存DB向けに `--enrich-from-twitch` でTwitch API補完できるようにした。画面カードにはサムネイル、ゲーム名チップ、Twitch外部リンクを表示し、ゲーム名も検索対象へ含めた
