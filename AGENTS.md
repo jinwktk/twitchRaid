@@ -124,6 +124,8 @@
 - 実装: `scripts/export-clip-search-data.mjs` と `npm run docs:export-clips` を追加。`docs/clip-search.html` にタイトル/作成者名検索、作成者フィルタ、並び替え、追加表示、読み込み失敗/空状態を持つ静的検索画面を追加。`docs/index.html` から検索画面へリンクし、公開JSONの説明を追記
 - データ: サブPC `E:\GitHub\twitchRaid\data\clips.sqlite` を読み取り用に一時コピーし、`docs/clip-search-data.json` を生成。2,750件、公開項目は `id` / `url` / `title` / `creator` / `createdAt` / `views` のみに限定し、内部ID・履歴・同期state・認証情報を含まないことを確認
 - UltraQA: 初回検索実装では入力ごとに全Clipの正規化を繰り返していたため、読み込み時に `searchText` を事前計算するよう改善。2,750件に対する400回検索が約53.57msで完了すること、`innerHTML` 等の危険なDOM挿入がないこと、Twitch HTTPSリンク制限、デスクトップ/390px幅の横はみ出しなしを確認
+- 検証: `npm test -- --run tests/docs-clip-search-data.test.ts tests/docs-clip-search-page.test.ts` 3件、`npm test` 166件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/clip-search.html` / `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認、`git diff --check` が通過。ローカルHTTPサーバーとPlaywrightで検索結果、空状態、デスクトップ/モバイル幅を確認
+- 本番反映: コミット `1667641` をmainへpushし、GitHub Pages workflow `Deploy GitHub Pages` は成功。公開URL `https://jinwktk.github.io/twitchRaid/clip-search.html` はHTTP 200、`clip-search-data.json` もHTTP 200で2,750件を返すことを確認。サブPC `E:\GitHub\twitchRaid` もmain `1667641` へ反映済みで、サブPC上の `npm run build` と対象Vitest 3件が通過し、`twitchRaid` はonline、起動ログに致命的エラーなし
 
 ## 2026-06-10 作業ログ
 - 要望: `!clipsearch` コマンドを作成したい
