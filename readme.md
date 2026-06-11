@@ -25,7 +25,7 @@ npm run pm2:logs    # ログ確認
 ### 技術設計書
 - GitHub Pagesで公開する `docs/index.html` はClip検索画面への入口だけにしています
 - 現行TypeScript版 Twitch Bot の内部仕様書は `internal-docs/twitchraid-bot-zukan.html` に移動しています
-- Clip検索画面は `docs/clip-search.html` です。`docs/clip-search-data.json` を読み込み、GitHub Pages上でタイトル/作成者名/ゲーム名検索できます。OGP/Twitter Card/JSON-LD と `docs/assets/clip-search-og.png` を使い、検索エンジンとSNS共有向けの公開情報を持たせています
+- Clip検索画面は `docs/clip-search.html` です。`docs/clip-search-data.json` を読み込み、GitHub Pages上でタイトル/作成者名/ゲーム名検索できます。OGP/Twitter Card/JSON-LD、`docs/assets/clip-search-og.png`、favicon画像を使い、検索エンジンとSNS共有向けの公開情報を持たせています
 - Clip検索画面は公開URLで使うため、画面上には仕様書、内部運用、JSON生成手順への導線を出しません
 - 旧URL互換の `docs/typescript-bot-spec.html` も公開Clip検索画面へ案内するだけのページです
 - `main` ブランチの `docs/` 更新時に `.github/workflows/pages.yml` がGitHub Pagesへ公開します
@@ -150,7 +150,7 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 - `!clipsearch` の表示履歴は `clipsearch:<検索語>` ごとに保存する
 
 ## GitHub Pages Clip検索
-- `docs/clip-search.html` は静的GitHub Pages上で動くClip検索画面。るっかるん向けに淡いピンク、ミント、空色、レモン色を使ったゆるふわ系デザインにしている。生成画像 `docs/assets/clip-search-og.png` をヒーロー背景とOG画像に使う
+- `docs/clip-search.html` は静的GitHub Pages上で動くClip検索画面。るっかるん向けに淡いピンク、ミント、空色、レモン色を使ったゆるふわ系デザインにしている。生成画像 `docs/assets/clip-search-og.png` をヒーロー背景とOG画像に使い、`docs/assets/clip-search-favicon.png` / `docs/favicon.ico` / `docs/assets/apple-touch-icon.png` をfaviconやホーム画面アイコンに使う
 - 検索エンジン/SNS向けに、description、canonical、robots、OGP、Twitter Card、JSON-LD `CollectionPage` / `SearchAction` を設定する。`?q=検索語` がある場合は検索欄へ初期入力する
 - 検索データは `docs/clip-search-data.json`。ブラウザ内でタイトル/作成者表示名/ゲーム名を検索し、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、件数表示、追加表示、Clip最終同期時刻の秒単位表示に対応する
 - 各Clipカードにはサムネイル、ゲーム名、作成者、作成日、再生数を表示する。再生はページ内iframeではなく `Twitchで見る` の外部リンクだけにする
@@ -217,9 +217,12 @@ scripts/
 └── export-clip-search-data.mjs    # GitHub Pages用Clip検索JSON生成
 docs/
 ├── assets/
+│   ├── apple-touch-icon.png       # iOS/ホーム画面用アイコン
+│   ├── clip-search-favicon.png    # Clip検索のPNG favicon
 │   └── clip-search-og.png         # Clip検索のOGP/ヒーロー用生成画像
 ├── clip-search.html               # Clip検索画面
 ├── clip-search-data.json          # 公開用Clip検索データ
+├── favicon.ico                    # 互換用favicon
 ├── index.html                     # 公開ルート入口
 └── typescript-bot-spec.html       # 旧URL互換入口
 internal-docs/
@@ -231,6 +234,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-11**: GitHub Pages Clip検索画面用faviconを生成。`docs/assets/clip-search-favicon.png`、`docs/assets/apple-touch-icon.png`、`docs/favicon.ico` を追加し、公開3ページから参照するようにした
 - **2026-06-11**: GitHub Pages Clip検索画面へOGP/Twitter Card/JSON-LD/canonical/descriptionを追加し、生成画像 `docs/assets/clip-search-og.png` をOG画像とヒーロー背景に設定。`?q=検索語` で初期検索できるようにした
 - **2026-06-11**: GitHub Pages Clip検索画面へサムネイルとゲーム名表示を追加。公開JSONに `gameName` / `thumbnailUrl` を追加し、必要時は `--enrich-from-twitch` でTwitch APIから補完できるようにした
 - **2026-06-11**: `docs/index.html` を公開Clip検索入口に変更し、内部仕様書は `internal-docs/twitchraid-bot-zukan.html` へ移動。旧仕様書URLもClip検索入口へ案内するだけにした

@@ -31,8 +31,11 @@
 - `src/streams/stream-summary-count-buffer.ts`: 通常コメントごとの配信まとめstate同期書き込みを避けるため、コメント数更新を30秒デバウンスし、Raid/停止/配信終了時に即時flushする。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
 - `docs/index.html`: 公開ルート入口。内部仕様書を置かず、Clip検索画面 `docs/clip-search.html` へ案内するだけにする。
-- `docs/clip-search.html`: GitHub Pages用Clip検索画面。`docs/clip-search-data.json` を読み込み、タイトル/作成者表示名/ゲーム名検索、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、追加表示、Clip最終同期時刻のJST秒単位表示、サムネイル、ゲーム名、`Twitchで見る` 外部リンクを表示する。ページ内Twitch iframe再生は置かない。お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存し、公開JSONやサーバー側状態には持たせない。淡いピンク、ミント、空色、レモン色のゆるふわ系デザイン。生成画像 `docs/assets/clip-search-og.png` をヒーロー背景とOG画像に使い、description/canonical/robots/OGP/Twitter Card/JSON-LD `CollectionPage` / `SearchAction` を持つ。`?q=検索語` がある場合は検索欄へ初期入力する。公開ページとして使うため、仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明は画面に出さない。
+- `docs/clip-search.html`: GitHub Pages用Clip検索画面。`docs/clip-search-data.json` を読み込み、タイトル/作成者表示名/ゲーム名検索、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、追加表示、Clip最終同期時刻のJST秒単位表示、サムネイル、ゲーム名、`Twitchで見る` 外部リンクを表示する。ページ内Twitch iframe再生は置かない。お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存し、公開JSONやサーバー側状態には持たせない。淡いピンク、ミント、空色、レモン色のゆるふわ系デザイン。生成画像 `docs/assets/clip-search-og.png` をヒーロー背景とOG画像に使い、`docs/assets/clip-search-favicon.png` / `docs/favicon.ico` / `docs/assets/apple-touch-icon.png` をfaviconやホーム画面アイコンに使う。description/canonical/robots/OGP/Twitter Card/JSON-LD `CollectionPage` / `SearchAction` を持つ。`?q=検索語` がある場合は検索欄へ初期入力する。公開ページとして使うため、仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明は画面に出さない。
 - `docs/assets/clip-search-og.png`: Clip検索画面のOGP/ヒーロー用に生成した1200x630 PNG。SNS共有とファーストビューのビジュアルに使う。
+- `docs/assets/clip-search-favicon.png`: Clip検索画面のPNG favicon。512x512の生成アイコン。
+- `docs/assets/apple-touch-icon.png`: iOS/ホーム画面向けの180x180 PNGアイコン。
+- `docs/favicon.ico`: 互換ブラウザ向けの32x32 favicon.ico。
 - `docs/clip-search-data.json`: `scripts/export-clip-search-data.mjs` で生成する公開用Clip検索データ。サブPCの `data/clips.sqlite` から生成してmainへ反映する。`clipSync.recentSyncedAt` に直近Clip同期時刻を保持する。
 - `docs/typescript-bot-spec.html`: 旧URL互換ページ。内部仕様書へ誘導せず、公開Clip検索画面へ案内するだけにする。
 - `internal-docs/twitchraid-bot-zukan.html`: 現行TypeScript版 `src/` を中心に、Twitch Botのプログラム概要、機能一覧、処理フロー、配信まとめ、Clip同期、Raid対応、フォールバック、性能・運用、品質ゲートを図付きでまとめた内部向けHTML仕様書。
@@ -58,7 +61,7 @@
 - `tests/bot-raid-greeting.test.ts`: BotのRaid情報取得ではチャット送信せず、Raid挨拶文送信経路だけが1通送ることを検証。
 - `tests/bot-clipsearch.test.ts`: TypeScript版 `!clipsearch` の使い方表示、空白入り検索語の保持、URL送信、履歴保存、結果なしメッセージを検証。
 - `tests/docs-clip-search-data.test.ts`: GitHub Pages用Clip検索JSONの生成で、有効Clipのみ、公開項目のみ、新しい順、件数一致、直近Clip同期時刻、ゲーム名、サムネイルURLの出力になることを検証。
-- `tests/docs-clip-search-page.test.ts`: `docs/clip-search.html` の検索UI要素、OGP/Twitter Card/JSON-LD/OG画像、`?q=` 初期検索、古い順/お気に入り順、お気に入りlocalStorage、Clip最終同期時刻表示、サムネイル/ゲーム名表示、Twitch外部リンクのみ、公開ページ上の内部導線非表示、`docs/index.html` に内部仕様書を置かないことを検証。
+- `tests/docs-clip-search-page.test.ts`: `docs/clip-search.html` の検索UI要素、OGP/Twitter Card/JSON-LD/OG画像、favicon/Apple touch icon、`?q=` 初期検索、古い順/お気に入り順、お気に入りlocalStorage、Clip最終同期時刻表示、サムネイル/ゲーム名表示、Twitch外部リンクのみ、公開ページ上の内部導線非表示、`docs/index.html` に内部仕様書を置かないことを検証。
 - `tests/commands/raid-info.test.ts`: Raid元配信情報の取得、指定文言でのチャットメッセージ整形、オフライン時フォールバック、長文タイトルの単一行化/短縮を検証。
 - `tests/commands/boom.test.ts`: TypeScript版 `!boom` のVODチャプター抽出、ゲーム別合算、1時間未満フィルタ、表示文言を検証。
 - `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタ、`clipsearch:<検索語>` 履歴キーとキャッシュ検索ラッパーを検証。
@@ -121,6 +124,11 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-11 作業ログ
+- 要望: faviconも生成したい
+- TDD: `tests/docs-clip-search-page.test.ts` に `docs/assets/clip-search-favicon.png`、`docs/assets/apple-touch-icon.png`、`docs/favicon.ico` の存在と、公開HTMLの `rel=\"icon\"` / `apple-touch-icon` 参照期待を追加し、未実装失敗を確認
+- 実装: built-in image generationで検索/再生/お気に入りを抽象化した専用faviconを生成し、512x512 PNG、180x180 Apple touch PNG、32x32互換ICOを作成。`docs/clip-search.html`、`docs/index.html`、`docs/typescript-bot-spec.html` へfaviconリンクを追加した
+- 検証: `npm test -- --run tests/docs-clip-search-page.test.ts` 7件が通過。`docs/assets/clip-search-favicon.png` を目視確認し、文字なし・ロゴなし・小サイズ向けの単純アイコンになっていることを確認
+
 - 要望: Clip検索画面にOGImageを追加し、検索に引っかかるようにして、画像も生成してリッチなサイトにしたい
 - TDD: `tests/docs-clip-search-page.test.ts` に、OG画像ファイル、description/canonical/robots/OGP/Twitter Card/JSON-LD `CollectionPage` / `SearchAction`、`clip-search.html?q={search_term_string}`、`?q=` 初期検索、ヒーロー画像参照、公開ルートのOG画像設定を追加し、未実装失敗を確認
 - 実装: built-in image generationでClip検索向けのパステル調キービジュアルを生成し、1200x630へ正規化して `docs/assets/clip-search-og.png` として配置。`docs/clip-search.html` にOGP/Twitter Card/description/canonical/robots/JSON-LDを追加し、生成画像をヒーロー背景に採用。`docs/index.html` と `docs/typescript-bot-spec.html` にもClip検索へ集約するOG情報を追加し、`?q=検索語` で検索欄を初期化するようにした
