@@ -43,6 +43,7 @@
 - `internal-docs/ARCHITECTURE.md` / `internal-docs/COMMANDS.md` / `internal-docs/DESIGN_PATTERNS.md` / `internal-docs/TECH_STACK.md`: `internal-docs/twitchraid-bot-zukan.html` を正本とするTypeScript版補助資料。
 - `src/git-manager.ts`: GitHub更新監視、pull後build、PM2再起動トリガーを担当。`docs/clip-search-data.json` だけの更新は公開データ差分としてpullのみ行い、build/再起動しない。
 - `ecosystem.config.js`: PM2プロセス定義。プロセス名は本番運用に合わせて `twitchRaid`。
+- `.github/workflows/deploy.yml`: self-hosted runnerでサブPC `E:\GitHub\twitchRaid` をpull/buildし、PM2 `twitchRaid` を再起動するAuto Deploy workflow。`docs/clip-search-data.json` だけのpushでは起動しない。
 - `.github/workflows/pages.yml`: `docs/` をGitHub Pagesへ公開するGitHub Actions workflow。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
 - `requirements.txt`: 最低限の依存関係。仮想環境 `venv/` にインストール。
@@ -77,6 +78,7 @@
 - `tests/streams/stream-summary-state-store.test.ts`: 配信まとめ状態JSONの保存・復元・投稿済み更新を検証。
 - `tests/notifications/discord-webhook.test.ts`: Discord Webhookの `wait` / `thread_id` 付与、Bot Tokenによるcontent/Embed/allowed_mentions投稿、メッセージスレッド作成、スレッドアーカイブを検証。
 - `tests/notifications/stream-notifications.test.ts`: TypeScript版配信開始通知の `@everyone` 付きEmbed生成と、保存タイトルはタイトル単体に保つことを検証。
+- `tests/github-workflows.test.ts`: self-hosted Auto Deploy workflowが `docs/clip-search-data.json` だけのpushで起動しないよう `paths-ignore` を持つことを検証。
 - `tests/git-manager.test.ts`: TypeScript版Git更新検知がpull/build後にクールダウンを挟まずPM2再起動をトリガーすること、`docs/clip-search-data.json` だけの更新ではbuild/再起動しないことを検証。
 
 ## ビルド・テスト・開発コマンド
@@ -131,11 +133,12 @@
 ## 2026-06-11 作業ログ
 - 問い合わせ: `clip全期間バックフィル完了: total=2760` とGitHub Pages Clip検索画面の `2,750 / 2,750 clips` に差異があり、全期間バックフィルは配信中に行わない仕様ではなかったか確認したい
 - 調査: サブPC `E:\GitHub\twitchRaid\data\clips.sqlite` は `clip_cache=2760`、`unavailable_at IS NULL=2750`、`unavailable_at IS NOT NULL=10`。公開JSONは `unavailable_at IS NULL` のみを出すため、画面の2,750件は正常。`clip全期間バックフィル完了: total=2760` はDB総件数をログしている
-- 調査: 起動時の `clip全期間バックフィル` は常に開始されるが、完了済み期間はスキップするため、通常は未完了の直近窓だけ同期して短時間で終わる。配信中スキップ対象は削除/非公開Clipを無効化する1日1回の `clip全期間再走査`。ただしPM2ログでは、Clip検索公開JSONの自動pushをGit更新監視が検知し、数分おきにBot再起動と起動時バックフィルが繰り返されていた
+- 調査: 起動時の `clip全期間バックフィル` は常に開始されるが、完了済み期間はスキップするため、通常は未完了の直近窓だけ同期して短時間で終わる。配信中スキップ対象は削除/非公開Clipを無効化する1日1回の `clip全期間再走査`。ただしPM2ログでは、Clip検索公開JSONの自動pushをBot内Git更新監視とself-hosted `Auto Deploy` workflowが検知し、数分おきにBot再起動と起動時バックフィルが繰り返されていた
 - TDD: `tests/git-manager.test.ts` に、`docs/clip-search-data.json` だけの更新をstartup pull / update watcherが取り込んでも `npm run build` と `restartProcess` を呼ばない期待値を追加し、未実装失敗を確認
 - 実装: `src/git-manager.ts` でpull前後または `HEAD..origin/main` の変更ファイルを `git diff --name-only` で確認し、差分が `docs/clip-search-data.json` のみならpull結果を反映してbuild/再起動をスキップするよう変更。Bot実行コードなど他の差分が含まれる場合は従来通りbuild後に即再起動する
-- ドキュメント: READMEとAGENTSに、公開JSONだけの更新は再起動対象外であること、DB総件数と公開件数の差は `unavailable_at` 除外によるものと追記
-- 検証: `npm test -- --run tests/git-manager.test.ts` 4件、`npm test` 182件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、`git diff --check` が通過。サブPC自動JSON更新をmainへfast-forward後、`npm test -- --run tests/git-manager.test.ts tests/docs-clip-search-data.test.ts` 5件、`npm run build`、`npm run lint`、`git diff --check` も通過
+- 追加TDD/実装: `tests/github-workflows.test.ts` に、`.github/workflows/deploy.yml` が `docs/clip-search-data.json` を `paths-ignore` に持つ期待値を追加し未実装失敗を確認。`deploy.yml` に `paths-ignore` を追加し、公開JSONだけのpushではself-hosted `Auto Deploy` 自体を起動しないようにした
+- ドキュメント: READMEとAGENTSに、公開JSONだけの更新はBot内Git監視とAuto Deployどちらでも再起動対象外であること、DB総件数と公開件数の差は `unavailable_at` 除外によるものと追記
+- 検証: `npm test -- --run tests/git-manager.test.ts` 4件、`npm test -- --run tests/github-workflows.test.ts tests/git-manager.test.ts` 5件、`npm test` 183件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、`git diff --check` が通過。サブPC自動JSON更新をmainへfast-forward後、`npm test -- --run tests/git-manager.test.ts tests/docs-clip-search-data.test.ts` 5件、`npm run build`、`npm run lint`、`git diff --check` も通過。Auto Deploy修正後にさらにfast-forwardし、`npm test -- --run tests/github-workflows.test.ts tests/git-manager.test.ts tests/docs-clip-search-data.test.ts` 6件と `git diff --check` が通過
 
 - 要望: SPの検索トグル表示が崩れて見え、`▽` は右側に置いてほしい
 - TDD: `tests/docs-clip-search-page.test.ts` に、SP検索トグルが `search-toggle-copy` と `search-toggle-icon` に分かれ、`▽` が `aria-hidden` の明示要素として右端固定カラムに置かれる期待値を追加し、未実装失敗を確認

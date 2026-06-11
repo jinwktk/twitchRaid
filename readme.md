@@ -92,7 +92,7 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 ## 再起動ポリシー
 - 定期再起動は 1 日 1 回
 - GitHub 更新による再起動はクールダウン対象外。pull と build が終わったら即 `process.exit(0)` でPM2再起動をトリガーする
-- `docs/clip-search-data.json` だけの更新は公開データのみの差分としてpullだけ行い、build/再起動はしない
+- `docs/clip-search-data.json` だけの更新は公開データのみの差分として扱う。Bot内Git監視ではpullだけ行いbuild/再起動しない。self-hosted `Auto Deploy` workflowも `paths-ignore` で起動しない
 - PM2管理下では `process.exit(0)` でPM2が自動再起動
 - TypeScript版は `dist/` を Git 管理しないため、GitHub更新検知後に自動で `npm run build` を実行
 - 定期再起動だけは `last_restart.txt` による1日クールダウンを維持する
@@ -240,7 +240,7 @@ internal-docs/
 ```
 
 ## 更新履歴
-- **2026-06-11**: Clip検索公開JSONの自動pushをGit更新監視が検知し、Botが数分おきに自己再起動して起動時バックフィルを繰り返す問題を修正。`docs/clip-search-data.json` だけの更新ではpullのみ行い、build/再起動しないようにした。DB総件数と公開件数の差は、削除/非公開化で `unavailable_at` が入ったClipを公開JSONから除外しているため
+- **2026-06-11**: Clip検索公開JSONの自動pushをGit更新監視とself-hosted `Auto Deploy` が検知し、Botが数分おきに自己再起動して起動時バックフィルを繰り返す問題を修正。`docs/clip-search-data.json` だけの更新ではBot内Git監視はpullのみ、`Auto Deploy` は `paths-ignore` で非起動にした。DB総件数と公開件数の差は、削除/非公開化で `unavailable_at` が入ったClipを公開JSONから除外しているため
 - **2026-06-11**: GitHub Pages Clip検索画面のSP検索トグルを調整。条件概要テキストと右端の `▽` を別カラムに分け、開閉アイコンが右側に固定されるようにした
 - **2026-06-11**: Clip同期ログでは `直近clip同期完了: saved=0` が続いていたが、GitHub Pages用 `docs/clip-search-data.json` が再生成・pushされず `Clip最終同期` が古いままになる問題を修正。`CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` で同期後に公開JSONを自動生成し、保存0件でも既定5分ごとにmainへcommit/pushするようにした
 - **2026-06-11**: GitHub Pages Clip検索画面のSP表示で、上部検索条件を開閉式に変更。初期状態は折りたたみ、条件概要を表示して検索結果の縦領域を確保するようにした

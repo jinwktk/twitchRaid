@@ -3,6 +3,8 @@ name: Auto Deploy
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "docs/clip-search-data.json"
 
 jobs:
   deploy:
