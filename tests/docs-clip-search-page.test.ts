@@ -14,8 +14,24 @@ describe("GitHub Pages clip search page", () => {
       "assets",
       "clip-search-og.png"
     );
+    const faviconPath = path.join(
+      process.cwd(),
+      "docs",
+      "assets",
+      "clip-search-favicon.png"
+    );
+    const appleTouchIconPath = path.join(
+      process.cwd(),
+      "docs",
+      "assets",
+      "apple-touch-icon.png"
+    );
+    const legacyFaviconPath = path.join(process.cwd(), "docs", "favicon.ico");
 
     expect(fs.existsSync(ogImagePath)).toBe(true);
+    expect(fs.existsSync(faviconPath)).toBe(true);
+    expect(fs.existsSync(appleTouchIconPath)).toBe(true);
+    expect(fs.existsSync(legacyFaviconPath)).toBe(true);
     expect(html).toContain(
       '<meta name="description" content="るっかるんのTwitch Clipをタイトル、作成者名、ゲーム名で探せる公開Clip検索ページです。" />'
     );
@@ -26,6 +42,13 @@ describe("GitHub Pages clip search page", () => {
     expect(html).toContain('<meta property="og:type" content="website" />');
     expect(html).toContain(
       '<meta property="og:image" content="https://jinwktk.github.io/twitchRaid/assets/clip-search-og.png" />'
+    );
+    expect(html).toContain('<link rel="icon" href="./favicon.ico" sizes="any" />');
+    expect(html).toContain(
+      '<link rel="icon" href="./assets/clip-search-favicon.png" type="image/png" />'
+    );
+    expect(html).toContain(
+      '<link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />'
     );
     expect(html).toContain('<meta name="twitter:card" content="summary_large_image" />');
     expect(html).toContain('<script type="application/ld+json">');
@@ -118,6 +141,10 @@ describe("GitHub Pages clip search page", () => {
     expect(indexHtml).toContain("clip-search.html");
     expect(indexHtml).toContain(
       "https://jinwktk.github.io/twitchRaid/assets/clip-search-og.png"
+    );
+    expect(indexHtml).toContain('<link rel="icon" href="./favicon.ico" sizes="any" />');
+    expect(indexHtml).toContain(
+      '<link rel="icon" href="./assets/clip-search-favicon.png" type="image/png" />'
     );
     expect(indexHtml).not.toContain("twitchRaid Bot しくみ図鑑");
     expect(indexHtml).not.toContain("TypeScript版仕様書");
