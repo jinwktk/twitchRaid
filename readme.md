@@ -24,6 +24,7 @@ npm run pm2:logs    # ログ確認
 
 ### 技術設計書
 - 現行TypeScript版 Twitch Bot のシステム仕様書/機能設計書は `docs/index.html` に統合しています
+- Clip検索画面は `docs/clip-search.html` です。`docs/clip-search-data.json` を読み込み、GitHub Pages上でタイトル/作成者名検索できます
 - 旧URL互換の `docs/typescript-bot-spec.html` は `docs/index.html` へ案内するだけのページです
 - `main` ブランチの `docs/` 更新時に `.github/workflows/pages.yml` がGitHub Pagesへ公開します
 - Markdown設計資料は `docs/ARCHITECTURE.md` / `docs/COMMANDS.md` / `docs/DESIGN_PATTERNS.md` / `docs/TECH_STACK.md` に補助資料として残しています
@@ -32,6 +33,7 @@ npm run pm2:logs    # ログ確認
 ```bash
 npm start           # ビルド済みを実行
 npm run dev         # ts-nodeで開発実行
+npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JSONを生成
 ```
 
 ### 環境設定
@@ -144,6 +146,14 @@ npm run dev         # ts-nodeで開発実行
 - 直近に表示したクリップIDはSQLite内の `clip_history` に保存し、`!clip` 全体と `!myclip:<ユーザー>` ごとに重複を避ける。全候補を出し切った場合のみ履歴内のクリップも再候補に戻す
 - `!clipsearch` の表示履歴は `clipsearch:<検索語>` ごとに保存する
 
+## GitHub Pages Clip検索
+- `docs/clip-search.html` は静的GitHub Pages上で動くClip検索画面。るっかるん向けに淡いピンク、ミント、空色、レモン色を使ったゆるふわ系デザインにしている
+- 検索データは `docs/clip-search-data.json`。ブラウザ内でタイトル/作成者表示名を検索し、作成者フィルタ、並び替え、件数表示、追加表示に対応する
+- 公開JSONは `scripts/export-clip-search-data.mjs` で `data/clips.sqlite` から生成する。既定コマンドは `npm run docs:export-clips`
+- 公開JSONへ含めるClip項目は `id`、`url`、`title`、`creator`、`createdAt`、`views` のみ。`creator_id`、履歴、同期state、認証情報は含めない
+- `unavailable_at` が入った削除/非公開Clipは公開JSONから除外する
+- サブPCの実データをPagesへ反映する場合は、サブPCの `data/clips.sqlite` を元にJSONを生成し、`main` へコミット・プッシュする
+
 ## Boomコマンドメモ
 - `!boom` は過去30日間のアーカイブ配信を対象に、Twitch GraphQL の VOD チャプターからゲーム別の配信時間と総配信時間を集計する
 - ゲーム別合計が1時間未満のものは表示対象外
@@ -196,9 +206,16 @@ src/
     ├── logger.ts
     ├── process-restart.ts
     └── restart-state-store.ts
+scripts/
+└── export-clip-search-data.mjs    # GitHub Pages用Clip検索JSON生成
+docs/
+├── clip-search.html               # Clip検索画面
+├── clip-search-data.json          # 公開用Clip検索データ
+└── index.html                     # TypeScript版総合仕様書
 ```
 
 ## 更新履歴
+- **2026-06-11**: GitHub Pages用Clip検索画面 `docs/clip-search.html` を追加。サブPCのSQLite Clipキャッシュから `docs/clip-search-data.json` を生成し、タイトル/作成者名検索、作成者フィルタ、並び替え、追加表示に対応
 - **2026-06-10**: `!clipsearch <キーワード>` を追加。SQLite Clipキャッシュのタイトル/作成者表示名を部分一致検索し、`clipsearch:<検索語>` 履歴で重複を避けて1件URLを返す
 - **2026-06-10**: Ollama Raid挨拶文の配信情報補完を調整。AI文がゲーム名とタイトル主要部を既に含む場合は、`配信では...` の長い定型紹介文を追記せず、完全に抜けた項目だけ最小限補うよう変更
 - **2026-06-09**: Ollama Raid挨拶文の採用/フォールバック理由ログを追加。冷間ロード対策として既定タイムアウトを15秒、keep_aliveを30分へ変更し、AI文がゲーム名/配信タイトルを落とした場合はコード側で補って採用するよう変更
