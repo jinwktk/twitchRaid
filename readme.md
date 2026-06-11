@@ -25,7 +25,7 @@ npm run pm2:logs    # ログ確認
 ### 技術設計書
 - GitHub Pagesで公開する `docs/index.html` はClip検索画面への入口だけにしています
 - 現行TypeScript版 Twitch Bot の内部仕様書は `internal-docs/twitchraid-bot-zukan.html` に移動しています
-- Clip検索画面は `docs/clip-search.html` です。`docs/clip-search-data.json` を読み込み、GitHub Pages上でタイトル/作成者名/ゲーム名検索できます。OGP/Twitter Card/JSON-LD、`docs/assets/clip-search-og.png`、favicon画像を使い、検索エンジンとSNS共有向けの公開情報を持たせています
+- Clip検索画面は `docs/clip-search.html` です。`docs/clip-search-data.json` を読み込み、GitHub Pages上でタイトル/作成者名/ゲーム名検索できます。OGP/Twitter Card/JSON-LD、`docs/assets/rukalun/clip-search-og.png`、favicon画像を使い、検索エンジンとSNS共有向けの公開情報を持たせています
 - Clip検索画面は公開URLで使うため、画面上には仕様書、内部運用、JSON生成手順への導線を出しません
 - 旧URL互換の `docs/typescript-bot-spec.html` も公開Clip検索画面へ案内するだけのページです
 - `main` ブランチの `docs/` 更新時に `.github/workflows/pages.yml` がGitHub Pagesへ公開します
@@ -152,7 +152,7 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 - `!clipsearch` の表示履歴は `clipsearch:<検索語>` ごとに保存する
 
 ## GitHub Pages Clip検索
-- `docs/clip-search.html` は静的GitHub Pages上で動くClip検索画面。るっかるん向けに淡いピンク、ミント、空色、レモン色を使ったゆるふわ系デザインにしている。生成画像 `docs/assets/clip-search-og.png` をヒーロー背景とOG画像に使い、`docs/assets/clip-search-favicon.png` / `docs/favicon.ico` / `docs/assets/apple-touch-icon.png` をfaviconやホーム画面アイコンに使う
+- `docs/clip-search.html` は静的GitHub Pages上で動くClip検索画面。るっかるん向けに淡いピンク、ミント、空色、レモン色を使ったゆるふわ系デザインにしている。提供画像から作った `docs/assets/rukalun/clip-search-hero.png` をヒーロー背景、`docs/assets/rukalun/clip-search-og.png` をOG画像に使い、`docs/assets/clip-search-favicon.png` / `docs/favicon.ico` / `docs/assets/apple-touch-icon.png` をfaviconやホーム画面アイコンに使う
 - 検索エンジン/SNS向けに、description、canonical、robots、OGP、Twitter Card、JSON-LD `CollectionPage` / `SearchAction` を設定する。`?q=検索語` がある場合は検索欄へ初期入力する
 - 検索データは `docs/clip-search-data.json`。ブラウザ内でタイトル/作成者表示名/ゲーム名を検索し、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、件数表示、追加表示、Clip最終同期時刻の秒単位表示に対応する
 - スマホ幅では上部の検索条件を「検索条件を開く」ボタン配下へ折りたたみ、必要な時だけ開けるようにする。トグル内は条件概要と右端固定の `▽` を分け、長い検索条件でもアイコン位置が崩れないようにする。PC/タブレット幅では従来通り検索条件を常時表示する
@@ -225,7 +225,9 @@ docs/
 ├── assets/
 │   ├── apple-touch-icon.png       # iOS/ホーム画面用アイコン
 │   ├── clip-search-favicon.png    # Clip検索のPNG favicon
-│   └── clip-search-og.png         # Clip検索のOGP/ヒーロー用生成画像
+│   └── rukalun/
+│       ├── clip-search-hero.png   # 提供画像ベースのClip検索ヒーロー画像
+│       └── clip-search-og.png     # 提供画像ベースのOGP画像
 ├── clip-search.html               # Clip検索画面
 ├── clip-search-data.json          # 公開用Clip検索データ
 ├── favicon.ico                    # 互換用favicon
@@ -240,6 +242,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-12**: `docs/assets/rukalun` の提供画像を使い、Clip検索画面のヒーロー画像とOGP画像を軽量派生画像へ差し替え。旧生成OG画像は削除し、公開ページ/入口ページ/旧URL互換ページのOGP/Twitter画像を `assets/rukalun/clip-search-og.png` に統一
 - **2026-06-11**: Clip検索公開JSONの自動pushをGit更新監視とself-hosted `Auto Deploy` が検知し、Botが数分おきに自己再起動して起動時バックフィルを繰り返す問題を修正。`docs/clip-search-data.json` だけの更新ではBot内Git監視はpullのみ、`Auto Deploy` は `paths-ignore` で非起動にした。DB総件数と公開件数の差は、削除/非公開化で `unavailable_at` が入ったClipを公開JSONから除外しているため
 - **2026-06-11**: GitHub Pages Clip検索画面のSP検索トグルを調整。条件概要テキストと右端の `▽` を別カラムに分け、開閉アイコンが右側に固定されるようにした
 - **2026-06-11**: GitHub Pages Clip検索画面で、作成日時が3日以内のClipに `NEW` マークを表示するようにした
