@@ -41,6 +41,7 @@
 - `docs/typescript-bot-spec.html`: 旧URL互換ページ。内部仕様書へ誘導せず、公開Clip検索画面へ案内するだけにする。
 - `internal-docs/twitchraid-bot-zukan.html`: 現行TypeScript版 `src/` を中心に、Twitch Botのプログラム概要、機能一覧、処理フロー、配信まとめ、Clip同期、Raid対応、フォールバック、性能・運用、品質ゲートを図付きでまとめた内部向けHTML仕様書。
 - `internal-docs/ARCHITECTURE.md` / `internal-docs/COMMANDS.md` / `internal-docs/DESIGN_PATTERNS.md` / `internal-docs/TECH_STACK.md`: `internal-docs/twitchraid-bot-zukan.html` を正本とするTypeScript版補助資料。
+- `src/git-manager.ts`: GitHub更新監視、pull後build、PM2再起動トリガーを担当。`docs/clip-search-data.json` だけの更新は公開データ差分としてpullのみ行い、build/再起動しない。
 - `ecosystem.config.js`: PM2プロセス定義。プロセス名は本番運用に合わせて `twitchRaid`。
 - `.github/workflows/pages.yml`: `docs/` をGitHub Pagesへ公開するGitHub Actions workflow。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
@@ -76,7 +77,7 @@
 - `tests/streams/stream-summary-state-store.test.ts`: 配信まとめ状態JSONの保存・復元・投稿済み更新を検証。
 - `tests/notifications/discord-webhook.test.ts`: Discord Webhookの `wait` / `thread_id` 付与、Bot Tokenによるcontent/Embed/allowed_mentions投稿、メッセージスレッド作成、スレッドアーカイブを検証。
 - `tests/notifications/stream-notifications.test.ts`: TypeScript版配信開始通知の `@everyone` 付きEmbed生成と、保存タイトルはタイトル単体に保つことを検証。
-- `tests/git-manager.test.ts`: TypeScript版Git更新検知がpull/build後にクールダウンを挟まずPM2再起動をトリガーすることを検証。
+- `tests/git-manager.test.ts`: TypeScript版Git更新検知がpull/build後にクールダウンを挟まずPM2再起動をトリガーすること、`docs/clip-search-data.json` だけの更新ではbuild/再起動しないことを検証。
 
 ## ビルド・テスト・開発コマンド
 - `python -m venv venv && source venv/bin/activate`: Linux/Mac の仮想環境作成と有効化。Windows は `venv\Scripts\activate` を使用。
@@ -119,7 +120,7 @@
 - `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `DISCORD_BOT_TOKEN`, `DISCORD_SUMMARY_CHANNEL_ID`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `LAST_STREAM_TITLE`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS`, 任意で `TWITCH_GQL_CLIENT_ID`, `TWITCH_CLIP_CACHE_DB_PATH`, `STREAM_SUMMARY_STATE_PATH`, `STREAM_SUMMARY_MAX_CLIPS`, `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED`, `CLIP_SEARCH_AUTO_PUBLISH_ENABLED`, `CLIP_SEARCH_DATA_PATH`, `CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS`, `CLIP_SEARCH_PUBLISH_REMOTE`, `CLIP_SEARCH_PUBLISH_BRANCH`, `OLLAMA_SHOUTOUT_ENABLED`, `OLLAMA_BASE_URL`, `OLLAMA_SHOUTOUT_MODEL`, `OLLAMA_SHOUTOUT_TIMEOUT_MS`, `OLLAMA_SHOUTOUT_KEEP_ALIVE` を定義。更新は `Config.update*` と `env-store.ts` が担当。
 - クリップキャッシュは任意で `TWITCH_CLIP_CACHE_DB_PATH` を使用。未設定時は `data/clips.sqlite` を使い、ローカル状態として Git 管理外。
 - GitHub Pages Clip検索の同期時刻を自動反映する場合は、サブPC `.env` に `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定する。保存0件の直近同期は `CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS` ごとに公開し、Clip保存があれば間隔内でも公開する。未設定時の公開間隔は5分、出力先は `docs/clip-search-data.json`、remote/branchは `origin` / `main`。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぐ。
-- Clip全期間バックフィルは通常起動時は完了済み期間をスキップする。配信していない時間に1日1回だけ全期間を再走査し、Twitch APIから返らなくなったClipは `clip_cache.unavailable_at` を設定して `!clip` / `!myclip` / 配信まとめ候補から除外する。再走査の最終時刻は `clip_sync_state.daily_reconcile_at` に保存する。
+- Clip全期間バックフィルは通常起動時は完了済み期間をスキップする。配信していない時間に1日1回だけ全期間を再走査し、Twitch APIから返らなくなったClipは `clip_cache.unavailable_at` を設定して `!clip` / `!myclip` / 配信まとめ候補から除外する。再走査の最終時刻は `clip_sync_state.daily_reconcile_at` に保存する。`clip全期間バックフィル完了: total=...` は無効化済みClipも含むDB総件数で、公開Clip検索画面の件数は `unavailable_at IS NULL` の公開対象件数。
 - 配信まとめ状態は任意で `STREAM_SUMMARY_STATE_PATH` を使用。未設定時は `data/stream-summary-state.json` を使い、ローカル状態として Git 管理外。
 - 配信まとめスレッド作成と投稿には `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を使う。Bot Token方式では開始通知、クリップURL、終了まとめをBot APIで投稿し、配信開始通知メッセージからスレッドを作る。未設定時や403などのBot API投稿失敗時は通常Webhook投稿へフォールバックする。
 - Webhookだけで配信まとめスレッドを作る場合は、Webhook先をフォーラム/メディアチャンネルにし、`DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定する。通常テキストチャンネルWebhookではDiscord側が `thread_name` を拒否するため、通常Webhook投稿へフォールバックする。
@@ -128,6 +129,14 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-11 作業ログ
+- 問い合わせ: `clip全期間バックフィル完了: total=2760` とGitHub Pages Clip検索画面の `2,750 / 2,750 clips` に差異があり、全期間バックフィルは配信中に行わない仕様ではなかったか確認したい
+- 調査: サブPC `E:\GitHub\twitchRaid\data\clips.sqlite` は `clip_cache=2760`、`unavailable_at IS NULL=2750`、`unavailable_at IS NOT NULL=10`。公開JSONは `unavailable_at IS NULL` のみを出すため、画面の2,750件は正常。`clip全期間バックフィル完了: total=2760` はDB総件数をログしている
+- 調査: 起動時の `clip全期間バックフィル` は常に開始されるが、完了済み期間はスキップするため、通常は未完了の直近窓だけ同期して短時間で終わる。配信中スキップ対象は削除/非公開Clipを無効化する1日1回の `clip全期間再走査`。ただしPM2ログでは、Clip検索公開JSONの自動pushをGit更新監視が検知し、数分おきにBot再起動と起動時バックフィルが繰り返されていた
+- TDD: `tests/git-manager.test.ts` に、`docs/clip-search-data.json` だけの更新をstartup pull / update watcherが取り込んでも `npm run build` と `restartProcess` を呼ばない期待値を追加し、未実装失敗を確認
+- 実装: `src/git-manager.ts` でpull前後または `HEAD..origin/main` の変更ファイルを `git diff --name-only` で確認し、差分が `docs/clip-search-data.json` のみならpull結果を反映してbuild/再起動をスキップするよう変更。Bot実行コードなど他の差分が含まれる場合は従来通りbuild後に即再起動する
+- ドキュメント: READMEとAGENTSに、公開JSONだけの更新は再起動対象外であること、DB総件数と公開件数の差は `unavailable_at` 除外によるものと追記
+- 検証: `npm test -- --run tests/git-manager.test.ts` 4件、`npm test` 182件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、`git diff --check` が通過。サブPC自動JSON更新をmainへfast-forward後、`npm test -- --run tests/git-manager.test.ts tests/docs-clip-search-data.test.ts` 5件、`npm run build`、`npm run lint`、`git diff --check` も通過
+
 - 要望: SPの検索トグル表示が崩れて見え、`▽` は右側に置いてほしい
 - TDD: `tests/docs-clip-search-page.test.ts` に、SP検索トグルが `search-toggle-copy` と `search-toggle-icon` に分かれ、`▽` が `aria-hidden` の明示要素として右端固定カラムに置かれる期待値を追加し、未実装失敗を確認
 - 実装: `docs/clip-search.html` の検索トグルを2カラム構成へ変更し、ラベル/条件概要を左カラム、`▽` アイコンを24px幅の右カラムへ分離。疑似要素の矢印を廃止し、開いた時はアイコン要素を180度回転させる
