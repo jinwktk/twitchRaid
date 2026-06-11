@@ -157,6 +157,21 @@ describe("GitHub Pages clip search page", () => {
     expect(html).toContain('aria-pressed');
   });
 
+  it("marks clips created within 3 days as new", () => {
+    const html = fs.readFileSync(
+      path.join(process.cwd(), "docs", "clip-search.html"),
+      "utf8"
+    );
+
+    expect(html).toContain("NEW_CLIP_WINDOW_MS");
+    expect(html).toContain("3 * 24 * 60 * 60 * 1000");
+    expect(html).toContain("isNewClip");
+    expect(html).toContain('className = "new-badge"');
+    expect(html).toContain('newBadge.textContent = "NEW"');
+    expect(html).toContain('aria-label", "新着Clip"');
+    expect(html).toContain(".new-badge");
+  });
+
   it("keeps the GitHub Pages root free of the internal bot guide", () => {
     const indexHtml = fs.readFileSync(
       path.join(process.cwd(), "docs", "index.html"),

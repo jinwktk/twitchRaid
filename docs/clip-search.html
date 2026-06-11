@@ -489,6 +489,29 @@
         font-weight: 900;
       }
 
+      .clip-ribbon-main {
+        display: inline-flex;
+        align-items: center;
+        min-width: 0;
+        gap: 6px;
+      }
+
+      .new-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 42px;
+        min-height: 22px;
+        border: 1px solid rgba(217, 79, 137, 0.3);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.82);
+        color: #b63d74;
+        padding: 2px 7px;
+        font-size: 0.72rem;
+        font-weight: 900;
+        line-height: 1;
+      }
+
       .clip-card-body {
         display: grid;
         gap: 12px;
@@ -751,6 +774,7 @@
       const CLIP_FAVORITES_STORAGE_KEY = "rukalun.clipSearch.favorites.v1";
       const INITIAL_LIMIT = 48;
       const MORE_STEP = 48;
+      const NEW_CLIP_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 
       const elements = {
         searchPanel: document.querySelector("#searchPanel"),
@@ -826,6 +850,13 @@
       function formatViews(value) {
         if (typeof value !== "number" || !Number.isFinite(value)) return "再生数不明";
         return `${value.toLocaleString("ja-JP")} views`;
+      }
+
+      function isNewClip(clip) {
+        const createdAt = new Date(clip?.createdAt ?? "").getTime();
+        if (!Number.isFinite(createdAt)) return false;
+        const ageMs = Date.now() - createdAt;
+        return ageMs >= 0 && ageMs < NEW_CLIP_WINDOW_MS;
       }
 
       function loadFavoriteClips() {
@@ -980,11 +1011,21 @@
 
         const ribbon = document.createElement("div");
         ribbon.className = "clip-ribbon";
+        const ribbonMain = document.createElement("span");
+        ribbonMain.className = "clip-ribbon-main";
         const date = document.createElement("span");
         date.textContent = formatDate(clip.createdAt);
+        ribbonMain.append(date);
+        if (isNewClip(clip)) {
+          const newBadge = document.createElement("span");
+          newBadge.className = "new-badge";
+          newBadge.setAttribute("aria-label", "新着Clip");
+          newBadge.textContent = "NEW";
+          ribbonMain.append(newBadge);
+        }
         const views = document.createElement("span");
         views.textContent = formatViews(clip.views);
-        ribbon.append(date, views);
+        ribbon.append(ribbonMain, views);
 
         const thumbnail = document.createElement("div");
         thumbnail.className = "clip-thumbnail";
