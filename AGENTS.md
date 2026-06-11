@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## プロジェクト構成とモジュール配置
-- 現行運用対象は TypeScript版のみ。仕様書の正本は `docs/index.html`。
+- 現行運用対象は TypeScript版のみ。内部仕様書の正本は `internal-docs/twitchraid-bot-zukan.html`。公開用 `docs/index.html` はClip検索入口だけにする。
 - `src/index.ts`: TypeScript版のエントリーポイント。設定読み込み、Git更新監視、定期再起動監視、Twitch token検証、Bot起動、Graceful shutdownを担当。
 - `src/bot.ts`: TypeScript版Bot本体。Twurple ChatClientイベント、チャットコマンド分岐、配信監視、Raid処理、Clip同期後投稿、配信まとめ接続を担当。
 - `src/config.ts`: `.env` からTwitch/Discord/DB/state/管理者/クールダウン設定を読み込み、必要な状態更新を `env-store.ts` 経由で保存する。
@@ -21,20 +21,21 @@
 - `src/commands/raid-info.ts`: Raid受信時にレイド元の配信URL、配信タイトル、ゲーム名をTwitch APIから取得し、チャット投稿用メッセージへ整形する。配信情報取得不可時もURL付きフォールバック文を返す。
 - `src/commands/boom.ts`: TypeScript版 `!boom` の集計ロジック。過去30日間のアーカイブ配信を Twurple Helix で取得し、Twitch GraphQL の VOD チャプターからゲーム別トータル時間と総配信時間を算出する。
 - `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` / `!clipsearch` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、`!clip` / `!myclip` はキャッシュ未準備時のみ軽いAPIフォールバックを使う。`!clipsearch` はタイトル/作成者表示名のキャッシュ検索に限定する。
-- `src/commands/clip-cache-store.ts`: クリップ本体、走査済み期間、削除/非公開化でTwitch APIから返らなくなったClipの無効化状態、`!clip` / `!myclip:<ユーザー>` / `!clipsearch:<検索語>` ごとの表示履歴、Clipタイトル/作成者表示名の部分一致検索を `data/clips.sqlite` に保存・提供する。
-- `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期、直近同期完了後コールバック、配信していない時間の1日1回全期間再走査を担当。
-- `scripts/export-clip-search-data.mjs`: `data/clips.sqlite` の `clip_cache` と `clip_sync_state.recent_sync_at` からGitHub Pages用の `docs/clip-search-data.json` を生成する。公開項目はClip ID、URL、タイトル、作成者表示名、作成日、再生数、`clipSync.recentSyncedAt` のみで、`unavailable_at` が入ったClipや履歴/その他の内部state/認証情報は出力しない。
+- `src/commands/clip-cache-store.ts`: クリップ本体、サムネイルURL、ゲームID/ゲーム名、走査済み期間、削除/非公開化でTwitch APIから返らなくなったClipの無効化状態、`!clip` / `!myclip:<ユーザー>` / `!clipsearch:<検索語>` ごとの表示履歴、Clipタイトル/作成者表示名/ゲーム名の部分一致検索を `data/clips.sqlite` に保存・提供する。
+- `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期、Clipサムネイル/ゲームID保存、Twitch games APIによるゲーム名解決、直近同期完了後コールバック、配信していない時間の1日1回全期間再走査を担当。
+- `scripts/export-clip-search-data.mjs`: `data/clips.sqlite` の `clip_cache` と `clip_sync_state.recent_sync_at` からGitHub Pages用の `docs/clip-search-data.json` を生成する。公開項目はClip ID、URL、タイトル、作成者表示名、ゲーム名、サムネイルURL、作成日、再生数、`clipSync.recentSyncedAt` のみで、`unavailable_at` が入ったClipやゲームID/履歴/その他の内部state/認証情報は出力しない。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する。
 - `src/commands/stream-notify.ts`: TypeScript版 `!streamnotify` の管理者判定と、現在配信中の開始通知をDiscordへ手動送信するためのライブ状態取得ヘルパー。配信開始Embed用に視聴者数・サムネイルURLも通す。
 - `src/notifications/stream-notifications.ts`: 配信開始通知の重複抑止、`@everyone` 付きDiscord Embed payload生成、保存タイトルをタイトル単体に保つ処理を担当。
 - `src/notifications/discord-webhook.ts`: Discord Webhook/Bot API投稿、Embed/allowed_mentions payload、メッセージ起点スレッド作成、Discord thread API操作を担当。
 - `src/streams/stream-summary.ts`: 配信終了まとめの表示文言作成、Discord Bot API/Webhook投稿、開始通知/まとめメッセージからのスレッド作成、ライブクリップURL投稿を担当。開始通知は文字列だけでなくEmbed payloadも受け取り、終了まとめ後もスレッドはアーカイブしない。自動スレッド保証処理では開始通知を再投稿せず、保存済み開始通知からのスレッド作成だけを再試行する。
 - `src/streams/stream-summary-count-buffer.ts`: 通常コメントごとの配信まとめstate同期書き込みを避けるため、コメント数更新を30秒デバウンスし、Raid/停止/配信終了時に即時flushする。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
-- `docs/index.html`: 現行TypeScript版 `src/` を中心に、Twitch Botのプログラム概要、機能一覧、処理フロー、配信まとめ、Clip同期、Raid対応、フォールバック、性能・運用、品質ゲートを図付きでまとめたGitHub Pages用HTML仕様書。
-- `docs/clip-search.html`: GitHub Pages用Clip検索画面。`docs/clip-search-data.json` を読み込み、タイトル/作成者表示名検索、作成者フィルタ、並び替え、追加表示、Clip最終同期時刻のJST秒単位表示、選択ClipのTwitch iframeページ内再生をブラウザ内で行う。淡いピンク、ミント、空色、レモン色のゆるふわ系デザイン。公開ページとして使うため、仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明は画面に出さない。
+- `docs/index.html`: 公開ルート入口。内部仕様書を置かず、Clip検索画面 `docs/clip-search.html` へ案内するだけにする。
+- `docs/clip-search.html`: GitHub Pages用Clip検索画面。`docs/clip-search-data.json` を読み込み、タイトル/作成者表示名/ゲーム名検索、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、追加表示、Clip最終同期時刻のJST秒単位表示、サムネイル、ゲーム名、`Twitchで見る` 外部リンクを表示する。ページ内Twitch iframe再生は置かない。お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存し、公開JSONやサーバー側状態には持たせない。淡いピンク、ミント、空色、レモン色のゆるふわ系デザイン。公開ページとして使うため、仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明は画面に出さない。
 - `docs/clip-search-data.json`: `scripts/export-clip-search-data.mjs` で生成する公開用Clip検索データ。サブPCの `data/clips.sqlite` から生成してmainへ反映する。`clipSync.recentSyncedAt` に直近Clip同期時刻を保持する。
-- `docs/typescript-bot-spec.html`: 旧URL互換ページ。仕様を二重管理しないため、`docs/index.html` へ案内するだけにする。
-- `docs/ARCHITECTURE.md` / `docs/COMMANDS.md` / `docs/DESIGN_PATTERNS.md` / `docs/TECH_STACK.md`: `docs/index.html` を正本とするTypeScript版補助資料。
+- `docs/typescript-bot-spec.html`: 旧URL互換ページ。内部仕様書へ誘導せず、公開Clip検索画面へ案内するだけにする。
+- `internal-docs/twitchraid-bot-zukan.html`: 現行TypeScript版 `src/` を中心に、Twitch Botのプログラム概要、機能一覧、処理フロー、配信まとめ、Clip同期、Raid対応、フォールバック、性能・運用、品質ゲートを図付きでまとめた内部向けHTML仕様書。
+- `internal-docs/ARCHITECTURE.md` / `internal-docs/COMMANDS.md` / `internal-docs/DESIGN_PATTERNS.md` / `internal-docs/TECH_STACK.md`: `internal-docs/twitchraid-bot-zukan.html` を正本とするTypeScript版補助資料。
 - `ecosystem.config.js`: PM2プロセス定義。プロセス名は本番運用に合わせて `twitchRaid`。
 - `.github/workflows/pages.yml`: `docs/` をGitHub Pagesへ公開するGitHub Actions workflow。
 - `logs/`: 日次ローテーション済みログを保存。調査時は最新ファイル `bot_YYYY-MM-DD.log` を参照。
@@ -55,8 +56,8 @@
 - `tests/commands/shoutout-introduction.test.ts`: Ollama Raid挨拶文生成の無効時固定文フォールバック、`/api/generate` リクエスト、HTTP失敗時フォールバック、採用/フォールバック理由通知、250文字制限、Raid人数をAIへ渡さないこと、低人数ネガティブ表現の拒否、ゲーム名/配信タイトルの不足分補完、主要部を含むAI文への二重紹介追記防止、`@ユーザー名` とURL保証、絵文字除去を含むチャット向け整形を検証。
 - `tests/bot-raid-greeting.test.ts`: BotのRaid情報取得ではチャット送信せず、Raid挨拶文送信経路だけが1通送ることを検証。
 - `tests/bot-clipsearch.test.ts`: TypeScript版 `!clipsearch` の使い方表示、空白入り検索語の保持、URL送信、履歴保存、結果なしメッセージを検証。
-- `tests/docs-clip-search-data.test.ts`: GitHub Pages用Clip検索JSONの生成で、有効Clipのみ、公開項目のみ、新しい順、件数一致、直近Clip同期時刻の出力になることを検証。
-- `tests/docs-clip-search-page.test.ts`: `docs/clip-search.html` の検索UI要素、Clip最終同期時刻表示、Twitch Clip iframe用のページ内再生UI、公開ページ上の内部導線非表示、`docs/index.html` から公開Clip検索画面へのリンク非表示を検証。
+- `tests/docs-clip-search-data.test.ts`: GitHub Pages用Clip検索JSONの生成で、有効Clipのみ、公開項目のみ、新しい順、件数一致、直近Clip同期時刻、ゲーム名、サムネイルURLの出力になることを検証。
+- `tests/docs-clip-search-page.test.ts`: `docs/clip-search.html` の検索UI要素、古い順/お気に入り順、お気に入りlocalStorage、Clip最終同期時刻表示、サムネイル/ゲーム名表示、Twitch外部リンクのみ、公開ページ上の内部導線非表示、`docs/index.html` に内部仕様書を置かないことを検証。
 - `tests/commands/raid-info.test.ts`: Raid元配信情報の取得、指定文言でのチャットメッセージ整形、オフライン時フォールバック、長文タイトルの単一行化/短縮を検証。
 - `tests/commands/boom.test.ts`: TypeScript版 `!boom` のVODチャプター抽出、ゲーム別合算、1時間未満フィルタ、表示文言を検証。
 - `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタ、`clipsearch:<検索語>` 履歴キーとキャッシュ検索ラッパーを検証。
@@ -79,6 +80,7 @@
 - `npm run build`: TypeScript版を `dist/` へビルドし、型エラーを確認。
 - `npm run lint`: TypeScript版 `src/` のESLintを実行。
 - `npm run docs:export-clips`: `data/clips.sqlite` から `docs/clip-search-data.json` を生成し、GitHub Pages用Clip検索画面の公開データを更新。
+- `node scripts/export-clip-search-data.mjs --enrich-from-twitch`: `.env` のTwitch認証を使い、公開JSON生成時にClip IDからサムネイルURLとゲーム名を補完する。
 - `npm run pm2:start` / `npm run pm2:restart` / `npm run pm2:logs`: PM2プロセス `twitchRaid` の起動・再起動・ログ確認。
 - Node.js は `node:sqlite` を使用するため 22.5 以上が必要。
 
@@ -118,6 +120,27 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-11 作業ログ
+- 要望: Clip検索画面でサムネイルと何のゲームか分かる表記を出したい
+- TDD: `tests/docs-clip-search-data.test.ts` に `gameName` / `thumbnailUrl` の公開JSON期待、`tests/docs-clip-search-page.test.ts` に `clip-thumbnail`、`thumbnailUrl`、`ゲーム:`、`gameName` の期待、`tests/commands/clip-cache-sync.test.ts` / `tests/commands/clip-cache-store.test.ts` にClipサムネイル/ゲーム情報の保存期待を追加し、未実装失敗を確認
+- 実装: `clip_cache` に `game_id` / `game_name` / `thumbnail_url` を追加し、同期時にTwurple Clipの `gameId` / `thumbnailUrl` を保存、Twitch games APIでゲーム名を解決するよう変更。公開JSONは `gameName` / `thumbnailUrl` を含め、既存DB向けに `--enrich-from-twitch` でTwitch API補完できるようにした。画面カードにはサムネイル、ゲーム名チップ、Twitch外部リンクを表示し、ゲーム名も検索対象へ含めた
+- データ: サブPC `E:\GitHub\twitchRaid\data\clips.sqlite` から `docs/clip-search-data.json` を再生成し、Twitch API補完で2,750件中サムネイル2,750件、ゲーム名2,698件を反映。`generatedAt=2026-06-11T06:38:57.545Z`、`clipSync.recentSyncedAt=2026-06-11T06:38:20.218Z`
+- 検証: `npm test` 172件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/clip-search.html` / `docs/index.html` / `docs/typescript-bot-spec.html` / `internal-docs/twitchraid-bot-zukan.html` 構文確認、`git diff --check` が通過。ローカルHTTPサーバーとPlaywright MCPでデスクトップ/390px幅の表示を確認し、サムネイル、ゲーム名、`JSON生成: 2026/06/11 15:38:57 JST`、`Clip最終同期: 2026/06/11 15:38:20 JST`、内部仕様書導線なし、ページ内再生なしを確認
+
+- 要望: 検索欄の例を変え、ページ内再生ではなくTwitchでの再生だけにしたい
+- 実装: 検索欄placeholderを `例: FF14 / 雑談 / 迷子 / 作成者名` に変更。Clipカードからページ内再生ボタン、Twitch Clip iframe、プレイヤーパネルを削除し、`Twitchで見る` 外部リンクのみ残した
+
+- 要望: 直近Clip同期で保存件数が0件でも、最新同期済み確認のため `JSON生成` と `Clip最終同期` を更新したい
+- 実装: Clip検索画面で `JSON生成` と `Clip最終同期` をJST秒単位で表示し続けるようにし、サブPCDBから公開JSONを再生成して時刻を最新化した
+
+- 要望: `twitchRaid Bot しくみ図鑑` を `index.html` に置くと公開アクセスされる可能性があるため変えたい
+- 実装: 内部仕様書本体を `internal-docs/twitchraid-bot-zukan.html` へ移動し、補助Markdownも `internal-docs/` へ移動。公開 `docs/index.html` と旧URL `docs/typescript-bot-spec.html` はClip検索入口だけに差し替えた
+
+- 要望: GitHub Pages Clip検索画面に、古い順とお気に入り機能、お気に入り順を追加したい
+- TDD: `tests/docs-clip-search-page.test.ts` に `oldest` / `favorites` の並び替えoption、`CLIP_FAVORITES_STORAGE_KEY`、`localStorage` 読み書き、`toggleFavoriteClip` / `isFavoriteClip`、`aria-pressed`、お気に入りボタン文言の期待値を追加し、未実装失敗を確認
+- 実装: `docs/clip-search.html` に `古い順` と `お気に入り順` を追加。お気に入りはClip IDと登録時刻だけをブラウザlocalStorageへ保存し、各カードの `お気に入りに追加` / `お気に入り済み` ボタンで切り替える。`お気に入り順` はお気に入りを登録が新しい順で先頭に並べ、未登録Clipは新しい順で後ろに並べる
+- 公開文言調整: Clip検索ページの失敗時表示から `JSON生成` や `運用側` などの内部向け文言を外し、利用者向けの再読み込み案内に変更
+- 検証: `npm test -- --run tests/docs-clip-search-page.test.ts tests/docs-clip-search-data.test.ts` 6件、`npm test` 169件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/clip-search.html` / `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認、`git diff --check` が通過。ローカルHTTPサーバーとPlaywrightで `古い順` / `お気に入り順` option、localStorage保存、`お気に入り済み` 表示、`お気に入り順` の先頭移動、デスクトップ/390px幅の横はみ出しなし、内部文言なしを確認
+
 - 要望: 公開予定のGitHub Pages Clip検索画面から、仕様書などの導線を削除したい
 - TDD: `tests/docs-clip-search-page.test.ts` に、公開ページへ `Bot仕様書`、`docs:export-clips`、`SQLite`、`公開JSON`、`dataSource`、`docs/index.html` 導線を出さない期待値と、内部仕様書から `clip-search.html` へリンクしない期待値を追加し、未実装失敗を確認
 - 実装: `docs/clip-search.html` からヘッダーの仕様書/Twitchリンク、データソースpill、内部運用説明フッターを削除。`docs/index.html` から `clip-search.html` へのボタン/ナビリンクを削除し、内部説明内のパス表記はリンクなしのテキストにした

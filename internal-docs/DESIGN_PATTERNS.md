@@ -1,6 +1,6 @@
 # TypeScript版 設計パターン
 
-正本の仕様書は `docs/index.html` です。このMarkdownは実装方針を短く確認するための補助資料です。
+内部仕様書の正本は `internal-docs/twitchraid-bot-zukan.html` です。このMarkdownは実装方針を短く確認するための補助資料です。
 
 ## 設計原則
 
@@ -85,4 +85,4 @@ Raid自動shoutoutは `ShoutoutQueue` で直列化します。
 - TypeScriptは `npm run lint` と `npm run build` を通す。
 - 非同期処理は外部API失敗をログ化し、Bot全体を止めない。
 - 共有stateを進める処理は、投稿成功後に `persistProgress` でこまめに保存する。
-- 仕様変更時は `docs/index.html`、README、AGENTSを更新する。
+- 仕様変更時は `internal-docs/twitchraid-bot-zukan.html`、README、AGENTSを更新する。公開ページ変更時は `docs/clip-search.html` / `docs/index.html` も確認する。

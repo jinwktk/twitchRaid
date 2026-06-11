@@ -1,6 +1,6 @@
 # TypeScript版アーキテクチャ概要
 
-正本の仕様書は `docs/index.html` です。このMarkdownは運用時に素早く読むための補助資料です。
+内部仕様書の正本は `internal-docs/twitchraid-bot-zukan.html` です。このMarkdownは運用時に素早く読むための補助資料です。
 
 ## プロジェクト概要
 
@@ -58,14 +58,14 @@ src/index.ts
 
 ## 重要な設計判断
 
-- TypeScript版を正本とし、GitHub Pagesも `docs/index.html` に一本化する。
+- TypeScript版の内部仕様書は `internal-docs/twitchraid-bot-zukan.html` を正本にする。公開用 `docs/index.html` はClip検索入口だけにする。
 - Discord投稿はBot API優先。403などで失敗し、Webhook URLがある場合はWebhookへフォールバックする。
 - `!streamnotify` は新しい開始通知の `startMessageId` / `threadId` を既存stateより優先する。
 - 自動スレッド保証処理は、保存済み `startMessageId` からのスレッド作成だけを行い、開始通知を再投稿しない。通知を再送する場合は `!streamnotify` で明示する。
 - 新しい開始通知に `threadId` が無い場合、古い `threadId` は保持しない。
 - 通常コメントによる配信まとめコメント数更新は30秒デバウンスし、Raid/停止/配信終了時は即時flushする。
 - Raid shoutoutは `ShoutoutQueue` で直列化し、429時は2分後に同一対象を再実行する。
-- ClipはSQLiteキャッシュ優先。`!clipsearch` はタイトル/作成者表示名をキャッシュ内で部分一致検索し、Twitch API全件検索へはフォールバックしない。削除/非公開化されたClipはオフライン時の日次再走査で `unavailable_at` を入れて候補から外す。
-- GitHub PagesのClip検索画面は静的配信のため、`data/clips.sqlite` へ直接アクセスしない。`scripts/export-clip-search-data.mjs` で `docs/clip-search-data.json` を生成し、公開項目はClip ID、URL、タイトル、作成者表示名、作成日、再生数、`clipSync.recentSyncedAt` のみに限定する。画面上のClip最終同期時刻はJSTの秒単位で表示する。ページ内再生はClip IDから `https://clips.twitch.tv/embed` のiframeをブラウザ側で組み立て、`parent` は現在ホスト名、`autoplay=false` を指定する。
+- ClipはSQLiteキャッシュ優先。`!clipsearch` はタイトル/作成者表示名/ゲーム名をキャッシュ内で部分一致検索し、Twitch API全件検索へはフォールバックしない。削除/非公開化されたClipはオフライン時の日次再走査で `unavailable_at` を入れて候補から外す。同期時はClipサムネイルURL、ゲームID、ゲーム名も保存する。
+- GitHub PagesのClip検索画面は静的配信のため、`data/clips.sqlite` へ直接アクセスしない。`scripts/export-clip-search-data.mjs` で `docs/clip-search-data.json` を生成し、公開項目はClip ID、URL、タイトル、作成者表示名、ゲーム名、サムネイルURL、作成日、再生数、`clipSync.recentSyncedAt` のみに限定する。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する。画面上のClip最終同期時刻はJSTの秒単位で表示し、各カードはサムネイル/ゲーム名と `Twitchで見る` 外部リンクだけを表示する。
 - `!clipsearch` のLIKE部分一致検索がClip件数増加で重くなった場合は、SQLite FTS5 または検索専用テーブルへの移行を検討する。初回は1件URL返却の単純検索に限定し、FTSは導入しない。
 - `!boom` は過去30日間のVODを対象に、最大4本並列でGraphQLを取得し、結果を5分キャッシュする。

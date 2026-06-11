@@ -8,6 +8,8 @@ function parseArgs(argv) {
   const args = {
     db: path.join("data", "clips.sqlite"),
     out: path.join("docs", "clip-search-data.json"),
+    env: ".env",
+    enrichFromTwitch: false,
     limit: null,
   };
 
@@ -21,6 +23,11 @@ function parseArgs(argv) {
     } else if (arg === "--out" && next) {
       args.out = next;
       index += 1;
+    } else if (arg === "--env" && next) {
+      args.env = next;
+      index += 1;
+    } else if (arg === "--enrich-from-twitch") {
+      args.enrichFromTwitch = true;
     } else if (arg === "--limit" && next) {
       const limit = Number.parseInt(next, 10);
       if (!Number.isInteger(limit) || limit <= 0) {
@@ -41,7 +48,7 @@ function parseArgs(argv) {
 function printHelp() {
   console.log(`
 Usage:
-  node scripts/export-clip-search-data.mjs [--db data/clips.sqlite] [--out docs/clip-search-data.json] [--limit 3000]
+  node scripts/export-clip-search-data.mjs [--db data/clips.sqlite] [--out docs/clip-search-data.json] [--limit 3000] [--enrich-from-twitch] [--env .env]
 
 Exports public clip search data for GitHub Pages.
 `);
@@ -79,13 +86,35 @@ function readSyncState(db, key) {
   return row?.value == null ? null : String(row.value);
 }
 
+function tableColumns(db, tableName) {
+  return new Set(
+    db
+      .prepare(`PRAGMA table_info(${tableName})`)
+      .all()
+      .map((column) => String(column.name))
+  );
+}
+
+function selectColumn(columns, columnName) {
+  return columns.has(columnName) ? columnName : `NULL AS ${columnName}`;
+}
+
 function readClips(db, limit) {
   const limitSql = limit ? "LIMIT ?" : "";
   const params = limit ? [limit] : [];
+  const columns = tableColumns(db, "clip_cache");
   const rows = db
     .prepare(
       `
-      SELECT id, url, title, creator_display_name, created_at, views
+      SELECT
+        id,
+        url,
+        title,
+        creator_display_name,
+        ${selectColumn(columns, "game_name")},
+        ${selectColumn(columns, "thumbnail_url")},
+        created_at,
+        views
       FROM clip_cache
       WHERE unavailable_at IS NULL
       ORDER BY created_at DESC, id ASC
@@ -99,6 +128,8 @@ function readClips(db, limit) {
     url: String(row.url),
     title: String(row.title),
     creator: String(row.creator_display_name),
+    gameName: row.game_name == null ? null : String(row.game_name),
+    thumbnailUrl: row.thumbnail_url == null ? null : String(row.thumbnail_url),
     createdAt: row.created_at == null ? null : String(row.created_at),
     views: row.views == null ? null : Number(row.views),
   }));
@@ -109,7 +140,105 @@ function writeJson(outPath, payload) {
   fs.writeFileSync(outPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 
-function main() {
+function chunkArray(values, size) {
+  const chunks = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
+}
+
+async function createTwitchApiClient(envPath) {
+  const [{ config: dotenvConfig }, { ApiClient }, { RefreshingAuthProvider }] =
+    await Promise.all([
+      import("dotenv"),
+      import("@twurple/api"),
+      import("@twurple/auth"),
+    ]);
+  const env = dotenvConfig({ path: envPath }).parsed ?? {};
+  const requiredKeys = [
+    "TWITCH_CLIENT_ID",
+    "TWITCH_SECRET_TOKEN",
+    "TWITCH_ACCESS_TOKEN",
+    "TWITCH_REFRESH_TOKEN",
+  ];
+  const missingKeys = requiredKeys.filter((key) => !env[key]);
+  if (missingKeys.length > 0) {
+    throw new Error(`Missing Twitch env values: ${missingKeys.join(", ")}`);
+  }
+
+  const authProvider = new RefreshingAuthProvider({
+    clientId: env.TWITCH_CLIENT_ID,
+    clientSecret: env.TWITCH_SECRET_TOKEN,
+  });
+  await authProvider.addUserForToken(
+    {
+      accessToken: env.TWITCH_ACCESS_TOKEN,
+      refreshToken: env.TWITCH_REFRESH_TOKEN,
+      expiresIn: null,
+      obtainmentTimestamp: Date.now(),
+      scope: [],
+    },
+    ["api"]
+  );
+
+  return new ApiClient({ authProvider });
+}
+
+async function enrichClipsFromTwitch(clips, envPath) {
+  if (clips.length === 0) return clips;
+
+  const apiClient = await createTwitchApiClient(envPath);
+  const clipDetails = new Map();
+  for (const ids of chunkArray(
+    clips.map((clip) => clip.id),
+    100
+  )) {
+    const fetchedClips = await apiClient.clips.getClipsByIds(ids);
+    for (const clip of fetchedClips) {
+      clipDetails.set(clip.id, {
+        gameId: clip.gameId || null,
+        thumbnailUrl: clip.thumbnailUrl || null,
+      });
+    }
+  }
+
+  const gameIds = [
+    ...new Set(
+      [...clipDetails.values()]
+        .map((clip) => clip.gameId)
+        .filter((gameId) => Boolean(gameId))
+    ),
+  ];
+  const gameNamesById = new Map();
+  for (const ids of chunkArray(gameIds, 100)) {
+    const games = await apiClient.games.getGamesByIds(ids);
+    for (const game of games) {
+      gameNamesById.set(game.id, game.name);
+    }
+  }
+
+  let enriched = 0;
+  const mergedClips = clips.map((clip) => {
+    const detail = clipDetails.get(clip.id);
+    if (!detail) return clip;
+    const thumbnailUrl = detail.thumbnailUrl ?? clip.thumbnailUrl ?? null;
+    const gameName = detail.gameId
+      ? gameNamesById.get(detail.gameId) ?? clip.gameName ?? null
+      : clip.gameName ?? null;
+    if (thumbnailUrl || gameName) enriched += 1;
+    return {
+      ...clip,
+      gameName,
+      thumbnailUrl,
+    };
+  });
+
+  console.log(`Enriched ${enriched} clips from Twitch API`);
+  return mergedClips;
+}
+
+async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     printHelp();
@@ -123,7 +252,10 @@ function main() {
   const db = new DatabaseSync(args.db, { readOnly: true });
   try {
     ensureClipCacheExists(db);
-    const clips = readClips(db, args.limit);
+    let clips = readClips(db, args.limit);
+    if (args.enrichFromTwitch) {
+      clips = await enrichClipsFromTwitch(clips, args.env);
+    }
     const payload = {
       generatedAt: new Date().toISOString(),
       total: clips.length,
@@ -140,8 +272,14 @@ function main() {
 }
 
 try {
-  main();
+  await main();
 } catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(
+    message
+      .replace(/(client_secret=)[^&\s]+/g, "$1[redacted]")
+      .replace(/(refresh_token=)[^&\s]+/g, "$1[redacted]")
+      .replace(/(access_token=)[^&\s]+/g, "$1[redacted]")
+  );
   process.exitCode = 1;
 }

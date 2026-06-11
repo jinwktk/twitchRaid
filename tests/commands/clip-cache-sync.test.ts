@@ -5,6 +5,7 @@ import type { HelixClip } from "@twurple/api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildClipDateWindows,
+  clipsToCachedClips,
   clipToCachedClip,
   ClipCacheSynchronizer,
 } from "../../src/commands/clip-cache-sync";
@@ -17,8 +18,10 @@ function makeClip(id: string, createdAt = "2026-05-25T10:00:00.000Z"): HelixClip
     title: `clip ${id}`,
     creatorId: "creator-1",
     creatorDisplayName: "Viewer",
+    gameId: "24241",
     creationDate: new Date(createdAt),
     views: 123,
+    thumbnailUrl: `https://clips-media-assets2.twitch.tv/${id}-preview-480x272.jpg`,
   } as HelixClip;
 }
 
@@ -51,8 +54,22 @@ describe("clip cache sync helpers", () => {
     expect(clipToCachedClip(makeClip("abc"))).toMatchObject({
       id: "abc",
       creatorDisplayName: "Viewer",
+      gameId: "24241",
+      thumbnailUrl: "https://clips-media-assets2.twitch.tv/abc-preview-480x272.jpg",
       createdAt: "2026-05-25T10:00:00.000Z",
       views: 123,
+    });
+  });
+
+  it("adds game names from resolved game IDs", async () => {
+    const clips = await clipsToCachedClips([makeClip("abc")], {
+      getGamesByIds: vi.fn(async () => [{ id: "24241", name: "FINAL FANTASY XIV ONLINE" }]),
+    });
+
+    expect(clips[0]).toMatchObject({
+      id: "abc",
+      gameId: "24241",
+      gameName: "FINAL FANTASY XIV ONLINE",
     });
   });
 });

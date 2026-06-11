@@ -17,6 +17,9 @@ function clip(
     title,
     creatorId: `creator-${creatorDisplayName.toLowerCase()}`,
     creatorDisplayName,
+    gameId: "24241",
+    gameName: "FINAL FANTASY XIV ONLINE",
+    thumbnailUrl: `https://clips-media-assets2.twitch.tv/${id}-preview-480x272.jpg`,
     createdAt,
     views: 1,
   };
@@ -282,5 +285,29 @@ describe("ClipCacheStore", () => {
       )
     ).toHaveLength(1);
     migratedStore.close();
+  });
+
+  it("migrates and stores clip thumbnail and game fields", () => {
+    store.saveClips([clip("details")]);
+
+    const db = new DatabaseSync(path.join(tmpDir, "clips.sqlite"), {
+      readOnly: true,
+    });
+    const row = db
+      .prepare(
+        "SELECT game_id, game_name, thumbnail_url FROM clip_cache WHERE id = ?"
+      )
+      .get("details") as {
+      game_id: string | null;
+      game_name: string | null;
+      thumbnail_url: string | null;
+    };
+    db.close();
+
+    expect(row).toEqual({
+      game_id: "24241",
+      game_name: "FINAL FANTASY XIV ONLINE",
+      thumbnail_url: "https://clips-media-assets2.twitch.tv/details-preview-480x272.jpg",
+    });
   });
 });

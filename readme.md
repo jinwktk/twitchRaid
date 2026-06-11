@@ -23,18 +23,20 @@ npm run pm2:logs    # ログ確認
 - SQLiteキャッシュ系の調査では、サブPC側の `data/clips.sqlite` の作成状況と更新時刻も確認する
 
 ### 技術設計書
-- 現行TypeScript版 Twitch Bot のシステム仕様書/機能設計書は `docs/index.html` に統合しています
-- Clip検索画面は `docs/clip-search.html` です。`docs/clip-search-data.json` を読み込み、GitHub Pages上でタイトル/作成者名検索できます
+- GitHub Pagesで公開する `docs/index.html` はClip検索画面への入口だけにしています
+- 現行TypeScript版 Twitch Bot の内部仕様書は `internal-docs/twitchraid-bot-zukan.html` に移動しています
+- Clip検索画面は `docs/clip-search.html` です。`docs/clip-search-data.json` を読み込み、GitHub Pages上でタイトル/作成者名/ゲーム名検索できます
 - Clip検索画面は公開URLで使うため、画面上には仕様書、内部運用、JSON生成手順への導線を出しません
-- 旧URL互換の `docs/typescript-bot-spec.html` は `docs/index.html` へ案内するだけのページです
+- 旧URL互換の `docs/typescript-bot-spec.html` も公開Clip検索画面へ案内するだけのページです
 - `main` ブランチの `docs/` 更新時に `.github/workflows/pages.yml` がGitHub Pagesへ公開します
-- Markdown設計資料は `docs/ARCHITECTURE.md` / `docs/COMMANDS.md` / `docs/DESIGN_PATTERNS.md` / `docs/TECH_STACK.md` に補助資料として残しています
+- Markdown設計資料は `internal-docs/ARCHITECTURE.md` / `internal-docs/COMMANDS.md` / `internal-docs/DESIGN_PATTERNS.md` / `internal-docs/TECH_STACK.md` に補助資料として残しています
 
 ### 直接起動
 ```bash
 npm start           # ビルド済みを実行
 npm run dev         # ts-nodeで開発実行
 npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JSONを生成
+# 必要時: node scripts/export-clip-search-data.mjs --enrich-from-twitch
 ```
 
 ### 環境設定
@@ -149,11 +151,12 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 
 ## GitHub Pages Clip検索
 - `docs/clip-search.html` は静的GitHub Pages上で動くClip検索画面。るっかるん向けに淡いピンク、ミント、空色、レモン色を使ったゆるふわ系デザインにしている
-- 検索データは `docs/clip-search-data.json`。ブラウザ内でタイトル/作成者表示名を検索し、作成者フィルタ、並び替え、件数表示、追加表示、Clip最終同期時刻の秒単位表示、選択Clipのページ内再生に対応する
-- ページ内再生は各カードの `ページで再生` から、結果一覧上部の1つのTwitch Clip iframeへ読み込む。iframeは `https://clips.twitch.tv/embed` を使い、`parent` は表示中ページのホスト名、`autoplay=false` を指定する
+- 検索データは `docs/clip-search-data.json`。ブラウザ内でタイトル/作成者表示名/ゲーム名を検索し、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、件数表示、追加表示、Clip最終同期時刻の秒単位表示に対応する
+- 各Clipカードにはサムネイル、ゲーム名、作成者、作成日、再生数を表示する。再生はページ内iframeではなく `Twitchで見る` の外部リンクだけにする
+- お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存する。公開JSONやサーバー側状態にはお気に入り情報を持たせず、`お気に入り順` はお気に入りを登録が新しい順で先頭に並べる
 - 公開画面には仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明を表示しない。内部向け仕様書からも公開Clip検索画面へのリンク導線は置かない
-- 公開JSONは `scripts/export-clip-search-data.mjs` で `data/clips.sqlite` から生成する。既定コマンドは `npm run docs:export-clips`
-- 公開JSONへ含めるClip項目は `id`、`url`、`title`、`creator`、`createdAt`、`views` のみ。同期stateは `clipSync.recentSyncedAt` のみ公開し、`creator_id`、履歴、その他の内部state、認証情報は含めない
+- 公開JSONは `scripts/export-clip-search-data.mjs` で `data/clips.sqlite` から生成する。既定コマンドは `npm run docs:export-clips`。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する
+- 公開JSONへ含めるClip項目は `id`、`url`、`title`、`creator`、`gameName`、`thumbnailUrl`、`createdAt`、`views` のみ。同期stateは `clipSync.recentSyncedAt` のみ公開し、`creator_id`、ゲームID、履歴、その他の内部state、認証情報は含めない
 - `unavailable_at` が入った削除/非公開Clipは公開JSONから除外する
 - サブPCの実データをPagesへ反映する場合は、サブPCの `data/clips.sqlite` を元にJSONを生成し、`main` へコミット・プッシュする
 
@@ -214,10 +217,22 @@ scripts/
 docs/
 ├── clip-search.html               # Clip検索画面
 ├── clip-search-data.json          # 公開用Clip検索データ
-└── index.html                     # TypeScript版総合仕様書
+├── index.html                     # 公開ルート入口
+└── typescript-bot-spec.html       # 旧URL互換入口
+internal-docs/
+├── twitchraid-bot-zukan.html      # 内部向けTypeScript版総合仕様書
+├── ARCHITECTURE.md
+├── COMMANDS.md
+├── DESIGN_PATTERNS.md
+└── TECH_STACK.md
 ```
 
 ## 更新履歴
+- **2026-06-11**: GitHub Pages Clip検索画面へサムネイルとゲーム名表示を追加。公開JSONに `gameName` / `thumbnailUrl` を追加し、必要時は `--enrich-from-twitch` でTwitch APIから補完できるようにした
+- **2026-06-11**: `docs/index.html` を公開Clip検索入口に変更し、内部仕様書は `internal-docs/twitchraid-bot-zukan.html` へ移動。旧仕様書URLもClip検索入口へ案内するだけにした
+- **2026-06-11**: Clip検索画面のページ内再生を撤去し、各カードは `Twitchで見る` の外部リンクのみへ変更
+- **2026-06-11**: 直近Clip同期で保存件数が0件でも同期確認できるよう、サブPCDBから `docs/clip-search-data.json` を再生成し、`JSON生成` と `Clip最終同期` を最新時刻へ更新
+- **2026-06-11**: GitHub Pages Clip検索画面に古い順とお気に入り機能を追加。お気に入りはブラウザlocalStorageにClip IDと登録時刻だけ保存し、`お気に入り順` では登録が新しいお気に入りを先頭へ並べる
 - **2026-06-11**: 公開予定のGitHub Pages Clip検索画面から、Bot仕様書リンク、データソース表示、内部運用説明を削除。内部仕様書からClip検索画面へのリンク導線も外した
 - **2026-06-11**: GitHub Pages Clip検索画面にページ内再生を追加。各Clipカードの `ページで再生` からTwitch Clip iframeを1つのプレイヤーパネルへ読み込み、`parent` は現在ホスト名、`autoplay=false` で埋め込む
 - **2026-06-11**: GitHub Pages Clip検索画面にClip最終同期時刻を追加。`clip_sync_state.recent_sync_at` を `clipSync.recentSyncedAt` として公開JSONへ出し、画面ではJSTの秒単位で表示

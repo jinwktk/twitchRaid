@@ -1,6 +1,6 @@
 # TypeScript版コマンド仕様
 
-正本の仕様書は `docs/index.html` です。このMarkdownはチャットコマンド確認用の補助資料です。
+内部仕様書の正本は `internal-docs/twitchraid-bot-zukan.html` です。このMarkdownはチャットコマンド確認用の補助資料です。
 
 ## 基本コマンド
 
@@ -19,14 +19,14 @@
 |---|---|---|
 | `!clip` | 過去Clipをランダム表示 | 一般ユーザー30分、特別ユーザーなし |
 | `!myclip` | 実行者が作成したClipをランダム表示 | `!clip` とは独立して30分 |
-| `!clipsearch <キーワード>` | Clipタイトル/作成者表示名から検索して1件表示 | なし |
+| `!clipsearch <キーワード>` | Clipタイトル/作成者表示名/ゲーム名から検索して1件表示 | なし |
 
 - 特別ユーザーは `.env` の `CLIP_SPECIAL_USERS` で管理する。既定値は `nyme_ia,rukalun`。
 - 通常は `data/clips.sqlite` のキャッシュから選ぶ。
 - キャッシュ未準備時のみTwitch APIへフォールバックする。実運用のコマンド経路では最大200件、低レベル関数の既定値は最大1000件。
 - 表示履歴は `clip_history` に保存し、`!clip` と `!myclip:<ユーザー>` ごとに重複を避ける。
 - `!clipsearch` はSQLiteキャッシュのみを検索し、Twitch API全件検索へはフォールバックしない。
-- `!clipsearch` の検索対象はClipタイトルと作成者表示名。空白入り検索語を保持し、`%` / `_` は通常文字として扱う。
+- `!clipsearch` の検索対象はClipタイトル、作成者表示名、ゲーム名。空白入り検索語を保持し、`%` / `_` は通常文字として扱う。
 - `!clipsearch` がClip件数増加で遅くなった場合は、SQLite FTS5 または検索専用テーブルへの移行を検討する。
 - `!clipsearch` の表示履歴は `clipsearch:<検索語>` ごとに保存する。
 - 削除/非公開化でTwitch APIから返らなくなったClipは、日次再走査で `unavailable_at` を付けて候補から外す。
@@ -34,11 +34,11 @@
 ## GitHub Pages Clip検索
 
 - `docs/clip-search.html` はチャットコマンドではなく、GitHub Pages用の検索画面。
-- `docs/clip-search-data.json` を読み込み、ブラウザ内でClipタイトル/作成者表示名を検索する。
-- 公開データは `npm run docs:export-clips` で `data/clips.sqlite` から生成する。
-- 公開項目はClip ID、URL、タイトル、作成者表示名、作成日、再生数、Clip最終同期時刻のみ。削除/非公開化されたClipは除外する。
+- `docs/clip-search-data.json` を読み込み、ブラウザ内でClipタイトル/作成者表示名/ゲーム名を検索する。
+- 公開データは `npm run docs:export-clips` で `data/clips.sqlite` から生成する。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する。
+- 公開項目はClip ID、URL、タイトル、作成者表示名、ゲーム名、サムネイルURL、作成日、再生数、Clip最終同期時刻のみ。削除/非公開化されたClipは除外する。
 - Clip最終同期時刻は `clip_sync_state.recent_sync_at` を元に、画面上でJSTの秒単位まで表示する。
-- 各Clipカードの `ページで再生` から、検索結果上部のTwitch Clip iframeで動画を再生できる。埋め込みURLには現在ホスト名の `parent` と `autoplay=false` を付与する。
+- 各Clipカードにはサムネイルとゲーム名を表示し、再生は `Twitchで見る` の外部リンクだけにする。ページ内Twitch iframe再生は置かない。
 
 ## mangaコマンド
 
