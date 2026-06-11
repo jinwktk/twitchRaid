@@ -148,7 +148,8 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 
 ## GitHub Pages Clip検索
 - `docs/clip-search.html` は静的GitHub Pages上で動くClip検索画面。るっかるん向けに淡いピンク、ミント、空色、レモン色を使ったゆるふわ系デザインにしている
-- 検索データは `docs/clip-search-data.json`。ブラウザ内でタイトル/作成者表示名を検索し、作成者フィルタ、並び替え、件数表示、追加表示、Clip最終同期時刻の秒単位表示に対応する
+- 検索データは `docs/clip-search-data.json`。ブラウザ内でタイトル/作成者表示名を検索し、作成者フィルタ、並び替え、件数表示、追加表示、Clip最終同期時刻の秒単位表示、選択Clipのページ内再生に対応する
+- ページ内再生は各カードの `ページで再生` から、結果一覧上部の1つのTwitch Clip iframeへ読み込む。iframeは `https://clips.twitch.tv/embed` を使い、`parent` は表示中ページのホスト名、`autoplay=false` を指定する
 - 公開JSONは `scripts/export-clip-search-data.mjs` で `data/clips.sqlite` から生成する。既定コマンドは `npm run docs:export-clips`
 - 公開JSONへ含めるClip項目は `id`、`url`、`title`、`creator`、`createdAt`、`views` のみ。同期stateは `clipSync.recentSyncedAt` のみ公開し、`creator_id`、履歴、その他の内部state、認証情報は含めない
 - `unavailable_at` が入った削除/非公開Clipは公開JSONから除外する
@@ -215,6 +216,7 @@ docs/
 ```
 
 ## 更新履歴
+- **2026-06-11**: GitHub Pages Clip検索画面にページ内再生を追加。各Clipカードの `ページで再生` からTwitch Clip iframeを1つのプレイヤーパネルへ読み込み、`parent` は現在ホスト名、`autoplay=false` で埋め込む
 - **2026-06-11**: GitHub Pages Clip検索画面にClip最終同期時刻を追加。`clip_sync_state.recent_sync_at` を `clipSync.recentSyncedAt` として公開JSONへ出し、画面ではJSTの秒単位で表示
 - **2026-06-11**: GitHub Pages用Clip検索画面 `docs/clip-search.html` を追加。サブPCのSQLite Clipキャッシュから `docs/clip-search-data.json` を生成し、タイトル/作成者名検索、作成者フィルタ、並び替え、追加表示に対応
 - **2026-06-10**: `!clipsearch <キーワード>` を追加。SQLite Clipキャッシュのタイトル/作成者表示名を部分一致検索し、`clipsearch:<検索語>` 履歴で重複を避けて1件URLを返す

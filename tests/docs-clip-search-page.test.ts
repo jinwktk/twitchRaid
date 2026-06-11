@@ -16,7 +16,23 @@ describe("GitHub Pages clip search page", () => {
     expect(html).toContain('id="results"');
     expect(html).toContain('id="emptyState"');
     expect(html).toContain('id="clipSyncedAt"');
+    expect(html).toContain('id="clipPlayerPanel"');
+    expect(html).toContain('id="clipPlayerFrame"');
+    expect(html).toContain("ページで再生");
     expect(html).toContain('second: "2-digit"');
+  });
+
+  it("configures Twitch clip embeds for in-page playback", () => {
+    const html = fs.readFileSync(
+      path.join(process.cwd(), "docs", "clip-search.html"),
+      "utf8"
+    );
+
+    expect(html).toContain("https://clips.twitch.tv/embed");
+    expect(html).toContain('searchParams.set("clip"');
+    expect(html).toContain('searchParams.set("parent"');
+    expect(html).toContain('searchParams.set("autoplay", "false")');
+    expect(html).toContain("allowFullscreen");
   });
 
   it("is linked from the main GitHub Pages document", () => {

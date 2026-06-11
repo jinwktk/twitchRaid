@@ -38,6 +38,7 @@
 - 公開データは `npm run docs:export-clips` で `data/clips.sqlite` から生成する。
 - 公開項目はClip ID、URL、タイトル、作成者表示名、作成日、再生数、Clip最終同期時刻のみ。削除/非公開化されたClipは除外する。
 - Clip最終同期時刻は `clip_sync_state.recent_sync_at` を元に、画面上でJSTの秒単位まで表示する。
+- 各Clipカードの `ページで再生` から、検索結果上部のTwitch Clip iframeで動画を再生できる。埋め込みURLには現在ホスト名の `parent` と `autoplay=false` を付与する。
 
 ## mangaコマンド
 

@@ -283,6 +283,77 @@
         font-weight: 800;
       }
 
+      .clip-player-panel {
+        display: grid;
+        gap: 14px;
+        margin-bottom: 18px;
+        border: 1px solid #cfe7f7;
+        border-radius: 8px;
+        background:
+          linear-gradient(180deg, rgba(232, 245, 255, 0.86), rgba(255, 255, 255, 0.92)),
+          var(--paper);
+        padding: 14px;
+        box-shadow: 0 12px 28px rgba(53, 107, 163, 0.08);
+      }
+
+      .clip-player-panel[hidden] {
+        display: none;
+      }
+
+      .player-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: start;
+      }
+
+      .player-label {
+        color: var(--sky-ink);
+        font-size: 0.84rem;
+        font-weight: 900;
+      }
+
+      .player-title {
+        margin-top: 2px;
+        font-size: 1.18rem;
+        line-height: 1.45;
+      }
+
+      .player-meta {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 0.9rem;
+        font-weight: 800;
+      }
+
+      .player-actions,
+      .clip-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .clip-actions > * {
+        flex: 1 1 128px;
+      }
+
+      .clip-player-frame {
+        display: grid;
+        min-height: 300px;
+        overflow: hidden;
+        border: 1px solid #b9d8f2;
+        border-radius: 8px;
+        background: #11131a;
+      }
+
+      .clip-player-frame iframe {
+        display: block;
+        width: 100%;
+        height: 100%;
+        min-height: 300px;
+        border: 0;
+      }
+
       .results {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -367,7 +438,8 @@
         overflow-wrap: anywhere;
       }
 
-      .clip-link {
+      .clip-link,
+      .clip-play-button {
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -378,6 +450,11 @@
         color: #b63d74;
         font-weight: 900;
         text-decoration: none;
+      }
+
+      .clip-play-button {
+        background: var(--pink);
+        color: #fff;
       }
 
       .empty {
@@ -441,6 +518,10 @@
 
         .search-grid,
         .results {
+          grid-template-columns: 1fr;
+        }
+
+        .player-header {
           grid-template-columns: 1fr;
         }
 
@@ -539,6 +620,21 @@
       </div>
 
       <div id="notice" class="notice" hidden></div>
+      <section id="clipPlayerPanel" class="clip-player-panel" aria-live="polite" hidden>
+        <div class="player-header">
+          <div>
+            <p class="player-label">ページ内再生</p>
+            <h2 id="clipPlayerTitle" class="player-title">Clipを選択してください</h2>
+            <p id="clipPlayerMeta" class="player-meta"></p>
+          </div>
+          <div class="player-actions">
+            <a id="clipPlayerOpen" class="clip-link" href="https://www.twitch.tv/rukalun" rel="noreferrer" target="_blank">Twitchで見る</a>
+            <button id="clipPlayerClose" class="button" type="button">閉じる</button>
+          </div>
+        </div>
+        <div id="clipPlayerFrame" class="clip-player-frame"></div>
+      </section>
+
       <section id="emptyState" class="empty">
         <h2>見つかりませんでした</h2>
         <p>検索語を短くするか、作成者の絞り込みを外してください。</p>
@@ -574,6 +670,12 @@
         resultCount: document.querySelector("#resultCount"),
         updatedAt: document.querySelector("#updatedAt"),
         clipSyncedAt: document.querySelector("#clipSyncedAt"),
+        clipPlayerPanel: document.querySelector("#clipPlayerPanel"),
+        clipPlayerTitle: document.querySelector("#clipPlayerTitle"),
+        clipPlayerMeta: document.querySelector("#clipPlayerMeta"),
+        clipPlayerOpen: document.querySelector("#clipPlayerOpen"),
+        clipPlayerClose: document.querySelector("#clipPlayerClose"),
+        clipPlayerFrame: document.querySelector("#clipPlayerFrame"),
         notice: document.querySelector("#notice"),
       };
 
@@ -637,6 +739,52 @@
         } catch {
           return false;
         }
+      }
+
+      function getEmbedParentHost() {
+        return window.location.hostname || "jinwktk.github.io";
+      }
+
+      function buildClipEmbedUrl(clip) {
+        const url = new URL("https://clips.twitch.tv/embed");
+        url.searchParams.set("clip", clip.id);
+        url.searchParams.set("parent", getEmbedParentHost());
+        url.searchParams.set("autoplay", "false");
+        return url.toString();
+      }
+
+      function openClipPlayer(clip) {
+        if (!clip?.id) {
+          setNotice("このClipはページ内再生に必要なIDがありません。");
+          return;
+        }
+
+        const iframe = document.createElement("iframe");
+        iframe.src = buildClipEmbedUrl(clip);
+        iframe.title = `${clip.title || "Clip"} を再生`;
+        iframe.loading = "lazy";
+        iframe.allow = "autoplay";
+        iframe.allowFullscreen = true;
+        iframe.referrerPolicy = "strict-origin-when-cross-origin";
+
+        elements.clipPlayerTitle.textContent = clip.title || "無題のClip";
+        elements.clipPlayerMeta.textContent = [
+          clip.creator ? `作成: ${clip.creator}` : "作成者不明",
+          formatDate(clip.createdAt),
+          formatViews(clip.views),
+        ].join(" / ");
+        elements.clipPlayerOpen.href = isSafeTwitchClipUrl(clip.url) ? clip.url : "https://www.twitch.tv/rukalun";
+        elements.clipPlayerFrame.replaceChildren(iframe);
+        elements.clipPlayerPanel.hidden = false;
+        elements.clipPlayerPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+
+      function closeClipPlayer() {
+        elements.clipPlayerPanel.hidden = true;
+        elements.clipPlayerFrame.replaceChildren();
+        elements.clipPlayerTitle.textContent = "Clipを選択してください";
+        elements.clipPlayerMeta.textContent = "";
+        elements.clipPlayerOpen.href = "https://www.twitch.tv/rukalun";
       }
 
       function setNotice(message) {
@@ -719,6 +867,15 @@
         creator.textContent = clip.creator ? `作成: ${clip.creator}` : "作成者不明";
         meta.append(creator);
 
+        const actions = document.createElement("div");
+        actions.className = "clip-actions";
+
+        const playButton = document.createElement("button");
+        playButton.className = "clip-play-button";
+        playButton.type = "button";
+        playButton.textContent = "ページで再生";
+        playButton.addEventListener("click", () => openClipPlayer(clip));
+
         const link = document.createElement("a");
         link.className = "clip-link";
         link.textContent = "Twitchで見る";
@@ -726,7 +883,8 @@
         link.rel = "noreferrer";
         link.href = isSafeTwitchClipUrl(clip.url) ? clip.url : "https://www.twitch.tv/rukalun";
 
-        body.append(title, meta, link);
+        actions.append(playButton, link);
+        body.append(title, meta, actions);
         card.append(ribbon, body);
         return card;
       }
@@ -787,6 +945,7 @@
           elements.resultCount.textContent = "読み込み失敗";
           elements.updatedAt.textContent = "更新日時なし";
           elements.clipSyncedAt.textContent = "Clip最終同期: 未記録";
+          closeClipPlayer();
           setNotice(`Clipデータを読み込めませんでした。${DATA_URL} を生成して配置してください。`);
           render();
         }
@@ -802,6 +961,7 @@
         resetVisibleAndRender();
       });
       elements.randomButton.addEventListener("click", pickRandomClip);
+      elements.clipPlayerClose.addEventListener("click", closeClipPlayer);
       elements.loadMoreButton.addEventListener("click", () => {
         visibleLimit += MORE_STEP;
         render();
