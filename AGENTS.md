@@ -123,6 +123,7 @@
 - TDD: `tests/docs-clip-search-page.test.ts` に `clipPlayerPanel` / `clipPlayerFrame` / `ページで再生` / `https://clips.twitch.tv/embed` / `parent` / `autoplay=false` / `allowFullscreen` の期待値を追加し、未実装失敗を確認
 - 実装: `docs/clip-search.html` にページ内再生パネル、再生ボタン、閉じるボタン、Twitch外部リンクを追加。`buildClipEmbedUrl` はClip ID、現在ホスト名の `parent`、`autoplay=false` でiframe URLを作成し、iframeはボタン押下時だけ生成する
 - 検証: `npm test -- --run tests/docs-clip-search-page.test.ts tests/docs-clip-search-data.test.ts` 4件、`npm test` 167件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/clip-search.html` / `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認、公開JSONキー検査、`git diff --check` が通過。ローカルHTTPサーバーとPlaywrightで `ページで再生` 押下後に `clips.twitch.tv` iframeが生成され、`parent=127.0.0.1` / `autoplay=false` / `allowFullscreen=true` になること、デスクトップ/390px幅の横はみ出しなしを確認
+- 本番反映: コミット `a6bbe55` をmainへpush。GitHub Pages workflow `Deploy GitHub Pages` は成功し、公開URL `https://jinwktk.github.io/twitchRaid/clip-search.html` で `ページで再生` 押下後に `clips.twitch.tv` iframeが生成され、`parent=jinwktk.github.io` / `autoplay=false` になることをPlaywrightで確認。サブPC `E:\GitHub\twitchRaid` はmain `a6bbe55` で、サブPC上の `npm run build` と対象Vitest 4件が通過
 
 - 要望: GitHub Pages Clip検索画面で、Clip最終同期時刻を秒単位で表示したい
 - TDD: `tests/docs-clip-search-data.test.ts` に `clip_sync_state.recent_sync_at` を `clipSync.recentSyncedAt` として公開JSONへ出す期待値を追加し、未実装失敗を確認。`tests/docs-clip-search-page.test.ts` に `clipSyncedAt` 要素と秒表示フォーマットの期待値を追加し、未実装失敗を確認
