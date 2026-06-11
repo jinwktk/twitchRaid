@@ -23,7 +23,7 @@
 - `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` / `!clipsearch` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、`!clip` / `!myclip` はキャッシュ未準備時のみ軽いAPIフォールバックを使う。`!clipsearch` はタイトル/作成者表示名のキャッシュ検索に限定する。
 - `src/commands/clip-cache-store.ts`: クリップ本体、走査済み期間、削除/非公開化でTwitch APIから返らなくなったClipの無効化状態、`!clip` / `!myclip:<ユーザー>` / `!clipsearch:<検索語>` ごとの表示履歴、Clipタイトル/作成者表示名の部分一致検索を `data/clips.sqlite` に保存・提供する。
 - `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期、直近同期完了後コールバック、配信していない時間の1日1回全期間再走査を担当。
-- `scripts/export-clip-search-data.mjs`: `data/clips.sqlite` の `clip_cache` からGitHub Pages用の `docs/clip-search-data.json` を生成する。公開項目はClip ID、URL、タイトル、作成者表示名、作成日、再生数のみで、`unavailable_at` が入ったClipや内部state/履歴/認証情報は出力しない。
+- `scripts/export-clip-search-data.mjs`: `data/clips.sqlite` の `clip_cache` と `clip_sync_state.recent_sync_at` からGitHub Pages用の `docs/clip-search-data.json` を生成する。公開項目はClip ID、URL、タイトル、作成者表示名、作成日、再生数、`clipSync.recentSyncedAt` のみで、`unavailable_at` が入ったClipや履歴/その他の内部state/認証情報は出力しない。
 - `src/commands/stream-notify.ts`: TypeScript版 `!streamnotify` の管理者判定と、現在配信中の開始通知をDiscordへ手動送信するためのライブ状態取得ヘルパー。配信開始Embed用に視聴者数・サムネイルURLも通す。
 - `src/notifications/stream-notifications.ts`: 配信開始通知の重複抑止、`@everyone` 付きDiscord Embed payload生成、保存タイトルをタイトル単体に保つ処理を担当。
 - `src/notifications/discord-webhook.ts`: Discord Webhook/Bot API投稿、Embed/allowed_mentions payload、メッセージ起点スレッド作成、Discord thread API操作を担当。
@@ -31,8 +31,8 @@
 - `src/streams/stream-summary-count-buffer.ts`: 通常コメントごとの配信まとめstate同期書き込みを避けるため、コメント数更新を30秒デバウンスし、Raid/停止/配信終了時に即時flushする。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
 - `docs/index.html`: 現行TypeScript版 `src/` を中心に、Twitch Botのプログラム概要、機能一覧、処理フロー、配信まとめ、Clip同期、Raid対応、フォールバック、性能・運用、品質ゲートを図付きでまとめたGitHub Pages用HTML仕様書。
-- `docs/clip-search.html`: GitHub Pages用Clip検索画面。`docs/clip-search-data.json` を読み込み、タイトル/作成者表示名検索、作成者フィルタ、並び替え、追加表示をブラウザ内で行う。淡いピンク、ミント、空色、レモン色のゆるふわ系デザイン。
-- `docs/clip-search-data.json`: `scripts/export-clip-search-data.mjs` で生成する公開用Clip検索データ。サブPCの `data/clips.sqlite` から生成してmainへ反映する。
+- `docs/clip-search.html`: GitHub Pages用Clip検索画面。`docs/clip-search-data.json` を読み込み、タイトル/作成者表示名検索、作成者フィルタ、並び替え、追加表示、Clip最終同期時刻のJST秒単位表示をブラウザ内で行う。淡いピンク、ミント、空色、レモン色のゆるふわ系デザイン。
+- `docs/clip-search-data.json`: `scripts/export-clip-search-data.mjs` で生成する公開用Clip検索データ。サブPCの `data/clips.sqlite` から生成してmainへ反映する。`clipSync.recentSyncedAt` に直近Clip同期時刻を保持する。
 - `docs/typescript-bot-spec.html`: 旧URL互換ページ。仕様を二重管理しないため、`docs/index.html` へ案内するだけにする。
 - `docs/ARCHITECTURE.md` / `docs/COMMANDS.md` / `docs/DESIGN_PATTERNS.md` / `docs/TECH_STACK.md`: `docs/index.html` を正本とするTypeScript版補助資料。
 - `ecosystem.config.js`: PM2プロセス定義。プロセス名は本番運用に合わせて `twitchRaid`。
@@ -55,8 +55,8 @@
 - `tests/commands/shoutout-introduction.test.ts`: Ollama Raid挨拶文生成の無効時固定文フォールバック、`/api/generate` リクエスト、HTTP失敗時フォールバック、採用/フォールバック理由通知、250文字制限、Raid人数をAIへ渡さないこと、低人数ネガティブ表現の拒否、ゲーム名/配信タイトルの不足分補完、主要部を含むAI文への二重紹介追記防止、`@ユーザー名` とURL保証、絵文字除去を含むチャット向け整形を検証。
 - `tests/bot-raid-greeting.test.ts`: BotのRaid情報取得ではチャット送信せず、Raid挨拶文送信経路だけが1通送ることを検証。
 - `tests/bot-clipsearch.test.ts`: TypeScript版 `!clipsearch` の使い方表示、空白入り検索語の保持、URL送信、履歴保存、結果なしメッセージを検証。
-- `tests/docs-clip-search-data.test.ts`: GitHub Pages用Clip検索JSONの生成で、有効Clipのみ、公開項目のみ、新しい順、件数一致になることを検証。
-- `tests/docs-clip-search-page.test.ts`: `docs/clip-search.html` の検索UI要素と `docs/index.html` からの導線を検証。
+- `tests/docs-clip-search-data.test.ts`: GitHub Pages用Clip検索JSONの生成で、有効Clipのみ、公開項目のみ、新しい順、件数一致、直近Clip同期時刻の出力になることを検証。
+- `tests/docs-clip-search-page.test.ts`: `docs/clip-search.html` の検索UI要素、Clip最終同期時刻表示、`docs/index.html` からの導線を検証。
 - `tests/commands/raid-info.test.ts`: Raid元配信情報の取得、指定文言でのチャットメッセージ整形、オフライン時フォールバック、長文タイトルの単一行化/短縮を検証。
 - `tests/commands/boom.test.ts`: TypeScript版 `!boom` のVODチャプター抽出、ゲーム別合算、1時間未満フィルタ、表示文言を検証。
 - `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタ、`clipsearch:<検索語>` 履歴キーとキャッシュ検索ラッパーを検証。
@@ -118,6 +118,12 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-11 作業ログ
+- 要望: GitHub Pages Clip検索画面で、Clip最終同期時刻を秒単位で表示したい
+- TDD: `tests/docs-clip-search-data.test.ts` に `clip_sync_state.recent_sync_at` を `clipSync.recentSyncedAt` として公開JSONへ出す期待値を追加し、未実装失敗を確認。`tests/docs-clip-search-page.test.ts` に `clipSyncedAt` 要素と秒表示フォーマットの期待値を追加し、未実装失敗を確認
+- 実装: `scripts/export-clip-search-data.mjs` が `clip_sync_state` から `recent_sync_at` を読み、`docs/clip-search-data.json` の `clipSync.recentSyncedAt` へ出力するよう変更。`docs/clip-search.html` はJSON生成時刻とClip最終同期時刻をJSTの年月日・時分秒で表示するよう変更
+- データ: サブPC `E:\GitHub\twitchRaid\data\clips.sqlite` の `recent_sync_at=2026-06-11T03:50:16.396Z` を確認し、一時コピーから `docs/clip-search-data.json` を再生成。2,750件、Clip個別公開項目は従来どおり `id` / `url` / `title` / `creator` / `createdAt` / `views` のみに限定した
+- 検証: `npm test -- --run tests/docs-clip-search-data.test.ts tests/docs-clip-search-page.test.ts` 3件、`npm test` 166件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/clip-search.html` / `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認、公開JSONキー検査、`git diff --check` が通過。ローカルHTTPサーバーとPlaywrightでデスクトップ/390px幅の `Clip最終同期: 2026/06/11 12:50:16 JST` 秒表示と横はみ出しなしを確認
+
 - 要望: GitHub PagesでClip検索画面を作り、るっかるんに合うかわいいゆるふわ系デザインにしたい
 - Autopilot: `.omx/context/github-pages-clip-search-20260611T032221Z.md`、`.omx/specs/deep-interview-github-pages-clip-search.md`、`.omx/plans/prd-github-pages-clip-search.md`、`.omx/plans/test-spec-github-pages-clip-search.md` を作成。Architectレビューは静的Pages用JSON生成と公開項目最小化をCLEARとして承認、Criticレビューはapprove
 - TDD: `tests/docs-clip-search-data.test.ts` でSQLiteから有効Clipだけを公開項目のみ新しい順に出す期待値を追加し、未実装失敗を確認。`tests/docs-clip-search-page.test.ts` で検索UI要素と `docs/index.html` からの導線を検証し、導線追加前の失敗を確認

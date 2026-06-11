@@ -25,6 +25,12 @@ function createClipCache(dbPath: string): DatabaseSync {
       unavailable_at TEXT,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE clip_sync_state (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
   return db;
 }
@@ -52,6 +58,13 @@ describe("export-clip-search-data", () => {
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
+    db.prepare(
+      "INSERT INTO clip_sync_state (key, value, updated_at) VALUES (?, ?, ?)"
+    ).run(
+      "recent_sync_at",
+      "2026-01-02T03:04:05.000Z",
+      "2026-01-02T03:04:05.000Z"
+    );
     insert.run(
       "old",
       "https://www.twitch.tv/rukalun/clip/old",
@@ -104,11 +117,17 @@ describe("export-clip-search-data", () => {
     const exported = JSON.parse(fs.readFileSync(outPath, "utf8")) as {
       generatedAt: string;
       total: number;
+      clipSync: {
+        recentSyncedAt: string | null;
+      };
       clips: Array<Record<string, unknown>>;
     };
 
     expect(exported.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(exported.total).toBe(2);
+    expect(exported.clipSync).toEqual({
+      recentSyncedAt: "2026-01-02T03:04:05.000Z",
+    });
     expect(exported.clips.map((clip) => clip.id)).toEqual(["new", "old"]);
     expect(exported.clips[0]).toEqual({
       id: "new",

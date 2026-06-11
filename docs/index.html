@@ -1063,9 +1063,10 @@
               Clip検索画面 <code>docs/clip-search.html</code> が読み込みます。
             </p>
             <ul>
-              <li>公開項目は <code>id</code>、URL、タイトル、作成者表示名、作成日、再生数のみ</li>
+              <li>公開項目は <code>id</code>、URL、タイトル、作成者表示名、作成日、再生数、<code>clipSync.recentSyncedAt</code> のみ</li>
               <li><code>unavailable_at</code> があるClipは除外</li>
-              <li><code>creator_id</code>、表示履歴、同期state、認証情報は公開しない</li>
+              <li>Clip最終同期時刻は <code>clip_sync_state.recent_sync_at</code> を元にJSTの秒単位で表示</li>
+              <li><code>creator_id</code>、表示履歴、その他の内部state、認証情報は公開しない</li>
               <li>更新は <code>npm run docs:export-clips</code> で行う</li>
             </ul>
           </article>

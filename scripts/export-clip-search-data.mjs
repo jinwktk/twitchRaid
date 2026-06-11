@@ -2,6 +2,8 @@ import fs from "fs";
 import path from "path";
 import { DatabaseSync } from "node:sqlite";
 
+const RECENT_SYNC_STATE_KEY = "recent_sync_at";
+
 function parseArgs(argv) {
   const args = {
     db: path.join("data", "clips.sqlite"),
@@ -57,6 +59,26 @@ function ensureClipCacheExists(db) {
   }
 }
 
+function tableExists(db, tableName) {
+  const row = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(tableName);
+
+  return Boolean(row);
+}
+
+function readSyncState(db, key) {
+  if (!tableExists(db, "clip_sync_state")) {
+    return null;
+  }
+
+  const row = db
+    .prepare("SELECT value FROM clip_sync_state WHERE key = ?")
+    .get(key);
+
+  return row?.value == null ? null : String(row.value);
+}
+
 function readClips(db, limit) {
   const limitSql = limit ? "LIMIT ?" : "";
   const params = limit ? [limit] : [];
@@ -105,6 +127,9 @@ function main() {
     const payload = {
       generatedAt: new Date().toISOString(),
       total: clips.length,
+      clipSync: {
+        recentSyncedAt: readSyncState(db, RECENT_SYNC_STATE_KEY),
+      },
       clips,
     };
     writeJson(args.out, payload);

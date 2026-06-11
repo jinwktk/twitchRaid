@@ -533,6 +533,7 @@
         <div class="status" aria-live="polite">
           <span id="resultCount" class="pill mint">読み込み中</span>
           <span id="updatedAt" class="pill">更新日時を確認中</span>
+          <span id="clipSyncedAt" class="pill">Clip最終同期を確認中</span>
         </div>
         <span id="dataSource" class="pill">clip-search-data.json</span>
       </div>
@@ -572,6 +573,7 @@
         emptyState: document.querySelector("#emptyState"),
         resultCount: document.querySelector("#resultCount"),
         updatedAt: document.querySelector("#updatedAt"),
+        clipSyncedAt: document.querySelector("#clipSyncedAt"),
         notice: document.querySelector("#notice"),
       };
 
@@ -596,6 +598,28 @@
           month: "2-digit",
           day: "2-digit",
         }).format(date);
+      }
+
+      function formatDateTimeWithSeconds(value) {
+        if (!value) return "日時不明";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "日時不明";
+        const parts = new Intl.DateTimeFormat("ja-JP", {
+          timeZone: "Asia/Tokyo",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        })
+          .formatToParts(date)
+          .reduce((acc, part) => {
+            acc[part.type] = part.value;
+            return acc;
+          }, {});
+        return `${parts.year}/${parts.month}/${parts.day} ${parts.hour}:${parts.minute}:${parts.second} JST`;
       }
 
       function formatViews(value) {
@@ -749,8 +773,12 @@
             : [];
           buildCreatorOptions(allClips);
           elements.updatedAt.textContent = data.generatedAt
-            ? `更新: ${formatDate(data.generatedAt)}`
+            ? `JSON生成: ${formatDateTimeWithSeconds(data.generatedAt)}`
             : "更新日時なし";
+          const recentSyncedAt = data.clipSync?.recentSyncedAt ?? null;
+          elements.clipSyncedAt.textContent = recentSyncedAt
+            ? `Clip最終同期: ${formatDateTimeWithSeconds(recentSyncedAt)}`
+            : "Clip最終同期: 未記録";
           setNotice(allClips.length === 0 ? "公開用Clipデータが空です。運用側でJSONを生成してください。" : "");
           render();
         } catch (error) {
@@ -758,6 +786,7 @@
           filteredClips = [];
           elements.resultCount.textContent = "読み込み失敗";
           elements.updatedAt.textContent = "更新日時なし";
+          elements.clipSyncedAt.textContent = "Clip最終同期: 未記録";
           setNotice(`Clipデータを読み込めませんでした。${DATA_URL} を生成して配置してください。`);
           render();
         }
