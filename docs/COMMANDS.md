@@ -36,7 +36,8 @@
 - `docs/clip-search.html` はチャットコマンドではなく、GitHub Pages用の検索画面。
 - `docs/clip-search-data.json` を読み込み、ブラウザ内でClipタイトル/作成者表示名を検索する。
 - 公開データは `npm run docs:export-clips` で `data/clips.sqlite` から生成する。
-- 公開項目はClip ID、URL、タイトル、作成者表示名、作成日、再生数のみ。削除/非公開化されたClipは除外する。
+- 公開項目はClip ID、URL、タイトル、作成者表示名、作成日、再生数、Clip最終同期時刻のみ。削除/非公開化されたClipは除外する。
+- Clip最終同期時刻は `clip_sync_state.recent_sync_at` を元に、画面上でJSTの秒単位まで表示する。
 
 ## mangaコマンド
 

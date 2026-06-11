@@ -15,6 +15,8 @@ describe("GitHub Pages clip search page", () => {
     expect(html).toContain('id="sortSelect"');
     expect(html).toContain('id="results"');
     expect(html).toContain('id="emptyState"');
+    expect(html).toContain('id="clipSyncedAt"');
+    expect(html).toContain('second: "2-digit"');
   });
 
   it("is linked from the main GitHub Pages document", () => {
