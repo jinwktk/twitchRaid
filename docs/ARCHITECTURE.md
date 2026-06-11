@@ -66,6 +66,6 @@ src/index.ts
 - 通常コメントによる配信まとめコメント数更新は30秒デバウンスし、Raid/停止/配信終了時は即時flushする。
 - Raid shoutoutは `ShoutoutQueue` で直列化し、429時は2分後に同一対象を再実行する。
 - ClipはSQLiteキャッシュ優先。`!clipsearch` はタイトル/作成者表示名をキャッシュ内で部分一致検索し、Twitch API全件検索へはフォールバックしない。削除/非公開化されたClipはオフライン時の日次再走査で `unavailable_at` を入れて候補から外す。
-- GitHub PagesのClip検索画面は静的配信のため、`data/clips.sqlite` へ直接アクセスしない。`scripts/export-clip-search-data.mjs` で `docs/clip-search-data.json` を生成し、公開項目はClip ID、URL、タイトル、作成者表示名、作成日、再生数、`clipSync.recentSyncedAt` のみに限定する。画面上のClip最終同期時刻はJSTの秒単位で表示する。
+- GitHub PagesのClip検索画面は静的配信のため、`data/clips.sqlite` へ直接アクセスしない。`scripts/export-clip-search-data.mjs` で `docs/clip-search-data.json` を生成し、公開項目はClip ID、URL、タイトル、作成者表示名、作成日、再生数、`clipSync.recentSyncedAt` のみに限定する。画面上のClip最終同期時刻はJSTの秒単位で表示する。ページ内再生はClip IDから `https://clips.twitch.tv/embed` のiframeをブラウザ側で組み立て、`parent` は現在ホスト名、`autoplay=false` を指定する。
 - `!clipsearch` のLIKE部分一致検索がClip件数増加で重くなった場合は、SQLite FTS5 または検索専用テーブルへの移行を検討する。初回は1件URL返却の単純検索に限定し、FTSは導入しない。
 - `!boom` は過去30日間のVODを対象に、最大4本並列でGraphQLを取得し、結果を5分キャッシュする。

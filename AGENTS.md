@@ -31,7 +31,7 @@
 - `src/streams/stream-summary-count-buffer.ts`: 通常コメントごとの配信まとめstate同期書き込みを避けるため、コメント数更新を30秒デバウンスし、Raid/停止/配信終了時に即時flushする。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
 - `docs/index.html`: 現行TypeScript版 `src/` を中心に、Twitch Botのプログラム概要、機能一覧、処理フロー、配信まとめ、Clip同期、Raid対応、フォールバック、性能・運用、品質ゲートを図付きでまとめたGitHub Pages用HTML仕様書。
-- `docs/clip-search.html`: GitHub Pages用Clip検索画面。`docs/clip-search-data.json` を読み込み、タイトル/作成者表示名検索、作成者フィルタ、並び替え、追加表示、Clip最終同期時刻のJST秒単位表示をブラウザ内で行う。淡いピンク、ミント、空色、レモン色のゆるふわ系デザイン。
+- `docs/clip-search.html`: GitHub Pages用Clip検索画面。`docs/clip-search-data.json` を読み込み、タイトル/作成者表示名検索、作成者フィルタ、並び替え、追加表示、Clip最終同期時刻のJST秒単位表示、選択ClipのTwitch iframeページ内再生をブラウザ内で行う。淡いピンク、ミント、空色、レモン色のゆるふわ系デザイン。
 - `docs/clip-search-data.json`: `scripts/export-clip-search-data.mjs` で生成する公開用Clip検索データ。サブPCの `data/clips.sqlite` から生成してmainへ反映する。`clipSync.recentSyncedAt` に直近Clip同期時刻を保持する。
 - `docs/typescript-bot-spec.html`: 旧URL互換ページ。仕様を二重管理しないため、`docs/index.html` へ案内するだけにする。
 - `docs/ARCHITECTURE.md` / `docs/COMMANDS.md` / `docs/DESIGN_PATTERNS.md` / `docs/TECH_STACK.md`: `docs/index.html` を正本とするTypeScript版補助資料。
@@ -56,7 +56,7 @@
 - `tests/bot-raid-greeting.test.ts`: BotのRaid情報取得ではチャット送信せず、Raid挨拶文送信経路だけが1通送ることを検証。
 - `tests/bot-clipsearch.test.ts`: TypeScript版 `!clipsearch` の使い方表示、空白入り検索語の保持、URL送信、履歴保存、結果なしメッセージを検証。
 - `tests/docs-clip-search-data.test.ts`: GitHub Pages用Clip検索JSONの生成で、有効Clipのみ、公開項目のみ、新しい順、件数一致、直近Clip同期時刻の出力になることを検証。
-- `tests/docs-clip-search-page.test.ts`: `docs/clip-search.html` の検索UI要素、Clip最終同期時刻表示、`docs/index.html` からの導線を検証。
+- `tests/docs-clip-search-page.test.ts`: `docs/clip-search.html` の検索UI要素、Clip最終同期時刻表示、Twitch Clip iframe用のページ内再生UI、`docs/index.html` からの導線を検証。
 - `tests/commands/raid-info.test.ts`: Raid元配信情報の取得、指定文言でのチャットメッセージ整形、オフライン時フォールバック、長文タイトルの単一行化/短縮を検証。
 - `tests/commands/boom.test.ts`: TypeScript版 `!boom` のVODチャプター抽出、ゲーム別合算、1時間未満フィルタ、表示文言を検証。
 - `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタ、`clipsearch:<検索語>` 履歴キーとキャッシュ検索ラッパーを検証。
@@ -118,6 +118,12 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-11 作業ログ
+- 要望: GitHub Pages Clip検索画面で、ページ上で動画再生できるようにしたい
+- 仕様確認: Twitch公式ドキュメントでClip埋め込みには `parent` が必要なことを確認。大量カードへiframeを常時出すと重いため、各カードの `ページで再生` ボタンから結果一覧上部の単一プレイヤーパネルへTwitch Clip iframeを差し込む方式にした
+- TDD: `tests/docs-clip-search-page.test.ts` に `clipPlayerPanel` / `clipPlayerFrame` / `ページで再生` / `https://clips.twitch.tv/embed` / `parent` / `autoplay=false` / `allowFullscreen` の期待値を追加し、未実装失敗を確認
+- 実装: `docs/clip-search.html` にページ内再生パネル、再生ボタン、閉じるボタン、Twitch外部リンクを追加。`buildClipEmbedUrl` はClip ID、現在ホスト名の `parent`、`autoplay=false` でiframe URLを作成し、iframeはボタン押下時だけ生成する
+- 検証: `npm test -- --run tests/docs-clip-search-page.test.ts tests/docs-clip-search-data.test.ts` 4件、`npm test` 167件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/clip-search.html` / `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認、公開JSONキー検査、`git diff --check` が通過。ローカルHTTPサーバーとPlaywrightで `ページで再生` 押下後に `clips.twitch.tv` iframeが生成され、`parent=127.0.0.1` / `autoplay=false` / `allowFullscreen=true` になること、デスクトップ/390px幅の横はみ出しなしを確認
+
 - 要望: GitHub Pages Clip検索画面で、Clip最終同期時刻を秒単位で表示したい
 - TDD: `tests/docs-clip-search-data.test.ts` に `clip_sync_state.recent_sync_at` を `clipSync.recentSyncedAt` として公開JSONへ出す期待値を追加し、未実装失敗を確認。`tests/docs-clip-search-page.test.ts` に `clipSyncedAt` 要素と秒表示フォーマットの期待値を追加し、未実装失敗を確認
 - 実装: `scripts/export-clip-search-data.mjs` が `clip_sync_state` から `recent_sync_at` を読み、`docs/clip-search-data.json` の `clipSync.recentSyncedAt` へ出力するよう変更。`docs/clip-search.html` はJSON生成時刻とClip最終同期時刻をJSTの年月日・時分秒で表示するよう変更
