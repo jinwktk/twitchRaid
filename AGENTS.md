@@ -122,6 +122,7 @@
 - TDD: `tests/docs-clip-search-page.test.ts` に、公開ページへ `Bot仕様書`、`docs:export-clips`、`SQLite`、`公開JSON`、`dataSource`、`docs/index.html` 導線を出さない期待値と、内部仕様書から `clip-search.html` へリンクしない期待値を追加し、未実装失敗を確認
 - 実装: `docs/clip-search.html` からヘッダーの仕様書/Twitchリンク、データソースpill、内部運用説明フッターを削除。`docs/index.html` から `clip-search.html` へのボタン/ナビリンクを削除し、内部説明内のパス表記はリンクなしのテキストにした
 - 検証: `npm test -- --run tests/docs-clip-search-page.test.ts tests/docs-clip-search-data.test.ts` 5件、`npm test` 168件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/clip-search.html` / `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認、`git diff --check` が通過。ローカルHTTPサーバーとPlaywrightでデスクトップ/390px幅とも `Bot仕様書` / `docs:export-clips` / `SQLite` / `公開JSON` / `dataSource` / `docs/index.html` 導線なし、`ページで再生` あり、横はみ出しなしを確認
+- 本番反映: コミット `a601675` をmainへpush。GitHub Pages workflow `Deploy GitHub Pages` は成功し、公開URL `https://jinwktk.github.io/twitchRaid/clip-search.html` でデスクトップ/390px幅とも内部導線なし、`ページで再生` あり、横はみ出しなしをPlaywrightで確認。公開HTMLでも `Bot仕様書` / `docs:export-clips` / `SQLite` / `公開JSON` / `dataSource` は含まれず、`docs/index.html` 側にも `href="./clip-search.html"` が無いことを確認。サブPC `E:\GitHub\twitchRaid` はmain `a601675` で、サブPC上の `npm run build` と対象Vitest 5件が通過
 
 - 要望: GitHub Pages Clip検索画面で、ページ上で動画再生できるようにしたい
 - 仕様確認: Twitch公式ドキュメントでClip埋め込みには `parent` が必要なことを確認。大量カードへiframeを常時出すと重いため、各カードの `ページで再生` ボタンから結果一覧上部の単一プレイヤーパネルへTwitch Clip iframeを差し込む方式にした
