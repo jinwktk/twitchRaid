@@ -249,8 +249,9 @@
 
       .search-toggle {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-columns: minmax(0, 1fr) 24px;
         align-items: center;
+        column-gap: 10px;
         width: 100%;
         min-height: 44px;
         border: 1px solid var(--line);
@@ -262,18 +263,10 @@
         box-shadow: 0 10px 22px rgba(88, 55, 88, 0.06);
       }
 
-      .search-toggle::after {
-        width: 9px;
-        height: 9px;
-        border-right: 2px solid #b63d74;
-        border-bottom: 2px solid #b63d74;
-        content: "";
-        transform: translateY(-2px) rotate(45deg);
-        transition: transform 0.18s ease;
-      }
-
-      .search-toggle[aria-expanded="true"]::after {
-        transform: translateY(2px) rotate(225deg);
+      .search-toggle-copy {
+        display: grid;
+        min-width: 0;
+        gap: 2px;
       }
 
       .search-toggle-label {
@@ -282,14 +275,30 @@
       }
 
       .search-toggle-summary {
-        grid-column: 1 / -1;
-        margin-top: 2px;
+        min-width: 0;
         color: var(--muted);
         font-size: 0.78rem;
         font-weight: 800;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      .search-toggle-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        color: #b63d74;
+        font-size: 0.95rem;
+        font-weight: 900;
+        line-height: 1;
+        transition: transform 0.18s ease;
+      }
+
+      .search-toggle[aria-expanded="true"] .search-toggle-icon {
+        transform: rotate(180deg);
       }
 
       .search-grid {
@@ -679,8 +688,11 @@
           aria-controls="searchControls"
           aria-expanded="false"
         >
-          <span id="searchPanelToggleLabel" class="search-toggle-label">検索条件を開く</span>
-          <span id="searchPanelSummary" class="search-toggle-summary">検索条件を確認中</span>
+          <span class="search-toggle-copy">
+            <span id="searchPanelToggleLabel" class="search-toggle-label">検索条件を開く</span>
+            <span id="searchPanelSummary" class="search-toggle-summary">検索条件を確認中</span>
+          </span>
+          <span class="search-toggle-icon" aria-hidden="true">▽</span>
         </button>
       </div>
       <div id="searchControls" class="wrap search-grid">

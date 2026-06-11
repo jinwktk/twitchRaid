@@ -154,7 +154,7 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 - `docs/clip-search.html` は静的GitHub Pages上で動くClip検索画面。るっかるん向けに淡いピンク、ミント、空色、レモン色を使ったゆるふわ系デザインにしている。生成画像 `docs/assets/clip-search-og.png` をヒーロー背景とOG画像に使い、`docs/assets/clip-search-favicon.png` / `docs/favicon.ico` / `docs/assets/apple-touch-icon.png` をfaviconやホーム画面アイコンに使う
 - 検索エンジン/SNS向けに、description、canonical、robots、OGP、Twitter Card、JSON-LD `CollectionPage` / `SearchAction` を設定する。`?q=検索語` がある場合は検索欄へ初期入力する
 - 検索データは `docs/clip-search-data.json`。ブラウザ内でタイトル/作成者表示名/ゲーム名を検索し、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、件数表示、追加表示、Clip最終同期時刻の秒単位表示に対応する
-- スマホ幅では上部の検索条件を「検索条件を開く」ボタン配下へ折りたたみ、必要な時だけ開けるようにする。PC/タブレット幅では従来通り検索条件を常時表示する
+- スマホ幅では上部の検索条件を「検索条件を開く」ボタン配下へ折りたたみ、必要な時だけ開けるようにする。トグル内は条件概要と右端固定の `▽` を分け、長い検索条件でもアイコン位置が崩れないようにする。PC/タブレット幅では従来通り検索条件を常時表示する
 - 各Clipカードにはサムネイル、ゲーム名、作成者、作成日、再生数を表示する。再生はページ内iframeではなく `Twitchで見る` の外部リンクだけにする
 - お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存する。公開JSONやサーバー側状態にはお気に入り情報を持たせず、`お気に入り順` はお気に入りを登録が新しい順で先頭に並べる
 - 公開画面には仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明を表示しない。内部向け仕様書からも公開Clip検索画面へのリンク導線は置かない
@@ -239,6 +239,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-11**: GitHub Pages Clip検索画面のSP検索トグルを調整。条件概要テキストと右端の `▽` を別カラムに分け、開閉アイコンが右側に固定されるようにした
 - **2026-06-11**: Clip同期ログでは `直近clip同期完了: saved=0` が続いていたが、GitHub Pages用 `docs/clip-search-data.json` が再生成・pushされず `Clip最終同期` が古いままになる問題を修正。`CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` で同期後に公開JSONを自動生成し、保存0件でも既定5分ごとにmainへcommit/pushするようにした
 - **2026-06-11**: GitHub Pages Clip検索画面のSP表示で、上部検索条件を開閉式に変更。初期状態は折りたたみ、条件概要を表示して検索結果の縦領域を確保するようにした
 - **2026-06-11**: GitHub Pages Clip検索画面用faviconを生成。`docs/assets/clip-search-favicon.png`、`docs/assets/apple-touch-icon.png`、`docs/favicon.ico` を追加し、公開3ページから参照するようにした
