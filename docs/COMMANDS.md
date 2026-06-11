@@ -31,6 +31,13 @@
 - `!clipsearch` の表示履歴は `clipsearch:<検索語>` ごとに保存する。
 - 削除/非公開化でTwitch APIから返らなくなったClipは、日次再走査で `unavailable_at` を付けて候補から外す。
 
+## GitHub Pages Clip検索
+
+- `docs/clip-search.html` はチャットコマンドではなく、GitHub Pages用の検索画面。
+- `docs/clip-search-data.json` を読み込み、ブラウザ内でClipタイトル/作成者表示名を検索する。
+- 公開データは `npm run docs:export-clips` で `data/clips.sqlite` から生成する。
+- 公開項目はClip ID、URL、タイトル、作成者表示名、作成日、再生数のみ。削除/非公開化されたClipは除外する。
+
 ## mangaコマンド
 
 | コマンド | 機能 | 権限 |

@@ -491,13 +491,14 @@
             <a class="button primary" href="#map">全体マップを見る</a>
             <a class="button" href="#flows">処理フローを見る</a>
             <a class="button" href="#quality">テストを見る</a>
+            <a class="button" href="./clip-search.html">Clip検索を開く</a>
           </div>
           <div class="meta" aria-label="基本情報">
             <span class="tag">Runtime: Node.js 22.5+</span>
             <span class="tag">Language: TypeScript 5.7</span>
             <span class="tag">Entry: src/index.ts</span>
             <span class="tag">Main: src/bot.ts</span>
-            <span class="tag">更新日: 2026-06-08</span>
+            <span class="tag">更新日: 2026-06-11</span>
           </div>
         </div>
 
@@ -558,6 +559,7 @@
         <a href="#features">機能一覧</a>
         <a href="#flows">処理フロー</a>
         <a href="#files">ファイル構成</a>
+        <a href="./clip-search.html">Clip検索</a>
         <a href="#fallback">失敗時の守り</a>
         <a href="#performance">性能・運用</a>
         <a href="#quality">品質ゲート</a>
@@ -975,6 +977,10 @@
               <td>Clip選択、タイトル/作成者名検索、SQLiteキャッシュ、表示履歴、全期間バックフィル、直近同期、日次再走査。</td>
             </tr>
             <tr>
+              <td><code>scripts/export-clip-search-data.mjs</code> / <code>docs/clip-search.html</code></td>
+              <td>SQLite Clipキャッシュから公開用JSONを生成し、GitHub Pages上でタイトル/作成者名検索できる画面を提供。</td>
+            </tr>
+            <tr>
               <td><code>src/commands/boom.ts</code></td>
               <td>過去30日のVODを取得し、Twitch GraphQLのチャプター/メタデータからゲーム時間を集計。</td>
             </tr>
@@ -1047,6 +1053,20 @@
               <li><code>clip_scan_windows</code>: 全期間バックフィルの完了窓</li>
               <li><code>clip_sync_state</code>: 直近同期と日次再走査の時刻</li>
               <li><code>!clipsearch</code> がClip件数増加で遅くなった場合はFTS5または検索専用テーブルへの移行を検討</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>GitHub Pages Clip検索データ</h3>
+            <p>
+              <code>docs/clip-search-data.json</code> は
+              <code>data/clips.sqlite</code> から生成する公開用データです。
+              Clip検索画面 <code>docs/clip-search.html</code> が読み込みます。
+            </p>
+            <ul>
+              <li>公開項目は <code>id</code>、URL、タイトル、作成者表示名、作成日、再生数のみ</li>
+              <li><code>unavailable_at</code> があるClipは除外</li>
+              <li><code>creator_id</code>、表示履歴、同期state、認証情報は公開しない</li>
+              <li>更新は <code>npm run docs:export-clips</code> で行う</li>
             </ul>
           </article>
         </div>
@@ -1207,6 +1227,7 @@ npm run lint</code></pre>
         <div class="note">
           <p>
             本体ページは <code>docs/index.html</code> です。
+            Clip検索画面は <a href="./clip-search.html"><code>docs/clip-search.html</code></a> です。
             以前の <code>docs/typescript-bot-spec.html</code> は、分割管理をやめるため、
             このページへ案内する互換ページにしています。
           </p>

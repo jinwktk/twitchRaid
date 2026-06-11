@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>るっかるん Clip検索</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #fff8fb;
+        --paper: #ffffff;
+        --ink: #30283a;
+        --muted: #756b7f;
+        --line: #eadde8;
+        --pink: #e86f9f;
+        --pink-soft: #ffe7f0;
+        --mint: #dff7ed;
+        --mint-ink: #26796f;
+        --sky: #e8f5ff;
+        --sky-ink: #356ba3;
+        --lemon: #fff4c9;
+        --lavender: #efe9ff;
+        --shadow: 0 14px 36px rgba(88, 55, 88, 0.1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          linear-gradient(135deg, rgba(255, 231, 240, 0.85) 0 18%, transparent 18% 100%),
+          linear-gradient(180deg, #fffdf8 0, var(--bg) 540px, #f6fbff 100%);
+        color: var(--ink);
+        font-family:
+          "Segoe UI",
+          "Hiragino Kaku Gothic ProN",
+          "Yu Gothic",
+          system-ui,
+          sans-serif;
+        line-height: 1.65;
+      }
+
+      a {
+        color: var(--sky-ink);
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      .wrap {
+        width: min(1120px, calc(100% - 28px));
+        margin: 0 auto;
+      }
+
+      .topbar {
+        border-bottom: 1px solid rgba(234, 221, 232, 0.86);
+        background: rgba(255, 255, 255, 0.78);
+        backdrop-filter: blur(10px);
+      }
+
+      .topbar-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        min-height: 58px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        color: var(--ink);
+        font-weight: 900;
+        text-decoration: none;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border: 1px solid #f2b4ce;
+        border-radius: 8px;
+        background: var(--pink-soft);
+        color: #b93f72;
+      }
+
+      .top-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .top-links a {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        padding: 7px 10px;
+        color: var(--muted);
+        font-size: 0.92rem;
+        font-weight: 800;
+        text-decoration: none;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.02fr) minmax(300px, 0.86fr);
+        gap: 28px;
+        align-items: center;
+        padding: 34px 0 20px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid #f1c2d7;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.82);
+        padding: 5px 12px;
+        color: #a94a77;
+        font-size: 0.9rem;
+        font-weight: 900;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        max-width: 720px;
+        margin-top: 14px;
+        font-size: clamp(2.1rem, 5vw, 4rem);
+        line-height: 1.12;
+      }
+
+      .lead {
+        max-width: 760px;
+        margin-top: 14px;
+        color: var(--muted);
+        font-size: 1.05rem;
+      }
+
+      .hero-art {
+        display: block;
+        width: 100%;
+        min-height: 280px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        box-shadow: var(--shadow);
+      }
+
+      .search-panel {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        border-top: 1px solid rgba(234, 221, 232, 0.7);
+        border-bottom: 1px solid rgba(234, 221, 232, 0.9);
+        background: rgba(255, 248, 251, 0.9);
+        backdrop-filter: blur(10px);
+      }
+
+      .search-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 190px 170px auto;
+        gap: 10px;
+        align-items: end;
+        padding: 14px 0;
+      }
+
+      .field {
+        display: grid;
+        gap: 5px;
+      }
+
+      label {
+        color: var(--muted);
+        font-size: 0.84rem;
+        font-weight: 900;
+      }
+
+      input,
+      select {
+        width: 100%;
+        min-height: 44px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        color: var(--ink);
+        outline: none;
+        padding: 10px 12px;
+      }
+
+      input:focus,
+      select:focus,
+      button:focus-visible,
+      a:focus-visible {
+        outline: 3px solid rgba(232, 111, 159, 0.3);
+        outline-offset: 2px;
+      }
+
+      .button-row {
+        display: flex;
+        gap: 8px;
+      }
+
+      .button {
+        min-height: 44px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        color: var(--ink);
+        padding: 10px 12px;
+        font-weight: 900;
+      }
+
+      .button.primary {
+        border-color: #d94f89;
+        background: var(--pink);
+        color: #fff;
+      }
+
+      main {
+        padding: 24px 0 56px;
+      }
+
+      .status-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 18px;
+      }
+
+      .status {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .pill {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--paper);
+        padding: 5px 10px;
+        color: var(--muted);
+        font-size: 0.9rem;
+        font-weight: 800;
+      }
+
+      .pill.mint {
+        border-color: #b9e8d9;
+        background: var(--mint);
+        color: var(--mint-ink);
+      }
+
+      .notice {
+        border: 1px solid #f1d6a2;
+        border-radius: 8px;
+        background: var(--lemon);
+        padding: 12px;
+        color: #735600;
+        font-weight: 800;
+      }
+
+      .results {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .clip-card {
+        display: grid;
+        min-height: 214px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.86)),
+          var(--paper);
+        box-shadow: 0 12px 28px rgba(88, 55, 88, 0.08);
+        overflow: hidden;
+      }
+
+      .clip-card:nth-child(4n + 1) .clip-ribbon {
+        background: var(--pink-soft);
+        color: #a43c70;
+      }
+
+      .clip-card:nth-child(4n + 2) .clip-ribbon {
+        background: var(--mint);
+        color: var(--mint-ink);
+      }
+
+      .clip-card:nth-child(4n + 3) .clip-ribbon {
+        background: var(--sky);
+        color: var(--sky-ink);
+      }
+
+      .clip-card:nth-child(4n + 4) .clip-ribbon {
+        background: var(--lavender);
+        color: #6851a8;
+      }
+
+      .clip-ribbon {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        min-height: 42px;
+        padding: 8px 12px;
+        font-size: 0.86rem;
+        font-weight: 900;
+      }
+
+      .clip-card-body {
+        display: grid;
+        gap: 12px;
+        padding: 13px;
+      }
+
+      .clip-title {
+        display: -webkit-box;
+        min-height: 3.1em;
+        overflow: hidden;
+        font-size: 1.02rem;
+        font-weight: 900;
+        line-height: 1.55;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+
+      .clip-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .meta-chip {
+        max-width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.72);
+        padding: 4px 8px;
+        color: var(--muted);
+        font-size: 0.82rem;
+        font-weight: 800;
+        overflow-wrap: anywhere;
+      }
+
+      .clip-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px;
+        border: 1px solid #d94f89;
+        border-radius: 8px;
+        background: #fff5f9;
+        color: #b63d74;
+        font-weight: 900;
+        text-decoration: none;
+      }
+
+      .empty {
+        display: none;
+        border: 1px dashed #ddb8ce;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.72);
+        padding: 22px;
+        text-align: center;
+      }
+
+      .empty.is-visible {
+        display: block;
+      }
+
+      .load-more-wrap {
+        display: none;
+        justify-content: center;
+        margin-top: 18px;
+      }
+
+      .load-more-wrap.is-visible {
+        display: flex;
+      }
+
+      .footer-note {
+        margin-top: 34px;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      @media (max-width: 900px) {
+        .hero {
+          grid-template-columns: 1fr;
+        }
+
+        .search-grid {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .button-row {
+          grid-column: 1 / -1;
+        }
+
+        .results {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 620px) {
+        .topbar-inner,
+        .status-row {
+          align-items: flex-start;
+          grid-template-columns: 1fr;
+        }
+
+        .topbar-inner {
+          flex-direction: column;
+          padding: 12px 0;
+        }
+
+        .search-grid,
+        .results {
+          grid-template-columns: 1fr;
+        }
+
+        h1 {
+          font-size: 2.25rem;
+        }
+
+        .hero-art {
+          min-height: 220px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="wrap topbar-inner">
+        <a class="brand" href="./clip-search.html" aria-label="るっかるん Clip検索">
+          <span class="brand-mark" aria-hidden="true">R</span>
+          <span>るっかるん Clip検索</span>
+        </a>
+        <nav class="top-links" aria-label="関連ページ">
+          <a href="./index.html">Bot仕様書</a>
+          <a href="https://www.twitch.tv/rukalun" rel="noreferrer" target="_blank">Twitch</a>
+        </nav>
+      </div>
+    </header>
+
+    <section class="wrap hero">
+      <div>
+        <span class="eyebrow">Rukalun Clip Library</span>
+        <h1>かわいい瞬間を、ふわっと探す。</h1>
+        <p class="lead">
+          るっかるんの配信で生まれたClipを、タイトルや作成者名から探せます。
+          見たい言葉を入れて、気になるClipを開いてください。
+        </p>
+      </div>
+
+      <svg class="hero-art" viewBox="0 0 560 360" role="img" aria-labelledby="heroArtTitle heroArtDesc">
+        <title id="heroArtTitle">Clip検索画面のイメージ</title>
+        <desc id="heroArtDesc">淡い色の棚にClipカードが並び、検索で見つける様子。</desc>
+        <rect x="24" y="32" width="512" height="292" rx="18" fill="#fffdf8" stroke="#eadde8" />
+        <path d="M86 118 H474" stroke="#f0d6e4" stroke-width="12" stroke-linecap="round" />
+        <path d="M86 228 H474" stroke="#d4eee4" stroke-width="12" stroke-linecap="round" />
+        <rect x="82" y="76" width="108" height="72" rx="10" fill="#ffe7f0" stroke="#f3bad2" />
+        <rect x="226" y="64" width="108" height="84" rx="10" fill="#e8f5ff" stroke="#b9d8f2" />
+        <rect x="370" y="82" width="108" height="66" rx="10" fill="#fff4c9" stroke="#ead27c" />
+        <rect x="106" y="186" width="108" height="72" rx="10" fill="#efe9ff" stroke="#cfc2f2" />
+        <rect x="250" y="174" width="108" height="84" rx="10" fill="#dff7ed" stroke="#a7dfce" />
+        <rect x="394" y="196" width="72" height="62" rx="10" fill="#ffe7f0" stroke="#f3bad2" />
+        <circle cx="154" cy="104" r="6" fill="#e86f9f" />
+        <circle cx="298" cy="94" r="6" fill="#356ba3" />
+        <circle cx="438" cy="110" r="6" fill="#d2a52f" />
+        <circle cx="178" cy="214" r="6" fill="#7b61d4" />
+        <circle cx="320" cy="206" r="6" fill="#26796f" />
+        <path d="M242 288 C255 270, 302 270, 318 288" fill="none" stroke="#e86f9f" stroke-width="8" stroke-linecap="round" />
+        <path d="M274 280 L290 264 L306 280" fill="none" stroke="#e86f9f" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" />
+        <text x="280" y="318" text-anchor="middle" fill="#756b7f" font-size="18" font-weight="800">Find a soft moment</text>
+      </svg>
+    </section>
+
+    <section class="search-panel" aria-label="Clip検索">
+      <div class="wrap search-grid">
+        <div class="field">
+          <label for="searchInput">キーワード</label>
+          <input id="searchInput" type="search" placeholder="例: おなら / FF14 / 作成者名" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="creatorFilter">作成者</label>
+          <select id="creatorFilter">
+            <option value="">すべて</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="sortSelect">並び替え</label>
+          <select id="sortSelect">
+            <option value="newest">新しい順</option>
+            <option value="views">再生数順</option>
+            <option value="title">タイトル順</option>
+          </select>
+        </div>
+        <div class="button-row">
+          <button id="randomButton" class="button primary" type="button">おまかせ</button>
+          <button id="clearButton" class="button" type="button">クリア</button>
+        </div>
+      </div>
+    </section>
+
+    <main class="wrap">
+      <div class="status-row">
+        <div class="status" aria-live="polite">
+          <span id="resultCount" class="pill mint">読み込み中</span>
+          <span id="updatedAt" class="pill">更新日時を確認中</span>
+        </div>
+        <span id="dataSource" class="pill">clip-search-data.json</span>
+      </div>
+
+      <div id="notice" class="notice" hidden></div>
+      <section id="emptyState" class="empty">
+        <h2>見つかりませんでした</h2>
+        <p>検索語を短くするか、作成者の絞り込みを外してください。</p>
+      </section>
+
+      <section id="results" class="results" aria-label="検索結果"></section>
+
+      <div id="loadMoreWrap" class="load-more-wrap">
+        <button id="loadMoreButton" class="button" type="button">もっと見る</button>
+      </div>
+
+      <p class="footer-note">
+        このページはBotのSQLite Clipキャッシュから生成した公開JSONを使っています。
+        最新化は運用側で <code>npm run docs:export-clips</code> を実行します。
+      </p>
+    </main>
+
+    <script>
+      const DATA_URL = "clip-search-data.json";
+      const INITIAL_LIMIT = 48;
+      const MORE_STEP = 48;
+
+      const elements = {
+        searchInput: document.querySelector("#searchInput"),
+        creatorFilter: document.querySelector("#creatorFilter"),
+        sortSelect: document.querySelector("#sortSelect"),
+        randomButton: document.querySelector("#randomButton"),
+        clearButton: document.querySelector("#clearButton"),
+        loadMoreButton: document.querySelector("#loadMoreButton"),
+        loadMoreWrap: document.querySelector("#loadMoreWrap"),
+        results: document.querySelector("#results"),
+        emptyState: document.querySelector("#emptyState"),
+        resultCount: document.querySelector("#resultCount"),
+        updatedAt: document.querySelector("#updatedAt"),
+        notice: document.querySelector("#notice"),
+      };
+
+      let allClips = [];
+      let filteredClips = [];
+      let visibleLimit = INITIAL_LIMIT;
+
+      function normalizeText(value) {
+        return String(value ?? "")
+          .normalize("NFKC")
+          .toLocaleLowerCase("ja-JP")
+          .trim()
+          .replace(/\s+/g, " ");
+      }
+
+      function formatDate(value) {
+        if (!value) return "日付不明";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "日付不明";
+        return new Intl.DateTimeFormat("ja-JP", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(date);
+      }
+
+      function formatViews(value) {
+        if (typeof value !== "number" || !Number.isFinite(value)) return "再生数不明";
+        return `${value.toLocaleString("ja-JP")} views`;
+      }
+
+      function isSafeTwitchClipUrl(url) {
+        try {
+          const parsed = new URL(url);
+          return (
+            parsed.protocol === "https:" &&
+            (parsed.hostname === "www.twitch.tv" || parsed.hostname === "clips.twitch.tv")
+          );
+        } catch {
+          return false;
+        }
+      }
+
+      function setNotice(message) {
+        if (!message) {
+          elements.notice.hidden = true;
+          elements.notice.textContent = "";
+          return;
+        }
+        elements.notice.hidden = false;
+        elements.notice.textContent = message;
+      }
+
+      function buildCreatorOptions(clips) {
+        const creators = [...new Set(clips.map((clip) => clip.creator).filter(Boolean))].sort((a, b) =>
+          a.localeCompare(b, "ja-JP")
+        );
+        for (const creator of creators) {
+          const option = document.createElement("option");
+          option.value = creator;
+          option.textContent = creator;
+          elements.creatorFilter.append(option);
+        }
+      }
+
+      function sortClips(clips) {
+        const sort = elements.sortSelect.value;
+        return [...clips].sort((a, b) => {
+          if (sort === "views") {
+            return (b.views ?? -1) - (a.views ?? -1) || compareCreatedAtDesc(a, b);
+          }
+          if (sort === "title") {
+            return a.title.localeCompare(b.title, "ja-JP") || compareCreatedAtDesc(a, b);
+          }
+          return compareCreatedAtDesc(a, b);
+        });
+      }
+
+      function compareCreatedAtDesc(a, b) {
+        return String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")) || a.id.localeCompare(b.id);
+      }
+
+      function filterClips() {
+        const query = normalizeText(elements.searchInput.value);
+        const terms = query ? query.split(" ") : [];
+        const creator = elements.creatorFilter.value;
+
+        filteredClips = sortClips(
+          allClips.filter((clip) => {
+            if (creator && clip.creator !== creator) return false;
+            if (terms.length === 0) return true;
+
+            return terms.every((term) => clip.searchText.includes(term));
+          })
+        );
+      }
+
+      function renderCard(clip) {
+        const card = document.createElement("article");
+        card.className = "clip-card";
+
+        const ribbon = document.createElement("div");
+        ribbon.className = "clip-ribbon";
+        const date = document.createElement("span");
+        date.textContent = formatDate(clip.createdAt);
+        const views = document.createElement("span");
+        views.textContent = formatViews(clip.views);
+        ribbon.append(date, views);
+
+        const body = document.createElement("div");
+        body.className = "clip-card-body";
+
+        const title = document.createElement("h2");
+        title.className = "clip-title";
+        title.textContent = clip.title || "無題のClip";
+
+        const meta = document.createElement("div");
+        meta.className = "clip-meta";
+        const creator = document.createElement("span");
+        creator.className = "meta-chip";
+        creator.textContent = clip.creator ? `作成: ${clip.creator}` : "作成者不明";
+        meta.append(creator);
+
+        const link = document.createElement("a");
+        link.className = "clip-link";
+        link.textContent = "Twitchで見る";
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        link.href = isSafeTwitchClipUrl(clip.url) ? clip.url : "https://www.twitch.tv/rukalun";
+
+        body.append(title, meta, link);
+        card.append(ribbon, body);
+        return card;
+      }
+
+      function render() {
+        filterClips();
+        const visible = filteredClips.slice(0, visibleLimit);
+
+        elements.results.replaceChildren(...visible.map(renderCard));
+        elements.emptyState.classList.toggle("is-visible", filteredClips.length === 0);
+        elements.loadMoreWrap.classList.toggle("is-visible", filteredClips.length > visibleLimit);
+        elements.resultCount.textContent = `${filteredClips.length.toLocaleString("ja-JP")} / ${allClips.length.toLocaleString("ja-JP")} clips`;
+      }
+
+      function resetVisibleAndRender() {
+        visibleLimit = INITIAL_LIMIT;
+        render();
+      }
+
+      function pickRandomClip() {
+        filterClips();
+        if (filteredClips.length === 0) {
+          render();
+          return;
+        }
+        const clip = filteredClips[Math.floor(Math.random() * filteredClips.length)];
+        elements.searchInput.value = clip.title;
+        elements.creatorFilter.value = "";
+        visibleLimit = INITIAL_LIMIT;
+        render();
+        elements.results.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+
+      async function loadData() {
+        try {
+          const response = await fetch(DATA_URL, { cache: "no-store" });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          allClips = Array.isArray(data.clips)
+            ? data.clips.map((clip) => ({
+                ...clip,
+                searchText: normalizeText(`${clip.title} ${clip.creator}`),
+              }))
+            : [];
+          buildCreatorOptions(allClips);
+          elements.updatedAt.textContent = data.generatedAt
+            ? `更新: ${formatDate(data.generatedAt)}`
+            : "更新日時なし";
+          setNotice(allClips.length === 0 ? "公開用Clipデータが空です。運用側でJSONを生成してください。" : "");
+          render();
+        } catch (error) {
+          allClips = [];
+          filteredClips = [];
+          elements.resultCount.textContent = "読み込み失敗";
+          elements.updatedAt.textContent = "更新日時なし";
+          setNotice(`Clipデータを読み込めませんでした。${DATA_URL} を生成して配置してください。`);
+          render();
+        }
+      }
+
+      elements.searchInput.addEventListener("input", resetVisibleAndRender);
+      elements.creatorFilter.addEventListener("change", resetVisibleAndRender);
+      elements.sortSelect.addEventListener("change", resetVisibleAndRender);
+      elements.clearButton.addEventListener("click", () => {
+        elements.searchInput.value = "";
+        elements.creatorFilter.value = "";
+        elements.sortSelect.value = "newest";
+        resetVisibleAndRender();
+      });
+      elements.randomButton.addEventListener("click", pickRandomClip);
+      elements.loadMoreButton.addEventListener("click", () => {
+        visibleLimit += MORE_STEP;
+        render();
+      });
+
+      loadData();
+    </script>
+  </body>
+</html>
