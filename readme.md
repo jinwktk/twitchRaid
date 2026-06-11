@@ -52,6 +52,7 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 - `STREAM_SUMMARY_MAX_CLIPS` に配信まとめスレッドへ投稿する最大クリップ数を設定できます（未設定時は `10`）
 - `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を設定すると、Bot APIで配信開始通知、クリップURL、終了まとめを投稿し、配信開始通知メッセージからDiscordスレッドを作成します。`DISCORD_WEBHOOK_URL` はBot設定が無い場合、またはBot API投稿が403などで失敗した場合のフォールバックです
 - `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定すると、Webhookだけで `thread_name` によるスレッド作成を試します。この方式はDiscordのフォーラム/メディアチャンネルWebhook向けです。通常テキストチャンネルWebhookではDiscord側で拒否されるため、自動で通常Webhook投稿へフォールバックします
+- `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定すると、直近Clip同期完了後に `docs/clip-search-data.json` を再生成し、差分があれば `main` へcommit/pushします。保存0件の同期も `CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS` ごとに公開し、Clip保存があった場合は間隔内でも公開します。未設定時の公開間隔は5分、出力先は `docs/clip-search-data.json`、remote/branchは `origin` / `main` です
 - `OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` を設定すると、Raid時にOllama `POST /api/generate` で1通のRaid挨拶文を生成してチャットへ送信します。AI生成文はコード側で250文字以内に丸めます。`OLLAMA_BASE_URL` は未設定時 `http://127.0.0.1:11434`、`OLLAMA_SHOUTOUT_TIMEOUT_MS` は未設定時 `15000`、`OLLAMA_SHOUTOUT_KEEP_ALIVE` は未設定時 `30m` です
 
 ## 技術スタック
@@ -157,7 +158,8 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 - 各Clipカードにはサムネイル、ゲーム名、作成者、作成日、再生数を表示する。再生はページ内iframeではなく `Twitchで見る` の外部リンクだけにする
 - お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存する。公開JSONやサーバー側状態にはお気に入り情報を持たせず、`お気に入り順` はお気に入りを登録が新しい順で先頭に並べる
 - 公開画面には仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明を表示しない。内部向け仕様書からも公開Clip検索画面へのリンク導線は置かない
-- 公開JSONは `scripts/export-clip-search-data.mjs` で `data/clips.sqlite` から生成する。既定コマンドは `npm run docs:export-clips`。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する
+- 公開JSONは `scripts/export-clip-search-data.mjs` で `data/clips.sqlite` から生成する。既定コマンドは `npm run docs:export-clips`。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する。自動公開時は毎回API全補完を行わず、既存の `docs/clip-search-data.json` にあるサムネイルURL/ゲーム名をDB欠落分へ引き継ぐ
+- Bot運用時に `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定している場合、直近Clip同期完了後に `src/docs/clip-search-data-publisher.ts` が公開JSONを再生成し、差分があれば `main` へcommit/pushする。保存0件の同期も既定5分ごとに公開し、Clip保存があった場合は間隔内でも公開する
 - 公開JSONへ含めるClip項目は `id`、`url`、`title`、`creator`、`gameName`、`thumbnailUrl`、`createdAt`、`views` のみ。同期stateは `clipSync.recentSyncedAt` のみ公開し、`creator_id`、ゲームID、履歴、その他の内部state、認証情報は含めない
 - `unavailable_at` が入った削除/非公開Clipは公開JSONから除外する
 - サブPCの実データをPagesへ反映する場合は、サブPCの `data/clips.sqlite` を元にJSONを生成し、`main` へコミット・プッシュする
@@ -208,6 +210,8 @@ src/
 │   ├── stream-summary-count-buffer.ts # コメント数/Raid数のデバウンス保存
 │   ├── stream-summary-state-store.ts
 │   └── stream-summary.ts          # 配信まとめ/Clip投稿/スレッド保証
+├── docs/
+│   └── clip-search-data-publisher.ts # Clip検索JSONの自動生成・commit/push
 └── utils/
     ├── comment-state-store.ts
     ├── env-store.ts
@@ -235,6 +239,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-11**: Clip同期ログでは `直近clip同期完了: saved=0` が続いていたが、GitHub Pages用 `docs/clip-search-data.json` が再生成・pushされず `Clip最終同期` が古いままになる問題を修正。`CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` で同期後に公開JSONを自動生成し、保存0件でも既定5分ごとにmainへcommit/pushするようにした
 - **2026-06-11**: GitHub Pages Clip検索画面のSP表示で、上部検索条件を開閉式に変更。初期状態は折りたたみ、条件概要を表示して検索結果の縦領域を確保するようにした
 - **2026-06-11**: GitHub Pages Clip検索画面用faviconを生成。`docs/assets/clip-search-favicon.png`、`docs/assets/apple-touch-icon.png`、`docs/favicon.ico` を追加し、公開3ページから参照するようにした
 - **2026-06-11**: GitHub Pages Clip検索画面へOGP/Twitter Card/JSON-LD/canonical/descriptionを追加し、生成画像 `docs/assets/clip-search-og.png` をOG画像とヒーロー背景に設定。`?q=検索語` で初期検索できるようにした

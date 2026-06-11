@@ -23,7 +23,8 @@
 - `src/commands/clip.ts`: TypeScript版 `!clip` / `!myclip` / `!clipsearch` の選択ロジックを担当。通常はSQLiteキャッシュから即選択し、`!clip` / `!myclip` はキャッシュ未準備時のみ軽いAPIフォールバックを使う。`!clipsearch` はタイトル/作成者表示名/ゲーム名のキャッシュ検索に限定する。
 - `src/commands/clip-cache-store.ts`: クリップ本体、サムネイルURL、ゲームID/ゲーム名、走査済み期間、削除/非公開化でTwitch APIから返らなくなったClipの無効化状態、`!clip` / `!myclip:<ユーザー>` / `!clipsearch:<検索語>` ごとの表示履歴、Clipタイトル/作成者表示名/ゲーム名の部分一致検索を `data/clips.sqlite` に保存・提供する。
 - `src/commands/clip-cache-sync.ts`: 起動後の全期間バックグラウンド走査、完了済み期間スキップ、直近1時間の定期同期、Clipサムネイル/ゲームID保存、Twitch games APIによるゲーム名解決、直近同期完了後コールバック、配信していない時間の1日1回全期間再走査を担当。
-- `scripts/export-clip-search-data.mjs`: `data/clips.sqlite` の `clip_cache` と `clip_sync_state.recent_sync_at` からGitHub Pages用の `docs/clip-search-data.json` を生成する。公開項目はClip ID、URL、タイトル、作成者表示名、ゲーム名、サムネイルURL、作成日、再生数、`clipSync.recentSyncedAt` のみで、`unavailable_at` が入ったClipやゲームID/履歴/その他の内部state/認証情報は出力しない。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する。
+- `scripts/export-clip-search-data.mjs`: `data/clips.sqlite` の `clip_cache` と `clip_sync_state.recent_sync_at` からGitHub Pages用の `docs/clip-search-data.json` を生成する。公開項目はClip ID、URL、タイトル、作成者表示名、ゲーム名、サムネイルURL、作成日、再生数、`clipSync.recentSyncedAt` のみで、`unavailable_at` が入ったClipやゲームID/履歴/その他の内部state/認証情報は出力しない。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する。自動公開時は毎回API全補完を行わず、既存公開JSONのサムネイルURL/ゲーム名をDB欠落分へ引き継ぐ。
+- `src/docs/clip-search-data-publisher.ts`: Botの直近Clip同期完了後に、サブPCのSQLite DBから `docs/clip-search-data.json` を再生成し、差分があれば `main` へcommit/pushする任意機能。保存0件の同期も既定5分ごとに公開し、Clip保存があった場合は間隔内でも公開する。
 - `src/commands/stream-notify.ts`: TypeScript版 `!streamnotify` の管理者判定と、現在配信中の開始通知をDiscordへ手動送信するためのライブ状態取得ヘルパー。配信開始Embed用に視聴者数・サムネイルURLも通す。
 - `src/notifications/stream-notifications.ts`: 配信開始通知の重複抑止、`@everyone` 付きDiscord Embed payload生成、保存タイトルをタイトル単体に保つ処理を担当。
 - `src/notifications/discord-webhook.ts`: Discord Webhook/Bot API投稿、Embed/allowed_mentions payload、メッセージ起点スレッド作成、Discord thread API操作を担当。
@@ -60,6 +61,8 @@
 - `tests/commands/shoutout-introduction.test.ts`: Ollama Raid挨拶文生成の無効時固定文フォールバック、`/api/generate` リクエスト、HTTP失敗時フォールバック、採用/フォールバック理由通知、250文字制限、Raid人数をAIへ渡さないこと、低人数ネガティブ表現の拒否、ゲーム名/配信タイトルの不足分補完、主要部を含むAI文への二重紹介追記防止、`@ユーザー名` とURL保証、絵文字除去を含むチャット向け整形を検証。
 - `tests/bot-raid-greeting.test.ts`: BotのRaid情報取得ではチャット送信せず、Raid挨拶文送信経路だけが1通送ることを検証。
 - `tests/bot-clipsearch.test.ts`: TypeScript版 `!clipsearch` の使い方表示、空白入り検索語の保持、URL送信、履歴保存、結果なしメッセージを検証。
+- `tests/config.test.ts`: TypeScript版 `Config` のClip検索JSON自動公開設定読み込みを検証。
+- `tests/docs/clip-search-data-publisher.test.ts`: Clip検索JSON publisherが保存0件でも初回公開し、保存0件の連続同期は間隔で間引き、保存ありは即公開し、差分なしではcommitしないことを検証。
 - `tests/docs-clip-search-data.test.ts`: GitHub Pages用Clip検索JSONの生成で、有効Clipのみ、公開項目のみ、新しい順、件数一致、直近Clip同期時刻、ゲーム名、サムネイルURLの出力になることを検証。
 - `tests/docs-clip-search-page.test.ts`: `docs/clip-search.html` の検索UI要素、SP検索条件の開閉パネル、OGP/Twitter Card/JSON-LD/OG画像、favicon/Apple touch icon、`?q=` 初期検索、古い順/お気に入り順、お気に入りlocalStorage、Clip最終同期時刻表示、サムネイル/ゲーム名表示、Twitch外部リンクのみ、公開ページ上の内部導線非表示、`docs/index.html` に内部仕様書を置かないことを検証。
 - `tests/commands/raid-info.test.ts`: Raid元配信情報の取得、指定文言でのチャットメッセージ整形、オフライン時フォールバック、長文タイトルの単一行化/短縮を検証。
@@ -113,8 +116,9 @@
 - main へ直接 push しない。レビュー向けには小さな論理単位でブランチを切り、CI テスト (将来導入) の結果を添付。
 
 ## 設定とセキュリティ Tips
-- `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `DISCORD_BOT_TOKEN`, `DISCORD_SUMMARY_CHANNEL_ID`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `LAST_STREAM_TITLE`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS`, 任意で `TWITCH_GQL_CLIENT_ID`, `TWITCH_CLIP_CACHE_DB_PATH`, `STREAM_SUMMARY_STATE_PATH`, `STREAM_SUMMARY_MAX_CLIPS`, `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED`, `OLLAMA_SHOUTOUT_ENABLED`, `OLLAMA_BASE_URL`, `OLLAMA_SHOUTOUT_MODEL`, `OLLAMA_SHOUTOUT_TIMEOUT_MS`, `OLLAMA_SHOUTOUT_KEEP_ALIVE` を定義。更新は `Config.update*` と `env-store.ts` が担当。
+- `.env` には `TWITCH_CLIENT_ID`, `TWITCH_SECRET_TOKEN`, `TWITCH_ACCESS_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_BROADCASTER_ID`, `TWITCH_MODERATOR_ID`, `DISCORD_WEBHOOK_URL`, `DISCORD_BOT_TOKEN`, `DISCORD_SUMMARY_CHANNEL_ID`, `LAST_CLIP_TIME`, `LAST_MYCLIP_TIME`, `LAST_STREAM_TITLE`, `MANGA_COMMAND_ENABLED`, `MANGA_ADMIN_USERS`, `SHOUTOUT_ADMIN_USERS`, 任意で `TWITCH_GQL_CLIENT_ID`, `TWITCH_CLIP_CACHE_DB_PATH`, `STREAM_SUMMARY_STATE_PATH`, `STREAM_SUMMARY_MAX_CLIPS`, `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED`, `CLIP_SEARCH_AUTO_PUBLISH_ENABLED`, `CLIP_SEARCH_DATA_PATH`, `CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS`, `CLIP_SEARCH_PUBLISH_REMOTE`, `CLIP_SEARCH_PUBLISH_BRANCH`, `OLLAMA_SHOUTOUT_ENABLED`, `OLLAMA_BASE_URL`, `OLLAMA_SHOUTOUT_MODEL`, `OLLAMA_SHOUTOUT_TIMEOUT_MS`, `OLLAMA_SHOUTOUT_KEEP_ALIVE` を定義。更新は `Config.update*` と `env-store.ts` が担当。
 - クリップキャッシュは任意で `TWITCH_CLIP_CACHE_DB_PATH` を使用。未設定時は `data/clips.sqlite` を使い、ローカル状態として Git 管理外。
+- GitHub Pages Clip検索の同期時刻を自動反映する場合は、サブPC `.env` に `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定する。保存0件の直近同期は `CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS` ごとに公開し、Clip保存があれば間隔内でも公開する。未設定時の公開間隔は5分、出力先は `docs/clip-search-data.json`、remote/branchは `origin` / `main`。
 - Clip全期間バックフィルは通常起動時は完了済み期間をスキップする。配信していない時間に1日1回だけ全期間を再走査し、Twitch APIから返らなくなったClipは `clip_cache.unavailable_at` を設定して `!clip` / `!myclip` / 配信まとめ候補から除外する。再走査の最終時刻は `clip_sync_state.daily_reconcile_at` に保存する。
 - 配信まとめ状態は任意で `STREAM_SUMMARY_STATE_PATH` を使用。未設定時は `data/stream-summary-state.json` を使い、ローカル状態として Git 管理外。
 - 配信まとめスレッド作成と投稿には `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を使う。Bot Token方式では開始通知、クリップURL、終了まとめをBot APIで投稿し、配信開始通知メッセージからスレッドを作る。未設定時や403などのBot API投稿失敗時は通常Webhook投稿へフォールバックする。
@@ -124,6 +128,13 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-11 作業ログ
+- 不具合報告: サブPCログでは `直近clip同期完了: saved=0` が毎分出ているのに、GitHub Pages Clip検索画面の `Clip最終同期` が `2026/06/11 15:38:20 JST` のまま更新されない
+- 原因: `syncRecentClips()` はSQLiteの `clip_sync_state.recent_sync_at` を更新していたが、直近同期完了後コールバックは配信まとめスレッド投稿にしか接続されていなかった。GitHub Pagesはコミット済みの `docs/clip-search-data.json` を読むため、JSON再生成とmainへのpushが行われない限り公開時刻は古いままになる
+- TDD: `tests/docs/clip-search-data-publisher.test.ts` を追加し、保存0件でも初回はJSON export/git commit/pushすること、保存0件の連続同期は最小公開間隔で間引くこと、保存ありは間隔内でも公開すること、差分なしではcommitしないことを検証。`tests/config.test.ts` に `CLIP_SEARCH_AUTO_PUBLISH_ENABLED`、出力先、公開間隔、remote/branchの読み込み期待を追加
+- 実装: `src/docs/clip-search-data-publisher.ts` を追加し、Botの `onRecentSyncComplete` から任意実行できるよう接続。`CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` の時だけ有効化し、`docs/clip-search-data.json` を再生成後、差分があれば `Clip検索JSONを同期時刻更新` でmainへcommit/pushする。保存0件は既定5分ごと、保存ありは即時公開する
+- データ: サブPC `E:\GitHub\twitchRaid\data\clips.sqlite` から `docs/clip-search-data.json` を再生成し、既存公開JSONのサムネイル/ゲーム名補完値を保持したまま `generatedAt=2026-06-11T09:40:01.996Z`、`clipSync.recentSyncedAt=2026-06-11T09:39:22.978Z`、2,750件、サムネイル/ゲーム名両方あり2,698件へ更新
+- 検証: `npm test` 179件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/clip-search.html` / `docs/index.html` / `docs/typescript-bot-spec.html` / `internal-docs/twitchraid-bot-zukan.html` 構文確認、公開JSONキー/件数/補完件数確認、`git diff --check` が通過
+
 - 要望: スマホで見たときに上部の検索タブが邪魔になるため、SP画面では開閉できるようにしたい
 - TDD: `tests/docs-clip-search-page.test.ts` に、検索パネルの `is-collapsed` 初期状態、`searchPanelToggle`、`aria-controls` / `aria-expanded`、検索条件概要、開く/閉じる文言、SP用CSS、開閉/概要更新関数の期待値を追加し、未実装失敗を確認
 - 実装: `docs/clip-search.html` の検索条件にSP専用の「検索条件を開く」トグルを追加。620px以下では初期折りたたみ、開いた時だけ検索欄/作成者/並び替え/ボタンを表示し、条件概要は検索語・作成者・並び順に合わせて更新する。PC/タブレット幅では従来通り検索条件を常時表示する

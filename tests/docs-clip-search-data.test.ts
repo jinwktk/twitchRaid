@@ -104,6 +104,22 @@ describe("export-clip-search-data", () => {
       "2026-01-02T00:00:00.000Z"
     );
     insert.run(
+      "missing-details",
+      "https://www.twitch.tv/rukalun/clip/missing-details",
+      "補完を引き継ぐClip",
+      "creator-secret-4",
+      "Diana",
+      "diana",
+      null,
+      null,
+      null,
+      "2026-01-01T12:00:00.000Z",
+      22,
+      "2026-01-01T12:00:00.000Z",
+      null,
+      "2026-01-01T12:00:00.000Z"
+    );
+    insert.run(
       "hidden",
       "https://www.twitch.tv/rukalun/clip/hidden",
       "消えたClip",
@@ -120,6 +136,18 @@ describe("export-clip-search-data", () => {
       "2026-01-04T00:00:00.000Z"
     );
     db.close();
+    fs.writeFileSync(
+      outPath,
+      JSON.stringify({
+        clips: [
+          {
+            id: "missing-details",
+            gameName: "Previous Game",
+            thumbnailUrl: "https://static.example/missing-details.jpg",
+          },
+        ],
+      })
+    );
 
     execFileSync(process.execPath, [
       path.join(process.cwd(), "scripts", "export-clip-search-data.mjs"),
@@ -139,11 +167,15 @@ describe("export-clip-search-data", () => {
     };
 
     expect(exported.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(exported.total).toBe(2);
+    expect(exported.total).toBe(3);
     expect(exported.clipSync).toEqual({
       recentSyncedAt: "2026-01-02T03:04:05.000Z",
     });
-    expect(exported.clips.map((clip) => clip.id)).toEqual(["new", "old"]);
+    expect(exported.clips.map((clip) => clip.id)).toEqual([
+      "new",
+      "missing-details",
+      "old",
+    ]);
     expect(exported.clips[0]).toEqual({
       id: "new",
       url: "https://www.twitch.tv/rukalun/clip/new",
@@ -153,6 +185,11 @@ describe("export-clip-search-data", () => {
       thumbnailUrl: "https://clips-media-assets2.twitch.tv/new-preview-480x272.jpg",
       createdAt: "2026-01-02T00:00:00.000Z",
       views: 34,
+    });
+    expect(exported.clips[1]).toMatchObject({
+      id: "missing-details",
+      gameName: "Previous Game",
+      thumbnailUrl: "https://static.example/missing-details.jpg",
     });
     expect(Object.keys(exported.clips[0]).sort()).toEqual([
       "createdAt",

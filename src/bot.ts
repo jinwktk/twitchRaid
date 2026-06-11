@@ -39,6 +39,7 @@ import {
 } from "./commands/clip";
 import { ClipCacheStore } from "./commands/clip-cache-store";
 import { ClipCacheSynchronizer } from "./commands/clip-cache-sync";
+import { ClipSearchDataPublisher } from "./docs/clip-search-data-publisher";
 import {
   ShoutoutQueue,
   isShoutoutRateLimitError,
@@ -99,6 +100,7 @@ export class Bot {
   private readonly streamSummaryCountBuffer: StreamSummaryCountBuffer<StreamSummaryState>;
   private readonly boomSummaryCache = new BoomSummaryCache();
   private readonly shoutoutQueue: ShoutoutQueue;
+  private readonly clipSearchDataPublisher: ClipSearchDataPublisher | null;
   private clipCacheSynchronizer: ClipCacheSynchronizer | null = null;
 
   // Keep-alive timers
@@ -131,6 +133,16 @@ export class Bot {
     });
     this.commentSpeedMeter = new CommentSpeedMeter(60);
     this.clipCacheStore = new ClipCacheStore(config.clipCacheDbPath);
+    this.clipSearchDataPublisher = config.clipSearchAutoPublishEnabled
+      ? new ClipSearchDataPublisher({
+          enabled: true,
+          dbPath: config.clipCacheDbPath,
+          outPath: config.clipSearchDataPath,
+          minIntervalMs: config.clipSearchPublishMinIntervalMs,
+          remote: config.clipSearchPublishRemote,
+          branch: config.clipSearchPublishBranch,
+        })
+      : null;
     this.streamSummaryStateStore = new StreamSummaryStateStore(
       config.streamSummaryStatePath
     );
@@ -210,8 +222,19 @@ export class Bot {
       broadcasterId: this.config.twitchBroadcasterId,
       store: this.clipCacheStore,
       isStreamLive: () => this.streamLive,
-      onRecentSyncComplete: () => {
-        void this._postNewStreamClipsToSummaryThread();
+      onRecentSyncComplete: async (result) => {
+        const tasks: Promise<unknown>[] = [
+          this._postNewStreamClipsToSummaryThread(),
+        ];
+        if (this.clipSearchDataPublisher) {
+          tasks.push(this.clipSearchDataPublisher.publishAfterRecentSync(result));
+        }
+        const outcomes = await Promise.allSettled(tasks);
+        for (const outcome of outcomes) {
+          if (outcome.status === "rejected") {
+            logger.warn(`⚠️ 直近clip同期後処理失敗: ${outcome.reason}`);
+          }
+        }
       },
     });
     this.clipCacheSynchronizer.start();
