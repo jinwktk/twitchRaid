@@ -1,4 +1,6 @@
 import path from "path";
+import fs from "fs";
+import os from "os";
 import { describe, expect, it, vi } from "vitest";
 import {
   ClipSearchDataPublisher,
@@ -100,6 +102,38 @@ describe("ClipSearchDataPublisher", () => {
     expect(skipped).toEqual({ status: "skipped", reason: "min-interval" });
     expect(saved).toEqual({ status: "published" });
     expect(calls.filter((call) => call.file === process.execPath)).toHaveLength(2);
+  });
+
+  it("keeps the publish interval after restart by reading the existing JSON generatedAt", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "clip-publisher-"));
+    try {
+      const outPath = path.join(tempDir, "docs", "clip-search-data.json");
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      fs.writeFileSync(
+        outPath,
+        JSON.stringify({ generatedAt: "2026-06-11T09:45:00.000Z", clips: [] })
+      );
+      const runCommand = vi.fn();
+      const publisher = new ClipSearchDataPublisher({
+        enabled: true,
+        repoDir: tempDir,
+        dbPath: path.join(tempDir, "data", "clips.sqlite"),
+        outPath,
+        minIntervalMs: 5 * 60 * 1000,
+        nowMs: () => Date.parse("2026-06-11T09:46:00.000Z"),
+        runCommand,
+      });
+
+      const result = await publisher.publishAfterRecentSync({
+        syncedAt: "2026-06-11T09:46:00.000Z",
+        saved: 0,
+      });
+
+      expect(result).toEqual({ status: "skipped", reason: "min-interval" });
+      expect(runCommand).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("does not commit when the exported JSON has no git diff", async () => {
