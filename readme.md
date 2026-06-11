@@ -25,6 +25,7 @@ npm run pm2:logs    # ログ確認
 ### 技術設計書
 - 現行TypeScript版 Twitch Bot のシステム仕様書/機能設計書は `docs/index.html` に統合しています
 - Clip検索画面は `docs/clip-search.html` です。`docs/clip-search-data.json` を読み込み、GitHub Pages上でタイトル/作成者名検索できます
+- Clip検索画面は公開URLで使うため、画面上には仕様書、内部運用、JSON生成手順への導線を出しません
 - 旧URL互換の `docs/typescript-bot-spec.html` は `docs/index.html` へ案内するだけのページです
 - `main` ブランチの `docs/` 更新時に `.github/workflows/pages.yml` がGitHub Pagesへ公開します
 - Markdown設計資料は `docs/ARCHITECTURE.md` / `docs/COMMANDS.md` / `docs/DESIGN_PATTERNS.md` / `docs/TECH_STACK.md` に補助資料として残しています
@@ -150,6 +151,7 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 - `docs/clip-search.html` は静的GitHub Pages上で動くClip検索画面。るっかるん向けに淡いピンク、ミント、空色、レモン色を使ったゆるふわ系デザインにしている
 - 検索データは `docs/clip-search-data.json`。ブラウザ内でタイトル/作成者表示名を検索し、作成者フィルタ、並び替え、件数表示、追加表示、Clip最終同期時刻の秒単位表示、選択Clipのページ内再生に対応する
 - ページ内再生は各カードの `ページで再生` から、結果一覧上部の1つのTwitch Clip iframeへ読み込む。iframeは `https://clips.twitch.tv/embed` を使い、`parent` は表示中ページのホスト名、`autoplay=false` を指定する
+- 公開画面には仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明を表示しない。内部向け仕様書からも公開Clip検索画面へのリンク導線は置かない
 - 公開JSONは `scripts/export-clip-search-data.mjs` で `data/clips.sqlite` から生成する。既定コマンドは `npm run docs:export-clips`
 - 公開JSONへ含めるClip項目は `id`、`url`、`title`、`creator`、`createdAt`、`views` のみ。同期stateは `clipSync.recentSyncedAt` のみ公開し、`creator_id`、履歴、その他の内部state、認証情報は含めない
 - `unavailable_at` が入った削除/非公開Clipは公開JSONから除外する
@@ -216,6 +218,7 @@ docs/
 ```
 
 ## 更新履歴
+- **2026-06-11**: 公開予定のGitHub Pages Clip検索画面から、Bot仕様書リンク、データソース表示、内部運用説明を削除。内部仕様書からClip検索画面へのリンク導線も外した
 - **2026-06-11**: GitHub Pages Clip検索画面にページ内再生を追加。各Clipカードの `ページで再生` からTwitch Clip iframeを1つのプレイヤーパネルへ読み込み、`parent` は現在ホスト名、`autoplay=false` で埋め込む
 - **2026-06-11**: GitHub Pages Clip検索画面にClip最終同期時刻を追加。`clip_sync_state.recent_sync_at` を `clipSync.recentSyncedAt` として公開JSONへ出し、画面ではJSTの秒単位で表示
 - **2026-06-11**: GitHub Pages用Clip検索画面 `docs/clip-search.html` を追加。サブPCのSQLite Clipキャッシュから `docs/clip-search-data.json` を生成し、タイトル/作成者名検索、作成者フィルタ、並び替え、追加表示に対応
