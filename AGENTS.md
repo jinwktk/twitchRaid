@@ -32,8 +32,9 @@
 - `src/streams/stream-summary-count-buffer.ts`: 通常コメントごとの配信まとめstate同期書き込みを避けるため、コメント数更新を30秒デバウンスし、Raid/停止/配信終了時に即時flushする。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
 - `docs/index.html`: 公開ルート入口。内部仕様書を置かず、Clip検索画面 `docs/clip-search.html` へ案内するだけにする。
-- `docs/clip-search.html`: GitHub Pages用Clip検索画面。`docs/clip-search-data.json` を読み込み、タイトル/作成者表示名/ゲーム名検索、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、追加表示、Clip最終同期時刻のJST秒単位表示、サムネイル、ゲーム名、3日以内の新着Clip用 `NEW` マーク、`Twitchで見る` 外部リンクを表示する。ページ内Twitch iframe再生は置かない。SP幅では検索条件を初期折りたたみの開閉パネルにして、検索条件概要テキストと右端固定の `▽` アイコンを別カラムで表示し、PC/タブレット幅では検索条件を常時表示する。お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存し、公開JSONやサーバー側状態には持たせない。淡いピンク、ミント、空色、レモン色のゆるふわ系デザイン。生成画像 `docs/assets/clip-search-og.png` をヒーロー背景とOG画像に使い、`docs/assets/clip-search-favicon.png` / `docs/favicon.ico` / `docs/assets/apple-touch-icon.png` をfaviconやホーム画面アイコンに使う。description/canonical/robots/OGP/Twitter Card/JSON-LD `CollectionPage` / `SearchAction` を持つ。`?q=検索語` がある場合は検索欄へ初期入力する。公開ページとして使うため、仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明は画面に出さない。
-- `docs/assets/clip-search-og.png`: Clip検索画面のOGP/ヒーロー用に生成した1200x630 PNG。SNS共有とファーストビューのビジュアルに使う。
+- `docs/clip-search.html`: GitHub Pages用Clip検索画面。`docs/clip-search-data.json` を読み込み、タイトル/作成者表示名/ゲーム名検索、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、追加表示、Clip最終同期時刻のJST秒単位表示、サムネイル、ゲーム名、3日以内の新着Clip用 `NEW` マーク、`Twitchで見る` 外部リンクを表示する。ページ内Twitch iframe再生は置かない。SP幅では検索条件を初期折りたたみの開閉パネルにして、検索条件概要テキストと右端固定の `▽` アイコンを別カラムで表示し、PC/タブレット幅では検索条件を常時表示する。お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存し、公開JSONやサーバー側状態には持たせない。淡いピンク、ミント、空色、レモン色のゆるふわ系デザイン。提供画像から作った `docs/assets/rukalun/clip-search-hero.png` をヒーロー背景、`docs/assets/rukalun/clip-search-og.png` をOG画像に使い、`docs/assets/clip-search-favicon.png` / `docs/favicon.ico` / `docs/assets/apple-touch-icon.png` をfaviconやホーム画面アイコンに使う。description/canonical/robots/OGP/Twitter Card/JSON-LD `CollectionPage` / `SearchAction` を持つ。`?q=検索語` がある場合は検索欄へ初期入力する。公開ページとして使うため、仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明は画面に出さない。
+- `docs/assets/rukalun/clip-search-hero.png`: `docs/assets/rukalun` の提供画像を合成・軽量化した1600x900 PNG。Clip検索画面のヒーロー背景に使う。
+- `docs/assets/rukalun/clip-search-og.png`: `docs/assets/rukalun` の提供画像を合成・軽量化した1200x630 PNG。SNS共有と検索向けOGP/Twitter画像に使う。
 - `docs/assets/clip-search-favicon.png`: Clip検索画面のPNG favicon。512x512の生成アイコン。
 - `docs/assets/apple-touch-icon.png`: iOS/ホーム画面向けの180x180 PNGアイコン。
 - `docs/favicon.ico`: 互換ブラウザ向けの32x32 favicon.ico。
@@ -129,6 +130,15 @@
 - 機密情報は commit しない。漏洩した場合は Twitch/Discord のパネルから速やかに再発行し、`env_store.update_env_file` で反映。
 - `.env` 更新前に `.env.bak` を作成し、空ファイル化を検出した場合はバックアップから復旧して追記。
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
+
+## 2026-06-12 作業ログ
+- 要望: `docs/assets/rukalun` に格納した画像を、公開Clip検索ページで使いたい
+- Autopilot: `.omx/context/rukalun-assets-clip-search-20260611T153339Z.md`、`.omx/plans/prd-rukalun-assets-clip-search.md`、`.omx/plans/test-spec-rukalun-assets-clip-search.md` を作成。依頼内容は「提供画像を使う」で明確なためdeep-interviewはスキップ理由を状態に記録し、ralplanではArchitect/Critic承認を記録して実装へ進めた
+- 調査: `docs/assets/rukalun` は57ファイル/約47.55MB。全素材をそのままcommit/配信せず、公開ページで使う軽量派生画像だけを作る方針にした
+- TDD: `tests/docs-clip-search-page.test.ts` を先に更新し、`docs/assets/rukalun/clip-search-hero.png`、`docs/assets/rukalun/clip-search-og.png` の存在、Clip検索ページのpreload/hero参照、OGP/Twitter/JSON-LD画像、公開ルートのOGP画像が `assets/rukalun/clip-search-og.png` になる期待値を追加。未実装失敗を確認
+- 実装: 提供画像 `キャラ.png`、`kawaii.png`、`Hi-112px.png`、`プレゼント-112px.png`、`bikkuri-112px.png` を使い、`docs/assets/rukalun/clip-search-hero.png` (1600x900/約548KB) と `docs/assets/rukalun/clip-search-og.png` (1200x630/約349KB) を作成。`docs/clip-search.html` のヒーロー/preload/OGP/Twitter/JSON-LD参照、`docs/index.html` と `docs/typescript-bot-spec.html` のOGP/Twitter画像を新画像へ差し替えた。旧 `docs/assets/clip-search-og.png` は参照されなくなるため削除。ヒーロー見出しは `ふわっと探す。` が途中で割れないよう `title-phrase` で分割抑止した
+- ドキュメント: READMEとAGENTSに、提供画像ベースの軽量派生画像を使う仕様と、画像ファイル構成を追記
+- 検証: `npm test -- --run tests/docs-clip-search-page.test.ts tests/docs-clip-search-data.test.ts` 10件、`npm test` 184件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/clip-search.html` / `docs/index.html` / `docs/typescript-bot-spec.html` / `internal-docs/twitchraid-bot-zukan.html` 構文確認、`git diff --check` が通過。Playwrightで `http://127.0.0.1:8769/clip-search.html?q=FF14` を1280x900と390x900で確認し、提供画像ヒーロー、SP検索条件トグル右端の `▽`、Clip一覧の表示崩れがないことを確認。origin/mainのClip検索JSON自動更新をfast-forwardで取り込んだ後、対象テスト10件と `git diff --check` を再実行して通過
 
 ## 2026-06-11 作業ログ
 - 要望: GitHub Pages Clip検索画面で、新着3日以内のClipに `NEW` マークを付けたい

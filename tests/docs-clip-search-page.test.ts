@@ -3,7 +3,7 @@ import path from "path";
 import { describe, expect, it } from "vitest";
 
 describe("GitHub Pages clip search page", () => {
-  it("publishes search-friendly metadata and a generated OG image", () => {
+  it("publishes search-friendly metadata and rukalun visual assets", () => {
     const html = fs.readFileSync(
       path.join(process.cwd(), "docs", "clip-search.html"),
       "utf8"
@@ -12,7 +12,15 @@ describe("GitHub Pages clip search page", () => {
       process.cwd(),
       "docs",
       "assets",
+      "rukalun",
       "clip-search-og.png"
+    );
+    const heroImagePath = path.join(
+      process.cwd(),
+      "docs",
+      "assets",
+      "rukalun",
+      "clip-search-hero.png"
     );
     const faviconPath = path.join(
       process.cwd(),
@@ -29,6 +37,7 @@ describe("GitHub Pages clip search page", () => {
     const legacyFaviconPath = path.join(process.cwd(), "docs", "favicon.ico");
 
     expect(fs.existsSync(ogImagePath)).toBe(true);
+    expect(fs.existsSync(heroImagePath)).toBe(true);
     expect(fs.existsSync(faviconPath)).toBe(true);
     expect(fs.existsSync(appleTouchIconPath)).toBe(true);
     expect(fs.existsSync(legacyFaviconPath)).toBe(true);
@@ -41,7 +50,7 @@ describe("GitHub Pages clip search page", () => {
     expect(html).toContain('<meta name="robots" content="index,follow" />');
     expect(html).toContain('<meta property="og:type" content="website" />');
     expect(html).toContain(
-      '<meta property="og:image" content="https://jinwktk.github.io/twitchRaid/assets/clip-search-og.png" />'
+      '<meta property="og:image" content="https://jinwktk.github.io/twitchRaid/assets/rukalun/clip-search-og.png" />'
     );
     expect(html).toContain('<link rel="icon" href="./favicon.ico" sizes="any" />');
     expect(html).toContain(
@@ -77,8 +86,10 @@ describe("GitHub Pages clip search page", () => {
     expect(html).toContain("thumbnailUrl");
     expect(html).toContain("ゲーム:");
     expect(html).toContain("gameName");
-    expect(html).toContain("./assets/clip-search-og.png");
+    expect(html).toContain("./assets/rukalun/clip-search-hero.png");
     expect(html).toContain('class="hero-image"');
+    expect(html).toContain('<span class="title-phrase">ふわっと探す。</span>');
+    expect(html).toContain("white-space: nowrap");
     expect(html).toContain("JSON生成");
     expect(html).toContain('<option value="oldest">古い順</option>');
     expect(html).toContain('<option value="favorites">お気に入り順</option>');
@@ -180,7 +191,7 @@ describe("GitHub Pages clip search page", () => {
 
     expect(indexHtml).toContain("clip-search.html");
     expect(indexHtml).toContain(
-      "https://jinwktk.github.io/twitchRaid/assets/clip-search-og.png"
+      "https://jinwktk.github.io/twitchRaid/assets/rukalun/clip-search-og.png"
     );
     expect(indexHtml).toContain('<link rel="icon" href="./favicon.ico" sizes="any" />');
     expect(indexHtml).toContain(
