@@ -25,7 +25,7 @@ npm run pm2:logs    # ログ確認
 ### 技術設計書
 - GitHub Pagesで公開する `docs/index.html` はClip検索画面への入口だけにしています
 - 現行TypeScript版 Twitch Bot の内部仕様書は `internal-docs/twitchraid-bot-zukan.html` に移動しています
-- Clip検索画面は `docs/clip-search.html` です。`docs/clip-search-data.json` を読み込み、GitHub Pages上でタイトル/作成者名/ゲーム名検索できます
+- Clip検索画面は `docs/clip-search.html` です。`docs/clip-search-data.json` を読み込み、GitHub Pages上でタイトル/作成者名/ゲーム名検索できます。OGP/Twitter Card/JSON-LD と `docs/assets/clip-search-og.png` を使い、検索エンジンとSNS共有向けの公開情報を持たせています
 - Clip検索画面は公開URLで使うため、画面上には仕様書、内部運用、JSON生成手順への導線を出しません
 - 旧URL互換の `docs/typescript-bot-spec.html` も公開Clip検索画面へ案内するだけのページです
 - `main` ブランチの `docs/` 更新時に `.github/workflows/pages.yml` がGitHub Pagesへ公開します
@@ -74,7 +74,7 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 | `!menu` | 今日のおすすめメニューをランダム表示 | 70種類以上からランダム |
 | `!clip` | 過去のクリップをランダム表示 | 30分クールダウン（特別ユーザー除外） |
 | `!myclip` | 自分が作成したクリップをランダム表示 | 30分クールダウン（`!clip`とは独立） |
-| `!clipsearch <キーワード>` | Clipタイトル/作成者名から過去クリップを検索して1件表示 | SQLiteキャッシュ検索、クールダウンなし |
+| `!clipsearch <キーワード>` | Clipタイトル/作成者名/ゲーム名から過去クリップを検索して1件表示 | SQLiteキャッシュ検索、クールダウンなし |
 | `!manga` | DLsite日間ランキングからランダムに1作品表示 | ON/OFF切替可、10秒後自動削除 |
 | `!mangaon` | `!manga` コマンドを有効化 | 管理者のみ |
 | `!mangaoff` | `!manga` コマンドを無効化 | 管理者のみ |
@@ -143,14 +143,15 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 - 日次再走査の最終実行時刻は `clip_sync_state` の `daily_reconcile_at` に保存する
 - 直近1時間のクリップは起動直後と1分ごとに再同期し、起動中に作られたクリップも候補へ入れる
 - `!clip` / `!myclip` 実行時はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ最大200件の軽いAPIフォールバックを使う
-- `!clipsearch <キーワード>` はSQLiteキャッシュ内のClipタイトルと作成者表示名を部分一致検索し、履歴を避けて1件のURLを返す。検索語に空白を含められ、`%` / `_` はワイルドカードではなく通常文字として扱う
+- `!clipsearch <キーワード>` はSQLiteキャッシュ内のClipタイトル、作成者表示名、ゲーム名を部分一致検索し、履歴を避けて1件のURLを返す。検索語に空白を含められ、`%` / `_` はワイルドカードではなく通常文字として扱う
 - `!clipsearch` はTwitch API全件検索へフォールバックしない。キャッシュ未準備や一致なしの場合は見つからない旨を返す
 - `!clipsearch` がClip件数増加で遅くなった場合は、SQLite FTS5 または検索専用テーブルへの移行を検討する。初回実装では単純部分一致に留める
 - 直近に表示したクリップIDはSQLite内の `clip_history` に保存し、`!clip` 全体と `!myclip:<ユーザー>` ごとに重複を避ける。全候補を出し切った場合のみ履歴内のクリップも再候補に戻す
 - `!clipsearch` の表示履歴は `clipsearch:<検索語>` ごとに保存する
 
 ## GitHub Pages Clip検索
-- `docs/clip-search.html` は静的GitHub Pages上で動くClip検索画面。るっかるん向けに淡いピンク、ミント、空色、レモン色を使ったゆるふわ系デザインにしている
+- `docs/clip-search.html` は静的GitHub Pages上で動くClip検索画面。るっかるん向けに淡いピンク、ミント、空色、レモン色を使ったゆるふわ系デザインにしている。生成画像 `docs/assets/clip-search-og.png` をヒーロー背景とOG画像に使う
+- 検索エンジン/SNS向けに、description、canonical、robots、OGP、Twitter Card、JSON-LD `CollectionPage` / `SearchAction` を設定する。`?q=検索語` がある場合は検索欄へ初期入力する
 - 検索データは `docs/clip-search-data.json`。ブラウザ内でタイトル/作成者表示名/ゲーム名を検索し、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、件数表示、追加表示、Clip最終同期時刻の秒単位表示に対応する
 - 各Clipカードにはサムネイル、ゲーム名、作成者、作成日、再生数を表示する。再生はページ内iframeではなく `Twitchで見る` の外部リンクだけにする
 - お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存する。公開JSONやサーバー側状態にはお気に入り情報を持たせず、`お気に入り順` はお気に入りを登録が新しい順で先頭に並べる
@@ -215,6 +216,8 @@ src/
 scripts/
 └── export-clip-search-data.mjs    # GitHub Pages用Clip検索JSON生成
 docs/
+├── assets/
+│   └── clip-search-og.png         # Clip検索のOGP/ヒーロー用生成画像
 ├── clip-search.html               # Clip検索画面
 ├── clip-search-data.json          # 公開用Clip検索データ
 ├── index.html                     # 公開ルート入口
@@ -228,6 +231,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-11**: GitHub Pages Clip検索画面へOGP/Twitter Card/JSON-LD/canonical/descriptionを追加し、生成画像 `docs/assets/clip-search-og.png` をOG画像とヒーロー背景に設定。`?q=検索語` で初期検索できるようにした
 - **2026-06-11**: GitHub Pages Clip検索画面へサムネイルとゲーム名表示を追加。公開JSONに `gameName` / `thumbnailUrl` を追加し、必要時は `--enrich-from-twitch` でTwitch APIから補完できるようにした
 - **2026-06-11**: `docs/index.html` を公開Clip検索入口に変更し、内部仕様書は `internal-docs/twitchraid-bot-zukan.html` へ移動。旧仕様書URLもClip検索入口へ案内するだけにした
 - **2026-06-11**: Clip検索画面のページ内再生を撤去し、各カードは `Twitchで見る` の外部リンクのみへ変更

@@ -3,6 +3,38 @@ import path from "path";
 import { describe, expect, it } from "vitest";
 
 describe("GitHub Pages clip search page", () => {
+  it("publishes search-friendly metadata and a generated OG image", () => {
+    const html = fs.readFileSync(
+      path.join(process.cwd(), "docs", "clip-search.html"),
+      "utf8"
+    );
+    const ogImagePath = path.join(
+      process.cwd(),
+      "docs",
+      "assets",
+      "clip-search-og.png"
+    );
+
+    expect(fs.existsSync(ogImagePath)).toBe(true);
+    expect(html).toContain(
+      '<meta name="description" content="るっかるんのTwitch Clipをタイトル、作成者名、ゲーム名で探せる公開Clip検索ページです。" />'
+    );
+    expect(html).toContain(
+      '<link rel="canonical" href="https://jinwktk.github.io/twitchRaid/clip-search.html" />'
+    );
+    expect(html).toContain('<meta name="robots" content="index,follow" />');
+    expect(html).toContain('<meta property="og:type" content="website" />');
+    expect(html).toContain(
+      '<meta property="og:image" content="https://jinwktk.github.io/twitchRaid/assets/clip-search-og.png" />'
+    );
+    expect(html).toContain('<meta name="twitter:card" content="summary_large_image" />');
+    expect(html).toContain('<script type="application/ld+json">');
+    expect(html).toContain('"@type": "CollectionPage"');
+    expect(html).toContain('"@type": "SearchAction"');
+    expect(html).toContain('clip-search.html?q={search_term_string}');
+    expect(html).toContain('const initialQuery = new URLSearchParams(window.location.search).get("q");');
+  });
+
   it("contains the expected public search controls", () => {
     const html = fs.readFileSync(
       path.join(process.cwd(), "docs", "clip-search.html"),
@@ -22,6 +54,8 @@ describe("GitHub Pages clip search page", () => {
     expect(html).toContain("thumbnailUrl");
     expect(html).toContain("ゲーム:");
     expect(html).toContain("gameName");
+    expect(html).toContain("./assets/clip-search-og.png");
+    expect(html).toContain('class="hero-image"');
     expect(html).toContain("JSON生成");
     expect(html).toContain('<option value="oldest">古い順</option>');
     expect(html).toContain('<option value="favorites">お気に入り順</option>');
@@ -82,6 +116,9 @@ describe("GitHub Pages clip search page", () => {
     );
 
     expect(indexHtml).toContain("clip-search.html");
+    expect(indexHtml).toContain(
+      "https://jinwktk.github.io/twitchRaid/assets/clip-search-og.png"
+    );
     expect(indexHtml).not.toContain("twitchRaid Bot しくみ図鑑");
     expect(indexHtml).not.toContain("TypeScript版仕様書");
     expect(indexHtml).not.toContain("#map");
