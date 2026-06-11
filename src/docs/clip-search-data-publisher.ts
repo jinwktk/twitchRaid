@@ -1,4 +1,5 @@
 import { execFile } from "child_process";
+import fs from "fs";
 import path from "path";
 import { promisify } from "util";
 import logger from "../utils/logger";
@@ -50,6 +51,7 @@ interface ClipSearchDataPublisherOptions {
   minIntervalMs?: number;
   runCommand?: RunCommand;
   nowMs?: () => number;
+  initialLastPublishedMs?: number;
 }
 
 async function defaultRunCommand(
@@ -81,6 +83,18 @@ function relativeRepoPath(repoDir: string, targetPath: string): string {
   return toGitPath(relative);
 }
 
+function readGeneratedAtMs(outPath: string): number {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(outPath, "utf8"));
+    const generatedAt =
+      typeof parsed?.generatedAt === "string" ? parsed.generatedAt : "";
+    const generatedAtMs = Date.parse(generatedAt);
+    return Number.isFinite(generatedAtMs) ? generatedAtMs : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export class ClipSearchDataPublisher {
   private readonly enabled: boolean;
   private readonly repoDir: string;
@@ -110,6 +124,8 @@ export class ClipSearchDataPublisher {
     this.minIntervalMs = options.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS;
     this.runCommand = options.runCommand ?? defaultRunCommand;
     this.nowMs = options.nowMs ?? Date.now;
+    this.lastPublishedMs =
+      options.initialLastPublishedMs ?? readGeneratedAtMs(this.outPath);
   }
 
   async publishAfterRecentSync(
