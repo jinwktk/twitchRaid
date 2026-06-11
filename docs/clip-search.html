@@ -76,7 +76,7 @@
       .topbar-inner {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        justify-content: flex-start;
         gap: 16px;
         min-height: 58px;
       }
@@ -246,7 +246,7 @@
 
       .status-row {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-columns: minmax(0, 1fr);
         gap: 12px;
         align-items: center;
         margin-bottom: 18px;
@@ -542,10 +542,6 @@
           <span class="brand-mark" aria-hidden="true">R</span>
           <span>るっかるん Clip検索</span>
         </a>
-        <nav class="top-links" aria-label="関連ページ">
-          <a href="./index.html">Bot仕様書</a>
-          <a href="https://www.twitch.tv/rukalun" rel="noreferrer" target="_blank">Twitch</a>
-        </nav>
       </div>
     </header>
 
@@ -616,7 +612,6 @@
           <span id="updatedAt" class="pill">更新日時を確認中</span>
           <span id="clipSyncedAt" class="pill">Clip最終同期を確認中</span>
         </div>
-        <span id="dataSource" class="pill">clip-search-data.json</span>
       </div>
 
       <div id="notice" class="notice" hidden></div>
@@ -646,10 +641,6 @@
         <button id="loadMoreButton" class="button" type="button">もっと見る</button>
       </div>
 
-      <p class="footer-note">
-        このページはBotのSQLite Clipキャッシュから生成した公開JSONを使っています。
-        最新化は運用側で <code>npm run docs:export-clips</code> を実行します。
-      </p>
     </main>
 
     <script>

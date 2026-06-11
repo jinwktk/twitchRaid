@@ -3,7 +3,7 @@ import path from "path";
 import { describe, expect, it } from "vitest";
 
 describe("GitHub Pages clip search page", () => {
-  it("contains the expected static search controls and data source", () => {
+  it("contains the expected public search controls", () => {
     const html = fs.readFileSync(
       path.join(process.cwd(), "docs", "clip-search.html"),
       "utf8"
@@ -22,6 +22,20 @@ describe("GitHub Pages clip search page", () => {
     expect(html).toContain('second: "2-digit"');
   });
 
+  it("does not expose internal documentation or operation links on the public page", () => {
+    const html = fs.readFileSync(
+      path.join(process.cwd(), "docs", "clip-search.html"),
+      "utf8"
+    );
+
+    expect(html).not.toContain('href="./index.html"');
+    expect(html).not.toContain("Bot仕様書");
+    expect(html).not.toContain("docs:export-clips");
+    expect(html).not.toContain("SQLite");
+    expect(html).not.toContain("公開JSON");
+    expect(html).not.toContain('id="dataSource"');
+  });
+
   it("configures Twitch clip embeds for in-page playback", () => {
     const html = fs.readFileSync(
       path.join(process.cwd(), "docs", "clip-search.html"),
@@ -35,12 +49,12 @@ describe("GitHub Pages clip search page", () => {
     expect(html).toContain("allowFullscreen");
   });
 
-  it("is linked from the main GitHub Pages document", () => {
+  it("is not linked from the internal specification document", () => {
     const indexHtml = fs.readFileSync(
       path.join(process.cwd(), "docs", "index.html"),
       "utf8"
     );
 
-    expect(indexHtml).toContain("clip-search.html");
+    expect(indexHtml).not.toContain('href="./clip-search.html"');
   });
 });
