@@ -123,6 +123,7 @@
 - 実装: `scripts/export-clip-search-data.mjs` が `clip_sync_state` から `recent_sync_at` を読み、`docs/clip-search-data.json` の `clipSync.recentSyncedAt` へ出力するよう変更。`docs/clip-search.html` はJSON生成時刻とClip最終同期時刻をJSTの年月日・時分秒で表示するよう変更
 - データ: サブPC `E:\GitHub\twitchRaid\data\clips.sqlite` の `recent_sync_at=2026-06-11T03:50:16.396Z` を確認し、一時コピーから `docs/clip-search-data.json` を再生成。2,750件、Clip個別公開項目は従来どおり `id` / `url` / `title` / `creator` / `createdAt` / `views` のみに限定した
 - 検証: `npm test -- --run tests/docs-clip-search-data.test.ts tests/docs-clip-search-page.test.ts` 3件、`npm test` 166件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/clip-search.html` / `docs/index.html` / `docs/typescript-bot-spec.html` 構文確認、公開JSONキー検査、`git diff --check` が通過。ローカルHTTPサーバーとPlaywrightでデスクトップ/390px幅の `Clip最終同期: 2026/06/11 12:50:16 JST` 秒表示と横はみ出しなしを確認
+- 本番反映: コミット `61422fe` をmainへpush。GitHub Pages workflow `Deploy GitHub Pages` は成功し、公開URL `https://jinwktk.github.io/twitchRaid/clip-search.html` で `Clip最終同期: 2026/06/11 12:50:16 JST` が秒まで表示されることをPlaywrightで確認。サブPC `E:\GitHub\twitchRaid` はmain `61422fe` で、サブPC上の `npm run build` と対象Vitest 3件が通過し、`twitchRaid` はonline
 
 - 要望: GitHub PagesでClip検索画面を作り、るっかるんに合うかわいいゆるふわ系デザインにしたい
 - Autopilot: `.omx/context/github-pages-clip-search-20260611T032221Z.md`、`.omx/specs/deep-interview-github-pages-clip-search.md`、`.omx/plans/prd-github-pages-clip-search.md`、`.omx/plans/test-spec-github-pages-clip-search.md` を作成。Architectレビューは静的Pages用JSON生成と公開項目最小化をCLEARとして承認、Criticレビューはapprove
