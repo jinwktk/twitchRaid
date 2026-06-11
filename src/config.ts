@@ -49,6 +49,11 @@ export class Config {
   readonly restartCheckInterval: number;
   readonly clipCacheDbPath: string;
   readonly streamSummaryStatePath: string;
+  readonly clipSearchAutoPublishEnabled: boolean;
+  readonly clipSearchDataPath: string;
+  readonly clipSearchPublishMinIntervalMs: number;
+  readonly clipSearchPublishRemote: string;
+  readonly clipSearchPublishBranch: string;
   readonly maxSummaryClipPosts: number;
   readonly ollamaShoutoutEnabled: boolean;
   readonly ollamaBaseUrl: string;
@@ -107,6 +112,21 @@ export class Config {
       BASE_DIR,
       env["STREAM_SUMMARY_STATE_PATH"] ?? "data/stream-summary-state.json"
     );
+    this.clipSearchAutoPublishEnabled = parseEnabledFlag(
+      env["CLIP_SEARCH_AUTO_PUBLISH_ENABLED"] ?? "0"
+    );
+    this.clipSearchDataPath = path.resolve(
+      BASE_DIR,
+      env["CLIP_SEARCH_DATA_PATH"] ?? "docs/clip-search-data.json"
+    );
+    this.clipSearchPublishMinIntervalMs = parsePositiveInt(
+      env["CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS"],
+      5 * 60 * 1000
+    );
+    this.clipSearchPublishRemote =
+      env["CLIP_SEARCH_PUBLISH_REMOTE"]?.trim() || "origin";
+    this.clipSearchPublishBranch =
+      env["CLIP_SEARCH_PUBLISH_BRANCH"]?.trim() || "main";
     this.maxSummaryClipPosts =
       parseInt(env["STREAM_SUMMARY_MAX_CLIPS"] ?? "10", 10) || 10;
     this.ollamaShoutoutEnabled = parseEnabledFlag(

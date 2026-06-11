@@ -135,6 +135,49 @@ function readClips(db, limit) {
   }));
 }
 
+function readPreviousClipDetails(outPath) {
+  if (!fs.existsSync(outPath)) return new Map();
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(outPath, "utf8"));
+    const clips = Array.isArray(parsed?.clips) ? parsed.clips : [];
+    return new Map(
+      clips
+        .filter((clip) => typeof clip?.id === "string")
+        .map((clip) => [
+          clip.id,
+          {
+            gameName:
+              typeof clip.gameName === "string" && clip.gameName.trim()
+                ? clip.gameName
+                : null,
+            thumbnailUrl:
+              typeof clip.thumbnailUrl === "string" && clip.thumbnailUrl.trim()
+                ? clip.thumbnailUrl
+                : null,
+          },
+        ])
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+function preservePreviousClipDetails(clips, previousDetails) {
+  if (previousDetails.size === 0) return clips;
+
+  return clips.map((clip) => {
+    const previous = previousDetails.get(clip.id);
+    if (!previous) return clip;
+
+    return {
+      ...clip,
+      gameName: clip.gameName ?? previous.gameName,
+      thumbnailUrl: clip.thumbnailUrl ?? previous.thumbnailUrl,
+    };
+  });
+}
+
 function writeJson(outPath, payload) {
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
@@ -252,7 +295,11 @@ async function main() {
   const db = new DatabaseSync(args.db, { readOnly: true });
   try {
     ensureClipCacheExists(db);
-    let clips = readClips(db, args.limit);
+    const previousDetails = readPreviousClipDetails(args.out);
+    let clips = preservePreviousClipDetails(
+      readClips(db, args.limit),
+      previousDetails
+    );
     if (args.enrichFromTwitch) {
       clips = await enrichClipsFromTwitch(clips, args.env);
     }
