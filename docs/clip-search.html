@@ -23,9 +23,9 @@
     <meta name="twitter:description" content="るっかるんのTwitch Clipをタイトル、作成者名、ゲーム名で探せる公開Clip検索ページです。" />
     <meta name="twitter:image" content="https://jinwktk.github.io/twitchRaid/assets/rukalun/clip-search-og.png" />
     <title>るっかるん Clip検索</title>
-    <link rel="icon" href="./favicon.ico" sizes="any" />
-    <link rel="icon" href="./assets/clip-search-favicon.png" type="image/png" />
-    <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
+    <link rel="icon" href="./assets/rukalun/clip-search-favicon.ico" sizes="any" />
+    <link rel="icon" href="./assets/rukalun/clip-search-favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="./assets/rukalun/clip-search-apple-touch-icon.png" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -140,7 +140,13 @@
         border: 1px solid #f2b4ce;
         border-radius: 8px;
         background: var(--pink-soft);
-        color: #b93f72;
+        overflow: hidden;
+      }
+
+      .brand-icon {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
       }
 
       .top-links {
@@ -210,6 +216,12 @@
         color: #a94a77;
         font-size: 0.9rem;
         font-weight: 900;
+      }
+
+      .eyebrow-icon {
+        width: 24px;
+        height: 24px;
+        object-fit: contain;
       }
 
       h1,
@@ -350,6 +362,10 @@
       }
 
       .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
         min-height: 44px;
         border: 1px solid var(--line);
         border-radius: 8px;
@@ -363,6 +379,14 @@
         border-color: #d94f89;
         background: var(--pink);
         color: #fff;
+      }
+
+      .button-icon {
+        flex: 0 0 auto;
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        object-fit: contain;
       }
 
       main {
@@ -556,11 +580,13 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        gap: 7px;
         min-height: 40px;
         border: 1px solid #d94f89;
         border-radius: 8px;
         background: #fff5f9;
         color: #b63d74;
+        padding: 8px 10px;
         font-weight: 900;
         text-decoration: none;
       }
@@ -679,7 +705,9 @@
     <header class="topbar">
       <div class="wrap topbar-inner">
         <a class="brand" href="./clip-search.html" aria-label="るっかるん Clip検索">
-          <span class="brand-mark" aria-hidden="true">R</span>
+          <span class="brand-mark" aria-hidden="true">
+            <img class="brand-icon" src="./assets/rukalun/Hi-112px.png" width="34" height="34" alt="" decoding="async" />
+          </span>
           <span>るっかるん Clip検索</span>
         </a>
       </div>
@@ -696,7 +724,10 @@
       />
       <div class="wrap hero-content">
         <div class="hero-copy">
-          <span class="eyebrow">Rukalun Clip Library</span>
+          <span class="eyebrow">
+            <img class="eyebrow-icon" src="./assets/rukalun/プレゼント-112px.png" width="24" height="24" alt="" decoding="async" />
+            Rukalun Clip Library
+          </span>
           <h1 id="pageTitle">かわいい瞬間を、<span class="title-phrase">ふわっと探す。</span></h1>
           <p class="lead">
             るっかるんの配信で生まれたClipを、タイトル、作成者名、ゲーム名から探せます。
@@ -744,8 +775,14 @@
           </select>
         </div>
         <div class="button-row">
-          <button id="randomButton" class="button primary" type="button">おまかせ</button>
-          <button id="clearButton" class="button" type="button">クリア</button>
+          <button id="randomButton" class="button primary" type="button">
+            <img class="button-icon" src="./assets/rukalun/bikkuri-112px.png" width="24" height="24" alt="" decoding="async" />
+            おまかせ
+          </button>
+          <button id="clearButton" class="button" type="button">
+            <img class="button-icon" src="./assets/rukalun/Hi-112px.png" width="24" height="24" alt="" decoding="async" />
+            クリア
+          </button>
         </div>
       </div>
     </section>
@@ -768,7 +805,10 @@
       <section id="results" class="results" aria-label="検索結果"></section>
 
       <div id="loadMoreWrap" class="load-more-wrap">
-        <button id="loadMoreButton" class="button" type="button">もっと見る</button>
+        <button id="loadMoreButton" class="button" type="button">
+          <img class="button-icon" src="./assets/rukalun/プレゼント-112px.png" width="24" height="24" alt="" decoding="async" />
+          もっと見る
+        </button>
       </div>
 
     </main>
@@ -776,6 +816,11 @@
     <script>
       const DATA_URL = "clip-search-data.json";
       const CLIP_FAVORITES_STORAGE_KEY = "rukalun.clipSearch.favorites.v1";
+      const RUKALUN_ICON_PATHS = {
+        hi: "./assets/rukalun/Hi-112px.png",
+        gift: "./assets/rukalun/プレゼント-112px.png",
+        surprise: "./assets/rukalun/bikkuri-112px.png",
+      };
       const INITIAL_LIMIT = 48;
       const MORE_STEP = 48;
       const NEW_CLIP_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
@@ -932,6 +977,21 @@
         elements.notice.textContent = message;
       }
 
+      function createButtonIcon(src) {
+        const icon = document.createElement("img");
+        icon.className = "button-icon";
+        icon.src = src;
+        icon.alt = "";
+        icon.width = 24;
+        icon.height = 24;
+        icon.decoding = "async";
+        return icon;
+      }
+
+      function setIconText(element, iconSrc, label) {
+        element.replaceChildren(createButtonIcon(iconSrc), document.createTextNode(label));
+      }
+
       function buildCreatorOptions(clips) {
         const creators = [...new Set(clips.map((clip) => clip.creator).filter(Boolean))].sort((a, b) =>
           a.localeCompare(b, "ja-JP")
@@ -1077,16 +1137,18 @@
         const favoriteButton = document.createElement("button");
         favoriteButton.className = "clip-favorite-button";
         favoriteButton.type = "button";
+        const favoriteLabel = isFavoriteClip(clip) ? "お気に入り済み" : "お気に入りに追加";
         favoriteButton.setAttribute("aria-pressed", String(isFavoriteClip(clip)));
-        favoriteButton.textContent = isFavoriteClip(clip) ? "お気に入り済み" : "お気に入りに追加";
+        favoriteButton.setAttribute("aria-label", favoriteLabel);
+        setIconText(favoriteButton, RUKALUN_ICON_PATHS.gift, favoriteLabel);
         favoriteButton.addEventListener("click", () => toggleFavoriteClip(clip));
 
         const link = document.createElement("a");
         link.className = "clip-link";
-        link.textContent = "Twitchで見る";
         link.target = "_blank";
         link.rel = "noreferrer";
         link.href = isSafeTwitchClipUrl(clip.url) ? clip.url : "https://www.twitch.tv/rukalun";
+        setIconText(link, RUKALUN_ICON_PATHS.hi, "Twitchで見る");
 
         actions.append(favoriteButton, link);
         body.append(title, meta, actions);

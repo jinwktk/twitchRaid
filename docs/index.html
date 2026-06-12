@@ -16,9 +16,9 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:image" content="https://jinwktk.github.io/twitchRaid/assets/rukalun/clip-search-og.png" />
     <title>るっかるん Clip検索</title>
-    <link rel="icon" href="./favicon.ico" sizes="any" />
-    <link rel="icon" href="./assets/clip-search-favicon.png" type="image/png" />
-    <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
+    <link rel="icon" href="./assets/rukalun/clip-search-favicon.ico" sizes="any" />
+    <link rel="icon" href="./assets/rukalun/clip-search-favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="./assets/rukalun/clip-search-apple-touch-icon.png" />
     <style>
       :root {
         color-scheme: light;
@@ -66,6 +66,16 @@
         line-height: 1.2;
       }
 
+      .page-icon {
+        width: 72px;
+        height: 72px;
+        margin-bottom: 12px;
+        border: 1px solid #f2b4ce;
+        border-radius: 8px;
+        background: #ffe7f0;
+        object-fit: cover;
+      }
+
       p {
         margin: 12px 0 0;
         color: var(--muted);
@@ -75,6 +85,7 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        gap: 8px;
         min-height: 44px;
         margin-top: 18px;
         border: 1px solid #d94f89;
@@ -85,13 +96,23 @@
         font-weight: 900;
         text-decoration: none;
       }
+
+      .button-icon {
+        width: 24px;
+        height: 24px;
+        object-fit: contain;
+      }
     </style>
   </head>
   <body>
     <main>
+      <img class="page-icon" src="./assets/rukalun/Hi-112px.png" width="72" height="72" alt="" decoding="async" />
       <h1>るっかるん Clip検索</h1>
       <p>Clip検索画面へ移動します。</p>
-      <a href="clip-search.html">Clip検索を開く</a>
+      <a href="clip-search.html">
+        <img class="button-icon" src="./assets/rukalun/プレゼント-112px.png" width="24" height="24" alt="" decoding="async" />
+        Clip検索を開く
+      </a>
     </main>
   </body>
 </html>

@@ -32,12 +32,15 @@
 - `src/streams/stream-summary-count-buffer.ts`: 通常コメントごとの配信まとめstate同期書き込みを避けるため、コメント数更新を30秒デバウンスし、Raid/停止/配信終了時に即時flushする。
 - `src/streams/stream-summary-state-store.ts`: 配信中/投稿待ち/投稿済みのまとめ状態を `data/stream-summary-state.json` へ保存し、再起動後の復元を担当。
 - `docs/index.html`: 公開ルート入口。内部仕様書を置かず、Clip検索画面 `docs/clip-search.html` へ案内するだけにする。
-- `docs/clip-search.html`: GitHub Pages用Clip検索画面。`docs/clip-search-data.json` を読み込み、タイトル/作成者表示名/ゲーム名検索、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、追加表示、Clip最終同期時刻のJST秒単位表示、サムネイル、ゲーム名、3日以内の新着Clip用 `NEW` マーク、`Twitchで見る` 外部リンクを表示する。ページ内Twitch iframe再生は置かない。SP幅では検索条件を初期折りたたみの開閉パネルにして、検索条件概要テキストと右端固定の `▽` アイコンを別カラムで表示し、PC/タブレット幅では検索条件を常時表示する。お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存し、公開JSONやサーバー側状態には持たせない。淡いピンク、ミント、空色、レモン色のゆるふわ系デザイン。提供画像から作った `docs/assets/rukalun/clip-search-hero.png` をヒーロー背景、`docs/assets/rukalun/clip-search-og.png` をOG画像に使い、`docs/assets/clip-search-favicon.png` / `docs/favicon.ico` / `docs/assets/apple-touch-icon.png` をfaviconやホーム画面アイコンに使う。description/canonical/robots/OGP/Twitter Card/JSON-LD `CollectionPage` / `SearchAction` を持つ。`?q=検索語` がある場合は検索欄へ初期入力する。公開ページとして使うため、仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明は画面に出さない。
+- `docs/clip-search.html`: GitHub Pages用Clip検索画面。`docs/clip-search-data.json` を読み込み、タイトル/作成者表示名/ゲーム名検索、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、追加表示、Clip最終同期時刻のJST秒単位表示、サムネイル、ゲーム名、3日以内の新着Clip用 `NEW` マーク、`Twitchで見る` 外部リンクを表示する。ページ内Twitch iframe再生は置かない。SP幅では検索条件を初期折りたたみの開閉パネルにして、検索条件概要テキストと右端固定の `▽` アイコンを別カラムで表示し、PC/タブレット幅では検索条件を常時表示する。お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存し、公開JSONやサーバー側状態には持たせない。淡いピンク、ミント、空色、レモン色のゆるふわ系デザイン。提供画像から作った `docs/assets/rukalun/clip-search-hero.png` をヒーロー背景、`docs/assets/rukalun/clip-search-og.png` をOG画像、`docs/assets/rukalun/clip-search-favicon.png` / `docs/assets/rukalun/clip-search-favicon.ico` / `docs/assets/rukalun/clip-search-apple-touch-icon.png` をfaviconやホーム画面アイコンに使う。画面内のブランドマークやボタン小アイコンは `docs/assets/rukalun/Hi-112px.png`、`docs/assets/rukalun/プレゼント-112px.png`、`docs/assets/rukalun/bikkuri-112px.png` を使う。description/canonical/robots/OGP/Twitter Card/JSON-LD `CollectionPage` / `SearchAction` を持つ。`?q=検索語` がある場合は検索欄へ初期入力する。公開ページとして使うため、仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明は画面に出さない。
 - `docs/assets/rukalun/clip-search-hero.png`: `docs/assets/rukalun` の提供画像を合成・軽量化した1600x900 PNG。Clip検索画面のヒーロー背景に使う。
 - `docs/assets/rukalun/clip-search-og.png`: `docs/assets/rukalun` の提供画像を合成・軽量化した1200x630 PNG。SNS共有と検索向けOGP/Twitter画像に使う。
-- `docs/assets/clip-search-favicon.png`: Clip検索画面のPNG favicon。512x512の生成アイコン。
-- `docs/assets/apple-touch-icon.png`: iOS/ホーム画面向けの180x180 PNGアイコン。
-- `docs/favicon.ico`: 互換ブラウザ向けの32x32 favicon.ico。
+- `docs/assets/rukalun/clip-search-favicon.png`: `Hi-112px.png` 由来のClip検索画面PNG favicon。512x512。
+- `docs/assets/rukalun/clip-search-favicon.ico`: `Hi-112px.png` 由来のICO favicon。HTMLから直接参照する。
+- `docs/assets/rukalun/clip-search-apple-touch-icon.png`: `Hi-112px.png` 由来のiOS/ホーム画面向け180x180 PNGアイコン。
+- `docs/assets/rukalun/Hi-112px.png`: 提供素材。公開ページのブランドマーク、クリア/Twitchリンク小アイコン、favicon派生元として使う。
+- `docs/assets/rukalun/プレゼント-112px.png`: 提供素材。ヒーローラベル、もっと見る、お気に入り小アイコンに使う。
+- `docs/assets/rukalun/bikkuri-112px.png`: 提供素材。`おまかせ` ボタン小アイコンに使う。
 - `docs/clip-search-data.json`: `scripts/export-clip-search-data.mjs` で生成する公開用Clip検索データ。サブPCの `data/clips.sqlite` から生成してmainへ反映する。`clipSync.recentSyncedAt` に直近Clip同期時刻を保持する。
 - `docs/typescript-bot-spec.html`: 旧URL互換ページ。内部仕様書へ誘導せず、公開Clip検索画面へ案内するだけにする。
 - `internal-docs/twitchraid-bot-zukan.html`: 現行TypeScript版 `src/` を中心に、Twitch Botのプログラム概要、機能一覧、処理フロー、配信まとめ、Clip同期、Raid対応、フォールバック、性能・運用、品質ゲートを図付きでまとめた内部向けHTML仕様書。
@@ -67,7 +70,7 @@
 - `tests/config.test.ts`: TypeScript版 `Config` のClip検索JSON自動公開設定読み込みを検証。
 - `tests/docs/clip-search-data-publisher.test.ts`: Clip検索JSON publisherが保存0件でも初回公開し、保存0件の連続同期は間隔で間引き、保存ありは即公開し、差分なしではcommitしないこと、再起動後も既存JSONの `generatedAt` で間隔を引き継ぐことを検証。
 - `tests/docs-clip-search-data.test.ts`: GitHub Pages用Clip検索JSONの生成で、有効Clipのみ、公開項目のみ、新しい順、件数一致、直近Clip同期時刻、ゲーム名、サムネイルURLの出力になることを検証。
-- `tests/docs-clip-search-page.test.ts`: `docs/clip-search.html` の検索UI要素、SP検索条件の開閉パネル、右端固定の `▽` アイコン、OGP/Twitter Card/JSON-LD/OG画像、favicon/Apple touch icon、`?q=` 初期検索、古い順/お気に入り順、お気に入りlocalStorage、Clip最終同期時刻表示、サムネイル/ゲーム名表示、3日以内新着Clipの `NEW` マーク、Twitch外部リンクのみ、公開ページ上の内部導線非表示、`docs/index.html` に内部仕様書を置かないことを検証。
+- `tests/docs-clip-search-page.test.ts`: `docs/clip-search.html` の検索UI要素、SP検索条件の開閉パネル、右端固定の `▽` アイコン、OGP/Twitter Card/JSON-LD/OG画像、`docs/assets/rukalun` 配下のfavicon/Apple touch icon/画面内小アイコン、`?q=` 初期検索、古い順/お気に入り順、お気に入りlocalStorage、Clip最終同期時刻表示、サムネイル/ゲーム名表示、3日以内新着Clipの `NEW` マーク、Twitch外部リンクのみ、公開ページ上の内部導線非表示、`docs/index.html` に内部仕様書を置かないことを検証。
 - `tests/commands/raid-info.test.ts`: Raid元配信情報の取得、指定文言でのチャットメッセージ整形、オフライン時フォールバック、長文タイトルの単一行化/短縮を検証。
 - `tests/commands/boom.test.ts`: TypeScript版 `!boom` のVODチャプター抽出、ゲーム別合算、1時間未満フィルタ、表示文言を検証。
 - `tests/commands/clip.test.ts`: TypeScript版クリップ取得のAPIフォールバック、履歴回避、`myclip` の作成者フィルタ、`clipsearch:<検索語>` 履歴キーとキャッシュ検索ラッパーを検証。
@@ -132,6 +135,12 @@
 - `logs/` は利用後にアーカイブか削除。容量監視は `du -sh logs` と `find logs -mtime +30 -delete` (必要に応じて) で対応。
 
 ## 2026-06-12 作業ログ
+- 要望: なるべくアイコンなどを `asset/rukalun`（実体は `docs/assets/rukalun`）から使用したい
+- TDD: `tests/docs-clip-search-page.test.ts` を先に更新し、favicon/Apple touch icon/ICO が `docs/assets/rukalun` 配下にあること、Clip検索/公開ルート/旧URL互換ページのHTMLが `assets/rukalun` のアイコンを参照すること、画面内ブランドマークやボタン小アイコンが `Hi-112px.png` / `プレゼント-112px.png` / `bikkuri-112px.png` を使うことを期待値に追加。未実装失敗を確認
+- 実装: `Hi-112px.png` 由来の `docs/assets/rukalun/clip-search-favicon.png`、`docs/assets/rukalun/clip-search-favicon.ico`、`docs/assets/rukalun/clip-search-apple-touch-icon.png` を生成。`docs/clip-search.html`、`docs/index.html`、`docs/typescript-bot-spec.html` のfavicon/Apple touch参照を `assets/rukalun` へ変更し、旧 `docs/assets/clip-search-favicon.png` / `docs/assets/apple-touch-icon.png` / `docs/favicon.ico` を削除。Clip検索のブランドマーク、ヒーローラベル、おまかせ/クリア/もっと見るボタン、動的生成されるお気に入り/Twitchリンクの小アイコンも `docs/assets/rukalun` 素材へ変更した。SP検索トグルの `▽` は開閉状態を示すUI記号として維持
+- ドキュメント: READMEとAGENTSに、`rukalun` 配下のfavicon派生画像、使用する小アイコン素材、旧アイコン削除後のファイル構成を追記
+- 検証: `npm test -- --run tests/docs-clip-search-page.test.ts` 9件、`npm test` 184件、`npm run build`、`npm run lint`、`python -m pytest -q` 107件、HTMLParserによる `docs/clip-search.html` / `docs/index.html` / `docs/typescript-bot-spec.html` / `internal-docs/twitchraid-bot-zukan.html` 構文確認、`git diff --check` が通過。Playwrightで `http://127.0.0.1:8770/clip-search.html?q=FF14` を1280x900と390x900で確認し、`rukalun` 小アイコンの読み込み、横はみ出しなし、ボタン文字の収まり、SP検索トグル右端 `▽` の24px固定を確認。入口/旧URL互換ページもローカルHTTP経由で旧favicon参照が残っていないことを確認
+
 - 要望: `docs/assets/rukalun` に格納した画像を、公開Clip検索ページで使いたい
 - Autopilot: `.omx/context/rukalun-assets-clip-search-20260611T153339Z.md`、`.omx/plans/prd-rukalun-assets-clip-search.md`、`.omx/plans/test-spec-rukalun-assets-clip-search.md` を作成。依頼内容は「提供画像を使う」で明確なためdeep-interviewはスキップ理由を状態に記録し、ralplanではArchitect/Critic承認を記録して実装へ進めた
 - 調査: `docs/assets/rukalun` は57ファイル/約47.55MB。全素材をそのままcommit/配信せず、公開ページで使う軽量派生画像だけを作る方針にした

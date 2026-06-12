@@ -25,7 +25,7 @@ npm run pm2:logs    # ログ確認
 ### 技術設計書
 - GitHub Pagesで公開する `docs/index.html` はClip検索画面への入口だけにしています
 - 現行TypeScript版 Twitch Bot の内部仕様書は `internal-docs/twitchraid-bot-zukan.html` に移動しています
-- Clip検索画面は `docs/clip-search.html` です。`docs/clip-search-data.json` を読み込み、GitHub Pages上でタイトル/作成者名/ゲーム名検索できます。OGP/Twitter Card/JSON-LD、`docs/assets/rukalun/clip-search-og.png`、favicon画像を使い、検索エンジンとSNS共有向けの公開情報を持たせています
+- Clip検索画面は `docs/clip-search.html` です。`docs/clip-search-data.json` を読み込み、GitHub Pages上でタイトル/作成者名/ゲーム名検索できます。OGP/Twitter Card/JSON-LD、`docs/assets/rukalun/clip-search-og.png`、`docs/assets/rukalun` 配下のfavicon画像を使い、検索エンジンとSNS共有向けの公開情報を持たせています
 - Clip検索画面は公開URLで使うため、画面上には仕様書、内部運用、JSON生成手順への導線を出しません
 - 旧URL互換の `docs/typescript-bot-spec.html` も公開Clip検索画面へ案内するだけのページです
 - `main` ブランチの `docs/` 更新時に `.github/workflows/pages.yml` がGitHub Pagesへ公開します
@@ -152,7 +152,7 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 - `!clipsearch` の表示履歴は `clipsearch:<検索語>` ごとに保存する
 
 ## GitHub Pages Clip検索
-- `docs/clip-search.html` は静的GitHub Pages上で動くClip検索画面。るっかるん向けに淡いピンク、ミント、空色、レモン色を使ったゆるふわ系デザインにしている。提供画像から作った `docs/assets/rukalun/clip-search-hero.png` をヒーロー背景、`docs/assets/rukalun/clip-search-og.png` をOG画像に使い、`docs/assets/clip-search-favicon.png` / `docs/favicon.ico` / `docs/assets/apple-touch-icon.png` をfaviconやホーム画面アイコンに使う
+- `docs/clip-search.html` は静的GitHub Pages上で動くClip検索画面。るっかるん向けに淡いピンク、ミント、空色、レモン色を使ったゆるふわ系デザインにしている。提供画像から作った `docs/assets/rukalun/clip-search-hero.png` をヒーロー背景、`docs/assets/rukalun/clip-search-og.png` をOG画像、`docs/assets/rukalun/clip-search-favicon.png` / `docs/assets/rukalun/clip-search-favicon.ico` / `docs/assets/rukalun/clip-search-apple-touch-icon.png` をfaviconやホーム画面アイコンに使う。画面内のブランドマークやボタン小アイコンも `docs/assets/rukalun/Hi-112px.png`、`docs/assets/rukalun/プレゼント-112px.png`、`docs/assets/rukalun/bikkuri-112px.png` を使う
 - 検索エンジン/SNS向けに、description、canonical、robots、OGP、Twitter Card、JSON-LD `CollectionPage` / `SearchAction` を設定する。`?q=検索語` がある場合は検索欄へ初期入力する
 - 検索データは `docs/clip-search-data.json`。ブラウザ内でタイトル/作成者表示名/ゲーム名を検索し、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、件数表示、追加表示、Clip最終同期時刻の秒単位表示に対応する
 - スマホ幅では上部の検索条件を「検索条件を開く」ボタン配下へ折りたたみ、必要な時だけ開けるようにする。トグル内は条件概要と右端固定の `▽` を分け、長い検索条件でもアイコン位置が崩れないようにする。PC/タブレット幅では従来通り検索条件を常時表示する
@@ -223,14 +223,17 @@ scripts/
 └── export-clip-search-data.mjs    # GitHub Pages用Clip検索JSON生成
 docs/
 ├── assets/
-│   ├── apple-touch-icon.png       # iOS/ホーム画面用アイコン
-│   ├── clip-search-favicon.png    # Clip検索のPNG favicon
 │   └── rukalun/
-│       ├── clip-search-hero.png   # 提供画像ベースのClip検索ヒーロー画像
-│       └── clip-search-og.png     # 提供画像ベースのOGP画像
+│       ├── Hi-112px.png                         # ブランドマーク/リンク小アイコンの提供素材
+│       ├── bikkuri-112px.png                    # おまかせボタン用の提供素材
+│       ├── プレゼント-112px.png                 # ラベル/追加表示/お気に入り用の提供素材
+│       ├── clip-search-apple-touch-icon.png     # 提供素材ベースのiOS/ホーム画面用アイコン
+│       ├── clip-search-favicon.ico              # 提供素材ベースのICO favicon
+│       ├── clip-search-favicon.png              # 提供素材ベースのPNG favicon
+│       ├── clip-search-hero.png                 # 提供画像ベースのClip検索ヒーロー画像
+│       └── clip-search-og.png                   # 提供画像ベースのOGP画像
 ├── clip-search.html               # Clip検索画面
 ├── clip-search-data.json          # 公開用Clip検索データ
-├── favicon.ico                    # 互換用favicon
 ├── index.html                     # 公開ルート入口
 └── typescript-bot-spec.html       # 旧URL互換入口
 internal-docs/
@@ -242,6 +245,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-12**: Clip検索ページのfavicon/Apple touch icon/ICOを `docs/assets/rukalun` 配下の `Hi-112px.png` 由来に変更し、旧 `docs/assets/clip-search-favicon.png` / `docs/assets/apple-touch-icon.png` / `docs/favicon.ico` を削除。画面内のブランドマーク、入口ページ、ボタン小アイコンも `rukalun` 素材参照へ寄せた
 - **2026-06-12**: `docs/assets/rukalun` の提供画像を使い、Clip検索画面のヒーロー画像とOGP画像を軽量派生画像へ差し替え。旧生成OG画像は削除し、公開ページ/入口ページ/旧URL互換ページのOGP/Twitter画像を `assets/rukalun/clip-search-og.png` に統一
 - **2026-06-11**: Clip検索公開JSONの自動pushをGit更新監視とself-hosted `Auto Deploy` が検知し、Botが数分おきに自己再起動して起動時バックフィルを繰り返す問題を修正。`docs/clip-search-data.json` だけの更新ではBot内Git監視はpullのみ、`Auto Deploy` は `paths-ignore` で非起動にした。DB総件数と公開件数の差は、削除/非公開化で `unavailable_at` が入ったClipを公開JSONから除外しているため
 - **2026-06-11**: GitHub Pages Clip検索画面のSP検索トグルを調整。条件概要テキストと右端の `▽` を別カラムに分け、開閉アイコンが右側に固定されるようにした
