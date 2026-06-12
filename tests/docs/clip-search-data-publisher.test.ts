@@ -28,14 +28,36 @@ function makePublisher(options: {
   });
 }
 
-function makePublishingCommandRunner(options?: { latestCommitSubject?: string }) {
+function makePublishingCommandRunner(options?: {
+  latestCommitSubject?: string;
+  headSha?: string;
+  remoteSha?: string;
+  localOnlySubjects?: string;
+  dirtyStatus?: string;
+}) {
   const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
   const latestCommitSubject =
     options?.latestCommitSubject ?? "Clip検索JSONを同期時刻更新\n";
+  const headSha = options?.headSha ?? "same-sha\n";
+  const remoteSha = options?.remoteSha ?? "same-sha\n";
+  const localOnlySubjects = options?.localOnlySubjects ?? "";
+  const dirtyStatus = options?.dirtyStatus ?? "";
   const runCommand: RunCommand = vi.fn(async (file, args, options) => {
     calls.push({ file, args, cwd: options.cwd });
-    if (file === "git" && args[0] === "status") {
+    if (file === "git" && args[0] === "status" && args.includes("--")) {
       return { stdout: " M docs/clip-search-data.json\n", stderr: "" };
+    }
+    if (file === "git" && args[0] === "status") {
+      return { stdout: dirtyStatus, stderr: "" };
+    }
+    if (file === "git" && args[0] === "rev-parse" && args[1] === "HEAD") {
+      return { stdout: headSha, stderr: "" };
+    }
+    if (file === "git" && args[0] === "rev-parse") {
+      return { stdout: remoteSha, stderr: "" };
+    }
+    if (file === "git" && args[0] === "log" && args[1] === "--pretty=%s") {
+      return { stdout: localOnlySubjects, stderr: "" };
     }
     if (file === "git" && args[0] === "log") {
       return { stdout: latestCommitSubject, stderr: "" };
@@ -72,6 +94,9 @@ describe("ClipSearchDataPublisher", () => {
 
     expect(result).toEqual({ status: "published" });
     expect(calls.map((call) => [path.basename(call.file), ...call.args])).toEqual([
+      ["git", "fetch", "origin", "main"],
+      ["git", "rev-parse", "HEAD"],
+      ["git", "rev-parse", "origin/main"],
       [
         path.basename(process.execPath),
         "C:\\repo\\twitchRaid\\scripts\\export-clip-search-data.mjs",
@@ -102,6 +127,9 @@ describe("ClipSearchDataPublisher", () => {
 
     expect(result).toEqual({ status: "published" });
     expect(calls.map((call) => [path.basename(call.file), ...call.args])).toEqual([
+      ["git", "fetch", "origin", "main"],
+      ["git", "rev-parse", "HEAD"],
+      ["git", "rev-parse", "origin/main"],
       [
         path.basename(process.execPath),
         "C:\\repo\\twitchRaid\\scripts\\export-clip-search-data.mjs",
@@ -137,6 +165,9 @@ describe("ClipSearchDataPublisher", () => {
 
     expect(result).toEqual({ status: "published" });
     expect(calls.map((call) => [path.basename(call.file), ...call.args])).toEqual([
+      ["git", "fetch", "origin", "main"],
+      ["git", "rev-parse", "HEAD"],
+      ["git", "rev-parse", "origin/main"],
       [
         path.basename(process.execPath),
         "C:\\repo\\twitchRaid\\scripts\\export-clip-search-data.mjs",
@@ -152,12 +183,107 @@ describe("ClipSearchDataPublisher", () => {
       ["git", "push", "origin", "main"],
     ]);
     expect(calls.map((call) => call.cwd)).toEqual([
+      "C:\\repo\\RukalunPage",
+      "C:\\repo\\RukalunPage",
+      "C:\\repo\\RukalunPage",
       "C:\\repo\\twitchRaid",
       "C:\\repo\\RukalunPage",
       "C:\\repo\\RukalunPage",
       "C:\\repo\\RukalunPage",
       "C:\\repo\\RukalunPage",
       "C:\\repo\\RukalunPage",
+    ]);
+  });
+
+  it("resets stale local bot sync commits to the fetched remote before publishing", async () => {
+    const { calls, runCommand } = makePublishingCommandRunner({
+      headSha: "local-bot-sync\n",
+      remoteSha: "remote-sync\n",
+      localOnlySubjects: "Clip検索JSONを同期時刻更新\n",
+    });
+    const publisher = makePublisher({ runCommand });
+
+    const result = await publisher.publishAfterRecentSync({
+      syncedAt: "2026-06-12T06:00:00.000Z",
+      saved: 0,
+      unavailable: 0,
+    });
+
+    expect(result).toEqual({ status: "published" });
+    expect(calls.map((call) => [path.basename(call.file), ...call.args])).toEqual([
+      ["git", "fetch", "origin", "main"],
+      ["git", "rev-parse", "HEAD"],
+      ["git", "rev-parse", "origin/main"],
+      ["git", "status", "--porcelain"],
+      ["git", "log", "--pretty=%s", "origin/main..HEAD"],
+      ["git", "reset", "--hard", "origin/main"],
+      [
+        path.basename(process.execPath),
+        "C:\\repo\\twitchRaid\\scripts\\export-clip-search-data.mjs",
+        "--db",
+        "C:\\repo\\twitchRaid\\data\\clips.sqlite",
+        "--out",
+        "C:\\repo\\twitchRaid\\docs\\clip-search-data.json",
+      ],
+      ["git", "status", "--porcelain", "--", "docs/clip-search-data.json"],
+      ["git", "add", "--", "docs/clip-search-data.json"],
+      ["git", "log", "-1", "--pretty=%s"],
+      ["git", "commit", "--amend", "--no-edit"],
+      ["git", "push", "--force-with-lease", "origin", "main"],
+    ]);
+  });
+
+  it("skips publishing instead of resetting local development commits", async () => {
+    const { calls, runCommand } = makePublishingCommandRunner({
+      headSha: "local-development\n",
+      remoteSha: "remote-sync\n",
+      localOnlySubjects: "Clip検索ページの表示を改善\n",
+    });
+    const publisher = makePublisher({ runCommand });
+
+    const result = await publisher.publishAfterRecentSync({
+      syncedAt: "2026-06-12T06:00:00.000Z",
+      saved: 0,
+      unavailable: 0,
+    });
+
+    expect(result).toEqual({
+      status: "skipped",
+      reason: "local-publish-commits",
+    });
+    expect(calls.map((call) => [path.basename(call.file), ...call.args])).toEqual([
+      ["git", "fetch", "origin", "main"],
+      ["git", "rev-parse", "HEAD"],
+      ["git", "rev-parse", "origin/main"],
+      ["git", "status", "--porcelain"],
+      ["git", "log", "--pretty=%s", "origin/main..HEAD"],
+    ]);
+  });
+
+  it("skips publishing instead of resetting a dirty publish repository", async () => {
+    const { calls, runCommand } = makePublishingCommandRunner({
+      headSha: "local-bot-sync\n",
+      remoteSha: "remote-sync\n",
+      localOnlySubjects: "Clip検索JSONを同期時刻更新\n",
+      dirtyStatus: " M clip-search-data.json\n",
+    });
+    const publisher = makePublisher({ runCommand });
+
+    const result = await publisher.publishAfterRecentSync({
+      syncedAt: "2026-06-12T06:00:00.000Z",
+      saved: 0,
+      unavailable: 0,
+    });
+
+    expect(result).toEqual({
+      status: "skipped",
+      reason: "dirty-publish-repo",
+    });
+    expect(calls.map((call) => [path.basename(call.file), ...call.args])).toEqual([
+      ["git", "fetch", "origin", "main"],
+      ["git", "rev-parse", "HEAD"],
+      ["git", "rev-parse", "origin/main"],
+      ["git", "status", "--porcelain"],
     ]);
   });
 

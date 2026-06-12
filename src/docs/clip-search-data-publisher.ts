@@ -102,6 +102,13 @@ function isSyncTimeOnlyRequest(request: ClipSearchPublishRequest): boolean {
   return request.saved === 0 && request.unavailable === 0;
 }
 
+function parseCommitSubjects(stdout: string): string[] {
+  return stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 export class ClipSearchDataPublisher {
   private readonly enabled: boolean;
   private readonly repoDir: string;
@@ -179,6 +186,11 @@ export class ClipSearchDataPublisher {
       `🎬 Clip検索公開JSON更新開始: syncedAt=${request.syncedAt}, saved=${request.saved}, unavailable=${request.unavailable}`
     );
 
+    const prepareResult = await this.preparePublishRepository();
+    if (prepareResult) {
+      return prepareResult;
+    }
+
     await this.runCommand(
       process.execPath,
       [this.exportScriptPath, "--db", this.dbPath, "--out", this.outPath],
@@ -229,6 +241,63 @@ export class ClipSearchDataPublisher {
       `🎬 Clip検索公開JSONを${this.remote}/${this.branch}へpushしました`
     );
     return { status: "published" };
+  }
+
+  private async preparePublishRepository(): Promise<ClipSearchPublishResult | null> {
+    const remoteRef = `${this.remote}/${this.branch}`;
+
+    await this.runCommand("git", ["fetch", this.remote, this.branch], {
+      cwd: this.publishRepoDir,
+      timeoutMs: 120_000,
+    });
+
+    const head = await this.runCommand("git", ["rev-parse", "HEAD"], {
+      cwd: this.publishRepoDir,
+      timeoutMs: 30_000,
+    });
+    const remoteHead = await this.runCommand("git", ["rev-parse", remoteRef], {
+      cwd: this.publishRepoDir,
+      timeoutMs: 30_000,
+    });
+    if (head.stdout.trim() === remoteHead.stdout.trim()) {
+      return null;
+    }
+
+    const dirty = await this.runCommand("git", ["status", "--porcelain"], {
+      cwd: this.publishRepoDir,
+      timeoutMs: 30_000,
+    });
+    if (dirty.stdout.trim()) {
+      logger.warn(
+        "🎬 Clip検索公開JSON更新をスキップ: 公開repoに未コミット変更があります"
+      );
+      return { status: "skipped", reason: "dirty-publish-repo" };
+    }
+
+    const localOnly = await this.runCommand(
+      "git",
+      ["log", "--pretty=%s", `${remoteRef}..HEAD`],
+      { cwd: this.publishRepoDir, timeoutMs: 30_000 }
+    );
+    const localOnlySubjects = parseCommitSubjects(localOnly.stdout);
+    const canDropLocalCommits = localOnlySubjects.every(
+      (subject) => subject === SYNC_TIME_COMMIT_MESSAGE
+    );
+    if (!canDropLocalCommits) {
+      logger.warn(
+        "🎬 Clip検索公開JSON更新をスキップ: 公開repoに開発commitが残っています"
+      );
+      return { status: "skipped", reason: "local-publish-commits" };
+    }
+
+    await this.runCommand("git", ["reset", "--hard", remoteRef], {
+      cwd: this.publishRepoDir,
+      timeoutMs: 30_000,
+    });
+    logger.info(
+      `🎬 Clip検索公開repoを${remoteRef}へ同期しました`
+    );
+    return null;
   }
 
   private async shouldAmendPreviousSyncTimeCommit(
