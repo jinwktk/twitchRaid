@@ -26,21 +26,37 @@ describe("GitHub Pages clip search page", () => {
       process.cwd(),
       "docs",
       "assets",
+      "rukalun",
       "clip-search-favicon.png"
     );
     const appleTouchIconPath = path.join(
       process.cwd(),
       "docs",
       "assets",
-      "apple-touch-icon.png"
+      "rukalun",
+      "clip-search-apple-touch-icon.png"
     );
-    const legacyFaviconPath = path.join(process.cwd(), "docs", "favicon.ico");
+    const faviconIcoPath = path.join(
+      process.cwd(),
+      "docs",
+      "assets",
+      "rukalun",
+      "clip-search-favicon.ico"
+    );
+    const brandIconPath = path.join(
+      process.cwd(),
+      "docs",
+      "assets",
+      "rukalun",
+      "Hi-112px.png"
+    );
 
     expect(fs.existsSync(ogImagePath)).toBe(true);
     expect(fs.existsSync(heroImagePath)).toBe(true);
     expect(fs.existsSync(faviconPath)).toBe(true);
     expect(fs.existsSync(appleTouchIconPath)).toBe(true);
-    expect(fs.existsSync(legacyFaviconPath)).toBe(true);
+    expect(fs.existsSync(faviconIcoPath)).toBe(true);
+    expect(fs.existsSync(brandIconPath)).toBe(true);
     expect(html).toContain(
       '<meta name="description" content="るっかるんのTwitch Clipをタイトル、作成者名、ゲーム名で探せる公開Clip検索ページです。" />'
     );
@@ -52,13 +68,17 @@ describe("GitHub Pages clip search page", () => {
     expect(html).toContain(
       '<meta property="og:image" content="https://jinwktk.github.io/twitchRaid/assets/rukalun/clip-search-og.png" />'
     );
-    expect(html).toContain('<link rel="icon" href="./favicon.ico" sizes="any" />');
     expect(html).toContain(
-      '<link rel="icon" href="./assets/clip-search-favicon.png" type="image/png" />'
+      '<link rel="icon" href="./assets/rukalun/clip-search-favicon.ico" sizes="any" />'
     );
     expect(html).toContain(
-      '<link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />'
+      '<link rel="icon" href="./assets/rukalun/clip-search-favicon.png" type="image/png" />'
     );
+    expect(html).toContain(
+      '<link rel="apple-touch-icon" href="./assets/rukalun/clip-search-apple-touch-icon.png" />'
+    );
+    expect(html).not.toContain("./assets/clip-search-favicon.png");
+    expect(html).not.toContain("./assets/apple-touch-icon.png");
     expect(html).toContain('<meta name="twitter:card" content="summary_large_image" />');
     expect(html).toContain('<script type="application/ld+json">');
     expect(html).toContain('"@type": "CollectionPage"');
@@ -88,6 +108,11 @@ describe("GitHub Pages clip search page", () => {
     expect(html).toContain("gameName");
     expect(html).toContain("./assets/rukalun/clip-search-hero.png");
     expect(html).toContain('class="hero-image"');
+    expect(html).toContain('class="brand-icon"');
+    expect(html).toContain('src="./assets/rukalun/Hi-112px.png"');
+    expect(html).toContain('src="./assets/rukalun/プレゼント-112px.png"');
+    expect(html).toContain('src="./assets/rukalun/bikkuri-112px.png"');
+    expect(html).toContain('class="button-icon"');
     expect(html).toContain('<span class="title-phrase">ふわっと探す。</span>');
     expect(html).toContain("white-space: nowrap");
     expect(html).toContain("JSON生成");
@@ -193,10 +218,16 @@ describe("GitHub Pages clip search page", () => {
     expect(indexHtml).toContain(
       "https://jinwktk.github.io/twitchRaid/assets/rukalun/clip-search-og.png"
     );
-    expect(indexHtml).toContain('<link rel="icon" href="./favicon.ico" sizes="any" />');
     expect(indexHtml).toContain(
-      '<link rel="icon" href="./assets/clip-search-favicon.png" type="image/png" />'
+      '<link rel="icon" href="./assets/rukalun/clip-search-favicon.ico" sizes="any" />'
     );
+    expect(indexHtml).toContain(
+      '<link rel="icon" href="./assets/rukalun/clip-search-favicon.png" type="image/png" />'
+    );
+    expect(indexHtml).toContain(
+      '<link rel="apple-touch-icon" href="./assets/rukalun/clip-search-apple-touch-icon.png" />'
+    );
+    expect(indexHtml).toContain('src="./assets/rukalun/Hi-112px.png"');
     expect(indexHtml).not.toContain("twitchRaid Bot しくみ図鑑");
     expect(indexHtml).not.toContain("TypeScript版仕様書");
     expect(indexHtml).not.toContain("#map");
@@ -212,5 +243,12 @@ describe("GitHub Pages clip search page", () => {
     expect(legacyHtml).not.toContain("url=index.html");
     expect(legacyHtml).not.toContain('href="index.html"');
     expect(legacyHtml).not.toContain("twitchRaid Bot しくみ図鑑");
+    expect(legacyHtml).toContain(
+      '<link rel="icon" href="./assets/rukalun/clip-search-favicon.ico" sizes="any" />'
+    );
+    expect(legacyHtml).toContain(
+      '<link rel="apple-touch-icon" href="./assets/rukalun/clip-search-apple-touch-icon.png" />'
+    );
+    expect(legacyHtml).toContain('src="./assets/rukalun/Hi-112px.png"');
   });
 });
