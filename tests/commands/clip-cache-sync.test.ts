@@ -160,7 +160,7 @@ describe("ClipCacheSynchronizer", () => {
   it("marks recently deleted cached clips unavailable after id verification", async () => {
     store.saveClips([
       clipToCachedClip(makeClip("kept", "2026-05-25T10:10:00.000Z")),
-      clipToCachedClip(makeClip("deleted", "2026-05-25T10:20:00.000Z")),
+      clipToCachedClip(makeClip("deleted", "2026-05-25T08:20:00.000Z")),
     ]);
     const getClipsForBroadcasterPaginated = vi.fn(() =>
       iterableClips([makeClip("kept", "2026-05-25T10:10:00.000Z")])
@@ -174,7 +174,7 @@ describe("ClipCacheSynchronizer", () => {
       },
       broadcasterId: "broadcaster-id",
       store,
-      recentWindowMinutes: 60,
+      recentWindowMinutes: 180,
       onRecentSyncComplete,
     });
 
@@ -184,7 +184,7 @@ describe("ClipCacheSynchronizer", () => {
     expect(
       store
         .listClipsCreatedBetween(
-          "2026-05-25T10:00:00.000Z",
+          "2026-05-25T07:30:00.000Z",
           "2026-05-25T10:30:00.000Z"
         )
         .map((clip) => clip.id)
@@ -201,13 +201,74 @@ describe("ClipCacheSynchronizer", () => {
     ).toBe(true);
   });
 
+  it("keeps newly cached clips during the recent API availability grace period", async () => {
+    store.saveClips([
+      clipToCachedClip(makeClip("flapping", "2026-05-25T10:20:00.000Z")),
+    ]);
+    const getClipsForBroadcasterPaginated = vi.fn(() => iterableClips([]));
+    const getClipsByIds = vi.fn(async () => []);
+    const onRecentSyncComplete = vi.fn();
+    const sync = new ClipCacheSynchronizer({
+      apiClient: {
+        clips: { getClipsForBroadcasterPaginated, getClipsByIds },
+      },
+      broadcasterId: "broadcaster-id",
+      store,
+      recentWindowMinutes: 180,
+      onRecentSyncComplete,
+    });
+
+    await sync.syncRecentClips(new Date("2026-05-25T10:30:00.000Z"));
+
+    expect(getClipsByIds).not.toHaveBeenCalled();
+    expect(store.selectRandomClip({ historyKey: "clip" })?.id).toBe("flapping");
+    expect(onRecentSyncComplete).toHaveBeenCalledWith({
+      syncedAt: "2026-05-25T10:30:00.000Z",
+      saved: 0,
+      unavailable: 0,
+    });
+  });
+
+  it("restores newly cached clips that were marked unavailable during the grace period", async () => {
+    store.saveClips([
+      clipToCachedClip(makeClip("restored-flapping", "2026-05-25T10:20:00.000Z")),
+    ]);
+    store.markClipsUnavailableByIds([
+      "restored-flapping",
+    ], "2026-05-25T10:25:00.000Z");
+    const getClipsForBroadcasterPaginated = vi.fn(() => iterableClips([]));
+    const getClipsByIds = vi.fn(async () => []);
+    const onRecentSyncComplete = vi.fn();
+    const sync = new ClipCacheSynchronizer({
+      apiClient: {
+        clips: { getClipsForBroadcasterPaginated, getClipsByIds },
+      },
+      broadcasterId: "broadcaster-id",
+      store,
+      recentWindowMinutes: 180,
+      onRecentSyncComplete,
+    });
+
+    await sync.syncRecentClips(new Date("2026-05-25T10:30:00.000Z"));
+
+    expect(getClipsByIds).not.toHaveBeenCalled();
+    expect(store.selectRandomClip({ historyKey: "clip" })?.id).toBe(
+      "restored-flapping"
+    );
+    expect(onRecentSyncComplete).toHaveBeenCalledWith({
+      syncedAt: "2026-05-25T10:30:00.000Z",
+      saved: 1,
+      unavailable: 0,
+    });
+  });
+
   it("keeps a missing recent clip when id verification still returns it", async () => {
     store.saveClips([
-      clipToCachedClip(makeClip("still-public", "2026-05-25T10:20:00.000Z")),
+      clipToCachedClip(makeClip("still-public", "2026-05-25T08:20:00.000Z")),
     ]);
     const getClipsForBroadcasterPaginated = vi.fn(() => iterableClips([]));
     const getClipsByIds = vi.fn(async () => [
-      makeClip("still-public", "2026-05-25T10:20:00.000Z"),
+      makeClip("still-public", "2026-05-25T08:20:00.000Z"),
     ]);
     const sync = new ClipCacheSynchronizer({
       apiClient: {
@@ -215,7 +276,7 @@ describe("ClipCacheSynchronizer", () => {
       },
       broadcasterId: "broadcaster-id",
       store,
-      recentWindowMinutes: 60,
+      recentWindowMinutes: 180,
     });
 
     await sync.syncRecentClips(new Date("2026-05-25T10:30:00.000Z"));

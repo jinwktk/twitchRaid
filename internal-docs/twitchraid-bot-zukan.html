@@ -1051,7 +1051,7 @@
               <li><code>clip_history</code>: <code>!clip</code> / <code>!myclip:user</code> / <code>!clipsearch:query</code> ごとの表示履歴</li>
               <li><code>clip_scan_windows</code>: 全期間バックフィルの完了窓</li>
               <li><code>clip_sync_state</code>: 直近同期と日次再走査の時刻</li>
-              <li>直近同期では一覧から消えたDB既存Clipを <code>getClipsByIds</code> で確認し、返らないClipだけ <code>unavailable_at</code> を設定</li>
+              <li>直近同期では一覧から消えたDB既存Clipを <code>getClipsByIds</code> で確認し、返らないClipだけ <code>unavailable_at</code> を設定。ただし作成から2時間以内のClipはTwitch API反映揺れとして保留し、無効化済みの場合も有効へ戻す</li>
               <li><code>!clipsearch</code> がClip件数増加で遅くなった場合はFTS5または検索専用テーブルへの移行を検討</li>
             </ul>
           </article>
@@ -1120,7 +1120,7 @@
             </tr>
             <tr>
               <td>ClipがTwitch APIから消えた</td>
-              <td>直近同期で一覧から消えたDB既存Clipを <code>getClipsByIds</code> で確認し、返らない場合は <code>unavailable_at</code> を入れて候補から外す。日次再走査も同じ無効化を補完する。</td>
+              <td>直近同期で一覧から消えたDB既存Clipを <code>getClipsByIds</code> で確認し、返らない場合は <code>unavailable_at</code> を入れて候補から外す。ただし作成から2時間以内のClipはTwitch API反映揺れとして保留し、無効化済みの場合も有効へ戻す。日次再走査も同じ無効化を補完する。</td>
               <td>APIに再登場したClipは自動で有効化される。通常バックフィルと競合して日次再走査が未完了だった場合は <code>daily_reconcile_at</code> を更新しない。</td>
             </tr>
             <tr>

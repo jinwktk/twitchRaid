@@ -30,6 +30,7 @@ interface ClipCacheSyncOptions {
   fullWindowDays?: number;
   splitThreshold?: number;
   recentWindowMinutes?: number;
+  recentUnavailableGraceMinutes?: number;
   recentSyncIntervalMs?: number;
   staleRecentSyncMs?: number;
   dailyReconcileIntervalMs?: number;
@@ -54,6 +55,7 @@ const DEFAULT_OLDEST_CLIP_DATE = new Date("2016-05-01T00:00:00.000Z");
 const DEFAULT_FULL_WINDOW_DAYS = 30;
 const DEFAULT_SPLIT_THRESHOLD = 950;
 const DEFAULT_RECENT_WINDOW_MINUTES = 6 * 60;
+const DEFAULT_RECENT_UNAVAILABLE_GRACE_MINUTES = 2 * 60;
 const DEFAULT_RECENT_SYNC_INTERVAL_MS = 60 * 1000;
 const DEFAULT_STALE_RECENT_SYNC_MS = 60 * 1000;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -142,6 +144,7 @@ export class ClipCacheSynchronizer {
   private readonly fullWindowDays: number;
   private readonly splitThreshold: number;
   private readonly recentWindowMinutes: number;
+  private readonly recentUnavailableGraceMinutes: number;
   private readonly recentSyncIntervalMs: number;
   private readonly staleRecentSyncMs: number;
   private readonly dailyReconcileIntervalMs: number;
@@ -162,6 +165,9 @@ export class ClipCacheSynchronizer {
     this.splitThreshold = options.splitThreshold ?? DEFAULT_SPLIT_THRESHOLD;
     this.recentWindowMinutes =
       options.recentWindowMinutes ?? DEFAULT_RECENT_WINDOW_MINUTES;
+    this.recentUnavailableGraceMinutes =
+      options.recentUnavailableGraceMinutes ??
+      DEFAULT_RECENT_UNAVAILABLE_GRACE_MINUTES;
     this.recentSyncIntervalMs =
       options.recentSyncIntervalMs ?? DEFAULT_RECENT_SYNC_INTERVAL_MS;
     this.staleRecentSyncMs =
@@ -223,7 +229,8 @@ export class ClipCacheSynchronizer {
         clips,
         this.options.apiClient.games
       );
-      const saved = this.options.store.saveClips(cachedClips);
+      let saved = this.options.store.saveClips(cachedClips);
+      saved += this.restoreUnavailableClipsInRecentGrace(now);
       const unavailable = await this.markUnavailableRecentMissingClips(
         start,
         now,
@@ -405,9 +412,13 @@ export class ClipCacheSynchronizer {
     const getClipsByIds = clipApi.getClipsByIds.bind(clipApi);
 
     const fetchedIds = new Set(fetchedClips.map((clip) => clip.id));
+    const graceEnd = new Date(
+      end.getTime() - this.recentUnavailableGraceMinutes * 60 * 1000
+    );
+    if (graceEnd.getTime() <= start.getTime()) return 0;
     const cachedIds = this.options.store.listAvailableClipIdsCreatedBetween(
       start.toISOString(),
-      end.toISOString()
+      graceEnd.toISOString()
     );
     const missingIds = cachedIds.filter((id) => !fetchedIds.has(id));
     if (missingIds.length === 0) return 0;
@@ -437,5 +448,15 @@ export class ClipCacheSynchronizer {
       logger.warn(`⚠️ 直近clip削除確認失敗: ${e}`);
       return 0;
     }
+  }
+
+  private restoreUnavailableClipsInRecentGrace(end: Date): number {
+    const graceStart = new Date(
+      end.getTime() - this.recentUnavailableGraceMinutes * 60 * 1000
+    );
+    return this.options.store.restoreUnavailableClipsCreatedAfter(
+      graceStart.toISOString(),
+      end.toISOString()
+    );
   }
 }

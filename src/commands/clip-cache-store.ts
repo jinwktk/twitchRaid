@@ -239,6 +239,26 @@ export class ClipCacheStore {
     return Number(result.changes);
   }
 
+  restoreUnavailableClipsCreatedAfter(
+    cutoffCreatedAt: string,
+    restoredAt = new Date().toISOString()
+  ): number {
+    const result = this.db
+      .prepare(
+        `
+        UPDATE clip_cache
+        SET unavailable_at = NULL,
+            updated_at = ?
+        WHERE unavailable_at IS NOT NULL
+          AND created_at IS NOT NULL
+          AND created_at >= ?
+      `
+      )
+      .run(restoredAt, cutoffCreatedAt);
+
+    return Number(result.changes);
+  }
+
   selectRandomClip({
     historyKey,
     creatorId,

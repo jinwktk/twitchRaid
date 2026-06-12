@@ -142,7 +142,7 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 - `!myclip` は `!clip` とは独立したクールダウン管理
 - 起動後に `data/clips.sqlite` へ全期間クリップをバックグラウンド同期する
 - 同期済み期間は `clip_scan_windows` に保存し、再起動後は取得済み期間をスキップ
-- 配信していない時間に1日1回、全期間を再走査してTwitch側で返らなくなったClipを `unavailable_at` 付きで無効化する。直近同期でも、DBに既にあるClipが一覧から消えた場合は `getClipsByIds` で個別確認し、返らないIDだけ削除/非公開として無効化する
+- 配信していない時間に1日1回、全期間を再走査してTwitch側で返らなくなったClipを `unavailable_at` 付きで無効化する。直近同期でも、DBに既にあるClipが一覧から消えた場合は `getClipsByIds` で個別確認し、返らないIDだけ削除/非公開として無効化する。ただし作成から2時間以内のClipはTwitch API反映の揺れとして直近削除確認の対象外にし、すでに無効化されていた場合も直近同期時に有効へ戻す
 - 無効化されたClipは `!clip` / `!myclip` と配信まとめクリップ候補から除外され、Twitch APIで再び返った場合は自動で有効化される
 - 日次再走査の最終実行時刻は `clip_sync_state` の `daily_reconcile_at` に保存する。通常バックフィルと競合して未完了だった場合は実行済みにしない
 - 直近6時間のクリップは起動直後と1分ごとに再同期し、Twitch側のClip一覧APIへの反映が1時間以上遅れたClipも候補へ入れる。時間幅は `.env` の `TWITCH_CLIP_RECENT_WINDOW_MINUTES` で調整できる
@@ -248,6 +248,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-12**: 14:03作成Clipが `14:10:26 JST` の公開JSONへ一度入った後、`14:12:26 JST` の同期で消える挙動を確認。直近削除確認が新規ClipのTwitch API反映揺れを削除/非公開扱いにできてしまうため、作成から2時間以内のClipは直近同期の無効化対象から外し、旧ロジックで無効化済みの場合も直近同期時に有効へ戻すようにした
 - **2026-06-12**: 削除済みClipが直近同期後も公開JSONに残る問題を修正。直近同期でDB既存Clipが一覧から消えた場合は `getClipsByIds` で個別確認し、返らないClipだけ `unavailable_at` を付けるようにした。`unavailable > 0` の同期は保存0件でもClip検索JSONを即時公開し、全期間バックフィル競合時は日次再走査の `daily_reconcile_at` を更新しない
 - **2026-06-12**: `!help` の返信文頭に `!` を付け、読み上げ対象になりにくいヘルプ一覧にした
 - **2026-06-12**: `!help` コマンドを追加。チャット1通で基本/Clip/統計/漫画/管理系の主要コマンド一覧を返し、`!mangaon` / `!mangaoff` も含めて確認できるようにした

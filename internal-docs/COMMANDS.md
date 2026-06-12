@@ -30,7 +30,7 @@
 - `!clipsearch` の検索対象はClipタイトル、作成者表示名、ゲーム名。空白入り検索語を保持し、`%` / `_` は通常文字として扱う。
 - `!clipsearch` がClip件数増加で遅くなった場合は、SQLite FTS5 または検索専用テーブルへの移行を検討する。
 - `!clipsearch` の表示履歴は `clipsearch:<検索語>` ごとに保存する。
-- 削除/非公開化でTwitch APIから返らなくなったClipは、日次再走査で `unavailable_at` を付けて候補から外す。直近同期でもDB既存Clipが一覧から消えた場合は `getClipsByIds` で確認し、返らないClipだけ無効化する。
+- 削除/非公開化でTwitch APIから返らなくなったClipは、日次再走査で `unavailable_at` を付けて候補から外す。直近同期でもDB既存Clipが一覧から消えた場合は `getClipsByIds` で確認し、返らないClipだけ無効化する。ただし作成から2時間以内のClipはTwitch API反映揺れとして直近同期の無効化対象から外し、すでに無効化されていた場合も有効へ戻す。
 
 ## GitHub Pages Clip検索
 

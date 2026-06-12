@@ -299,6 +299,27 @@ describe("ClipCacheStore", () => {
     ).toEqual(["kept"]);
   });
 
+  it("restores unavailable clips created after a cutoff", () => {
+    store.saveClips([
+      clip("old-deleted", "Viewer", "2026-05-25T08:00:00.000Z"),
+      clip("fresh-flapping", "Viewer", "2026-05-25T10:20:00.000Z"),
+    ]);
+    store.markClipsUnavailableByIds([
+      "old-deleted",
+      "fresh-flapping",
+    ], "2026-05-25T10:25:00.000Z");
+
+    const restored = store.restoreUnavailableClipsCreatedAfter(
+      "2026-05-25T09:00:00.000Z",
+      "2026-05-25T10:30:00.000Z"
+    );
+
+    expect(restored).toBe(1);
+    expect(store.selectRandomClip({ historyKey: "clip" })?.id).toBe(
+      "fresh-flapping"
+    );
+  });
+
   it("restores an unavailable clip when Twitch returns it again", () => {
     store.saveClips([clip("restored", "Viewer", "2026-05-25T10:10:00.000Z")]);
     store.markMissingClipsUnavailable(
