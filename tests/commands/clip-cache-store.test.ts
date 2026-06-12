@@ -251,6 +251,54 @@ describe("ClipCacheStore", () => {
     ).toEqual(["kept"]);
   });
 
+  it("lists available clip ids in a half-open creation window", () => {
+    store.saveClips([
+      clip("at-start", "Viewer", "2026-05-25T10:00:00.000Z"),
+      clip("inside", "Viewer", "2026-05-25T10:30:00.000Z"),
+      clip("at-end", "Viewer", "2026-05-25T11:00:00.000Z"),
+      clip("unavailable", "Viewer", "2026-05-25T10:45:00.000Z"),
+    ]);
+    store.markClipsUnavailableByIds([
+      "unavailable",
+    ], "2026-05-25T12:00:00.000Z");
+
+    expect(
+      store.listAvailableClipIdsCreatedBetween(
+        "2026-05-25T10:00:00.000Z",
+        "2026-05-25T11:00:00.000Z"
+      )
+    ).toEqual(["at-start", "inside"]);
+  });
+
+  it("marks clips unavailable by id and excludes them from candidates", () => {
+    store.saveClips([
+      clip("kept", "Viewer", "2026-05-25T10:10:00.000Z", "Rare clip"),
+      clip("deleted", "Viewer", "2026-05-25T10:20:00.000Z", "Rare deleted clip"),
+    ]);
+
+    const marked = store.markClipsUnavailableByIds([
+      "deleted",
+      "missing",
+    ], "2026-05-25T12:00:00.000Z");
+
+    expect(marked).toBe(1);
+    expect(
+      store.searchRandomClip({
+        historyKey: "clipsearch:rare",
+        query: "rare",
+        random: () => 0.9,
+      })?.id
+    ).toBe("kept");
+    expect(
+      store
+        .listClipsCreatedBetween(
+          "2026-05-25T10:00:00.000Z",
+          "2026-05-25T11:00:00.000Z"
+        )
+        .map((c) => c.id)
+    ).toEqual(["kept"]);
+  });
+
   it("restores an unavailable clip when Twitch returns it again", () => {
     store.saveClips([clip("restored", "Viewer", "2026-05-25T10:10:00.000Z")]);
     store.markMissingClipsUnavailable(

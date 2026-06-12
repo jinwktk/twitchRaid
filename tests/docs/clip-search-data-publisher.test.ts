@@ -44,6 +44,7 @@ describe("ClipSearchDataPublisher", () => {
     const result = await publisher.publishAfterRecentSync({
       syncedAt: "2026-06-11T09:00:00.000Z",
       saved: 0,
+      unavailable: 0,
     });
 
     expect(result).toEqual({ status: "disabled" });
@@ -57,6 +58,7 @@ describe("ClipSearchDataPublisher", () => {
     const result = await publisher.publishAfterRecentSync({
       syncedAt: "2026-06-11T09:00:00.000Z",
       saved: 0,
+      unavailable: 0,
     });
 
     expect(result).toEqual({ status: "published" });
@@ -88,19 +90,47 @@ describe("ClipSearchDataPublisher", () => {
     await publisher.publishAfterRecentSync({
       syncedAt: "2026-06-11T09:00:00.000Z",
       saved: 0,
+      unavailable: 0,
     });
     now += 1_000;
     const skipped = await publisher.publishAfterRecentSync({
       syncedAt: "2026-06-11T09:00:01.000Z",
       saved: 0,
+      unavailable: 0,
     });
     const saved = await publisher.publishAfterRecentSync({
       syncedAt: "2026-06-11T09:00:02.000Z",
       saved: 1,
+      unavailable: 0,
     });
 
     expect(skipped).toEqual({ status: "skipped", reason: "min-interval" });
     expect(saved).toEqual({ status: "published" });
+    expect(calls.filter((call) => call.file === process.execPath)).toHaveLength(2);
+  });
+
+  it("publishes immediately when recent sync made clips unavailable", async () => {
+    let now = 1_000;
+    const { calls, runCommand } = makePublishingCommandRunner();
+    const publisher = makePublisher({
+      minIntervalMs: 10_000,
+      nowMs: () => now,
+      runCommand,
+    });
+
+    await publisher.publishAfterRecentSync({
+      syncedAt: "2026-06-11T09:00:00.000Z",
+      saved: 0,
+      unavailable: 0,
+    });
+    now += 1_000;
+    const unavailable = await publisher.publishAfterRecentSync({
+      syncedAt: "2026-06-11T09:00:01.000Z",
+      saved: 0,
+      unavailable: 1,
+    });
+
+    expect(unavailable).toEqual({ status: "published" });
     expect(calls.filter((call) => call.file === process.execPath)).toHaveLength(2);
   });
 
@@ -127,6 +157,7 @@ describe("ClipSearchDataPublisher", () => {
       const result = await publisher.publishAfterRecentSync({
         syncedAt: "2026-06-11T09:46:00.000Z",
         saved: 0,
+        unavailable: 0,
       });
 
       expect(result).toEqual({ status: "skipped", reason: "min-interval" });
@@ -148,6 +179,7 @@ describe("ClipSearchDataPublisher", () => {
     const result = await publisher.publishAfterRecentSync({
       syncedAt: "2026-06-11T09:00:00.000Z",
       saved: 0,
+      unavailable: 0,
     });
 
     expect(result).toEqual({ status: "unchanged" });

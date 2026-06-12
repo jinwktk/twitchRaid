@@ -53,7 +53,7 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 - `STREAM_SUMMARY_MAX_CLIPS` に配信まとめスレッドへ投稿する最大クリップ数を設定できます（未設定時は `10`）
 - `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を設定すると、Bot APIで配信開始通知、クリップURL、終了まとめを投稿し、配信開始通知メッセージからDiscordスレッドを作成します。`DISCORD_WEBHOOK_URL` はBot設定が無い場合、またはBot API投稿が403などで失敗した場合のフォールバックです
 - `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定すると、Webhookだけで `thread_name` によるスレッド作成を試します。この方式はDiscordのフォーラム/メディアチャンネルWebhook向けです。通常テキストチャンネルWebhookではDiscord側で拒否されるため、自動で通常Webhook投稿へフォールバックします
-- `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定すると、直近Clip同期完了後に `docs/clip-search-data.json` を再生成し、差分があれば `main` へcommit/pushします。新規/復活Clipが0件の同期も `CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS` ごとに公開し、新規/復活Clipがあった場合は間隔内でも公開します。未設定時の公開間隔は5分、出力先は `docs/clip-search-data.json`、remote/branchは `origin` / `main` です。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぎます
+- `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定すると、直近Clip同期完了後に `docs/clip-search-data.json` を再生成し、差分があれば `main` へcommit/pushします。新規/復活Clipが0件の同期も `CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS` ごとに公開し、新規/復活Clipまたは削除/非公開Clipの無効化があった場合は間隔内でも公開します。未設定時の公開間隔は5分、出力先は `docs/clip-search-data.json`、remote/branchは `origin` / `main` です。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぎます
 - `OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` を設定すると、Raid時にOllama `POST /api/generate` で1通のRaid挨拶文を生成してチャットへ送信します。AI生成文はコード側で250文字以内に丸めます。`OLLAMA_BASE_URL` は未設定時 `http://127.0.0.1:11434`、`OLLAMA_SHOUTOUT_TIMEOUT_MS` は未設定時 `15000`、`OLLAMA_SHOUTOUT_KEEP_ALIVE` は未設定時 `30m` です
 
 ## 技術スタック
@@ -142,11 +142,11 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 - `!myclip` は `!clip` とは独立したクールダウン管理
 - 起動後に `data/clips.sqlite` へ全期間クリップをバックグラウンド同期する
 - 同期済み期間は `clip_scan_windows` に保存し、再起動後は取得済み期間をスキップ
-- 配信していない時間に1日1回、全期間を再走査してTwitch側で返らなくなったClipを `unavailable_at` 付きで無効化する
+- 配信していない時間に1日1回、全期間を再走査してTwitch側で返らなくなったClipを `unavailable_at` 付きで無効化する。直近同期でも、DBに既にあるClipが一覧から消えた場合は `getClipsByIds` で個別確認し、返らないIDだけ削除/非公開として無効化する
 - 無効化されたClipは `!clip` / `!myclip` と配信まとめクリップ候補から除外され、Twitch APIで再び返った場合は自動で有効化される
-- 日次再走査の最終実行時刻は `clip_sync_state` の `daily_reconcile_at` に保存する
+- 日次再走査の最終実行時刻は `clip_sync_state` の `daily_reconcile_at` に保存する。通常バックフィルと競合して未完了だった場合は実行済みにしない
 - 直近6時間のクリップは起動直後と1分ごとに再同期し、Twitch側のClip一覧APIへの反映が1時間以上遅れたClipも候補へ入れる。時間幅は `.env` の `TWITCH_CLIP_RECENT_WINDOW_MINUTES` で調整できる
-- 直近同期ログの `fetched` はTwitch APIから返ったClip件数、`saved` は新規または無効化から復活したClip件数。既存Clipの再保存だけでは `saved=0` のままにする
+- 直近同期ログの `fetched` はTwitch APIから返ったClip件数、`saved` は新規または無効化から復活したClip件数、`unavailable` は削除/非公開として新たに無効化したClip件数。既存Clipの再保存だけでは `saved=0` のままにする
 - `!clip` / `!myclip` 実行時はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ最大200件の軽いAPIフォールバックを使う
 - `!clipsearch <キーワード>` はSQLiteキャッシュ内のClipタイトル、作成者表示名、ゲーム名を部分一致検索し、履歴を避けて1件のURLを返す。検索語に空白を含められ、`%` / `_` はワイルドカードではなく通常文字として扱う
 - `!clipsearch` はTwitch API全件検索へフォールバックしない。キャッシュ未準備や一致なしの場合は見つからない旨を返す
@@ -163,7 +163,7 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 - お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存する。公開JSONやサーバー側状態にはお気に入り情報を持たせず、`お気に入り順` はお気に入りを登録が新しい順で先頭に並べる
 - 公開画面には仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明を表示しない。内部向け仕様書からも公開Clip検索画面へのリンク導線は置かない
 - 公開JSONは `scripts/export-clip-search-data.mjs` で `data/clips.sqlite` から生成する。既定コマンドは `npm run docs:export-clips`。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する。自動公開時は毎回API全補完を行わず、既存の `docs/clip-search-data.json` にあるサムネイルURL/ゲーム名をDB欠落分へ引き継ぐ
-- Bot運用時に `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定している場合、直近Clip同期完了後に `src/docs/clip-search-data-publisher.ts` が公開JSONを再生成し、差分があれば `main` へcommit/pushする。新規/復活Clipが0件の同期も既定5分ごとに公開し、新規/復活Clipがあった場合は間隔内でも公開する。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぐ
+- Bot運用時に `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定している場合、直近Clip同期完了後に `src/docs/clip-search-data-publisher.ts` が公開JSONを再生成し、差分があれば `main` へcommit/pushする。新規/復活Clipが0件の同期も既定5分ごとに公開し、新規/復活Clipまたは削除/非公開Clipの無効化があった場合は間隔内でも公開する。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぐ
 - 公開JSONへ含めるClip項目は `id`、`url`、`title`、`creator`、`gameName`、`thumbnailUrl`、`createdAt`、`views` のみ。同期stateは `clipSync.recentSyncedAt` のみ公開し、`creator_id`、ゲームID、履歴、その他の内部state、認証情報は含めない
 - `unavailable_at` が入った削除/非公開Clipは公開JSONから除外する。そのためログの `clip全期間バックフィル完了: total=...` はDB内総件数、Clip検索画面の件数は公開対象件数として差が出ることがある
 - サブPCの実データをPagesへ反映する場合は、サブPCの `data/clips.sqlite` を元にJSONを生成し、`main` へコミット・プッシュする
@@ -248,6 +248,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-12**: 削除済みClipが直近同期後も公開JSONに残る問題を修正。直近同期でDB既存Clipが一覧から消えた場合は `getClipsByIds` で個別確認し、返らないClipだけ `unavailable_at` を付けるようにした。`unavailable > 0` の同期は保存0件でもClip検索JSONを即時公開し、全期間バックフィル競合時は日次再走査の `daily_reconcile_at` を更新しない
 - **2026-06-12**: `!help` コマンドを追加。チャット1通で基本/Clip/統計/漫画/管理系の主要コマンド一覧を返し、`!mangaon` / `!mangaoff` も含めて確認できるようにした
 - **2026-06-12**: Twitch側のClip一覧API反映遅延対策として、直近Clip同期の既定取得窓を1時間から6時間へ拡大し、`.env` の `TWITCH_CLIP_RECENT_WINDOW_MINUTES` で調整可能にした。`saveClips` の返り値は新規/復活Clip数に変更し、既存Clipの再保存でClip検索JSON自動公開が毎分走らないようにした。直近同期ログは `fetched` / `saved` / `windowMinutes` を出す
 - **2026-06-12**: Clip検索ページのfavicon/Apple touch icon/ICOを `docs/assets/rukalun` 配下の `Hi-112px.png` 由来に変更し、旧 `docs/assets/clip-search-favicon.png` / `docs/assets/apple-touch-icon.png` / `docs/favicon.ico` を削除。画面内のブランドマーク、入口ページ、ボタン小アイコンも `rukalun` 素材参照へ寄せた

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { HelixClip } from "@twurple/api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import logger from "../../src/utils/logger";
 import {
   buildClipDateWindows,
   clipsToCachedClips,
@@ -84,6 +85,7 @@ describe("ClipCacheSynchronizer", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     store.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -151,7 +153,101 @@ describe("ClipCacheSynchronizer", () => {
     expect(onRecentSyncComplete).toHaveBeenCalledWith({
       syncedAt: "2026-05-25T10:30:00.000Z",
       saved: 1,
+      unavailable: 0,
     });
+  });
+
+  it("marks recently deleted cached clips unavailable after id verification", async () => {
+    store.saveClips([
+      clipToCachedClip(makeClip("kept", "2026-05-25T10:10:00.000Z")),
+      clipToCachedClip(makeClip("deleted", "2026-05-25T10:20:00.000Z")),
+    ]);
+    const getClipsForBroadcasterPaginated = vi.fn(() =>
+      iterableClips([makeClip("kept", "2026-05-25T10:10:00.000Z")])
+    );
+    const getClipsByIds = vi.fn(async () => []);
+    const onRecentSyncComplete = vi.fn();
+    const infoSpy = vi.spyOn(logger, "info");
+    const sync = new ClipCacheSynchronizer({
+      apiClient: {
+        clips: { getClipsForBroadcasterPaginated, getClipsByIds },
+      },
+      broadcasterId: "broadcaster-id",
+      store,
+      recentWindowMinutes: 60,
+      onRecentSyncComplete,
+    });
+
+    await sync.syncRecentClips(new Date("2026-05-25T10:30:00.000Z"));
+
+    expect(getClipsByIds).toHaveBeenCalledWith(["deleted"]);
+    expect(
+      store
+        .listClipsCreatedBetween(
+          "2026-05-25T10:00:00.000Z",
+          "2026-05-25T10:30:00.000Z"
+        )
+        .map((clip) => clip.id)
+    ).toEqual(["kept"]);
+    expect(onRecentSyncComplete).toHaveBeenCalledWith({
+      syncedAt: "2026-05-25T10:30:00.000Z",
+      saved: 0,
+      unavailable: 1,
+    });
+    expect(
+      infoSpy.mock.calls.some(([message]) =>
+        String(message).includes("unavailable=1")
+      )
+    ).toBe(true);
+  });
+
+  it("keeps a missing recent clip when id verification still returns it", async () => {
+    store.saveClips([
+      clipToCachedClip(makeClip("still-public", "2026-05-25T10:20:00.000Z")),
+    ]);
+    const getClipsForBroadcasterPaginated = vi.fn(() => iterableClips([]));
+    const getClipsByIds = vi.fn(async () => [
+      makeClip("still-public", "2026-05-25T10:20:00.000Z"),
+    ]);
+    const sync = new ClipCacheSynchronizer({
+      apiClient: {
+        clips: { getClipsForBroadcasterPaginated, getClipsByIds },
+      },
+      broadcasterId: "broadcaster-id",
+      store,
+      recentWindowMinutes: 60,
+    });
+
+    await sync.syncRecentClips(new Date("2026-05-25T10:30:00.000Z"));
+
+    expect(getClipsByIds).toHaveBeenCalledWith(["still-public"]);
+    expect(store.selectRandomClip({ historyKey: "clip" })?.id).toBe(
+      "still-public"
+    );
+  });
+
+  it("does not mark recent clips unavailable when id verification fails", async () => {
+    store.saveClips([
+      clipToCachedClip(makeClip("maybe-public", "2026-05-25T10:20:00.000Z")),
+    ]);
+    const getClipsForBroadcasterPaginated = vi.fn(() => iterableClips([]));
+    const getClipsByIds = vi.fn(async () => {
+      throw new Error("Twitch API error");
+    });
+    const sync = new ClipCacheSynchronizer({
+      apiClient: {
+        clips: { getClipsForBroadcasterPaginated, getClipsByIds },
+      },
+      broadcasterId: "broadcaster-id",
+      store,
+      recentWindowMinutes: 60,
+    });
+
+    await sync.syncRecentClips(new Date("2026-05-25T10:30:00.000Z"));
+
+    expect(store.selectRandomClip({ historyKey: "clip" })?.id).toBe(
+      "maybe-public"
+    );
   });
 
   it("skips completed full-scan windows", async () => {
@@ -240,5 +336,44 @@ describe("ClipCacheSynchronizer", () => {
 
     await sync.runDailyReconcileIfDue(new Date("2026-01-04T00:00:01.000Z"));
     expect(getClipsForBroadcasterPaginated).toHaveBeenCalledTimes(6);
+  });
+
+  it("does not stamp daily reconcile when a full scan is already running", async () => {
+    let releaseFetch!: () => void;
+    let resolveFetchStarted!: () => void;
+    let firstFetch = true;
+    const fetchStarted = new Promise<void>((resolve) => {
+      resolveFetchStarted = resolve;
+    });
+    const getClipsForBroadcasterPaginated = vi.fn(() => ({
+      async *[Symbol.asyncIterator]() {
+        if (firstFetch) {
+          firstFetch = false;
+          resolveFetchStarted();
+          await new Promise<void>((release) => {
+            releaseFetch = release;
+          });
+        }
+      },
+    }));
+    const sync = new ClipCacheSynchronizer({
+      apiClient: { clips: { getClipsForBroadcasterPaginated } },
+      broadcasterId: "broadcaster-id",
+      store,
+      oldestClipDate: new Date("2026-01-01T00:00:00.000Z"),
+      fullWindowDays: 1,
+    });
+
+    const fullBackfill = sync.runFullBackfill(
+      new Date("2026-01-03T00:00:00.000Z")
+    );
+
+    await fetchStarted;
+    await sync.runDailyReconcileIfDue(new Date("2026-01-03T00:00:00.000Z"));
+
+    expect(store.getSyncState("daily_reconcile_at")).toBeNull();
+
+    releaseFetch();
+    await fullBackfill;
   });
 });

@@ -8,6 +8,7 @@ interface ClipSyncApiClient {
       broadcasterId: string,
       filter?: { startDate?: string; endDate?: string; isFeatured?: boolean }
     ): AsyncIterable<HelixClip>;
+    getClipsByIds?(ids: string[]): Promise<HelixClip[]>;
   };
   games?: ClipSyncGameApi;
 }
@@ -37,6 +38,7 @@ interface ClipCacheSyncOptions {
   onRecentSyncComplete?: (result: {
     syncedAt: string;
     saved: number;
+    unavailable: number;
   }) => Promise<void> | void;
 }
 
@@ -150,7 +152,7 @@ export class ClipCacheSynchronizer {
   private fullScanRunning = false;
   private recentSyncRunning = false;
   private dailyReconcileRunning = false;
-  private fullBackfillPromise: Promise<void> | null = null;
+  private fullBackfillPromise: Promise<boolean> | null = null;
   private recentSyncPromise: Promise<number> | null = null;
   private dailyReconcilePromise: Promise<void> | null = null;
 
@@ -222,17 +224,23 @@ export class ClipCacheSynchronizer {
         this.options.apiClient.games
       );
       const saved = this.options.store.saveClips(cachedClips);
+      const unavailable = await this.markUnavailableRecentMissingClips(
+        start,
+        now,
+        clips
+      );
       this.options.store.setSyncState(
         RECENT_SYNC_STATE_KEY,
         now.toISOString()
       );
       logger.info(
-        `🎬 直近clip同期完了: fetched=${clips.length}, saved=${saved}, windowMinutes=${this.recentWindowMinutes}`
+        `🎬 直近clip同期完了: fetched=${clips.length}, saved=${saved}, unavailable=${unavailable}, windowMinutes=${this.recentWindowMinutes}`
       );
       try {
         await this.options.onRecentSyncComplete?.({
           syncedAt: now.toISOString(),
           saved,
+          unavailable,
         });
       } catch (callbackError) {
         logger.warn(`⚠️ 直近clip同期後処理失敗: ${callbackError}`);
@@ -249,8 +257,8 @@ export class ClipCacheSynchronizer {
   async runFullBackfill(
     now = new Date(),
     options: FullBackfillOptions = {}
-  ): Promise<void> {
-    if (this.fullScanRunning) return;
+  ): Promise<boolean> {
+    if (this.fullScanRunning) return false;
     this.fullScanRunning = true;
 
     try {
@@ -265,17 +273,20 @@ export class ClipCacheSynchronizer {
       logger.info(`🎬 ${scanLabel}開始: windows=${windows.length}`);
 
       for (const window of windows) {
-        if (this.stopped) return;
+        if (this.stopped) return false;
         await this.syncWindow(window, {
           reconcileMissing: options.reconcileMissing,
         });
+        if (this.stopped) return false;
       }
 
       logger.info(
         `🎬 ${scanLabel}完了: total=${this.options.store.clipCount()}`
       );
+      return true;
     } catch (e) {
       logger.warn(`⚠️ clip全期間バックフィル失敗: ${e}`);
+      return false;
     } finally {
       this.fullScanRunning = false;
     }
@@ -297,7 +308,15 @@ export class ClipCacheSynchronizer {
 
     this.dailyReconcileRunning = true;
     try {
-      await this.runFullBackfill(now, { reconcileMissing: true });
+      const completed = await this.runFullBackfill(now, {
+        reconcileMissing: true,
+      });
+      if (!completed) {
+        logger.info(
+          "🎬 clip日次再走査は別の全期間同期中または未完了のため延期します。"
+        );
+        return;
+      }
       this.options.store.setSyncState(
         DAILY_RECONCILE_STATE_KEY,
         now.toISOString()
@@ -374,5 +393,49 @@ export class ClipCacheSynchronizer {
     }
 
     return clips;
+  }
+
+  private async markUnavailableRecentMissingClips(
+    start: Date,
+    end: Date,
+    fetchedClips: HelixClip[]
+  ): Promise<number> {
+    const clipApi = this.options.apiClient.clips;
+    if (!clipApi.getClipsByIds) return 0;
+    const getClipsByIds = clipApi.getClipsByIds.bind(clipApi);
+
+    const fetchedIds = new Set(fetchedClips.map((clip) => clip.id));
+    const cachedIds = this.options.store.listAvailableClipIdsCreatedBetween(
+      start.toISOString(),
+      end.toISOString()
+    );
+    const missingIds = cachedIds.filter((id) => !fetchedIds.has(id));
+    if (missingIds.length === 0) return 0;
+
+    try {
+      const verifiedClips = (
+        await Promise.all(
+          chunkArray(missingIds, 100).map((ids) => getClipsByIds(ids))
+        )
+      )
+        .flat();
+      const verifiedIds = new Set(verifiedClips.map((clip) => clip.id));
+      if (verifiedClips.length > 0) {
+        const cachedClips = await clipsToCachedClips(
+          verifiedClips,
+          this.options.apiClient.games
+        );
+        this.options.store.saveClips(cachedClips);
+      }
+
+      const unavailableIds = missingIds.filter((id) => !verifiedIds.has(id));
+      return this.options.store.markClipsUnavailableByIds(
+        unavailableIds,
+        end.toISOString()
+      );
+    } catch (e) {
+      logger.warn(`⚠️ 直近clip削除確認失敗: ${e}`);
+      return 0;
+    }
   }
 }

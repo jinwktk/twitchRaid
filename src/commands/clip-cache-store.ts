@@ -202,6 +202,43 @@ export class ClipCacheStore {
     return Number(result.changes);
   }
 
+  listAvailableClipIdsCreatedBetween(startAt: string, endAt: string): string[] {
+    return this.db
+      .prepare(
+        `
+        SELECT id
+        FROM clip_cache
+        WHERE created_at IS NOT NULL
+          AND created_at >= ?
+          AND created_at < ?
+          AND unavailable_at IS NULL
+        ORDER BY created_at ASC, id ASC
+      `
+      )
+      .all(startAt, endAt)
+      .map((row) => (row as { id: string }).id);
+  }
+
+  markClipsUnavailableByIds(
+    clipIds: string[],
+    markedAt = new Date().toISOString()
+  ): number {
+    if (clipIds.length === 0) return 0;
+
+    const result = this.db
+      .prepare(
+        `
+        UPDATE clip_cache
+        SET unavailable_at = ?, updated_at = ?
+        WHERE unavailable_at IS NULL
+          AND id IN (${clipIds.map(() => "?").join(", ")})
+      `
+      )
+      .run(markedAt, markedAt, ...clipIds);
+
+    return Number(result.changes);
+  }
+
   selectRandomClip({
     historyKey,
     creatorId,

@@ -65,7 +65,7 @@ src/index.ts
 - 新しい開始通知に `threadId` が無い場合、古い `threadId` は保持しない。
 - 通常コメントによる配信まとめコメント数更新は30秒デバウンスし、Raid/停止/配信終了時は即時flushする。
 - Raid shoutoutは `ShoutoutQueue` で直列化し、429時は2分後に同一対象を再実行する。
-- ClipはSQLiteキャッシュ優先。直近Clip同期はTwitch側の反映遅延を吸収するため既定6時間分を1分ごとに取り直し、必要なら `TWITCH_CLIP_RECENT_WINDOW_MINUTES` で広げる。`!clipsearch` はタイトル/作成者表示名/ゲーム名をキャッシュ内で部分一致検索し、Twitch API全件検索へはフォールバックしない。削除/非公開化されたClipはオフライン時の日次再走査で `unavailable_at` を入れて候補から外す。同期時はClipサムネイルURL、ゲームID、ゲーム名も保存する。
+- ClipはSQLiteキャッシュ優先。直近Clip同期はTwitch側の反映遅延を吸収するため既定6時間分を1分ごとに取り直し、必要なら `TWITCH_CLIP_RECENT_WINDOW_MINUTES` で広げる。`!clipsearch` はタイトル/作成者表示名/ゲーム名をキャッシュ内で部分一致検索し、Twitch API全件検索へはフォールバックしない。削除/非公開化されたClipはオフライン時の日次再走査で `unavailable_at` を入れて候補から外す。直近同期でもDB既存Clipが一覧から消えた場合は `getClipsByIds` で個別確認し、返らないClipだけ無効化する。同期時はClipサムネイルURL、ゲームID、ゲーム名も保存する。
 - GitHub PagesのClip検索画面は静的配信のため、`data/clips.sqlite` へ直接アクセスしない。`scripts/export-clip-search-data.mjs` で `docs/clip-search-data.json` を生成し、公開項目はClip ID、URL、タイトル、作成者表示名、ゲーム名、サムネイルURL、作成日、再生数、`clipSync.recentSyncedAt` のみに限定する。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する。画面上のClip最終同期時刻はJSTの秒単位で表示し、各カードはサムネイル/ゲーム名と `Twitchで見る` 外部リンクだけを表示する。
 - `!clipsearch` のLIKE部分一致検索がClip件数増加で重くなった場合は、SQLite FTS5 または検索専用テーブルへの移行を検討する。初回は1件URL返却の単純検索に限定し、FTSは導入しない。
 - `!boom` は過去30日間のVODを対象に、最大4本並列でGraphQLを取得し、結果を5分キャッシュする。

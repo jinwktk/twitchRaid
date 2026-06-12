@@ -11,6 +11,7 @@ const DEFAULT_MIN_INTERVAL_MS = 5 * 60 * 1000;
 export interface ClipSearchPublishRequest {
   syncedAt: string;
   saved: number;
+  unavailable: number;
 }
 
 export interface CommandResult {
@@ -143,6 +144,7 @@ export class ClipSearchDataPublisher {
     const now = this.nowMs();
     const shouldPublish =
       request.saved > 0 ||
+      request.unavailable > 0 ||
       this.lastPublishedMs === 0 ||
       now - this.lastPublishedMs >= this.minIntervalMs;
     if (!shouldPublish) {
@@ -166,7 +168,7 @@ export class ClipSearchDataPublisher {
   ): Promise<ClipSearchPublishResult> {
     const outGitPath = relativeRepoPath(this.repoDir, this.outPath);
     logger.info(
-      `🎬 Clip検索公開JSON更新開始: syncedAt=${request.syncedAt}, saved=${request.saved}`
+      `🎬 Clip検索公開JSON更新開始: syncedAt=${request.syncedAt}, saved=${request.saved}, unavailable=${request.unavailable}`
     );
 
     await this.runCommand(
