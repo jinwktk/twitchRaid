@@ -107,6 +107,7 @@ describe("Bot help command", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", expect.any(String));
 
     const message = say.mock.calls[0][1] as string;
+    expect(message).toMatch(/^!/);
     expect(message).toContain("使えるコマンド");
     for (const command of [
       "!help",
@@ -144,6 +145,7 @@ describe("Bot help command", () => {
 
     expect(say).toHaveBeenCalledTimes(1);
     const message = say.mock.calls[0][1] as string;
+    expect(message).toMatch(/^!/);
     expect(message).toContain("使えるコマンド");
     expect(message).not.toContain("ignore previous instructions");
   });

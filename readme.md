@@ -68,7 +68,7 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 
 | コマンド | 説明 | 備考 |
 |---------|------|------|
-| `!help` | 主要コマンド一覧をチャットに表示 | 権限不要、クールダウンなし |
+| `!help` | 主要コマンド一覧をチャットに表示 | 返信文頭に `!` を付けて読み上げ回避、権限不要、クールダウンなし |
 | `!age` | 年齢を表示 | |
 | `!goods` | グッズ販売ページのURLを表示 | [booth.pm](https://rukalun.booth.pm) |
 | `!weight` | ランダムな体重を表示（15〜200kg） | ネタ枠 |
@@ -249,6 +249,7 @@ internal-docs/
 
 ## 更新履歴
 - **2026-06-12**: 削除済みClipが直近同期後も公開JSONに残る問題を修正。直近同期でDB既存Clipが一覧から消えた場合は `getClipsByIds` で個別確認し、返らないClipだけ `unavailable_at` を付けるようにした。`unavailable > 0` の同期は保存0件でもClip検索JSONを即時公開し、全期間バックフィル競合時は日次再走査の `daily_reconcile_at` を更新しない
+- **2026-06-12**: `!help` の返信文頭に `!` を付け、読み上げ対象になりにくいヘルプ一覧にした
 - **2026-06-12**: `!help` コマンドを追加。チャット1通で基本/Clip/統計/漫画/管理系の主要コマンド一覧を返し、`!mangaon` / `!mangaoff` も含めて確認できるようにした
 - **2026-06-12**: Twitch側のClip一覧API反映遅延対策として、直近Clip同期の既定取得窓を1時間から6時間へ拡大し、`.env` の `TWITCH_CLIP_RECENT_WINDOW_MINUTES` で調整可能にした。`saveClips` の返り値は新規/復活Clip数に変更し、既存Clipの再保存でClip検索JSON自動公開が毎分走らないようにした。直近同期ログは `fetched` / `saved` / `windowMinutes` を出す
 - **2026-06-12**: Clip検索ページのfavicon/Apple touch icon/ICOを `docs/assets/rukalun` 配下の `Hi-112px.png` 由来に変更し、旧 `docs/assets/clip-search-favicon.png` / `docs/assets/apple-touch-icon.png` / `docs/favicon.ico` を削除。画面内のブランドマーク、入口ページ、ボタン小アイコンも `rukalun` 素材参照へ寄せた
