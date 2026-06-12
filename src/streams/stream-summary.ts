@@ -84,6 +84,7 @@ export interface StartStreamSummaryThreadOptions {
 export interface StartStreamSummaryThreadResult {
   startMessageId?: string;
   threadId?: string;
+  postedStartNotification?: boolean;
 }
 
 export interface MergeStreamStartThreadResultOptions {
@@ -358,6 +359,7 @@ export async function startStreamSummaryThread({
   return {
     startMessageId: startMessage?.id,
     threadId,
+    postedStartNotification: Boolean(startMessage?.id),
   };
 }
 
@@ -378,6 +380,7 @@ export async function ensureStreamSummaryStartThread({
     return {
       startMessageId: state.startMessageId,
       threadId: state.threadId,
+      postedStartNotification: false,
     };
   }
 
@@ -401,18 +404,20 @@ export async function ensureStreamSummaryStartThread({
       return {
         startMessageId: state.startMessageId,
         threadId,
+        postedStartNotification: false,
       };
     }
 
     if (!allowStartNotificationRepost) {
       return {
         startMessageId: state.startMessageId,
+        postedStartNotification: false,
       };
     }
   }
 
   if (!allowStartNotificationRepost) {
-    return {};
+    return { postedStartNotification: false };
   }
 
   return startStreamSummaryThread({

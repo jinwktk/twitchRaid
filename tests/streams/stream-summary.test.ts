@@ -119,6 +119,7 @@ describe("stream summary", () => {
     expect(started).toEqual({
       startMessageId: "start-message-id",
       threadId: "thread-id",
+      postedStartNotification: true,
     });
   });
 
@@ -184,6 +185,7 @@ describe("stream summary", () => {
     expect(started).toEqual({
       startMessageId: "webhook-message-id",
       threadId: undefined,
+      postedStartNotification: true,
     });
   });
 
@@ -216,6 +218,7 @@ describe("stream summary", () => {
     expect(started).toEqual({
       startMessageId: "start-message-id",
       threadId: "thread-id",
+      postedStartNotification: false,
     });
   });
 
@@ -262,6 +265,7 @@ describe("stream summary", () => {
     expect(started).toEqual({
       startMessageId: "replacement-message-id",
       threadId: "replacement-thread-id",
+      postedStartNotification: true,
     });
   });
 
@@ -297,6 +301,7 @@ describe("stream summary", () => {
     expect(started).toEqual({
       startMessageId: "stale-start-message-id",
       threadId: undefined,
+      postedStartNotification: false,
     });
   });
 
@@ -324,7 +329,7 @@ describe("stream summary", () => {
     expect(sendBotMessage).not.toHaveBeenCalled();
     expect(sendWebhook).not.toHaveBeenCalled();
     expect(createThread).not.toHaveBeenCalled();
-    expect(started).toEqual({});
+    expect(started).toEqual({ postedStartNotification: false });
   });
 
   it("does not duplicate start notifications when the start thread already exists", async () => {
@@ -352,6 +357,7 @@ describe("stream summary", () => {
     expect(started).toEqual({
       startMessageId: "start-message-id",
       threadId: "thread-id",
+      postedStartNotification: false,
     });
   });
 

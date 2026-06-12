@@ -103,7 +103,8 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 
 ## 配信通知仕様
 - 配信開始検知時に Discord Bot API で通知（Bot設定が無い場合、またはBot API投稿が失敗した場合はWebhookへフォールバック）
-- 配信開始通知は本文 `@everyone` とDiscord Embedで投稿する。Embedには配信タイトル、Twitch URL、ゲーム名、視聴者数、Twitchプレビュー画像を含める
+- 配信開始通知は本文 `@everyone` とDiscord Embedで投稿する。Embedには配信タイトル、Twitch URL、ゲーム名、視聴者数、Twitchプレビュー画像を含める。Twitchプレビュー画像URLは配信が変わっても同じ文字列になりやすいため、配信IDがあれば `stream_id`、無ければ開始時刻の `stream_started_at` クエリを付け、Discordが配信ごとに画像を再取得できるようにする
+- 通常開始通知または手動 `!streamnotify` がDiscord投稿結果を得た後は、ログに `streamPreviewImage=...` として実際にDiscordへ渡したEmbed画像URLを出す。サブPC反映後の初回配信で、このURLに `stream_id` または `stream_started_at` が付いていることを確認できる
 - 配信開始通知が漏れた場合は、管理者が `!streamnotify` を実行すると現在の配信情報でDiscordへ手動送信する。通常のタイトル重複スキップは通さない
 - 直前に通知したタイトルと同一 (`LAST_STREAM_TITLE`) の場合は通知をスキップ
 - 配信開始中は `STREAM_SUMMARY_STATE_PATH` に stream id / タイトル / ゲーム名 / 開始時刻 / コメント数 / Raid数を保存
@@ -249,6 +250,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-13**: Discord配信開始通知EmbedのTwitchプレビュー画像URLに、配信ID優先の `stream_id` または開始時刻fallbackの `stream_started_at` クエリを付けるよう変更。通常通知と `!streamnotify` の両方でDiscordの画像キャッシュを配信単位に分け、同じ過去画像が表示され続ける問題を抑止する。投稿確認ログに `streamPreviewImage` も出し、サブPCで実URLを確認できるようにした
 - **2026-06-12**: RukalunPage側の履歴を手動で戻した後、サブPCの公開repoが古い `origin/main` を見たまま `--force-with-lease` して `stale info` になったため、Clip検索JSON自動公開の前に公開repoで `git fetch origin main` を行うようにした。ローカルだけに残ったcommitがBot同期commitだけなら `origin/main` へ戻してから再生成し、開発commitや未コミット変更がある場合はスキップして破壊しない
 - **2026-06-12**: Clip検索JSON自動公開で、保存0件かつ無効化0件の同期時刻だけの更新は、直前HEADがBotの `Clip検索JSONを同期時刻更新` commitの場合だけamendして `--force-with-lease` でpushするようにした。直前HEADがCodexなどの開発commitの場合や、Clip追加・復活・削除/非公開化がある同期は通常commit/pushのままにした
 - **2026-06-12**: 公開Clip検索画面を `RukalunPage` リポジトリへ分離。twitchRaid側の `docs/` は新URLへの互換リダイレクトだけにし、公開JSONと公開用 `assets/rukalun` は `RukalunPage` 側で管理するようにした。`CLIP_SEARCH_PUBLISH_REPO_DIR` を追加し、Botの同期後JSON自動公開は別Git repoへcommit/pushできる

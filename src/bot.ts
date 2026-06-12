@@ -25,6 +25,7 @@ import {
   postStreamSummaryClips,
   postStreamSummary,
   startStreamSummaryThread,
+  type StartStreamSummaryThreadResult,
 } from "./streams/stream-summary";
 import { refreshAccessTokenAdvanced } from "./auth/token-manager";
 import {
@@ -1059,30 +1060,40 @@ export class Bot {
     this.streamLive = true;
 
     const message = this.streamNotifier.buildPayload(this._streamNotificationDetails(stream));
-    await this._forceStreamStartSummaryThread(stream.title, message);
+    const started = await this._forceStreamStartSummaryThread(stream.title, message);
+    this._logStreamStartNotificationPreview(stream.title, message, started);
     this.config.updateLastStreamTitle(stream.title.trim());
   }
 
   private async _notifyStreamStartedOnDiscord(stream: {
+    id?: string;
     title: string;
     userDisplayName?: string;
     gameName?: string;
     viewers?: number;
     thumbnailUrl?: string;
     getThumbnailUrl?: (width: number, height: number) => string;
+    startDate?: Date;
   }): Promise<void> {
     await this.streamNotifier.notifyIfNeeded(
       this._streamNotificationDetails(stream),
       async (message) => {
-        await this._ensureStreamStartSummaryThread(stream.title, message);
+        const started = await this._ensureStreamStartSummaryThread(
+          stream.title,
+          message
+        );
+        this._logStreamStartNotificationPreview(stream.title, message, started);
       }
     );
 
     const state = this.streamSummaryStateStore.load();
     if (state && state.status !== "posted" && !state.threadId) {
+      const message = this.streamNotifier.buildPayload(
+        this._streamNotificationDetails(stream)
+      );
       await this._ensureStreamStartSummaryThread(
         stream.title,
-        this.streamNotifier.buildPayload(this._streamNotificationDetails(stream)),
+        message,
         { allowStartNotificationRepost: false }
       );
     }
@@ -1092,11 +1103,11 @@ export class Bot {
     title: string,
     message: DiscordWebhookPayload,
     options: { allowStartNotificationRepost?: boolean } = {}
-  ): Promise<void> {
-    if (!this._canPostDiscordSummary()) return;
+  ): Promise<StartStreamSummaryThreadResult> {
+    if (!this._canPostDiscordSummary()) return {};
 
     const state = this.streamSummaryStateStore.load();
-    if (!state || state.status === "posted") return;
+    if (!state || state.status === "posted") return {};
 
     const started = await ensureStreamSummaryStartThread({
       webhookUrl: this.config.discordWebhookUrl || undefined,
@@ -1111,17 +1122,18 @@ export class Bot {
       allowStartNotificationRepost: options.allowStartNotificationRepost,
     });
 
-    if (!started.startMessageId && !started.threadId) return;
+    if (!started.startMessageId && !started.threadId) return started;
 
     this.streamSummaryStateStore.save(
       mergeStreamStartThreadResult(state, started)
     );
+    return started;
   }
 
   private async _forceStreamStartSummaryThread(
     title: string,
     message: DiscordWebhookPayload
-  ): Promise<void> {
+  ): Promise<StartStreamSummaryThreadResult> {
     if (!this._canPostDiscordSummary()) {
       throw new Error("Discord posting is not configured");
     }
@@ -1148,6 +1160,22 @@ export class Bot {
 
     this.streamSummaryStateStore.save(
       mergeStreamStartThreadResult(state, started, { preferStartedThread: true })
+    );
+    return started;
+  }
+
+  private _logStreamStartNotificationPreview(
+    title: string,
+    message: DiscordWebhookPayload,
+    started: StartStreamSummaryThreadResult
+  ): void {
+    if (!started.postedStartNotification) return;
+
+    const streamPreviewImage = message.embeds?.[0]?.image?.url;
+    if (!streamPreviewImage) return;
+
+    logger.info(
+      `✅ 配信開始通知Discord投稿を確認しました: title=${title.trim()}, streamPreviewImage=${streamPreviewImage}, startMessageId=${started.startMessageId ?? "none"}, threadId=${started.threadId ?? "none"}`
     );
   }
 
@@ -1214,28 +1242,34 @@ export class Bot {
   }
 
   private _streamNotificationDetails(stream: {
+    id?: string | null;
     title: string;
     userDisplayName?: string | null;
     gameName?: string | null;
     viewers?: number | null;
     thumbnailUrl?: string | null;
     getThumbnailUrl?: (width: number, height: number) => string;
+    startDate?: Date | string | null;
   }): {
+    id?: string | null;
     title: string;
     gameName?: string | null;
     viewers?: number | null;
     streamUrl: string;
     thumbnailUrl?: string | null;
     getThumbnailUrl?: (width: number, height: number) => string;
+    startDate?: Date | string | null;
     displayName?: string | null;
   } {
     return {
+      id: stream.id,
       title: stream.title,
       gameName: stream.gameName,
       viewers: stream.viewers,
       streamUrl: `https://www.twitch.tv/${this.config.loginChannel}`,
       thumbnailUrl: stream.thumbnailUrl,
       getThumbnailUrl: stream.getThumbnailUrl?.bind(stream),
+      startDate: stream.startDate,
       displayName: stream.userDisplayName,
     };
   }

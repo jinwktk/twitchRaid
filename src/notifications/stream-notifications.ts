@@ -3,12 +3,14 @@ import type { DiscordWebhookPayload } from "./discord-webhook";
 import logger from "../utils/logger";
 
 export interface StreamStartNotificationDetails {
+  id?: string | null;
   title: string;
   gameName?: string | null;
   viewers?: number | null;
   streamUrl?: string;
   thumbnailUrl?: string | null;
   getThumbnailUrl?: (width: number, height: number) => string;
+  startDate?: Date | string | null;
   displayName?: string | null;
 }
 
@@ -112,14 +114,64 @@ export class StreamTitleNotifier {
   private _buildThumbnailUrl(
     stream: StreamStartNotificationDetails
   ): string | undefined {
+    let thumbnailUrl: string;
     if (stream.getThumbnailUrl) {
-      return stream.getThumbnailUrl(1280, 720);
+      thumbnailUrl = stream.getThumbnailUrl(1280, 720);
+    } else {
+      thumbnailUrl = this._normalizeOptionalText(stream.thumbnailUrl);
     }
 
-    const thumbnailUrl = this._normalizeOptionalText(stream.thumbnailUrl);
     if (!thumbnailUrl) return undefined;
-    return thumbnailUrl
+    const resolvedUrl = thumbnailUrl
       .replace("{width}", "1280")
       .replace("{height}", "720");
+    return this._appendStreamImageCacheKey(resolvedUrl, stream);
+  }
+
+  private _appendStreamImageCacheKey(
+    thumbnailUrl: string,
+    stream: StreamStartNotificationDetails
+  ): string {
+    const cacheKey = this._streamImageCacheKey(stream);
+    if (!cacheKey) return thumbnailUrl;
+
+    try {
+      const url = new URL(thumbnailUrl);
+      url.searchParams.set(cacheKey.name, cacheKey.value);
+      return url.toString();
+    } catch {
+      const separator = thumbnailUrl.includes("?") ? "&" : "?";
+      return `${thumbnailUrl}${separator}${encodeURIComponent(cacheKey.name)}=${encodeURIComponent(cacheKey.value)}`;
+    }
+  }
+
+  private _streamImageCacheKey(
+    stream: StreamStartNotificationDetails
+  ): { name: string; value: string } | null {
+    const streamId = this._normalizeOptionalText(stream.id);
+    if (streamId) {
+      return { name: "stream_id", value: streamId };
+    }
+
+    const startedAt = this._normalizeStartDate(stream.startDate);
+    if (startedAt) {
+      return { name: "stream_started_at", value: startedAt };
+    }
+
+    return null;
+  }
+
+  private _normalizeStartDate(
+    value: Date | string | null | undefined
+  ): string | null {
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? null : value.toISOString();
+    }
+
+    const rawValue = this._normalizeOptionalText(value);
+    if (!rawValue) return null;
+
+    const parsed = new Date(rawValue);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
   }
 }

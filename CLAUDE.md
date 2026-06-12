@@ -210,6 +210,12 @@ python -m py_compile main.py
 
 ## 最新の変更履歴
 
+### Discord配信開始Embed画像のキャッシュ分離（2026-06-13）
+- 配信開始通知EmbedのTwitchプレビュー画像URLに、配信ID優先の `stream_id` または開始時刻fallbackの `stream_started_at` クエリを付けるよう変更
+- 通常通知と `!streamnotify` の両方で同じ画像URL生成経路を使い、Discordが配信ごとにプレビュー画像を再取得できるようにした
+- 通常開始通知または手動 `!streamnotify` が投稿結果を得た後の確認ログに `streamPreviewImage=...` を出し、サブPCで実際にDiscordへ渡した画像URLを確認できるようにした
+- `tests/notifications/stream-notifications.test.ts` と `tests/bot-stream-notification.test.ts` でURL生成規則と通常通知経路を検証
+
 ### TypeScript移植 + PM2管理対応（2026-03-22）
 - Python → TypeScript完全移植（twurple使用）
 - PM2プロセス管理対応（ecosystem.config.js）
