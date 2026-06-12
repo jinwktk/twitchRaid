@@ -52,6 +52,10 @@ interface CountRow {
   count: number;
 }
 
+interface ExistingClipAvailabilityRow {
+  unavailable_at: string | null;
+}
+
 export interface SelectCachedClipParams {
   historyKey: string;
   creatorId?: string;
@@ -92,6 +96,9 @@ export class ClipCacheStore {
   saveClips(clips: CachedClip[]): number {
     if (clips.length === 0) return 0;
 
+    const findExisting = this.db.prepare(
+      "SELECT unavailable_at FROM clip_cache WHERE id = ?"
+    );
     const insert = this.db.prepare(`
       INSERT INTO clip_cache (
         id,
@@ -131,6 +138,10 @@ export class ClipCacheStore {
     this.db.exec("BEGIN");
     try {
       for (const clip of clips) {
+        const existing = findExisting.get(
+          clip.id
+        ) as ExistingClipAvailabilityRow | undefined;
+        const newlyAvailable = !existing || existing.unavailable_at !== null;
         insert.run(
           clip.id,
           clip.url,
@@ -146,7 +157,7 @@ export class ClipCacheStore {
           now,
           now
         );
-        saved++;
+        if (newlyAvailable) saved++;
       }
       this.db.exec("COMMIT");
     } catch (e) {

@@ -51,7 +51,7 @@ interface FullBackfillOptions {
 const DEFAULT_OLDEST_CLIP_DATE = new Date("2016-05-01T00:00:00.000Z");
 const DEFAULT_FULL_WINDOW_DAYS = 30;
 const DEFAULT_SPLIT_THRESHOLD = 950;
-const DEFAULT_RECENT_WINDOW_MINUTES = 60;
+const DEFAULT_RECENT_WINDOW_MINUTES = 6 * 60;
 const DEFAULT_RECENT_SYNC_INTERVAL_MS = 60 * 1000;
 const DEFAULT_STALE_RECENT_SYNC_MS = 60 * 1000;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -226,7 +226,9 @@ export class ClipCacheSynchronizer {
         RECENT_SYNC_STATE_KEY,
         now.toISOString()
       );
-      logger.info(`🎬 直近clip同期完了: saved=${saved}`);
+      logger.info(
+        `🎬 直近clip同期完了: fetched=${clips.length}, saved=${saved}, windowMinutes=${this.recentWindowMinutes}`
+      );
       try {
         await this.options.onRecentSyncComplete?.({
           syncedAt: now.toISOString(),

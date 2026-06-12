@@ -76,7 +76,7 @@ describe("ClipSearchDataPublisher", () => {
     ]);
   });
 
-  it("throttles zero-save sync publishes but publishes immediately when clips were saved", async () => {
+  it("throttles zero-save sync publishes but publishes immediately when newly available clips were saved", async () => {
     let now = 1_000;
     const { calls, runCommand } = makePublishingCommandRunner();
     const publisher = makePublisher({

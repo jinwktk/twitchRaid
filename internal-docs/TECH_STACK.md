@@ -55,6 +55,7 @@ npm run pm2:logs
 | `STREAM_SUMMARY_STATE_PATH` | 配信まとめstate JSON。未設定時は `data/stream-summary-state.json` |
 | `STREAM_SUMMARY_MAX_CLIPS` | 配信まとめスレッドへ投稿する最大Clip数。既定値10 |
 | `TWITCH_CLIP_CACHE_DB_PATH` | Clip SQLite DB。未設定時は `data/clips.sqlite` |
+| `TWITCH_CLIP_RECENT_WINDOW_MINUTES` | 直近Clip同期の取得窓。未設定時は360分 |
 | `CLIP_SPECIAL_USERS` | `!clip` / `!myclip` クールダウン免除ユーザー |
 | `MANGA_COMMAND_ENABLED` / `MANGA_ADMIN_USERS` | mangaコマンドON/OFFと管理者 |
 | `SHOUTOUT_ADMIN_USERS` | `!shoutout` / `!streamnotify` の追加管理者 |
@@ -71,7 +72,7 @@ npm run pm2:logs
 
 - Clip同期は起動時に直近同期と全期間バックフィルを始める。
 - 全期間バックフィルは2016年5月から30日窓で走り、過密窓は再分割する。
-- 直近Clip同期は1分ごと、日次再走査はオフライン時だけ24時間に1回。
+- 直近Clip同期は1分ごとに既定6時間分を取り直し、日次再走査はオフライン時だけ24時間に1回。
 - `node:sqlite` は同期APIなので、DB件数が増えた場合は `COUNT + OFFSET` のランダム取得時間を監視する。
 - 配信まとめstateのコメント数保存は30秒デバウンス。Raid、停止、配信終了では即時flushしてまとめ数の取りこぼしを防ぐ。
 - `!boom` は初回だけGraphQL取得が重い。最大4本並列と5分キャッシュで抑制している。

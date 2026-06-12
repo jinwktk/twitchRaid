@@ -51,6 +51,19 @@ describe("ClipCacheStore", () => {
     expect(selected?.id).toBe("fresh");
   });
 
+  it("counts only newly available clips when saving cache rows", () => {
+    expect(store.saveClips([clip("same")])).toBe(1);
+    expect(store.saveClips([clip("same")])).toBe(0);
+
+    store.markMissingClipsUnavailable(
+      "2026-05-25T09:00:00.000Z",
+      "2026-05-25T11:00:00.000Z",
+      []
+    );
+
+    expect(store.saveClips([clip("same")])).toBe(1);
+  });
+
   it("filters cached myclip candidates by creator name", () => {
     store.saveClips([clip("other", "Other"), clip("mine", "Viewer")]);
 

@@ -111,6 +111,28 @@ describe("ClipCacheSynchronizer", () => {
     expect(store.clipCount()).toBe(1);
   });
 
+  it("uses a wide recent window by default to absorb Twitch clip API delays", async () => {
+    const getClipsForBroadcasterPaginated = vi.fn(() =>
+      iterableClips([makeClip("delayed", "2026-05-25T09:00:00.000Z")])
+    );
+    const sync = new ClipCacheSynchronizer({
+      apiClient: { clips: { getClipsForBroadcasterPaginated } },
+      broadcasterId: "broadcaster-id",
+      store,
+    });
+
+    await sync.syncRecentClips(new Date("2026-05-25T10:30:00.000Z"));
+
+    expect(getClipsForBroadcasterPaginated).toHaveBeenCalledWith(
+      "broadcaster-id",
+      {
+        startDate: "2026-05-25T04:30:00.000Z",
+        endDate: "2026-05-25T10:30:00.000Z",
+      }
+    );
+    expect(store.clipCount()).toBe(1);
+  });
+
   it("notifies after a recent sync so stream clips can be posted", async () => {
     const getClipsForBroadcasterPaginated = vi.fn(() =>
       iterableClips([makeClip("recent")])

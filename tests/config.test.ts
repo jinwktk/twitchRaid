@@ -34,6 +34,7 @@ CLIP_SEARCH_DATA_PATH=public/clip-search-data.json
 CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS=120000
 CLIP_SEARCH_PUBLISH_REMOTE=origin
 CLIP_SEARCH_PUBLISH_BRANCH=main
+TWITCH_CLIP_RECENT_WINDOW_MINUTES=720
 `);
 
     const config = new Config(envPath);
@@ -45,5 +46,6 @@ CLIP_SEARCH_PUBLISH_BRANCH=main
     expect(config.clipSearchPublishMinIntervalMs).toBe(120_000);
     expect(config.clipSearchPublishRemote).toBe("origin");
     expect(config.clipSearchPublishBranch).toBe("main");
+    expect(config.clipRecentWindowMinutes).toBe(720);
   });
 });

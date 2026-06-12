@@ -1142,7 +1142,7 @@
             <h3>APIを呼びすぎない工夫</h3>
             <ul>
               <li>ClipはSQLiteキャッシュ優先。</li>
-              <li>直近Clip同期は1分ごと。</li>
+              <li>直近Clip同期は1分ごとに既定6時間分を取り直す。</li>
               <li>全期間再走査は配信していない時に1日1回。</li>
               <li>token validateは5分TTLキャッシュ。</li>
               <li>配信まとめのコメント数JSON保存は30秒デバウンス。</li>
@@ -1159,7 +1159,7 @@
           <article class="card">
             <h3>運用で見るログ</h3>
             <ul>
-              <li><code>直近clip同期完了: saved=...</code></li>
+              <li><code>直近clip同期完了: fetched=..., saved=..., windowMinutes=...</code></li>
               <li><code>配信まとめスレッドへ新規クリップを投稿しました</code></li>
               <li><code>Discord bot message failed: 403</code></li>
               <li><code>Shoutout rate limited</code></li>

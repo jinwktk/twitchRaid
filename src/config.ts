@@ -5,6 +5,7 @@ import { REQUIRED_AUTH_SCOPES } from "./auth/auth-scope-sets";
 
 const BASE_DIR = path.resolve(__dirname, "..");
 const DEFAULT_TWITCH_GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
+const DEFAULT_CLIP_RECENT_WINDOW_MINUTES = 6 * 60;
 
 function parseEnabledFlag(raw: string): boolean {
   return raw.toLowerCase() === "true" || raw === "1";
@@ -48,6 +49,7 @@ export class Config {
   readonly updateCheckInterval: number;
   readonly restartCheckInterval: number;
   readonly clipCacheDbPath: string;
+  readonly clipRecentWindowMinutes: number;
   readonly streamSummaryStatePath: string;
   readonly clipSearchAutoPublishEnabled: boolean;
   readonly clipSearchDataPath: string;
@@ -107,6 +109,10 @@ export class Config {
     this.clipCacheDbPath = path.resolve(
       BASE_DIR,
       env["TWITCH_CLIP_CACHE_DB_PATH"] ?? "data/clips.sqlite"
+    );
+    this.clipRecentWindowMinutes = parsePositiveInt(
+      env["TWITCH_CLIP_RECENT_WINDOW_MINUTES"],
+      DEFAULT_CLIP_RECENT_WINDOW_MINUTES
     );
     this.streamSummaryStatePath = path.resolve(
       BASE_DIR,
