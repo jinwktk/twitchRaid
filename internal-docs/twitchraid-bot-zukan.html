@@ -706,6 +706,7 @@
           <article class="card">
             <h3>基本コマンド</h3>
             <ul>
+              <li><code>!help</code>: 主要コマンド一覧</li>
               <li><code>!age</code>: 年齢を返す</li>
               <li><code>!goods</code>: BOOTH URL</li>
               <li><code>!weight</code> / <code>!height</code></li>
@@ -960,7 +961,7 @@
             </tr>
             <tr>
               <td><code>src/bot.ts</code></td>
-              <td>Bot本体。ChatClientイベント、コマンド分岐、配信監視、Clip同期後投稿、Raid処理を接続。</td>
+              <td>Bot本体。ChatClientイベント、<code>!help</code> を含むコマンド分岐、配信監視、Clip同期後投稿、Raid処理を接続。</td>
             </tr>
             <tr>
               <td><code>src/config.ts</code></td>

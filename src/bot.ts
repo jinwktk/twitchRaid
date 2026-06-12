@@ -79,6 +79,8 @@ import { restartProcess } from "./utils/process-restart";
 
 
 const MANGA_DELETE_DELAY_SECONDS = 10;
+const HELP_MESSAGE =
+  "使えるコマンド: 基本 !help / !age / !goods / !weight / !height / !mood / !menu | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
 
 export class Bot {
   private readonly config: Config;
@@ -334,6 +336,9 @@ export class Bot {
     const restText = commandText.slice(args[0].length).trim();
 
     switch (cmd) {
+      case "help":
+        await this.chatClient.say(channel, HELP_MESSAGE);
+        break;
       case "age":
         await this.chatClient.say(channel, String(calculateAge()));
         break;
