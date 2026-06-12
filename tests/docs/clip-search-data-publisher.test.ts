@@ -28,12 +28,17 @@ function makePublisher(options: {
   });
 }
 
-function makePublishingCommandRunner() {
+function makePublishingCommandRunner(options?: { latestCommitSubject?: string }) {
   const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+  const latestCommitSubject =
+    options?.latestCommitSubject ?? "Clip検索JSONを同期時刻更新\n";
   const runCommand: RunCommand = vi.fn(async (file, args, options) => {
     calls.push({ file, args, cwd: options.cwd });
     if (file === "git" && args[0] === "status") {
       return { stdout: " M docs/clip-search-data.json\n", stderr: "" };
+    }
+    if (file === "git" && args[0] === "log") {
+      return { stdout: latestCommitSubject, stderr: "" };
     }
     return { stdout: "", stderr: "" };
   });
@@ -55,7 +60,7 @@ describe("ClipSearchDataPublisher", () => {
     expect(runCommand).not.toHaveBeenCalled();
   });
 
-  it("exports, commits, and pushes JSON even when a recent sync saved zero clips", async () => {
+  it("amends and force-pushes JSON when a zero-save sync follows the bot sync commit", async () => {
     const { calls, runCommand } = makePublishingCommandRunner();
     const publisher = makePublisher({ runCommand });
 
@@ -77,13 +82,46 @@ describe("ClipSearchDataPublisher", () => {
       ],
       ["git", "status", "--porcelain", "--", "docs/clip-search-data.json"],
       ["git", "add", "--", "docs/clip-search-data.json"],
+      ["git", "log", "-1", "--pretty=%s"],
+      ["git", "commit", "--amend", "--no-edit"],
+      ["git", "push", "--force-with-lease", "origin", "main"],
+    ]);
+  });
+
+  it("creates a new commit for a zero-save sync after a development commit", async () => {
+    const { calls, runCommand } = makePublishingCommandRunner({
+      latestCommitSubject: "Clip検索ページの表示を改善\n",
+    });
+    const publisher = makePublisher({ runCommand });
+
+    const result = await publisher.publishAfterRecentSync({
+      syncedAt: "2026-06-11T09:00:00.000Z",
+      saved: 0,
+      unavailable: 0,
+    });
+
+    expect(result).toEqual({ status: "published" });
+    expect(calls.map((call) => [path.basename(call.file), ...call.args])).toEqual([
+      [
+        path.basename(process.execPath),
+        "C:\\repo\\twitchRaid\\scripts\\export-clip-search-data.mjs",
+        "--db",
+        "C:\\repo\\twitchRaid\\data\\clips.sqlite",
+        "--out",
+        "C:\\repo\\twitchRaid\\docs\\clip-search-data.json",
+      ],
+      ["git", "status", "--porcelain", "--", "docs/clip-search-data.json"],
+      ["git", "add", "--", "docs/clip-search-data.json"],
+      ["git", "log", "-1", "--pretty=%s"],
       ["git", "commit", "-m", "Clip検索JSONを同期時刻更新"],
       ["git", "push", "origin", "main"],
     ]);
   });
 
   it("can publish the search JSON into a separate RukalunPage repository", async () => {
-    const { calls, runCommand } = makePublishingCommandRunner();
+    const { calls, runCommand } = makePublishingCommandRunner({
+      latestCommitSubject: "RukalunPage初期構築\n",
+    });
     const publisher = makePublisher({
       repoDir: "C:\\repo\\twitchRaid",
       publishRepoDir: "C:\\repo\\RukalunPage",
@@ -109,11 +147,13 @@ describe("ClipSearchDataPublisher", () => {
       ],
       ["git", "status", "--porcelain", "--", "clip-search-data.json"],
       ["git", "add", "--", "clip-search-data.json"],
+      ["git", "log", "-1", "--pretty=%s"],
       ["git", "commit", "-m", "Clip検索JSONを同期時刻更新"],
       ["git", "push", "origin", "main"],
     ]);
     expect(calls.map((call) => call.cwd)).toEqual([
       "C:\\repo\\twitchRaid",
+      "C:\\repo\\RukalunPage",
       "C:\\repo\\RukalunPage",
       "C:\\repo\\RukalunPage",
       "C:\\repo\\RukalunPage",
@@ -150,6 +190,14 @@ describe("ClipSearchDataPublisher", () => {
     expect(skipped).toEqual({ status: "skipped", reason: "min-interval" });
     expect(saved).toEqual({ status: "published" });
     expect(calls.filter((call) => call.file === process.execPath)).toHaveLength(2);
+    expect(
+      calls
+        .filter((call) => call.file === "git" && call.args[0] === "commit")
+        .map((call) => call.args)
+    ).toEqual([
+      ["commit", "--amend", "--no-edit"],
+      ["commit", "-m", "Clip検索JSONを同期時刻更新"],
+    ]);
   });
 
   it("publishes immediately when recent sync made clips unavailable", async () => {
@@ -175,6 +223,14 @@ describe("ClipSearchDataPublisher", () => {
 
     expect(unavailable).toEqual({ status: "published" });
     expect(calls.filter((call) => call.file === process.execPath)).toHaveLength(2);
+    expect(
+      calls
+        .filter((call) => call.file === "git" && call.args[0] === "commit")
+        .map((call) => call.args)
+    ).toEqual([
+      ["commit", "--amend", "--no-edit"],
+      ["commit", "-m", "Clip検索JSONを同期時刻更新"],
+    ]);
   });
 
   it("keeps the publish interval after restart by reading the existing JSON generatedAt", async () => {

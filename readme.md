@@ -54,7 +54,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - `STREAM_SUMMARY_MAX_CLIPS` に配信まとめスレッドへ投稿する最大クリップ数を設定できます（未設定時は `10`）
 - `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を設定すると、Bot APIで配信開始通知、クリップURL、終了まとめを投稿し、配信開始通知メッセージからDiscordスレッドを作成します。`DISCORD_WEBHOOK_URL` はBot設定が無い場合、またはBot API投稿が403などで失敗した場合のフォールバックです
 - `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定すると、Webhookだけで `thread_name` によるスレッド作成を試します。この方式はDiscordのフォーラム/メディアチャンネルWebhook向けです。通常テキストチャンネルWebhookではDiscord側で拒否されるため、自動で通常Webhook投稿へフォールバックします
-- `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定すると、直近Clip同期完了後に公開JSONを再生成し、差分があれば `CLIP_SEARCH_PUBLISH_REPO_DIR` の `main` へcommit/pushします。RukalunPage分離後の既定値は `C:\Users\mlove\Documents\GitHub\RukalunPage` と、その配下の `clip-search-data.json` です。別パスで運用する場合だけ `CLIP_SEARCH_PUBLISH_REPO_DIR` と `CLIP_SEARCH_DATA_PATH` を指定します。新規/復活Clipが0件の同期も `CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS` ごとに公開し、新規/復活Clipまたは削除/非公開Clipの無効化があった場合は間隔内でも公開します。未設定時の公開間隔は5分、remote/branchは `origin` / `main` です。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぎます
+- `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定すると、直近Clip同期完了後に公開JSONを再生成し、差分があれば `CLIP_SEARCH_PUBLISH_REPO_DIR` の `main` へcommit/pushします。RukalunPage分離後の既定値は `C:\Users\mlove\Documents\GitHub\RukalunPage` と、その配下の `clip-search-data.json` です。別パスで運用する場合だけ `CLIP_SEARCH_PUBLISH_REPO_DIR` と `CLIP_SEARCH_DATA_PATH` を指定します。新規/復活Clipが0件の同期も `CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS` ごとに公開し、新規/復活Clipまたは削除/非公開Clipの無効化があった場合は間隔内でも公開します。保存0件かつ無効化0件で直前HEADが `Clip検索JSONを同期時刻更新` の場合だけ、そのBot同期commitをamendして `--force-with-lease` でpushします。直前HEADがCodexなどの開発commitの場合や、Clip追加・復活・削除/非公開化がある同期では通常commit/pushします。未設定時の公開間隔は5分、remote/branchは `origin` / `main` です。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぎます
 - サブPC運用では `E:\GitHub\RukalunPage` を `https://github.com/jinwktk/RukalunPage.git` のcloneとして用意してください。既存フォルダに `clip-search-data.json` だけがあり `.git` が無い場合、同期後処理で `fatal: not a git repository` になります
 - `OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` を設定すると、Raid時にOllama `POST /api/generate` で1通のRaid挨拶文を生成してチャットへ送信します。AI生成文はコード側で250文字以内に丸めます。`OLLAMA_BASE_URL` は未設定時 `http://127.0.0.1:11434`、`OLLAMA_SHOUTOUT_TIMEOUT_MS` は未設定時 `15000`、`OLLAMA_SHOUTOUT_KEEP_ALIVE` は未設定時 `30m` です
 
@@ -167,7 +167,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存する。公開JSONやサーバー側状態にはお気に入り情報を持たせず、`お気に入り順` はお気に入りを登録が新しい順で先頭に並べる
 - 公開画面には仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明を表示しない。内部向け仕様書からも公開Clip検索画面へのリンク導線は置かない
 - 公開JSONは `scripts/export-clip-search-data.mjs` で `data/clips.sqlite` から生成する。`--out C:\Users\mlove\Documents\GitHub\RukalunPage\clip-search-data.json` のように出力先を指定して使う。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する。自動公開時は毎回API全補完を行わず、既存の公開JSONにあるサムネイルURL/ゲーム名をDB欠落分へ引き継ぐ
-- Bot運用時に `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定している場合、直近Clip同期完了後に `src/docs/clip-search-data-publisher.ts` が公開JSONを再生成し、差分があれば `CLIP_SEARCH_PUBLISH_REPO_DIR` の `main` へcommit/pushする。未指定時は隣の `RukalunPage` repoを公開先にする。新規/復活Clipが0件の同期も既定5分ごとに公開し、新規/復活Clipまたは削除/非公開Clipの無効化があった場合は間隔内でも公開する。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぐ
+- Bot運用時に `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定している場合、直近Clip同期完了後に `src/docs/clip-search-data-publisher.ts` が公開JSONを再生成し、差分があれば `CLIP_SEARCH_PUBLISH_REPO_DIR` の `main` へcommit/pushする。未指定時は隣の `RukalunPage` repoを公開先にする。新規/復活Clipが0件の同期も既定5分ごとに公開し、新規/復活Clipまたは削除/非公開Clipの無効化があった場合は間隔内でも公開する。保存0件かつ無効化0件の同期時刻だけの更新では、直前HEADの件名が `Clip検索JSONを同期時刻更新` の場合だけ `git commit --amend --no-edit` と `git push --force-with-lease` を使う。直前HEADが開発commitの場合や、Clip追加・復活・削除/非公開化がある場合は通常commit/pushにする。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぐ
 - サブPCでは `CLIP_SEARCH_PUBLISH_REPO_DIR=E:\GitHub\RukalunPage` と `CLIP_SEARCH_DATA_PATH=E:\GitHub\RukalunPage\clip-search-data.json` を明示しておく。`E:\GitHub\RukalunPage` はGit repoである必要があり、JSON単体のフォルダでは自動commit/pushできない
 - 公開JSONへ含めるClip項目は `id`、`url`、`title`、`creator`、`gameName`、`thumbnailUrl`、`createdAt`、`views` のみ。同期stateは `clipSync.recentSyncedAt` のみ公開し、`creator_id`、ゲームID、履歴、その他の内部state、認証情報は含めない
 - `unavailable_at` が入った削除/非公開Clipは公開JSONから除外する。そのためログの `clip全期間バックフィル完了: total=...` はDB内総件数、Clip検索画面の件数は公開対象件数として差が出ることがある
@@ -249,6 +249,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-12**: Clip検索JSON自動公開で、保存0件かつ無効化0件の同期時刻だけの更新は、直前HEADがBotの `Clip検索JSONを同期時刻更新` commitの場合だけamendして `--force-with-lease` でpushするようにした。直前HEADがCodexなどの開発commitの場合や、Clip追加・復活・削除/非公開化がある同期は通常commit/pushのままにした
 - **2026-06-12**: 公開Clip検索画面を `RukalunPage` リポジトリへ分離。twitchRaid側の `docs/` は新URLへの互換リダイレクトだけにし、公開JSONと公開用 `assets/rukalun` は `RukalunPage` 側で管理するようにした。`CLIP_SEARCH_PUBLISH_REPO_DIR` を追加し、Botの同期後JSON自動公開は別Git repoへcommit/pushできる
 - **2026-06-12**: 14:03作成Clipが `14:10:26 JST` の公開JSONへ一度入った後、`14:12:26 JST` の同期で消える挙動を確認。直近削除確認が新規ClipのTwitch API反映揺れを削除/非公開扱いにできてしまうため、作成から2時間以内のClipは直近同期の無効化対象から外し、旧ロジックで無効化済みの場合も直近同期時に有効へ戻すようにした
 - **2026-06-12**: 削除済みClipが直近同期後も公開JSONに残る問題を修正。直近同期でDB既存Clipが一覧から消えた場合は `getClipsByIds` で個別確認し、返らないClipだけ `unavailable_at` を付けるようにした。`unavailable > 0` の同期は保存0件でもClip検索JSONを即時公開し、全期間バックフィル競合時は日次再走査の `daily_reconcile_at` を更新しない

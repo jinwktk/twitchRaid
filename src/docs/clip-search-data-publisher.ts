@@ -7,6 +7,7 @@ import logger from "../utils/logger";
 const execFileAsync = promisify(execFile);
 const DEFAULT_REPO_DIR = path.resolve(__dirname, "..", "..");
 const DEFAULT_MIN_INTERVAL_MS = 5 * 60 * 1000;
+const SYNC_TIME_COMMIT_MESSAGE = "Clip検索JSONを同期時刻更新";
 
 export interface ClipSearchPublishRequest {
   syncedAt: string;
@@ -95,6 +96,10 @@ function readGeneratedAtMs(outPath: string): number {
   } catch {
     return 0;
   }
+}
+
+function isSyncTimeOnlyRequest(request: ClipSearchPublishRequest): boolean {
+  return request.saved === 0 && request.unavailable === 0;
 }
 
 export class ClipSearchDataPublisher {
@@ -194,19 +199,56 @@ export class ClipSearchDataPublisher {
       cwd: this.publishRepoDir,
       timeoutMs: 30_000,
     });
-    await this.runCommand(
-      "git",
-      ["commit", "-m", "Clip検索JSONを同期時刻更新"],
-      { cwd: this.publishRepoDir, timeoutMs: 30_000 }
-    );
-    await this.runCommand("git", ["push", this.remote, this.branch], {
-      cwd: this.publishRepoDir,
-      timeoutMs: 120_000,
-    });
+    const shouldAmend = await this.shouldAmendPreviousSyncTimeCommit(request);
+    if (shouldAmend) {
+      await this.runCommand("git", ["commit", "--amend", "--no-edit"], {
+        cwd: this.publishRepoDir,
+        timeoutMs: 30_000,
+      });
+      await this.runCommand(
+        "git",
+        ["push", "--force-with-lease", this.remote, this.branch],
+        {
+          cwd: this.publishRepoDir,
+          timeoutMs: 120_000,
+        }
+      );
+    } else {
+      await this.runCommand(
+        "git",
+        ["commit", "-m", SYNC_TIME_COMMIT_MESSAGE],
+        { cwd: this.publishRepoDir, timeoutMs: 30_000 }
+      );
+      await this.runCommand("git", ["push", this.remote, this.branch], {
+        cwd: this.publishRepoDir,
+        timeoutMs: 120_000,
+      });
+    }
 
     logger.info(
       `🎬 Clip検索公開JSONを${this.remote}/${this.branch}へpushしました`
     );
     return { status: "published" };
+  }
+
+  private async shouldAmendPreviousSyncTimeCommit(
+    request: ClipSearchPublishRequest
+  ): Promise<boolean> {
+    if (!isSyncTimeOnlyRequest(request)) {
+      return false;
+    }
+
+    try {
+      const head = await this.runCommand("git", ["log", "-1", "--pretty=%s"], {
+        cwd: this.publishRepoDir,
+        timeoutMs: 30_000,
+      });
+      return head.stdout.trim() === SYNC_TIME_COMMIT_MESSAGE;
+    } catch (error) {
+      logger.warn(
+        `🎬 Clip検索公開JSON更新: 直前commit判定に失敗したため通常commitします: ${String(error)}`
+      );
+      return false;
+    }
   }
 }
