@@ -12,12 +12,16 @@ function makePublisher(options: {
   nowMs?: () => number;
   minIntervalMs?: number;
   runCommand?: RunCommand;
+  repoDir?: string;
+  publishRepoDir?: string;
+  outPath?: string;
 }) {
   return new ClipSearchDataPublisher({
     enabled: options.enabled ?? true,
-    repoDir: "C:\\repo\\twitchRaid",
+    repoDir: options.repoDir ?? "C:\\repo\\twitchRaid",
+    publishRepoDir: options.publishRepoDir,
     dbPath: "C:\\repo\\twitchRaid\\data\\clips.sqlite",
-    outPath: "C:\\repo\\twitchRaid\\docs\\clip-search-data.json",
+    outPath: options.outPath ?? "C:\\repo\\twitchRaid\\docs\\clip-search-data.json",
     minIntervalMs: options.minIntervalMs,
     nowMs: options.nowMs,
     runCommand: options.runCommand ?? vi.fn().mockResolvedValue({ stdout: "", stderr: "" }),
@@ -25,9 +29,9 @@ function makePublisher(options: {
 }
 
 function makePublishingCommandRunner() {
-  const calls: Array<{ file: string; args: string[] }> = [];
-  const runCommand: RunCommand = vi.fn(async (file, args) => {
-    calls.push({ file, args });
+  const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+  const runCommand: RunCommand = vi.fn(async (file, args, options) => {
+    calls.push({ file, args, cwd: options.cwd });
     if (file === "git" && args[0] === "status") {
       return { stdout: " M docs/clip-search-data.json\n", stderr: "" };
     }
@@ -75,6 +79,45 @@ describe("ClipSearchDataPublisher", () => {
       ["git", "add", "--", "docs/clip-search-data.json"],
       ["git", "commit", "-m", "Clip検索JSONを同期時刻更新"],
       ["git", "push", "origin", "main"],
+    ]);
+  });
+
+  it("can publish the search JSON into a separate RukalunPage repository", async () => {
+    const { calls, runCommand } = makePublishingCommandRunner();
+    const publisher = makePublisher({
+      repoDir: "C:\\repo\\twitchRaid",
+      publishRepoDir: "C:\\repo\\RukalunPage",
+      outPath: "C:\\repo\\RukalunPage\\clip-search-data.json",
+      runCommand,
+    });
+
+    const result = await publisher.publishAfterRecentSync({
+      syncedAt: "2026-06-12T06:00:00.000Z",
+      saved: 0,
+      unavailable: 0,
+    });
+
+    expect(result).toEqual({ status: "published" });
+    expect(calls.map((call) => [path.basename(call.file), ...call.args])).toEqual([
+      [
+        path.basename(process.execPath),
+        "C:\\repo\\twitchRaid\\scripts\\export-clip-search-data.mjs",
+        "--db",
+        "C:\\repo\\twitchRaid\\data\\clips.sqlite",
+        "--out",
+        "C:\\repo\\RukalunPage\\clip-search-data.json",
+      ],
+      ["git", "status", "--porcelain", "--", "clip-search-data.json"],
+      ["git", "add", "--", "clip-search-data.json"],
+      ["git", "commit", "-m", "Clip検索JSONを同期時刻更新"],
+      ["git", "push", "origin", "main"],
+    ]);
+    expect(calls.map((call) => call.cwd)).toEqual([
+      "C:\\repo\\twitchRaid",
+      "C:\\repo\\RukalunPage",
+      "C:\\repo\\RukalunPage",
+      "C:\\repo\\RukalunPage",
+      "C:\\repo\\RukalunPage",
     ]);
   });
 

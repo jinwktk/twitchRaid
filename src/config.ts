@@ -6,6 +6,11 @@ import { REQUIRED_AUTH_SCOPES } from "./auth/auth-scope-sets";
 const BASE_DIR = path.resolve(__dirname, "..");
 const DEFAULT_TWITCH_GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 const DEFAULT_CLIP_RECENT_WINDOW_MINUTES = 6 * 60;
+const DEFAULT_CLIP_SEARCH_PUBLISH_REPO_DIR = path.resolve(
+  BASE_DIR,
+  "..",
+  "RukalunPage"
+);
 
 function parseEnabledFlag(raw: string): boolean {
   return raw.toLowerCase() === "true" || raw === "1";
@@ -53,6 +58,7 @@ export class Config {
   readonly streamSummaryStatePath: string;
   readonly clipSearchAutoPublishEnabled: boolean;
   readonly clipSearchDataPath: string;
+  readonly clipSearchPublishRepoDir: string;
   readonly clipSearchPublishMinIntervalMs: number;
   readonly clipSearchPublishRemote: string;
   readonly clipSearchPublishBranch: string;
@@ -121,9 +127,15 @@ export class Config {
     this.clipSearchAutoPublishEnabled = parseEnabledFlag(
       env["CLIP_SEARCH_AUTO_PUBLISH_ENABLED"] ?? "0"
     );
+    this.clipSearchPublishRepoDir = path.resolve(
+      BASE_DIR,
+      env["CLIP_SEARCH_PUBLISH_REPO_DIR"] ??
+        DEFAULT_CLIP_SEARCH_PUBLISH_REPO_DIR
+    );
     this.clipSearchDataPath = path.resolve(
       BASE_DIR,
-      env["CLIP_SEARCH_DATA_PATH"] ?? "docs/clip-search-data.json"
+      env["CLIP_SEARCH_DATA_PATH"] ??
+        path.join(this.clipSearchPublishRepoDir, "clip-search-data.json")
     );
     this.clipSearchPublishMinIntervalMs = parsePositiveInt(
       env["CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS"],

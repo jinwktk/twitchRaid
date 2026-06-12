@@ -976,8 +976,8 @@
               <td>Clip選択、タイトル/作成者名/ゲーム名検索、SQLiteキャッシュ、サムネイルURL/ゲーム名保存、表示履歴、全期間バックフィル、直近同期、日次再走査。</td>
             </tr>
             <tr>
-              <td><code>scripts/export-clip-search-data.mjs</code> / <code>docs/clip-search.html</code></td>
-              <td>SQLite Clipキャッシュから公開用JSONを生成し、GitHub Pages上でタイトル/作成者名/ゲーム名検索できる画面を提供。</td>
+              <td><code>scripts/export-clip-search-data.mjs</code> / <code>RukalunPage/index.html</code></td>
+              <td>SQLite Clipキャッシュから公開用JSONを生成し、別リポジトリのGitHub Pages上でタイトル/作成者名/ゲーム名検索できる画面を提供。</td>
             </tr>
             <tr>
               <td><code>src/commands/boom.ts</code></td>
@@ -1058,9 +1058,9 @@
           <article class="card">
             <h3>GitHub Pages Clip検索データ</h3>
             <p>
-              <code>docs/clip-search-data.json</code> は
+              <code>RukalunPage/clip-search-data.json</code> は
               <code>data/clips.sqlite</code> から生成する公開用データです。
-              Clip検索画面 <code>docs/clip-search.html</code> が読み込みます。
+              Clip検索画面 <code>RukalunPage/index.html</code> が読み込みます。
             </p>
             <ul>
               <li>公開項目は <code>id</code>、URL、タイトル、作成者表示名、ゲーム名、サムネイルURL、作成日、再生数、<code>clipSync.recentSyncedAt</code> のみ</li>
@@ -1068,7 +1068,8 @@
               <li>Clip最終同期時刻は <code>clip_sync_state.recent_sync_at</code> を元にJSTの秒単位で表示</li>
               <li>各カードにサムネイルとゲーム名を表示し、再生は <code>Twitchで見る</code> 外部リンクだけにする</li>
               <li><code>creator_id</code>、ゲームID、表示履歴、その他の内部state、認証情報は公開しない</li>
-              <li>更新は <code>npm run docs:export-clips</code> で行い、必要時は <code>--enrich-from-twitch</code> でTwitch API補完する</li>
+              <li>更新は <code>scripts/export-clip-search-data.mjs --out RukalunPage/clip-search-data.json</code> で行い、必要時は <code>--enrich-from-twitch</code> でTwitch API補完する</li>
+              <li>Bot自動公開では <code>CLIP_SEARCH_PUBLISH_REPO_DIR</code> をRukalunPage repoへ向け、差分があればRukalunPageの <code>main</code> へcommit/pushする</li>
             </ul>
           </article>
         </div>
@@ -1229,10 +1230,11 @@ npm run lint</code></pre>
         <div class="note">
           <p>
             内部仕様書の本体は <code>internal-docs/twitchraid-bot-zukan.html</code> です。
-            公開ルート <code>docs/index.html</code> はClip検索入口だけにしています。
-            Clip検索画面は <code>docs/clip-search.html</code> です。
+            公開Clip検索画面の正本は別リポジトリ <code>RukalunPage/index.html</code> です。
+            twitchRaid側の <code>docs/index.html</code> と <code>docs/clip-search.html</code> は
+            <code>https://jinwktk.github.io/RukalunPage/</code> への互換リダイレクトだけにしています。
             以前の <code>docs/typescript-bot-spec.html</code> は、分割管理をやめるため、
-            公開Clip検索画面へ案内する互換ページにしています。
+            RukalunPageへ案内する互換ページにしています。
           </p>
         </div>
       </section>

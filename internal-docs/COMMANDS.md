@@ -34,9 +34,10 @@
 
 ## GitHub Pages Clip検索
 
-- `docs/clip-search.html` はチャットコマンドではなく、GitHub Pages用の検索画面。
-- `docs/clip-search-data.json` を読み込み、ブラウザ内でClipタイトル/作成者表示名/ゲーム名を検索する。
-- 公開データは `npm run docs:export-clips` で `data/clips.sqlite` から生成する。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する。
+- Clip検索画面の正本は `RukalunPage/index.html`。twitchRaid側の `docs/` は旧URL互換リダイレクトだけを持つ。
+- `RukalunPage/clip-search-data.json` を読み込み、ブラウザ内でClipタイトル/作成者表示名/ゲーム名を検索する。
+- 公開データは `scripts/export-clip-search-data.mjs --out C:\Users\mlove\Documents\GitHub\RukalunPage\clip-search-data.json` で `data/clips.sqlite` から生成する。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する。
+- Bot自動公開では `CLIP_SEARCH_PUBLISH_REPO_DIR` をRukalunPage repoに向け、差分があればRukalunPageの `main` へcommit/pushする。
 - 公開項目はClip ID、URL、タイトル、作成者表示名、ゲーム名、サムネイルURL、作成日、再生数、Clip最終同期時刻のみ。削除/非公開化されたClipは除外する。
 - Clip最終同期時刻は `clip_sync_state.recent_sync_at` を元に、画面上でJSTの秒単位まで表示する。
 - 各Clipカードにはサムネイルとゲーム名を表示し、再生は `Twitchで見る` の外部リンクだけにする。ページ内Twitch iframe再生は置かない。

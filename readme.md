@@ -23,19 +23,20 @@ npm run pm2:logs    # ログ確認
 - SQLiteキャッシュ系の調査では、サブPC側の `data/clips.sqlite` の作成状況と更新時刻も確認する
 
 ### 技術設計書
-- GitHub Pagesで公開する `docs/index.html` はClip検索画面への入口だけにしています
+- GitHub Pagesで公開するClip検索画面の正本は別リポジトリ `C:\Users\mlove\Documents\GitHub\RukalunPage` の `index.html` です
 - 現行TypeScript版 Twitch Bot の内部仕様書は `internal-docs/twitchraid-bot-zukan.html` に移動しています
-- Clip検索画面は `docs/clip-search.html` です。`docs/clip-search-data.json` を読み込み、GitHub Pages上でタイトル/作成者名/ゲーム名検索できます。OGP/Twitter Card/JSON-LD、`docs/assets/rukalun/clip-search-og.png`、`docs/assets/rukalun` 配下のfavicon画像を使い、検索エンジンとSNS共有向けの公開情報を持たせています
+- Clip検索画面は `RukalunPage/clip-search-data.json` を読み込み、GitHub Pages上でタイトル/作成者名/ゲーム名検索できます。OGP/Twitter Card/JSON-LD、`RukalunPage/assets/rukalun/clip-search-og.png`、`RukalunPage/assets/rukalun` 配下のfavicon画像を使い、検索エンジンとSNS共有向けの公開情報を持たせています
 - Clip検索画面は公開URLで使うため、画面上には仕様書、内部運用、JSON生成手順への導線を出しません
-- 旧URL互換の `docs/typescript-bot-spec.html` も公開Clip検索画面へ案内するだけのページです
-- `main` ブランチの `docs/` 更新時に `.github/workflows/pages.yml` がGitHub Pagesへ公開します
+- twitchRaid側の `docs/index.html` / `docs/clip-search.html` / `docs/typescript-bot-spec.html` は `https://jinwktk.github.io/RukalunPage/` へ案内するだけの旧URL互換ページです
+- RukalunPageの `main` ブランチ更新時にRukalunPage側の `.github/workflows/pages.yml` がGitHub Pagesへ公開します
 - Markdown設計資料は `internal-docs/ARCHITECTURE.md` / `internal-docs/COMMANDS.md` / `internal-docs/DESIGN_PATTERNS.md` / `internal-docs/TECH_STACK.md` に補助資料として残しています
 
 ### 直接起動
 ```bash
 npm start           # ビルド済みを実行
 npm run dev         # ts-nodeで開発実行
-npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JSONを生成
+npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生成
+# 本番反映例: node scripts/export-clip-search-data.mjs --out C:\Users\mlove\Documents\GitHub\RukalunPage\clip-search-data.json
 # 必要時: node scripts/export-clip-search-data.mjs --enrich-from-twitch
 ```
 
@@ -53,7 +54,7 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 - `STREAM_SUMMARY_MAX_CLIPS` に配信まとめスレッドへ投稿する最大クリップ数を設定できます（未設定時は `10`）
 - `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を設定すると、Bot APIで配信開始通知、クリップURL、終了まとめを投稿し、配信開始通知メッセージからDiscordスレッドを作成します。`DISCORD_WEBHOOK_URL` はBot設定が無い場合、またはBot API投稿が403などで失敗した場合のフォールバックです
 - `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定すると、Webhookだけで `thread_name` によるスレッド作成を試します。この方式はDiscordのフォーラム/メディアチャンネルWebhook向けです。通常テキストチャンネルWebhookではDiscord側で拒否されるため、自動で通常Webhook投稿へフォールバックします
-- `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定すると、直近Clip同期完了後に `docs/clip-search-data.json` を再生成し、差分があれば `main` へcommit/pushします。新規/復活Clipが0件の同期も `CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS` ごとに公開し、新規/復活Clipまたは削除/非公開Clipの無効化があった場合は間隔内でも公開します。未設定時の公開間隔は5分、出力先は `docs/clip-search-data.json`、remote/branchは `origin` / `main` です。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぎます
+- `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定すると、直近Clip同期完了後に公開JSONを再生成し、差分があれば `CLIP_SEARCH_PUBLISH_REPO_DIR` の `main` へcommit/pushします。RukalunPage分離後の既定値は `C:\Users\mlove\Documents\GitHub\RukalunPage` と、その配下の `clip-search-data.json` です。別パスで運用する場合だけ `CLIP_SEARCH_PUBLISH_REPO_DIR` と `CLIP_SEARCH_DATA_PATH` を指定します。新規/復活Clipが0件の同期も `CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS` ごとに公開し、新規/復活Clipまたは削除/非公開Clipの無効化があった場合は間隔内でも公開します。未設定時の公開間隔は5分、remote/branchは `origin` / `main` です。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぎます
 - `OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` を設定すると、Raid時にOllama `POST /api/generate` で1通のRaid挨拶文を生成してチャットへ送信します。AI生成文はコード側で250文字以内に丸めます。`OLLAMA_BASE_URL` は未設定時 `http://127.0.0.1:11434`、`OLLAMA_SHOUTOUT_TIMEOUT_MS` は未設定時 `15000`、`OLLAMA_SHOUTOUT_KEEP_ALIVE` は未設定時 `30m` です
 
 ## 技術スタック
@@ -94,7 +95,7 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 ## 再起動ポリシー
 - 定期再起動は 1 日 1 回
 - GitHub 更新による再起動はクールダウン対象外。pull と build が終わったら即 `process.exit(0)` でPM2再起動をトリガーする
-- `docs/clip-search-data.json` だけの更新は公開データのみの差分として扱う。Bot内Git監視ではpullだけ行いbuild/再起動しない。self-hosted `Auto Deploy` workflowも `paths-ignore` で起動しない
+- 旧運用互換として `docs/clip-search-data.json` だけの更新は公開データのみの差分として扱う。RukalunPage分離後の公開JSON更新は別repoで行うため、twitchRaidのbuild/再起動対象にはならない
 - PM2管理下では `process.exit(0)` でPM2が自動再起動
 - TypeScript版は `dist/` を Git 管理しないため、GitHub更新検知後に自動で `npm run build` を実行
 - 定期再起動だけは `last_restart.txt` による1日クールダウンを維持する
@@ -155,18 +156,20 @@ npm run docs:export-clips # data/clips.sqlite から GitHub Pages用Clip検索JS
 - `!clipsearch` の表示履歴は `clipsearch:<検索語>` ごとに保存する
 
 ## GitHub Pages Clip検索
-- `docs/clip-search.html` は静的GitHub Pages上で動くClip検索画面。るっかるん向けに淡いピンク、ミント、空色、レモン色を使ったゆるふわ系デザインにしている。提供画像から作った `docs/assets/rukalun/clip-search-hero.png` をヒーロー背景、`docs/assets/rukalun/clip-search-og.png` をOG画像、`docs/assets/rukalun/clip-search-favicon.png` / `docs/assets/rukalun/clip-search-favicon.ico` / `docs/assets/rukalun/clip-search-apple-touch-icon.png` をfaviconやホーム画面アイコンに使う。画面内のブランドマークやボタン小アイコンも `docs/assets/rukalun/Hi-112px.png`、`docs/assets/rukalun/プレゼント-112px.png`、`docs/assets/rukalun/bikkuri-112px.png` を使う
+- 公開Clip検索画面の正本は別リポジトリ `C:\Users\mlove\Documents\GitHub\RukalunPage`。GitHub Pages URLは `https://jinwktk.github.io/RukalunPage/`
+- twitchRaid 側の `docs/index.html` / `docs/clip-search.html` / `docs/typescript-bot-spec.html` は旧URL互換のリダイレクトだけを持つ。公開ページ本体、公開JSON、公開用 `assets/rukalun` はこのリポジトリでは管理しない
+- `RukalunPage/index.html` は静的GitHub Pages上で動くClip検索画面。るっかるん向けに淡いピンク、ミント、空色、レモン色を使ったゆるふわ系デザインにしている。提供画像から作った `assets/rukalun/clip-search-hero.png` をヒーロー背景、`assets/rukalun/clip-search-og.png` をOG画像、`assets/rukalun/clip-search-favicon.png` / `assets/rukalun/clip-search-favicon.ico` / `assets/rukalun/clip-search-apple-touch-icon.png` をfaviconやホーム画面アイコンに使う。画面内のブランドマークやボタン小アイコンも `assets/rukalun/Hi-112px.png`、`assets/rukalun/プレゼント-112px.png`、`assets/rukalun/bikkuri-112px.png` を使う
 - 検索エンジン/SNS向けに、description、canonical、robots、OGP、Twitter Card、JSON-LD `CollectionPage` / `SearchAction` を設定する。`?q=検索語` がある場合は検索欄へ初期入力する
-- 検索データは `docs/clip-search-data.json`。ブラウザ内でタイトル/作成者表示名/ゲーム名を検索し、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、件数表示、追加表示、Clip最終同期時刻の秒単位表示に対応する
+- 検索データは `RukalunPage/clip-search-data.json`。ブラウザ内でタイトル/作成者表示名/ゲーム名を検索し、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、件数表示、追加表示、Clip最終同期時刻の秒単位表示に対応する
 - スマホ幅では上部の検索条件を「検索条件を開く」ボタン配下へ折りたたみ、必要な時だけ開けるようにする。トグル内は条件概要と右端固定の `▽` を分け、長い検索条件でもアイコン位置が崩れないようにする。PC/タブレット幅では従来通り検索条件を常時表示する
 - 各Clipカードにはサムネイル、ゲーム名、作成者、作成日、再生数を表示する。作成日時が現在時刻から3日以内のClipには `NEW` マークを付ける。再生はページ内iframeではなく `Twitchで見る` の外部リンクだけにする
 - お気に入りは各ブラウザの `localStorage` にClip IDと登録時刻だけを保存する。公開JSONやサーバー側状態にはお気に入り情報を持たせず、`お気に入り順` はお気に入りを登録が新しい順で先頭に並べる
 - 公開画面には仕様書リンク、内部運用情報、データ生成コマンド、DB由来説明を表示しない。内部向け仕様書からも公開Clip検索画面へのリンク導線は置かない
-- 公開JSONは `scripts/export-clip-search-data.mjs` で `data/clips.sqlite` から生成する。既定コマンドは `npm run docs:export-clips`。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する。自動公開時は毎回API全補完を行わず、既存の `docs/clip-search-data.json` にあるサムネイルURL/ゲーム名をDB欠落分へ引き継ぐ
-- Bot運用時に `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定している場合、直近Clip同期完了後に `src/docs/clip-search-data-publisher.ts` が公開JSONを再生成し、差分があれば `main` へcommit/pushする。新規/復活Clipが0件の同期も既定5分ごとに公開し、新規/復活Clipまたは削除/非公開Clipの無効化があった場合は間隔内でも公開する。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぐ
+- 公開JSONは `scripts/export-clip-search-data.mjs` で `data/clips.sqlite` から生成する。`--out C:\Users\mlove\Documents\GitHub\RukalunPage\clip-search-data.json` のように出力先を指定して使う。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する。自動公開時は毎回API全補完を行わず、既存の公開JSONにあるサムネイルURL/ゲーム名をDB欠落分へ引き継ぐ
+- Bot運用時に `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定している場合、直近Clip同期完了後に `src/docs/clip-search-data-publisher.ts` が公開JSONを再生成し、差分があれば `CLIP_SEARCH_PUBLISH_REPO_DIR` の `main` へcommit/pushする。未指定時は隣の `RukalunPage` repoを公開先にする。新規/復活Clipが0件の同期も既定5分ごとに公開し、新規/復活Clipまたは削除/非公開Clipの無効化があった場合は間隔内でも公開する。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぐ
 - 公開JSONへ含めるClip項目は `id`、`url`、`title`、`creator`、`gameName`、`thumbnailUrl`、`createdAt`、`views` のみ。同期stateは `clipSync.recentSyncedAt` のみ公開し、`creator_id`、ゲームID、履歴、その他の内部state、認証情報は含めない
 - `unavailable_at` が入った削除/非公開Clipは公開JSONから除外する。そのためログの `clip全期間バックフィル完了: total=...` はDB内総件数、Clip検索画面の件数は公開対象件数として差が出ることがある
-- サブPCの実データをPagesへ反映する場合は、サブPCの `data/clips.sqlite` を元にJSONを生成し、`main` へコミット・プッシュする
+- サブPCの実データをPagesへ反映する場合は、サブPCの `data/clips.sqlite` を元にJSONを生成し、`RukalunPage` の `main` へコミット・プッシュする
 
 ## Boomコマンドメモ
 - `!boom` は過去30日間のアーカイブ配信を対象に、Twitch GraphQL の VOD チャプターからゲーム別の配信時間と総配信時間を集計する
@@ -223,22 +226,18 @@ src/
     ├── process-restart.ts
     └── restart-state-store.ts
 scripts/
-└── export-clip-search-data.mjs    # GitHub Pages用Clip検索JSON生成
+└── export-clip-search-data.mjs    # RukalunPage向けClip検索JSON生成
 docs/
-├── assets/
-│   └── rukalun/
-│       ├── Hi-112px.png                         # ブランドマーク/リンク小アイコンの提供素材
-│       ├── bikkuri-112px.png                    # おまかせボタン用の提供素材
-│       ├── プレゼント-112px.png                 # ラベル/追加表示/お気に入り用の提供素材
-│       ├── clip-search-apple-touch-icon.png     # 提供素材ベースのiOS/ホーム画面用アイコン
-│       ├── clip-search-favicon.ico              # 提供素材ベースのICO favicon
-│       ├── clip-search-favicon.png              # 提供素材ベースのPNG favicon
-│       ├── clip-search-hero.png                 # 提供画像ベースのClip検索ヒーロー画像
-│       └── clip-search-og.png                   # 提供画像ベースのOGP画像
-├── clip-search.html               # Clip検索画面
+├── clip-search.html               # RukalunPageへの旧URL互換リダイレクト
+├── index.html                     # RukalunPageへの公開ルートリダイレクト
+└── typescript-bot-spec.html       # RukalunPageへの旧URL互換リダイレクト
+../RukalunPage/
+├── .github/workflows/pages.yml    # RukalunPage GitHub Pages公開
+├── assets/rukalun/                # Clip検索画面用の軽量画像と小アイコン
 ├── clip-search-data.json          # 公開用Clip検索データ
-├── index.html                     # 公開ルート入口
-└── typescript-bot-spec.html       # 旧URL互換入口
+├── clip-search.html               # 新repo内の互換リダイレクト
+├── index.html                     # Clip検索画面の正本
+└── tests/page.test.mjs            # 公開HTMLと必須ファイルの検証
 internal-docs/
 ├── twitchraid-bot-zukan.html      # 内部向けTypeScript版総合仕様書
 ├── ARCHITECTURE.md
@@ -248,6 +247,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-12**: 公開Clip検索画面を `RukalunPage` リポジトリへ分離。twitchRaid側の `docs/` は新URLへの互換リダイレクトだけにし、公開JSONと公開用 `assets/rukalun` は `RukalunPage` 側で管理するようにした。`CLIP_SEARCH_PUBLISH_REPO_DIR` を追加し、Botの同期後JSON自動公開は別Git repoへcommit/pushできる
 - **2026-06-12**: 14:03作成Clipが `14:10:26 JST` の公開JSONへ一度入った後、`14:12:26 JST` の同期で消える挙動を確認。直近削除確認が新規ClipのTwitch API反映揺れを削除/非公開扱いにできてしまうため、作成から2時間以内のClipは直近同期の無効化対象から外し、旧ロジックで無効化済みの場合も直近同期時に有効へ戻すようにした
 - **2026-06-12**: 削除済みClipが直近同期後も公開JSONに残る問題を修正。直近同期でDB既存Clipが一覧から消えた場合は `getClipsByIds` で個別確認し、返らないClipだけ `unavailable_at` を付けるようにした。`unavailable > 0` の同期は保存0件でもClip検索JSONを即時公開し、全期間バックフィル競合時は日次再走査の `daily_reconcile_at` を更新しない
 - **2026-06-12**: `!help` の返信文頭に `!` を付け、読み上げ対象になりにくいヘルプ一覧にした

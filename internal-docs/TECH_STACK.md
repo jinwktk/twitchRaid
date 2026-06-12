@@ -14,7 +14,7 @@
 | ログ | `winston` / `winston-daily-rotate-file` | 日次ローテーションログ |
 | テスト | Vitest / pytest | TS版テストと旧Python互換テスト |
 | プロセス | PM2 | サブPC本番常駐 |
-| 公開ページ | GitHub Pages | `docs/index.html` と `docs/clip-search.html` を公開 |
+| 公開ページ | GitHub Pages | `RukalunPage/index.html` を公開。twitchRaidの `docs/` は旧URL互換リダイレクト |
 
 ## 運用環境
 
@@ -22,6 +22,7 @@
 |---|---|---|
 | 本番 | `E:\GitHub\twitchRaid` | サブPC。PM2プロセス名は `twitchRaid` |
 | 開発 | `C:\Users\mlove\Documents\GitHub\twitchRaid` | メイン作業PC |
+| 公開ページ | `C:\Users\mlove\Documents\GitHub\RukalunPage` | Clip検索用GitHub Pagesリポジトリ |
 
 ## 主なコマンド
 
@@ -56,6 +57,9 @@ npm run pm2:logs
 | `STREAM_SUMMARY_MAX_CLIPS` | 配信まとめスレッドへ投稿する最大Clip数。既定値10 |
 | `TWITCH_CLIP_CACHE_DB_PATH` | Clip SQLite DB。未設定時は `data/clips.sqlite` |
 | `TWITCH_CLIP_RECENT_WINDOW_MINUTES` | 直近Clip同期の取得窓。未設定時は360分 |
+| `CLIP_SEARCH_AUTO_PUBLISH_ENABLED` | Clip検索JSONの自動公開を有効化 |
+| `CLIP_SEARCH_DATA_PATH` | 公開JSON出力先。RukalunPage分離後は `RukalunPage\clip-search-data.json` |
+| `CLIP_SEARCH_PUBLISH_REPO_DIR` | 公開JSONのgit add/commit/pushを行うrepo。RukalunPage分離後は `RukalunPage` |
 | `CLIP_SPECIAL_USERS` | `!clip` / `!myclip` クールダウン免除ユーザー |
 | `MANGA_COMMAND_ENABLED` / `MANGA_ADMIN_USERS` | mangaコマンドON/OFFと管理者 |
 | `SHOUTOUT_ADMIN_USERS` | `!shoutout` / `!streamnotify` の追加管理者 |

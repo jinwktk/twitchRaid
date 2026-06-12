@@ -140,6 +140,7 @@ export class Bot {
           enabled: true,
           dbPath: config.clipCacheDbPath,
           outPath: config.clipSearchDataPath,
+          publishRepoDir: config.clipSearchPublishRepoDir,
           minIntervalMs: config.clipSearchPublishMinIntervalMs,
           remote: config.clipSearchPublishRemote,
           branch: config.clipSearchPublishBranch,

@@ -85,4 +85,4 @@ Raid自動shoutoutは `ShoutoutQueue` で直列化します。
 - TypeScriptは `npm run lint` と `npm run build` を通す。
 - 非同期処理は外部API失敗をログ化し、Bot全体を止めない。
 - 共有stateを進める処理は、投稿成功後に `persistProgress` でこまめに保存する。
-- 仕様変更時は `internal-docs/twitchraid-bot-zukan.html`、README、AGENTSを更新する。公開ページ変更時は `docs/clip-search.html` / `docs/index.html` も確認する。
+- 仕様変更時は `internal-docs/twitchraid-bot-zukan.html`、README、AGENTSを更新する。公開ページ本体の変更時は `RukalunPage/index.html` とRukalunPage側のREADME/AGENTS/テストを確認し、twitchRaid側の `docs/` は旧URL互換リダイレクトとして確認する。

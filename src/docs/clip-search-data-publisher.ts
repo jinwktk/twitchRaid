@@ -47,6 +47,7 @@ interface ClipSearchDataPublisherOptions {
   dbPath: string;
   outPath: string;
   repoDir?: string;
+  publishRepoDir?: string;
   remote?: string;
   branch?: string;
   minIntervalMs?: number;
@@ -99,6 +100,7 @@ function readGeneratedAtMs(outPath: string): number {
 export class ClipSearchDataPublisher {
   private readonly enabled: boolean;
   private readonly repoDir: string;
+  private readonly publishRepoDir: string;
   private readonly dbPath: string;
   private readonly outPath: string;
   private readonly exportScriptPath: string;
@@ -113,6 +115,7 @@ export class ClipSearchDataPublisher {
   constructor(options: ClipSearchDataPublisherOptions) {
     this.enabled = options.enabled;
     this.repoDir = path.resolve(options.repoDir ?? DEFAULT_REPO_DIR);
+    this.publishRepoDir = path.resolve(options.publishRepoDir ?? this.repoDir);
     this.dbPath = path.resolve(options.dbPath);
     this.outPath = path.resolve(options.outPath);
     this.exportScriptPath = path.join(
@@ -166,7 +169,7 @@ export class ClipSearchDataPublisher {
   private async publishNow(
     request: ClipSearchPublishRequest
   ): Promise<ClipSearchPublishResult> {
-    const outGitPath = relativeRepoPath(this.repoDir, this.outPath);
+    const outGitPath = relativeRepoPath(this.publishRepoDir, this.outPath);
     logger.info(
       `🎬 Clip検索公開JSON更新開始: syncedAt=${request.syncedAt}, saved=${request.saved}, unavailable=${request.unavailable}`
     );
@@ -180,7 +183,7 @@ export class ClipSearchDataPublisher {
     const status = await this.runCommand(
       "git",
       ["status", "--porcelain", "--", outGitPath],
-      { cwd: this.repoDir, timeoutMs: 30_000 }
+      { cwd: this.publishRepoDir, timeoutMs: 30_000 }
     );
     if (!status.stdout.trim()) {
       logger.info("🎬 Clip検索公開JSON更新なし: 差分なし");
@@ -188,16 +191,16 @@ export class ClipSearchDataPublisher {
     }
 
     await this.runCommand("git", ["add", "--", outGitPath], {
-      cwd: this.repoDir,
+      cwd: this.publishRepoDir,
       timeoutMs: 30_000,
     });
     await this.runCommand(
       "git",
       ["commit", "-m", "Clip検索JSONを同期時刻更新"],
-      { cwd: this.repoDir, timeoutMs: 30_000 }
+      { cwd: this.publishRepoDir, timeoutMs: 30_000 }
     );
     await this.runCommand("git", ["push", this.remote, this.branch], {
-      cwd: this.repoDir,
+      cwd: this.publishRepoDir,
       timeoutMs: 120_000,
     });
 

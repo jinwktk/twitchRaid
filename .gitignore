@@ -15,6 +15,10 @@ data/*.sqlite-*
 data/*.db
 data/*.json
 
+# 公開ページは RukalunPage リポジトリへ分離済み
+docs/clip-search-data.json
+docs/assets/rukalun/
+
 # Python関連
 __pycache__/
 *.pyc
