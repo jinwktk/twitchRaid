@@ -82,7 +82,7 @@ import { restartProcess } from "./utils/process-restart";
 
 const MANGA_DELETE_DELAY_SECONDS = 10;
 const HELP_MESSAGE =
-  "!使えるコマンド: 基本 !help / !age / !goods / !weight / !height / !mood / !menu | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
+  "!使えるコマンド: 基本 !help / !age / !goods / !site / !weight / !height / !mood / !menu | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
 
 export class Bot {
   private readonly config: Config;
@@ -353,6 +353,9 @@ export class Bot {
         break;
       case "goods":
         await this.chatClient.say(channel, "https://rukalun.booth.pm");
+        break;
+      case "site":
+        await this.chatClient.say(channel, "https://www.rukalun.mydns.jp");
         break;
       case "weight":
         await this.chatClient.say(channel, randomWeight());

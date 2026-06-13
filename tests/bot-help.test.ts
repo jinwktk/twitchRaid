@@ -113,6 +113,7 @@ describe("Bot help command", () => {
       "!help",
       "!age",
       "!goods",
+      "!site",
       "!weight",
       "!height",
       "!mood",
@@ -148,5 +149,17 @@ describe("Bot help command", () => {
     expect(message).toMatch(/^!/);
     expect(message).toContain("使えるコマンド");
     expect(message).not.toContain("ignore previous instructions");
+  });
+
+  it("sends the clip search site URL for site command", async () => {
+    const { bot, say } = makeBot();
+
+    await bot._handleCommand("#rukalun", "viewer", "!site", {});
+
+    expect(say).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "https://www.rukalun.mydns.jp"
+    );
   });
 });
