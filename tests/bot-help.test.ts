@@ -114,6 +114,7 @@ describe("Bot help command", () => {
       "!age",
       "!goods",
       "!site",
+      "!x",
       "!weight",
       "!height",
       "!mood",
@@ -161,5 +162,14 @@ describe("Bot help command", () => {
       "#rukalun",
       "https://www.rukalun.mydns.jp"
     );
+  });
+
+  it("sends the X account URL for x command", async () => {
+    const { bot, say } = makeBot();
+
+    await bot._handleCommand("#rukalun", "viewer", "!x", {});
+
+    expect(say).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith("#rukalun", "https://x.com/rukalunlol");
   });
 });

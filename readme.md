@@ -75,6 +75,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!age` | 年齢を表示 | |
 | `!goods` | グッズ販売ページのURLを表示 | [booth.pm](https://rukalun.booth.pm) |
 | `!site` | Clip検索サイトのURLを表示 | [rukalun.mydns.jp](https://www.rukalun.mydns.jp) |
+| `!x` | XアカウントのURLを表示 | [x.com/rukalunlol](https://x.com/rukalunlol) |
 | `!weight` | ランダムな体重を表示（15〜200kg） | ネタ枠 |
 | `!height` | ランダムな身長を表示（120〜220cm） | ネタ枠 |
 | `!mood` | 今日の気分をランダム表示 | 15種類からランダム |
@@ -265,6 +266,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-14**: `!x` コマンドを追加し、`https://x.com/rukalunlol` をチャットへ返せるようにした。`!help` の一覧にも `!x` を追加
 - **2026-06-14**: `!site` コマンドを追加し、`https://www.rukalun.mydns.jp` をチャットへ返せるようにした。`!help` の一覧にも `!site` を追加
 - **2026-06-13**: 配信中に `!【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp` と `!【定期】配信開始から2時間経過しました。るっかるんのグッズはこちら！→ https://rukalun.booth.pm` のような定期おすすめコメントを投稿する機能を追加。投稿文は読み上げ回避のため先頭 `!` 付きにし、配信開始から1時間後、以降1時間ごとに2種類をローテーションする。`CHAT_RECOMMENDATION_ENABLED=false` で停止、`CHAT_RECOMMENDATION_INTERVAL_MINUTES` で間隔変更できる
 - **2026-06-13**: Discord配信開始通知EmbedのTwitchプレビュー画像URLに、配信ID優先の `stream_id` または開始時刻fallbackの `stream_started_at` クエリを付けるよう変更。通常通知と `!streamnotify` の両方でDiscordの画像キャッシュを配信単位に分け、同じ過去画像が表示され続ける問題を抑止する。投稿確認ログに `streamPreviewImage` も出し、サブPCで実URLを確認できるようにした
