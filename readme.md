@@ -52,6 +52,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - `TWITCH_GQL_CLIENT_ID` に Twitch GraphQL 用 Client-ID を任意設定できます（未設定時はTwitch Webの公開Client-IDを使用し、指定値が拒否された場合も公開Client-IDへフォールバック）
 - `STREAM_SUMMARY_STATE_PATH` に配信まとめの再起動復元用JSONパスを設定できます（未設定時は `data/stream-summary-state.json`）
 - `STREAM_SUMMARY_MAX_CLIPS` に配信まとめスレッドへ投稿する最大クリップ数を設定できます（未設定時は `10`）
+- `CHAT_RECOMMENDATION_ENABLED=false` で配信中の定期おすすめコメントを停止できます（未設定時は有効）。`CHAT_RECOMMENDATION_INTERVAL_MINUTES` で投稿間隔を分単位で変更できます（未設定時は `60`）
 - `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を設定すると、Bot APIで配信開始通知、クリップURL、終了まとめを投稿し、配信開始通知メッセージからDiscordスレッドを作成します。`DISCORD_WEBHOOK_URL` はBot設定が無い場合、またはBot API投稿が403などで失敗した場合のフォールバックです
 - `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定すると、Webhookだけで `thread_name` によるスレッド作成を試します。この方式はDiscordのフォーラム/メディアチャンネルWebhook向けです。通常テキストチャンネルWebhookではDiscord側で拒否されるため、自動で通常Webhook投稿へフォールバックします
 - `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定すると、直近Clip同期完了後に公開JSONを再生成し、差分があれば `CLIP_SEARCH_PUBLISH_REPO_DIR` の `main` へcommit/pushします。RukalunPage分離後の既定値は `C:\Users\mlove\Documents\GitHub\RukalunPage` と、その配下の `clip-search-data.json` です。別パスで運用する場合だけ `CLIP_SEARCH_PUBLISH_REPO_DIR` と `CLIP_SEARCH_DATA_PATH` を指定します。公開前には公開repoで `git fetch origin main` を行い、ローカルだけに残ったcommitがBotの `Clip検索JSONを同期時刻更新` だけなら `origin/main` へ戻してから再生成します。ローカル未コミット変更や開発commitがある場合は破壊せず自動公開をスキップします。新規/復活Clipが0件の同期も `CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS` ごとに公開し、新規/復活Clipまたは削除/非公開Clipの無効化があった場合は間隔内でも公開します。保存0件かつ無効化0件で直前HEADが `Clip検索JSONを同期時刻更新` の場合だけ、そのBot同期commitをamendして `--force-with-lease` でpushします。直前HEADがCodexなどの開発commitの場合や、Clip追加・復活・削除/非公開化がある同期では通常commit/pushします。未設定時の公開間隔は5分、remote/branchは `origin` / `main` です。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぎます
@@ -88,6 +89,18 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!commentcount` | 配信開始からの累計コメント件数を表示 | 再起動後も引き継ぎ |
 | `!boom` | 過去30日間で1時間以上遊んだゲーム別トータル時間と総配信時間を表示 | VODチャプター情報を集計 |
 | `!streamnotify` | 現在の配信開始通知をDiscordへ手動送信 | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ |
+
+## 定期おすすめコメント
+- 配信中のみ、配信開始から1時間後に最初のおすすめコメントを投稿し、それ以降は既定1時間ごとに1通ずつ投稿する。起動直後や配信開始直後には即投稿しない
+- 投稿文は読み上げ回避のため先頭を `!` にし、配信開始からの経過時間を入れて次の2種類をローテーションする
+
+```text
+!【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp
+!【定期】配信開始から2時間経過しました。るっかるんのグッズはこちら！→ https://rukalun.booth.pm
+```
+
+- 送信失敗時はローテーション位置を進めず、次回の定期処理で同じコメントを再試行する。送信中に次の45秒キープアライブが来ても重複送信しない
+- Bot再起動時に配信中stateを復元した場合は、配信開始時刻から見た直近の1時間境界へ送信基準を揃え、停止中の過去分をまとめて送らない
 
 ## .env保護
 - `.env` の更新は `env-store.ts` で実行し、更新前に `.env.backup` を作成
@@ -215,6 +228,7 @@ src/
 ├── notifications/
 │   ├── clip-recast-notifier.ts
 │   ├── discord-webhook.ts         # Discord Bot/Webhook/Thread
+│   ├── periodic-recommendation-notifier.ts # 配信中の定期おすすめコメント
 │   └── stream-notifications.ts    # 配信開始通知Embed
 ├── streams/
 │   ├── stream-summary-count-buffer.ts # コメント数/Raid数のデバウンス保存
@@ -250,6 +264,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-13**: 配信中に `!【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp` と `!【定期】配信開始から2時間経過しました。るっかるんのグッズはこちら！→ https://rukalun.booth.pm` のような定期おすすめコメントを投稿する機能を追加。投稿文は読み上げ回避のため先頭 `!` 付きにし、配信開始から1時間後、以降1時間ごとに2種類をローテーションする。`CHAT_RECOMMENDATION_ENABLED=false` で停止、`CHAT_RECOMMENDATION_INTERVAL_MINUTES` で間隔変更できる
 - **2026-06-13**: Discord配信開始通知EmbedのTwitchプレビュー画像URLに、配信ID優先の `stream_id` または開始時刻fallbackの `stream_started_at` クエリを付けるよう変更。通常通知と `!streamnotify` の両方でDiscordの画像キャッシュを配信単位に分け、同じ過去画像が表示され続ける問題を抑止する。投稿確認ログに `streamPreviewImage` も出し、サブPCで実URLを確認できるようにした
 - **2026-06-12**: RukalunPage側の履歴を手動で戻した後、サブPCの公開repoが古い `origin/main` を見たまま `--force-with-lease` して `stale info` になったため、Clip検索JSON自動公開の前に公開repoで `git fetch origin main` を行うようにした。ローカルだけに残ったcommitがBot同期commitだけなら `origin/main` へ戻してから再生成し、開発commitや未コミット変更がある場合はスキップして破壊しない
 - **2026-06-12**: Clip検索JSON自動公開で、保存0件かつ無効化0件の同期時刻だけの更新は、直前HEADがBotの `Clip検索JSONを同期時刻更新` commitの場合だけamendして `--force-with-lease` でpushするようにした。直前HEADがCodexなどの開発commitの場合や、Clip追加・復活・削除/非公開化がある同期は通常commit/pushのままにした

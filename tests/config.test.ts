@@ -71,4 +71,38 @@ TWITCH_MODERATOR_ID=moderator
       path.join(publishRepoDir, "clip-search-data.json")
     );
   });
+
+  it("loads chat recommendation settings", () => {
+    const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+CHAT_RECOMMENDATION_ENABLED=false
+CHAT_RECOMMENDATION_INTERVAL_MINUTES=45
+`);
+
+    const config = new Config(envPath);
+
+    expect(config.chatRecommendationEnabled).toBe(false);
+    expect(config.chatRecommendationIntervalMinutes).toBe(45);
+  });
+
+  it("enables chat recommendations every 60 minutes by default", () => {
+    const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+`);
+
+    const config = new Config(envPath);
+
+    expect(config.chatRecommendationEnabled).toBe(true);
+    expect(config.chatRecommendationIntervalMinutes).toBe(60);
+  });
 });

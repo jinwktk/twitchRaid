@@ -6,6 +6,7 @@ import logger from "./utils/logger";
 import { StreamTitleNotifier } from "./notifications/stream-notifications";
 import type { DiscordWebhookPayload } from "./notifications/discord-webhook";
 import { ClipRecastNotifier } from "./notifications/clip-recast-notifier";
+import { PeriodicRecommendationNotifier } from "./notifications/periodic-recommendation-notifier";
 import { CommentSpeedMeter } from "./chat/comment-speed-meter";
 import { CommandCooldownState } from "./chat/command-cooldown-state";
 import { isCommandMessage } from "./chat/message-filters";
@@ -95,6 +96,7 @@ export class Bot {
   private botUserId = "";
 
   private readonly streamNotifier: StreamTitleNotifier;
+  private readonly recommendationNotifier: PeriodicRecommendationNotifier;
   private readonly recastNotifiers: Record<string, ClipRecastNotifier>;
   private readonly commandCooldownState: CommandCooldownState;
   private readonly commentSpeedMeter: CommentSpeedMeter;
@@ -120,6 +122,11 @@ export class Bot {
       config,
       config.loginChannel
     );
+    this.recommendationNotifier = new PeriodicRecommendationNotifier({
+      enabled: config.chatRecommendationEnabled ?? true,
+      intervalSeconds: (config.chatRecommendationIntervalMinutes ?? 60) * 60,
+      initialStreamStartedAt: Date.now() / 1000,
+    });
     this.recastNotifiers = {
       clip: new ClipRecastNotifier(
         1800,
@@ -943,10 +950,26 @@ export class Bot {
             logger.error(`${name}リキャスト通知処理中にエラー: ${e}`);
           }
         }
+
+        if (this.streamLive) {
+          try {
+            await this.recommendationNotifier.notifyIfReady(now, (message) =>
+              this.chatClient.say(this._chatChannel(), message)
+            );
+          } catch (e) {
+            logger.error(`定期おすすめコメント送信中にエラー: ${e}`);
+          }
+        }
       } catch (e) {
         logger.error(`❌ キープアライブ中にエラー: ${e}`);
       }
     }, connectionCheckInterval);
+  }
+
+  private _chatChannel(): string {
+    return this.config.loginChannel.startsWith("#")
+      ? this.config.loginChannel
+      : `#${this.config.loginChannel}`;
   }
 
   private _startStreamMonitor(): void {
@@ -1031,6 +1054,7 @@ export class Bot {
 
     if (!sameStream) {
       this.commentSpeedMeter.startStream(startedAt);
+      this.recommendationNotifier.reset(startedAt);
       saveCommentState(this.config.envFile, 0, startedAt);
       this.streamSummaryStateStore.save({
         status: "active",
@@ -1046,6 +1070,9 @@ export class Bot {
       return;
     }
 
+    if (!this.streamLive) {
+      this.recommendationNotifier.reset(startedAt, Date.now() / 1000);
+    }
     this.commentSpeedMeter.ensureStreamStarted(startedAt);
     this.streamSummaryStateStore.updateCounts(
       this.commentSpeedMeter.totalCount(),

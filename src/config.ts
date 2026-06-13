@@ -56,6 +56,8 @@ export class Config {
   readonly clipCacheDbPath: string;
   readonly clipRecentWindowMinutes: number;
   readonly streamSummaryStatePath: string;
+  readonly chatRecommendationEnabled: boolean;
+  readonly chatRecommendationIntervalMinutes: number;
   readonly clipSearchAutoPublishEnabled: boolean;
   readonly clipSearchDataPath: string;
   readonly clipSearchPublishRepoDir: string;
@@ -123,6 +125,13 @@ export class Config {
     this.streamSummaryStatePath = path.resolve(
       BASE_DIR,
       env["STREAM_SUMMARY_STATE_PATH"] ?? "data/stream-summary-state.json"
+    );
+    this.chatRecommendationEnabled = parseEnabledFlag(
+      env["CHAT_RECOMMENDATION_ENABLED"] ?? "true"
+    );
+    this.chatRecommendationIntervalMinutes = parsePositiveInt(
+      env["CHAT_RECOMMENDATION_INTERVAL_MINUTES"],
+      60
     );
     this.clipSearchAutoPublishEnabled = parseEnabledFlag(
       env["CLIP_SEARCH_AUTO_PUBLISH_ENABLED"] ?? "0"
