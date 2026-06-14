@@ -76,6 +76,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!goods` | グッズ販売ページのURLを表示 | [booth.pm](https://rukalun.booth.pm) |
 | `!site` | Clip検索サイトのURLを表示 | [rukalun.mydns.jp](https://www.rukalun.mydns.jp) |
 | `!x` | XアカウントのURLを表示 | [x.com/rukalunlol](https://x.com/rukalunlol) |
+| `!game` | ランダムなゲーム候補を表示 | 40種類からランダム、権限不要、クールダウンなし |
 | `!weight` | ランダムな体重を表示（15〜200kg） | ネタ枠 |
 | `!height` | ランダムな身長を表示（120〜220cm） | ネタ枠 |
 | `!mood` | 今日の気分をランダム表示 | 15種類からランダム |
@@ -223,7 +224,7 @@ src/
 │   ├── clip.ts                    # !clip / !myclip / !clipsearch
 │   ├── manga.ts                   # !manga / 管理者判定
 │   ├── raid-info.ts               # Raid元配信情報文言
-│   ├── random-commands.ts
+│   ├── random-commands.ts         # !game / !weight / !height / !mood / !menu
 │   ├── shoutout-introduction.ts   # OllamaによるRaid挨拶文生成
 │   ├── shoutout.ts                # shoutout権限/キュー
 │   └── stream-notify.ts           # !streamnotify
@@ -266,6 +267,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-15**: `!game` コマンドを追加し、固定ゲーム候補40種類から1件を `次に遊ぶゲーム候補：...` 形式でチャットへ返せるようにした。`!help` の一覧にも `!game` を追加
 - **2026-06-14**: `!x` コマンドを追加し、`https://x.com/rukalunlol` をチャットへ返せるようにした。`!help` の一覧にも `!x` を追加
 - **2026-06-14**: `!site` コマンドを追加し、`https://www.rukalun.mydns.jp` をチャットへ返せるようにした。`!help` の一覧にも `!site` を追加
 - **2026-06-13**: 配信中に `!【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp` と `!【定期】配信開始から2時間経過しました。るっかるんのグッズはこちら！→ https://rukalun.booth.pm` のような定期おすすめコメントを投稿する機能を追加。投稿文は読み上げ回避のため先頭 `!` 付きにし、配信開始から1時間後、以降1時間ごとに2種類をローテーションする。`CHAT_RECOMMENDATION_ENABLED=false` で停止、`CHAT_RECOMMENDATION_INTERVAL_MINUTES` で間隔変更できる

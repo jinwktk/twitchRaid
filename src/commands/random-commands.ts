@@ -1,6 +1,54 @@
 /**
- * ランダム系コマンド（weight, height, mood, menu）
+ * ランダム系コマンド（game, weight, height, mood, menu）
  */
+
+const GAMES = [
+  "Minecraft",
+  "League of Legends",
+  "VALORANT",
+  "Apex Legends",
+  "Overwatch 2",
+  "Street Fighter 6",
+  "Splatoon 3",
+  "Among Us",
+  "Fall Guys",
+  "Dead by Daylight",
+  "Phasmophobia",
+  "Lethal Company",
+  "Monster Hunter Wilds",
+  "ELDEN RING",
+  "DARK SOULS III",
+  "SEKIRO: SHADOWS DIE TWICE",
+  "Hollow Knight",
+  "Celeste",
+  "Hades",
+  "Stardew Valley",
+  "Terraria",
+  "Core Keeper",
+  "Palworld",
+  "7 Days to Die",
+  "The Forest",
+  "Raft",
+  "Euro Truck Simulator 2",
+  "PowerWash Simulator",
+  "Supermarket Simulator",
+  "Unpacking",
+  "Slay the Spire",
+  "Balatro",
+  "Vampire Survivors",
+  "Inscryption",
+  "The Binding of Isaac: Rebirth",
+  "Portal 2",
+  "It Takes Two",
+  "Human: Fall Flat",
+  "Little Nightmares",
+  "Outer Wilds",
+];
+
+export function randomGame(): string {
+  const game = GAMES[Math.floor(Math.random() * GAMES.length)];
+  return `次に遊ぶゲーム候補：${game}`;
+}
 
 export function randomWeight(): string {
   const weight = Math.floor(Math.random() * 186) + 15; // 15-200

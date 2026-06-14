@@ -9,6 +9,9 @@
 | `!help` | 主要コマンド一覧を1通で表示 | 返信文頭に `!` を付けて読み上げ回避、権限不要、クールダウンなし |
 | `!age` | 年齢を表示 | `src/commands/age.ts` |
 | `!goods` | グッズ販売ページURLを表示 | `https://rukalun.booth.pm` |
+| `!site` | Clip検索サイトURLを表示 | `https://www.rukalun.mydns.jp` |
+| `!x` | XアカウントURLを表示 | `https://x.com/rukalunlol` |
+| `!game` | 次に遊ぶゲーム候補を表示 | 固定候補40種類からランダム |
 | `!weight` | ランダム体重を表示 | 15から200kg |
 | `!height` | ランダム身長を表示 | 120から220cm |
 | `!mood` | 今日の気分を表示 | ランダム |

@@ -115,6 +115,7 @@ describe("Bot help command", () => {
       "!goods",
       "!site",
       "!x",
+      "!game",
       "!weight",
       "!height",
       "!mood",
@@ -171,5 +172,22 @@ describe("Bot help command", () => {
 
     expect(say).toHaveBeenCalledTimes(1);
     expect(say).toHaveBeenCalledWith("#rukalun", "https://x.com/rukalunlol");
+  });
+
+  it("sends a random game suggestion for game command", async () => {
+    const { bot, say } = makeBot();
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+
+    try {
+      await bot._handleCommand("#rukalun", "viewer", "!game", {});
+    } finally {
+      randomSpy.mockRestore();
+    }
+
+    expect(say).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "次に遊ぶゲーム候補：Minecraft"
+    );
   });
 });
