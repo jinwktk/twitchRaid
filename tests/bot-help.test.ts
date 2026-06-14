@@ -9,6 +9,11 @@ let tmpDir: string | null = null;
 
 type HelpTestBot = Bot & {
   chatClient: { say: ReturnType<typeof vi.fn> };
+  apiClient: {
+    videos: {
+      getVideosByUserPaginated: ReturnType<typeof vi.fn>;
+    };
+  };
   clipCacheStore: { close: () => void };
   _handleCommand: (
     channel: string,
@@ -19,6 +24,22 @@ type HelpTestBot = Bot & {
 };
 
 let activeBot: HelpTestBot | null = null;
+
+interface FakeVideo {
+  id: string;
+  durationInSeconds: number;
+  creationDate: Date;
+}
+
+function iterableVideos(videos: FakeVideo[]): AsyncIterable<FakeVideo> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const video of videos) {
+        yield video;
+      }
+    },
+  };
+}
 
 function makeConfig(): Config {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "twitch-raid-help-"));
@@ -174,20 +195,74 @@ describe("Bot help command", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "https://x.com/rukalunlol");
   });
 
-  it("sends a random game suggestion for game command", async () => {
+  it("sends a random game suggestion from streamed VOD games", async () => {
     const { bot, say } = makeBot();
-    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    const getVideosByUserPaginated = vi.fn(() =>
+      iterableVideos([
+        {
+          id: "v1",
+          durationInSeconds: 5_400,
+          creationDate: new Date("2026-06-01T00:00:00.000Z"),
+        },
+      ])
+    );
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            video: {
+              game: { displayName: "Fallback Game" },
+              lengthSeconds: 5_400,
+            },
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            video: {
+              moments: {
+                edges: [
+                  {
+                    node: {
+                      positionMilliseconds: 0,
+                      durationMilliseconds: 2_700_000,
+                      details: { game: { displayName: "Game A" } },
+                    },
+                  },
+                  {
+                    node: {
+                      positionMilliseconds: 2_700_000,
+                      durationMilliseconds: 2_700_000,
+                      details: { game: { displayName: "Game B" } },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        }),
+      });
+    bot.apiClient = {
+      videos: { getVideosByUserPaginated },
+    };
+    vi.stubGlobal("fetch", fetchSpy);
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.99);
 
     try {
       await bot._handleCommand("#rukalun", "viewer", "!game", {});
     } finally {
       randomSpy.mockRestore();
+      vi.unstubAllGlobals();
     }
 
     expect(say).toHaveBeenCalledTimes(1);
-    expect(say).toHaveBeenCalledWith(
-      "#rukalun",
-      "次に遊ぶゲーム候補：Minecraft"
-    );
+    expect(say).toHaveBeenCalledWith("#rukalun", "ゲーム候補：Game B");
+    expect(getVideosByUserPaginated).toHaveBeenCalledWith("broadcaster-id", {
+      type: "archive",
+    });
   });
 });

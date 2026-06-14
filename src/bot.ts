@@ -67,12 +67,17 @@ import {
   isMangaAdmin,
 } from "./commands/manga";
 import {
-  randomGame,
   randomWeight,
   randomHeight,
   randomMood,
   randomMenu,
 } from "./commands/random-commands";
+import {
+  StreamedGameCandidateCache,
+  buildStreamedGameCandidates,
+  formatGameSuggestion,
+  selectRandomStreamedGame,
+} from "./commands/game";
 import {
   BoomSummaryCache,
   buildBoomSummary,
@@ -105,6 +110,7 @@ export class Bot {
   private readonly streamSummaryStateStore: StreamSummaryStateStore;
   private readonly streamSummaryCountBuffer: StreamSummaryCountBuffer<StreamSummaryState>;
   private readonly boomSummaryCache = new BoomSummaryCache();
+  private readonly streamedGameCandidateCache = new StreamedGameCandidateCache();
   private readonly shoutoutQueue: ShoutoutQueue;
   private readonly clipSearchDataPublisher: ClipSearchDataPublisher | null;
   private clipCacheSynchronizer: ClipCacheSynchronizer | null = null;
@@ -362,7 +368,7 @@ export class Bot {
         await this.chatClient.say(channel, "https://x.com/rukalunlol");
         break;
       case "game":
-        await this.chatClient.say(channel, randomGame());
+        await this._handleGameCommand(channel);
         break;
       case "weight":
         await this.chatClient.say(channel, randomWeight());
@@ -473,6 +479,34 @@ export class Bot {
       await this.chatClient.say(
         channel,
         "⚠️ 最近配信したゲーム時間の取得に失敗しました。時間をおいて再試行してください。"
+      );
+    }
+  }
+
+  private async _handleGameCommand(channel: string): Promise<void> {
+    try {
+      const candidates = await this.streamedGameCandidateCache.getOrLoad(() =>
+        buildStreamedGameCandidates(this.apiClient, {
+          broadcasterId: this.config.twitchBroadcasterId,
+          gqlClientId: this.config.twitchGqlClientId,
+        })
+      );
+      const game = selectRandomStreamedGame(candidates);
+
+      if (!game) {
+        await this.chatClient.say(
+          channel,
+          "⚠️ 配信したことのあるゲーム候補が見つかりませんでした。"
+        );
+        return;
+      }
+
+      await this.chatClient.say(channel, formatGameSuggestion(game));
+    } catch (e) {
+      logger.error(`❌ game候補取得失敗: ${e}`);
+      await this.chatClient.say(
+        channel,
+        "⚠️ 配信したことのあるゲーム候補の取得に失敗しました。時間をおいて再試行してください。"
       );
     }
   }

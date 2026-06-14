@@ -4,7 +4,7 @@ interface BoomVideo {
   durationInSeconds: number;
 }
 
-interface BoomApiClient {
+export interface BoomApiClient {
   videos: {
     getVideosByUserPaginated(
       broadcasterId: string,
@@ -13,7 +13,7 @@ interface BoomApiClient {
   };
 }
 
-type FetchLike = (
+export type FetchLike = (
   input: string,
   init: {
     method: "POST";
