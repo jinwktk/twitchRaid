@@ -77,6 +77,7 @@ describe("generateRaidGreetingMessage", () => {
     expect(body).toMatchObject({
       model: "gemma3",
       stream: false,
+      think: false,
       keep_alive: "5m",
       options: {
         temperature: 0.8,

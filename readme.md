@@ -59,6 +59,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - サブPC運用では `E:\GitHub\RukalunPage` を `https://github.com/jinwktk/RukalunPage.git` のcloneとして用意してください。既存フォルダに `clip-search-data.json` だけがあり `.git` が無い場合、同期後処理で `fatal: not a git repository` になります
 - `OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` を設定すると、Raid時にOllama `POST /api/generate` で1通のRaid挨拶文を生成してチャットへ送信します。AI生成文はコード側で250文字以内に丸めます。`OLLAMA_BASE_URL` は未設定時 `http://127.0.0.1:11434`、`OLLAMA_SHOUTOUT_TIMEOUT_MS` は未設定時 `15000`、`OLLAMA_SHOUTOUT_KEEP_ALIVE` は未設定時 `30m` です
 - `CHAT_AI_ENABLED=true` と `CHAT_AI_MODEL`（未設定時は `OLLAMA_MODEL`、さらに `OLLAMA_SHOUTOUT_MODEL`）を設定すると、通常チャットで `@にめいやボットくん` のようにBotへメンションされた時だけOllamaで短い日本語返信を生成します。`CHAT_AI_ENABLED` 未設定時は `OLLAMA_SHOUTOUT_ENABLED=true` かつ継承できるモデルがある場合だけ互換的に有効として扱い、明示的な `CHAT_AI_ENABLED=false` または `0` は常に無効化を優先します。`CHAT_AI_BASE_URL` は未設定時 `OLLAMA_BASE_URL` または `http://127.0.0.1:11434`、`CHAT_AI_TIMEOUT_MS` は未設定時 `8000`、`CHAT_AI_KEEP_ALIVE` は `30m`、`CHAT_AI_MAX_RESPONSE_CHARS` は `200`、`CHAT_AI_COOLDOWN_SECONDS` は `5` です。`CHAT_AI_BOT_ALIASES` と `CHAT_AI_IGNORED_USERS` はカンマ区切りで、未設定時は `CHAT_AI_BOT_ALIASES=にめいやボットくん`、`CHAT_AI_IGNORED_USERS=nyme_ia2` を使います
+- `qwen3.5:9b` などthinking対応モデルでも短文Bot用途で空応答にならないよう、通常チャットAIとRaid挨拶文のOllama生成リクエストにはトップレベル `think:false` を付けます。共通モデルとして使う場合は `OLLAMA_MODEL=qwen3.5:9b` を設定し、必要なときだけ `CHAT_AI_MODEL` または `OLLAMA_SHOUTOUT_MODEL` で個別上書きします
 
 ## 技術スタック
 - **ランタイム**: Node.js 22.5+（`node:sqlite` を使用）
@@ -110,6 +111,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - `CHAT_AI_ENABLED=true`、または `CHAT_AI_ENABLED` 未設定かつ `OLLAMA_SHOUTOUT_ENABLED=true` で継承モデルがあるときだけ、通常チャット内の `@にめいやボットくん` など `CHAT_AI_BOT_ALIASES` に一致するBot宛てメンションへAI返信する。未設定時の反応名は `にめいやボットくん` のみで、`@nyme_ia2` や `@るっかるん` は明示的に `CHAT_AI_BOT_ALIASES` へ入れない限り反応しない。`CHAT_AI_ENABLED=false` / `0` は常に無効化を優先する。`!help @にめいやボットくん` のようなコマンド本文は従来どおりコマンドとして扱い、AIは介入しない
 - 返信はOllama `POST /api/generate` で生成し、単一行・日本語かな必須・最大 `CHAT_AI_MAX_RESPONSE_CHARS` 文字へ整形する。先頭 `!`、引用符、絵文字、改行は除去または抑止する
 - Bot自身や `CHAT_AI_IGNORED_USERS` の発言には返信しない。除外ユーザーのBot宛てメンションは `AIメンション会話をスキップ: ignored_user=...` とINFOログへ残る。Ollama処理中の追加メンションとクールダウン中のメンションはスキップし、チャットへ理由と対象文を短く返す。返信生成を試みた時点から `CHAT_AI_COOLDOWN_SECONDS` のクールダウンをかける。Ollama失敗、HTTPエラー、空応答、非日本語応答ではチャットへ何も返さず、`reason=http_error` / `invalid_response` / `policy_rejected` / `exception` のようにログだけ残す
+- `qwen3.5:9b` のようなthinking対応モデルでは、Ollama `/api/generate` に `think:false` を付けて最終回答だけを短く返させる。これを付けない場合、短い `num_predict` をthinkingで使い切り、`response` が空になることがある
 - 初回版はテキストメンションのみ。配信画面を画像としてAIへ渡して「今画面に何が映ってる？」のような質問へ答える機能は、画面取得元、保存しない方針、取得頻度、Vision対応モデル、プライバシー境界を別途設計する次フェーズ扱い
 
 ## .env保護
@@ -280,6 +282,7 @@ internal-docs/
 - **2026-06-15**: AIメンション検知を改善。半角 `@` だけでなく全角 `＠` のBot宛てメンションも検知し、`CHAT_AI_IGNORED_USERS` による自己ユーザー除外はINFOログへ出して運用中に原因を追えるようにした
 - **2026-06-15**: AIメンションの既定反応名を配信チャンネル名 `rukalun` から `にめいやボットくん` へ変更。自己返信防止の既定除外ユーザーは `nyme_ia2` にし、日本語aliasの部分一致も拾わないようUnicode境界判定にした
 - **2026-06-15**: AIメンション会話の既定クールダウンを5秒へ短縮。Ollama処理中またはクールダウン中にスキップしたメンションは、理由と対象文をチャットへ短く返すようにした
+- **2026-06-15**: サブPCのOllamaで `qwen3.5:9b` を検証。モデルはインストール済みでロード可能だったが、`think:false` なしの `/api/generate` はthinkingだけで `response` が空になったため、通常チャットAIとRaid挨拶文の生成リクエストへトップレベル `think:false` を追加
 - **2026-06-15**: サブPCではClip DB同期が動いているのに公開Clip検索JSONが更新されない問題を調査。RukalunPage公開repoが履歴整理後にローカルahead/remote behindとなり、publisherが開発commit保護としてスキップしていたため、公開前に `git cherry -v <remote>/<branch> HEAD` で同等patchを判定し、公開JSONだけを変更するBot同期commitまたはremoteに同等patchがあるcommitだけならresetできるようにした。`+` の非Bot commitは引き続き保護し、ログに保護/破棄可能commit数を出す。pushは `HEAD:<branch>` にして、checkout branchと公開branchが違っても反映先を固定した
 - **2026-06-15**: 通常チャットでBotへ `@` メンションした時だけOllamaで短い日本語返信を返すAIメンション会話を追加。初回版は既定無効、自己返信除外、60秒クールダウン、Ollama処理中スキップ、失敗時無言、失敗理由ログ、コマンド非介入として実装。配信画面をAIへ渡すVision質問応答は次フェーズとして分離
 - **2026-06-15**: 定期おすすめコメントを読み上げ対象にするため、投稿文の先頭 `!` を外し、`【定期】配信開始から...` で送るよう変更

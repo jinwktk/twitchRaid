@@ -122,6 +122,7 @@ describe("generateMentionChatReply", () => {
     expect(body).toMatchObject({
       model: "qwen2.5:7b",
       stream: false,
+      think: false,
       keep_alive: "30m",
       options: {
         temperature: 0.7,

@@ -178,6 +178,7 @@ export async function generateMentionChatReply({
           fetchImpl,
         }),
         stream: false,
+        think: false,
         keep_alive: keepAlive,
         options: {
           temperature: DEFAULT_OLLAMA_TEMPERATURE,

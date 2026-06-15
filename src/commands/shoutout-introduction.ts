@@ -331,6 +331,7 @@ export async function generateRaidGreetingMessage({
         system: RAID_GREETING_SYSTEM_PROMPT,
         prompt: buildRaidGreetingPrompt(info),
         stream: false,
+        think: false,
         keep_alive: keepAlive,
         options: {
           temperature: DEFAULT_OLLAMA_TEMPERATURE,
