@@ -1502,6 +1502,9 @@ export class Bot {
         ensuredPending.endedAt ?? finalEndedAt,
         this.config.maxSummaryClipPosts
       );
+      const requireExistingThread = Boolean(
+        this.config.discordBotToken && this.config.discordSummaryChannelId
+      );
       const posted = await postStreamSummary({
         webhookUrl: this.config.discordWebhookUrl || undefined,
         botToken: this.config.discordBotToken || undefined,
@@ -1509,11 +1512,18 @@ export class Bot {
         webhookThreadName: this.config.discordSummaryWebhookThreadEnabled
           ? `配信まとめ - ${pending.title}`.slice(0, 100)
           : undefined,
+        requireExistingThread,
         state: ensuredPending,
         clips,
         persistProgress: (state) => this.streamSummaryStateStore.save(state),
       });
       this.streamSummaryStateStore.save(posted);
+      if (posted.status !== "posted") {
+        logger.warn(
+          `⚠️ 配信まとめスレッド未作成のため終了まとめ投稿を保留しました: streamId=${posted.streamId}, startMessageId=${posted.startMessageId ?? "none"}`
+        );
+        return;
+      }
       logger.info(
         `✅ 配信まとめを投稿しました: streamId=${posted.streamId}, clips=${clips.length}`
       );

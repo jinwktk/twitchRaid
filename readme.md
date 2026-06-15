@@ -53,7 +53,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - `STREAM_SUMMARY_STATE_PATH` に配信まとめの再起動復元用JSONパスを設定できます（未設定時は `data/stream-summary-state.json`）
 - `STREAM_SUMMARY_MAX_CLIPS` に配信まとめスレッドへ投稿する最大クリップ数を設定できます（未設定時は `10`）
 - `CHAT_RECOMMENDATION_ENABLED=false` で配信中の定期おすすめコメントを停止できます（未設定時は有効）。`CHAT_RECOMMENDATION_INTERVAL_MINUTES` で投稿間隔を分単位で変更できます（未設定時は `60`）
-- `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を設定すると、Bot APIで配信開始通知、クリップURL、終了まとめを投稿し、配信開始通知メッセージからDiscordスレッドを作成します。`DISCORD_WEBHOOK_URL` はBot設定が無い場合、またはBot API投稿が403などで失敗した場合のフォールバックです
+- `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を設定すると、Bot APIで配信開始通知、クリップURL、終了まとめを投稿し、配信開始通知メッセージからDiscordスレッドを作成します。終了まとめとクリップは既存スレッドがある場合だけ投稿し、Bot API投稿が403などで失敗した場合の `DISCORD_WEBHOOK_URL` フォールバックも `thread_id` 付きで同じスレッドへ送ります。スレッドが無い場合は通常Webhookへ外出しせず、pending stateのまま再試行待ちにします
 - `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定すると、Webhookだけで `thread_name` によるスレッド作成を試します。この方式はDiscordのフォーラム/メディアチャンネルWebhook向けです。通常テキストチャンネルWebhookではDiscord側で拒否されるため、自動で通常Webhook投稿へフォールバックします
 - `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定すると、直近Clip同期完了後に公開JSONを再生成し、差分があれば `CLIP_SEARCH_PUBLISH_REPO_DIR` の `main` へcommit/pushします。RukalunPage分離後の既定値は `C:\Users\mlove\Documents\GitHub\RukalunPage` と、その配下の `clip-search-data.json` です。別パスで運用する場合だけ `CLIP_SEARCH_PUBLISH_REPO_DIR` と `CLIP_SEARCH_DATA_PATH` を指定します。公開前には公開repoで `git fetch <remote> <branch>` を行い、`git cherry -v <remote>/<branch> HEAD` でローカルだけのcommitを判定します。公開JSONだけを変更するBotの `Clip検索JSONを同期時刻更新` またはremote側に同等patchがある `-` commitだけなら `<remote>/<branch>` へ戻してから再生成します。ローカル未コミット変更や、`+` の非Bot開発commitがある場合は破壊せず自動公開をスキップし、ログに `protectedCommits` と `dropEligibleCommits` を出します。pushはcheckout branch名に依存しないよう `HEAD:<branch>` へ行います。新規/復活Clipが0件の同期も `CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS` ごとに公開し、新規/復活Clipまたは削除/非公開Clipの無効化があった場合は間隔内でも公開します。保存0件かつ無効化0件で直前HEADが `Clip検索JSONを同期時刻更新` の場合だけ、そのBot同期commitをamendして `--force-with-lease` でpushします。直前HEADがCodexなどの開発commitの場合や、Clip追加・復活・削除/非公開化がある同期では通常commit/pushします。未設定時の公開間隔は5分、remote/branchは `origin` / `main` です。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぎます
 - サブPC運用では `E:\GitHub\RukalunPage` を `https://github.com/jinwktk/RukalunPage.git` のcloneとして用意してください。既存フォルダに `clip-search-data.json` だけがあり `.git` が無い場合、同期後処理で `fatal: not a git repository` になります
@@ -146,7 +146,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - まとめ投稿前に配信時間帯のクリップを最終同期し、active/pendingどちらの状態でも開始通知起点のスレッド保証を通してから、未投稿クリップと終了まとめを投稿する
 - 終了まとめ投稿後も配信まとめスレッドはアーカイブせず、開始通知から見える状態を保つ
 - 配信開始時にスレッド作成済みなら、クリップURLと終了まとめはそのスレッドへ投稿する
-- 配信開始時にBot API投稿やスレッド作成ができなかった場合は、通常Webhook投稿へフォールバックする。終了まとめとクリップURL投稿もBot API失敗時はWebhookへフォールバックする
+- 配信開始時にBot API投稿ができなかった場合、開始通知は通常Webhook投稿へフォールバックする。終了まとめとクリップURLは開始通知スレッドがある場合だけ投稿し、Bot API失敗時も `thread_id` 付きWebhookで同じスレッドへフォールバックする。開始通知スレッドを保証できない場合は通常Webhookへ外出しせず、pending stateを残して次回起動/監視または `!streamnotify` 復旧後に再試行する
 - Bot Tokenを使わずWebhookだけで完結させたい場合は、Webhook先をフォーラム/メディアチャンネルにし、`DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定する。まとめ投稿に `thread_name` を付けてスレッドを作成し、返却されたスレッドIDへクリップURLを投稿する
 - Bot再起動時に未投稿の配信まとめ状態が残っていて、Twitchがオフラインなら保存済み情報から投稿を再試行
 
@@ -278,6 +278,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-15**: Bot Token運用の配信終了まとめで、開始通知スレッドを保証できない場合に終了まとめとクリップURLを通常Webhookへ外出ししないよう修正。スレッド未作成時はpending stateを保持し、次回監視または `!streamnotify` 復旧後に再試行する
 - **2026-06-15**: AIメンション会話がサブPCの既存Ollama設定だけでは動かない問題を修正。`CHAT_AI_ENABLED` 未設定時は `OLLAMA_SHOUTOUT_ENABLED=true` かつ継承モデルがある場合だけ互換的に有効化し、モデルは `CHAT_AI_MODEL` → `OLLAMA_MODEL` → `OLLAMA_SHOUTOUT_MODEL` の順で解決するようにした。明示的な `CHAT_AI_ENABLED=false` / `0` は引き続き無効化を優先
 - **2026-06-15**: AIメンション検知を改善。半角 `@` だけでなく全角 `＠` のBot宛てメンションも検知し、`CHAT_AI_IGNORED_USERS` による自己ユーザー除外はINFOログへ出して運用中に原因を追えるようにした
 - **2026-06-15**: AIメンションの既定反応名を配信チャンネル名 `rukalun` から `にめいやボットくん` へ変更。自己返信防止の既定除外ユーザーは `nyme_ia2` にし、日本語aliasの部分一致も拾わないようUnicode境界判定にした

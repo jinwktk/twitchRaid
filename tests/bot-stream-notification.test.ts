@@ -67,6 +67,7 @@ function makeConfig(): Config {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   activeBot?.clipCacheStore.close();
   activeBot = null;
 
@@ -191,5 +192,61 @@ describe("Bot stream start notification", () => {
       "✅ 配信開始通知Discord投稿を確認しました: title=手動通知タイトル, streamPreviewImage=https://static-cdn.jtvnw.net/previews-ttv/live_user_rukalun-1280x720.jpg?stream_id=stream-456, startMessageId=manual-message-id, threadId=none"
     );
     infoSpy.mockRestore();
+  });
+
+  it("keeps a pending ending summary when the summary thread is missing in bot-token mode", async () => {
+    const config = {
+      ...makeConfig(),
+      discordWebhookUrl: "https://discord.com/api/webhooks/123/token",
+      discordBotToken: "bot-token",
+      discordSummaryChannelId: "channel-id",
+    };
+    fs.mkdirSync(path.dirname(config.streamSummaryStatePath), { recursive: true });
+    fs.writeFileSync(
+      config.streamSummaryStatePath,
+      `${JSON.stringify({
+        status: "pending",
+        streamId: "stream-1",
+        title: "配信タイトル",
+        gameName: "Just Chatting",
+        startedAt: "2026-06-01T10:00:00.000Z",
+        endedAt: "2026-06-01T11:00:00.000Z",
+        streamUrl: "https://www.twitch.tv/rukalun",
+        commentCount: 10,
+        raidCount: 0,
+        postedClipIds: [],
+      })}\n`
+    );
+
+    const bot = new Bot(config) as unknown as Bot & {
+      clipCacheStore: {
+        close: () => void;
+        listClipsCreatedBetween: ReturnType<typeof vi.fn>;
+      };
+      _finalizeAndPostStreamSummary: (endedAt: string) => Promise<void>;
+    };
+    activeBot = bot;
+    bot.clipCacheStore.listClipsCreatedBetween = vi.fn().mockReturnValue([
+      {
+        id: "clip-a",
+        title: "Clip",
+        url: "https://www.twitch.tv/rukalun/clip/Clip",
+        creatorDisplayName: "viewer",
+        createdAt: "2026-06-01T10:30:00.000Z",
+        views: 1,
+      },
+    ]);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await bot._finalizeAndPostStreamSummary("2026-06-01T11:00:00.000Z");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    const saved = JSON.parse(
+      fs.readFileSync(config.streamSummaryStatePath, "utf8")
+    ) as { status: string; summaryMessageId?: string; postedClipIds: string[] };
+    expect(saved.status).toBe("pending");
+    expect(saved.summaryMessageId).toBeUndefined();
+    expect(saved.postedClipIds).toEqual([]);
   });
 });

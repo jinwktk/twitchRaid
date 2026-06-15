@@ -447,6 +447,29 @@ describe("stream summary", () => {
     expect(posted.threadId).toBe("thread-id");
   });
 
+  it("does not post the ending summary or clips outside a required existing thread", async () => {
+    const sendBotMessage = vi.fn();
+    const sendWebhook = vi.fn();
+
+    const posted = await postStreamSummary({
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+      botToken: "bot-token",
+      channelId: "channel-id",
+      state,
+      clips,
+      requireExistingThread: true,
+      sendBotMessage,
+      sendWebhook,
+    });
+
+    expect(sendBotMessage).not.toHaveBeenCalled();
+    expect(sendWebhook).not.toHaveBeenCalled();
+    expect(posted.status).toBe("pending");
+    expect(posted.summaryMessageId).toBeUndefined();
+    expect(posted.threadId).toBeUndefined();
+    expect(posted.postedClipIds).toEqual([]);
+  });
+
   it("keeps the stream thread visible after posting the ending summary", async () => {
     const sendBotMessage = vi.fn().mockResolvedValue({
       id: "summary-message-id",

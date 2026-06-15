@@ -47,6 +47,7 @@ export interface PostStreamSummaryOptions {
   botToken?: string;
   channelId?: string;
   webhookThreadName?: string;
+  requireExistingThread?: boolean;
   state: StreamSummaryState;
   clips: SummaryClip[];
   sendWebhook?: SendWebhook;
@@ -152,6 +153,7 @@ export async function postStreamSummary({
   botToken,
   channelId,
   webhookThreadName,
+  requireExistingThread = false,
   state,
   clips,
   sendWebhook = executeDiscordWebhook,
@@ -164,6 +166,16 @@ export async function postStreamSummary({
   const threadClosedAt = state.threadClosedAt;
   let summaryPostedWithBot = Boolean(state.summaryMessageId);
   const postedClipIds = new Set(state.postedClipIds ?? []);
+
+  if (requireExistingThread && !threadId) {
+    return {
+      ...state,
+      summaryMessageId,
+      threadId,
+      threadClosedAt,
+      postedClipIds: [...postedClipIds],
+    };
+  }
 
   const persist = (status: StreamSummaryState["status"] = "pending") => {
     persistProgress?.({
