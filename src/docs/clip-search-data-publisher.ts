@@ -102,11 +102,44 @@ function isSyncTimeOnlyRequest(request: ClipSearchPublishRequest): boolean {
   return request.saved === 0 && request.unavailable === 0;
 }
 
-function parseCommitSubjects(stdout: string): string[] {
+interface CherryCommit {
+  marker: "+" | "-";
+  hash: string;
+  subject: string;
+}
+
+function parseCherryCommits(stdout: string): CherryCommit[] {
   return stdout
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((line) => {
+      const match = /^([+-])\s+([0-9a-f]+)\s+(.*)$/i.exec(line);
+      if (!match) {
+        return { marker: "+", hash: "", subject: line };
+      }
+      return {
+        marker: match[1] as "+" | "-",
+        hash: match[2],
+        subject: match[3],
+      };
+    });
+}
+
+function parseChangedFiles(stdout: string): string[] {
+  return stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.replace(/\\/g, "/"));
+}
+
+function changesOnlyPublishJson(stdout: string, outGitPath: string): boolean {
+  const changedFiles = parseChangedFiles(stdout);
+  return (
+    changedFiles.length > 0 &&
+    changedFiles.every((file) => file === outGitPath)
+  );
 }
 
 export class ClipSearchDataPublisher {
@@ -186,7 +219,7 @@ export class ClipSearchDataPublisher {
       `🎬 Clip検索公開JSON更新開始: syncedAt=${request.syncedAt}, saved=${request.saved}, unavailable=${request.unavailable}`
     );
 
-    const prepareResult = await this.preparePublishRepository();
+    const prepareResult = await this.preparePublishRepository(outGitPath);
     if (prepareResult) {
       return prepareResult;
     }
@@ -219,7 +252,7 @@ export class ClipSearchDataPublisher {
       });
       await this.runCommand(
         "git",
-        ["push", "--force-with-lease", this.remote, this.branch],
+        ["push", "--force-with-lease", this.remote, `HEAD:${this.branch}`],
         {
           cwd: this.publishRepoDir,
           timeoutMs: 120_000,
@@ -231,7 +264,7 @@ export class ClipSearchDataPublisher {
         ["commit", "-m", SYNC_TIME_COMMIT_MESSAGE],
         { cwd: this.publishRepoDir, timeoutMs: 30_000 }
       );
-      await this.runCommand("git", ["push", this.remote, this.branch], {
+      await this.runCommand("git", ["push", this.remote, `HEAD:${this.branch}`], {
         cwd: this.publishRepoDir,
         timeoutMs: 120_000,
       });
@@ -243,7 +276,28 @@ export class ClipSearchDataPublisher {
     return { status: "published" };
   }
 
-  private async preparePublishRepository(): Promise<ClipSearchPublishResult | null> {
+  private async canDropLocalCommit(
+    commit: CherryCommit,
+    outGitPath: string
+  ): Promise<boolean> {
+    if (commit.marker === "-") {
+      return true;
+    }
+    if (commit.subject !== SYNC_TIME_COMMIT_MESSAGE || !commit.hash) {
+      return false;
+    }
+
+    const changedFiles = await this.runCommand(
+      "git",
+      ["diff-tree", "--no-commit-id", "--name-only", "-r", commit.hash],
+      { cwd: this.publishRepoDir, timeoutMs: 30_000 }
+    );
+    return changesOnlyPublishJson(changedFiles.stdout, outGitPath);
+  }
+
+  private async preparePublishRepository(
+    outGitPath: string
+  ): Promise<ClipSearchPublishResult | null> {
     const remoteRef = `${this.remote}/${this.branch}`;
 
     await this.runCommand("git", ["fetch", this.remote, this.branch], {
@@ -274,18 +328,27 @@ export class ClipSearchDataPublisher {
       return { status: "skipped", reason: "dirty-publish-repo" };
     }
 
-    const localOnly = await this.runCommand(
+    const localCommitsResult = await this.runCommand(
       "git",
-      ["log", "--pretty=%s", `${remoteRef}..HEAD`],
+      ["cherry", "-v", remoteRef, "HEAD"],
       { cwd: this.publishRepoDir, timeoutMs: 30_000 }
     );
-    const localOnlySubjects = parseCommitSubjects(localOnly.stdout);
-    const canDropLocalCommits = localOnlySubjects.every(
-      (subject) => subject === SYNC_TIME_COMMIT_MESSAGE
+    const localCommits = parseCherryCommits(localCommitsResult.stdout);
+    const commitDropEligibility = await Promise.all(
+      localCommits.map(async (commit) => ({
+        commit,
+        canDrop: await this.canDropLocalCommit(commit, outGitPath),
+      }))
     );
-    if (!canDropLocalCommits) {
+    const protectedCommits = commitDropEligibility.filter(
+      ({ canDrop }) => !canDrop
+    );
+    const dropEligibleCommitCount =
+      localCommits.length - protectedCommits.length;
+
+    if (protectedCommits.length > 0) {
       logger.warn(
-        "🎬 Clip検索公開JSON更新をスキップ: 公開repoに開発commitが残っています"
+        `🎬 Clip検索公開JSON更新をスキップ: 公開repoに開発commitが残っています protectedCommits=${protectedCommits.length}, dropEligibleCommits=${dropEligibleCommitCount}`
       );
       return { status: "skipped", reason: "local-publish-commits" };
     }
@@ -295,7 +358,7 @@ export class ClipSearchDataPublisher {
       timeoutMs: 30_000,
     });
     logger.info(
-      `🎬 Clip検索公開repoを${remoteRef}へ同期しました`
+      `🎬 Clip検索公開repoを${remoteRef}へ同期しました dropEligibleCommits=${dropEligibleCommitCount}, protectedCommits=0`
     );
     return null;
   }
