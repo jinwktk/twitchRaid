@@ -369,12 +369,12 @@ export class Bot {
     );
     if (!match) return;
 
-    const normalizedUser = user.trim().replace(/^@+/, "").toLowerCase();
+    const normalizedUser = user.trim().replace(/^[@＠]+/, "").toLowerCase();
     const ignoredUsers = this.config.chatAiIgnoredUsers ?? [
       this.config.loginChannel,
     ];
     if (ignoredUsers.includes(normalizedUser)) {
-      logger.debug(
+      logger.info(
         `AIメンション会話をスキップ: ignored_user=${normalizedUser}, alias=${match.alias}`
       );
       return;
@@ -951,7 +951,7 @@ export class Bot {
   private async _fetchRaidSourceInfo(
     username: string
   ): Promise<RaidSourceInfo> {
-    const fallbackUserName = username.trim().replace(/^@+/, "").toLowerCase();
+    const fallbackUserName = username.trim().replace(/^[@＠]+/, "").toLowerCase();
     let info: RaidSourceInfo = {
       userName: fallbackUserName,
       streamUrl: `https://www.twitch.tv/${fallbackUserName}`,

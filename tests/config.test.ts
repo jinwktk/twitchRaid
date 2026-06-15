@@ -120,9 +120,9 @@ CHAT_AI_MODEL=qwen2.5:7b
 CHAT_AI_TIMEOUT_MS=4500
 CHAT_AI_KEEP_ALIVE=10m
 CHAT_AI_MAX_RESPONSE_CHARS=120
-CHAT_AI_BOT_ALIASES=RukalunBot,@Rukalun
+CHAT_AI_BOT_ALIASES=＠RukalunBot,@Rukalun
 CHAT_AI_COOLDOWN_SECONDS=30
-CHAT_AI_IGNORED_USERS=RukalunBot,nightbot
+CHAT_AI_IGNORED_USERS=＠RukalunBot,nightbot
 `);
 
     const config = new Config(envPath);

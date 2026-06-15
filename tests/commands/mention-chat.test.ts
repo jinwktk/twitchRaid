@@ -20,18 +20,32 @@ describe("extractMentionChatPrompt", () => {
     });
   });
 
+  it("detects full-width at-mark mentions", () => {
+    expect(
+      extractMentionChatPrompt("＠rukalun_bot こんにちは", [
+        "rukalun",
+        "rukalun_bot",
+      ])
+    ).toEqual({
+      alias: "rukalun_bot",
+      prompt: "こんにちは",
+    });
+  });
+
   it("does not match partial names", () => {
     expect(
       extractMentionChatPrompt("@rukalun_bot2 こんにちは", ["rukalun_bot"])
+    ).toBeNull();
+    expect(
+      extractMentionChatPrompt("＠rukalun_bot2 こんにちは", ["rukalun_bot"])
     ).toBeNull();
   });
 
   it("resolves default aliases from login channel when aliases are empty", () => {
     expect(resolveMentionChatAliases([], "Rukalun")).toEqual(["rukalun"]);
-    expect(resolveMentionChatAliases([" @Rukalun_Bot ", "rukalun"], "Rukalun")).toEqual([
-      "rukalun_bot",
-      "rukalun",
-    ]);
+    expect(
+      resolveMentionChatAliases([" ＠Rukalun_Bot ", "rukalun"], "Rukalun")
+    ).toEqual(["rukalun_bot", "rukalun"]);
   });
 });
 

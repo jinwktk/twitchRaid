@@ -38,7 +38,7 @@ function parseNameList(raw: string | undefined, fallback: string[]): string[] {
   const source = raw?.trim() ? raw : fallback.join(",");
   return source
     .split(",")
-    .map((u) => u.trim().replace(/^@+/, "").toLowerCase())
+    .map((u) => u.trim().replace(/^[@＠]+/, "").toLowerCase())
     .filter(Boolean);
 }
 

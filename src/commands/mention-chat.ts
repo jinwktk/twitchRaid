@@ -39,7 +39,7 @@ const MENTION_CHAT_SYSTEM_PROMPT = [
 ].join("\n");
 
 function normalizeName(value: string): string {
-  return value.trim().replace(/^@+/, "").toLowerCase();
+  return value.trim().replace(/^[@＠]+/, "").toLowerCase();
 }
 
 function escapeRegExp(value: string): string {
@@ -76,14 +76,17 @@ function buildOllamaGenerateUrl(baseUrl: string): string {
 }
 
 function mentionPattern(alias: string): RegExp {
-  return new RegExp(`(^|[^A-Za-z0-9_])@${escapeRegExp(alias)}(?![A-Za-z0-9_])`, "i");
+  return new RegExp(
+    `(^|[^A-Za-z0-9_])[@＠]${escapeRegExp(alias)}(?![A-Za-z0-9_])`,
+    "i"
+  );
 }
 
 function removeMentionAliases(text: string, aliases: string[]): string {
   let result = text;
   for (const alias of aliases) {
     const pattern = new RegExp(
-      `(^|[^A-Za-z0-9_])@${escapeRegExp(alias)}(?![A-Za-z0-9_])`,
+      `(^|[^A-Za-z0-9_])[@＠]${escapeRegExp(alias)}(?![A-Za-z0-9_])`,
       "gi"
     );
     result = result.replace(pattern, (_match, prefix: string) => prefix);

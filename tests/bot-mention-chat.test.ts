@@ -4,6 +4,7 @@ import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Config } from "../src/config";
 import { Bot } from "../src/bot";
+import logger from "../src/utils/logger";
 
 let tmpDir: string | null = null;
 
@@ -142,6 +143,24 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "こんにちはD！");
   });
 
+  it("replies to a full-width at-mark bot mention", async () => {
+    const { bot, say } = makeBot();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "全角でも見えてるよD！" }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "＠rukalun こんにちは",
+      Date.now() / 1000
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith("#rukalun", "全角でも見えてるよD！");
+  });
+
   it("keeps normal comment accounting for mention messages", async () => {
     const { bot, say } = makeBot({ chatAiEnabled: false });
     const now = Math.floor(Date.now() / 1000);
@@ -181,6 +200,7 @@ describe("Bot mention chat", () => {
 
   it("ignores configured bot users but still counts the comment", async () => {
     const { bot, say } = makeBot();
+    const infoSpy = vi.spyOn(logger, "info");
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const now = Math.floor(Date.now() / 1000);
     vi.spyOn(Date, "now").mockReturnValue(now * 1000);
@@ -197,6 +217,30 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
       expect.stringContaining("直近60秒 1/分 (1件)")
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      "AIメンション会話をスキップ: ignored_user=rukalun, alias=rukalun"
+    );
+  });
+
+  it("normalizes full-width at-mark sender names before ignored-user checks", async () => {
+    const { bot } = makeBot();
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "返信しないD！" }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "＠rukalun",
+      "＠rukalun こんにちは",
+      Date.now() / 1000
+    );
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalledWith(
+      "AIメンション会話をスキップ: ignored_user=rukalun, alias=rukalun"
     );
   });
 
