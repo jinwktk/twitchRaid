@@ -69,7 +69,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     chatAiKeepAlive: "30m",
     chatAiMaxResponseChars: 200,
     chatAiBotAliases: ["rukalun"],
-    chatAiCooldownSeconds: 60,
+    chatAiCooldownSeconds: 5,
     chatAiIgnoredUsers: ["rukalun"],
     maxSummaryClipPosts: 10,
     ollamaShoutoutEnabled: false,
@@ -305,7 +305,11 @@ describe("Bot mention chat", () => {
     await first;
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(say).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledTimes(2);
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "AI返信を考え中です。少し待ってね: もう一回"
+    );
     expect(say).toHaveBeenCalledWith("#rukalun", "一回目だよD！");
   });
 
@@ -323,9 +327,12 @@ describe("Bot mention chat", () => {
       } as Response);
 
     await bot._handleRegularMessage("#rukalun", "viewer1", "@rukalun こんにちは", 100);
-    await bot._handleRegularMessage("#rukalun", "viewer2", "@rukalun もう一回", 120);
+    await bot._handleRegularMessage("#rukalun", "viewer2", "@rukalun もう一回", 103);
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(say).not.toHaveBeenCalled();
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "AI返信はクールダウン中です（残り2秒）: もう一回"
+    );
   });
 });

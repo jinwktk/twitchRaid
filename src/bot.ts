@@ -91,8 +91,27 @@ import { restartProcess } from "./utils/process-restart";
 
 
 const MANGA_DELETE_DELAY_SECONDS = 10;
+const DEFAULT_MENTION_CHAT_COOLDOWN_SECONDS = 5;
+const MENTION_CHAT_SKIP_PROMPT_LIMIT = 80;
 const HELP_MESSAGE =
   "!使えるコマンド: 基本 !help / !age / !goods / !site / !x / !game / !weight / !height / !mood / !menu | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
+
+function formatSkippedMentionPrompt(prompt: string): string {
+  const singleLine = prompt.replace(/\s+/g, " ").trim() || "内容なし";
+  if (singleLine.length <= MENTION_CHAT_SKIP_PROMPT_LIMIT) return singleLine;
+  return `${singleLine.slice(0, MENTION_CHAT_SKIP_PROMPT_LIMIT - 3).trimEnd()}...`;
+}
+
+function formatMentionChatInFlightReply(prompt: string): string {
+  return `AI返信を考え中です。少し待ってね: ${formatSkippedMentionPrompt(prompt)}`;
+}
+
+function formatMentionChatCooldownReply(
+  prompt: string,
+  remainingSeconds: number
+): string {
+  return `AI返信はクールダウン中です（残り${remainingSeconds}秒）: ${formatSkippedMentionPrompt(prompt)}`;
+}
 
 export class Bot {
   private readonly config: Config;
@@ -384,16 +403,28 @@ export class Bot {
       logger.info(
         `AIメンション会話をスキップ: in_flight=true, user=${normalizedUser}`
       );
+      await this.chatClient.say(
+        channel,
+        formatMentionChatInFlightReply(match.prompt)
+      );
       return;
     }
 
-    const cooldownSeconds = this.config.chatAiCooldownSeconds ?? 60;
+    const cooldownSeconds =
+      this.config.chatAiCooldownSeconds ?? DEFAULT_MENTION_CHAT_COOLDOWN_SECONDS;
     if (
       this.lastMentionChatAttemptAt > 0 &&
       now - this.lastMentionChatAttemptAt < cooldownSeconds
     ) {
       logger.info(
         `AIメンション会話をスキップ: cooldown=${cooldownSeconds}s, user=${normalizedUser}`
+      );
+      const remainingSeconds = Math.ceil(
+        cooldownSeconds - (now - this.lastMentionChatAttemptAt)
+      );
+      await this.chatClient.say(
+        channel,
+        formatMentionChatCooldownReply(match.prompt, remainingSeconds)
       );
       return;
     }
