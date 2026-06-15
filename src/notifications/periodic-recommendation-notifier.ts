@@ -49,7 +49,7 @@ export class PeriodicRecommendationNotifier {
       Math.floor((currentTime - this.streamStartedAt) / 3600)
     );
     const target = DEFAULT_RECOMMENDATION_TARGETS[this.nextIndex];
-    const message = `!【定期】配信開始から${elapsedHours}時間経過しました。${target}`;
+    const message = `【定期】配信開始から${elapsedHours}時間経過しました。${target}`;
     this.isSending = true;
     try {
       await send(message);

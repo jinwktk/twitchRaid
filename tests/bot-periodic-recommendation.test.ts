@@ -144,9 +144,10 @@ describe("Bot periodic recommendations", () => {
     await vi.advanceTimersByTimeAsync(45_000);
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "!【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp"
+      "【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp"
     );
-    expect(say.mock.calls[0][1]).toMatch(/^!/);
+    expect(say.mock.calls[0][1]).toMatch(/^【定期】/);
+    expect(say.mock.calls[0][1]).not.toMatch(/^!/);
   });
 
   it("does not post recommendations while offline", async () => {
@@ -205,7 +206,7 @@ describe("Bot periodic recommendations", () => {
     await vi.advanceTimersByTimeAsync(45_000);
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "!【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp"
+      "【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp"
     );
   });
 
@@ -248,7 +249,7 @@ describe("Bot periodic recommendations", () => {
     await vi.advanceTimersByTimeAsync(45_000);
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "!【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp"
+      "【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp"
     );
   });
 });
