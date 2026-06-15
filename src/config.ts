@@ -14,6 +14,8 @@ const DEFAULT_CLIP_SEARCH_PUBLISH_REPO_DIR = path.resolve(
 const DEFAULT_CHAT_AI_TIMEOUT_MS = 8_000;
 const DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS = 200;
 const DEFAULT_CHAT_AI_COOLDOWN_SECONDS = 60;
+const DEFAULT_CHAT_AI_BOT_ALIASES = ["にめいやボットくん"];
+const DEFAULT_CHAT_AI_IGNORED_USERS = ["nyme_ia2"];
 
 function parseEnabledFlag(raw: string): boolean {
   const normalized = raw.trim().toLowerCase();
@@ -182,16 +184,18 @@ export class Config {
       env["CHAT_AI_MAX_RESPONSE_CHARS"],
       DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS
     );
-    this.chatAiBotAliases = parseNameList(env["CHAT_AI_BOT_ALIASES"], [
-      this.loginChannel,
-    ]);
+    this.chatAiBotAliases = parseNameList(
+      env["CHAT_AI_BOT_ALIASES"],
+      DEFAULT_CHAT_AI_BOT_ALIASES
+    );
     this.chatAiCooldownSeconds = parsePositiveInt(
       env["CHAT_AI_COOLDOWN_SECONDS"],
       DEFAULT_CHAT_AI_COOLDOWN_SECONDS
     );
-    this.chatAiIgnoredUsers = parseNameList(env["CHAT_AI_IGNORED_USERS"], [
-      this.loginChannel,
-    ]);
+    this.chatAiIgnoredUsers = parseNameList(
+      env["CHAT_AI_IGNORED_USERS"],
+      DEFAULT_CHAT_AI_IGNORED_USERS
+    );
     this.clipSearchAutoPublishEnabled = parseEnabledFlag(
       env["CLIP_SEARCH_AUTO_PUBLISH_ENABLED"] ?? "0"
     );

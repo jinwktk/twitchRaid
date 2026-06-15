@@ -161,6 +161,33 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "全角でも見えてるよD！");
   });
 
+  it("replies only to the Nyme bot Japanese display alias", async () => {
+    const { bot, say } = makeBot({
+      chatAiBotAliases: ["にめいやボットくん"],
+      chatAiIgnoredUsers: ["nyme_ia2"],
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "見てるよD！" }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "nyme_ia",
+      "@にめいやボットくん なにしてるの？",
+      100
+    );
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "nyme_ia",
+      "@るっかるん なにしてるの？",
+      200
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith("#rukalun", "見てるよD！");
+  });
+
   it("keeps normal comment accounting for mention messages", async () => {
     const { bot, say } = makeBot({ chatAiEnabled: false });
     const now = Math.floor(Date.now() / 1000);

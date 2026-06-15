@@ -157,9 +157,9 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiTimeoutMs).toBe(8000);
     expect(config.chatAiKeepAlive).toBe("30m");
     expect(config.chatAiMaxResponseChars).toBe(200);
-    expect(config.chatAiBotAliases).toEqual(["rukalun"]);
+    expect(config.chatAiBotAliases).toEqual(["にめいやボットくん"]);
     expect(config.chatAiCooldownSeconds).toBe(60);
-    expect(config.chatAiIgnoredUsers).toEqual(["rukalun"]);
+    expect(config.chatAiIgnoredUsers).toEqual(["nyme_ia2"]);
   });
 
   it("falls back to shoutout Ollama settings for chat AI when chat AI toggle is unset", () => {

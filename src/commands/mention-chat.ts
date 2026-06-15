@@ -25,6 +25,7 @@ interface OllamaGenerateResponse {
 const DEFAULT_OLLAMA_TEMPERATURE = 0.7;
 const DEFAULT_OLLAMA_NUM_PREDICT = 80;
 const PROMPT_TEXT_LIMIT = 500;
+const MENTION_NAME_CHAR_CLASS = "\\p{L}\\p{N}_";
 
 const MENTION_CHAT_SYSTEM_PROMPT = [
   "あなたはTwitchチャットで短く返事する日本語アシスタントです。",
@@ -77,8 +78,8 @@ function buildOllamaGenerateUrl(baseUrl: string): string {
 
 function mentionPattern(alias: string): RegExp {
   return new RegExp(
-    `(^|[^A-Za-z0-9_])[@＠]${escapeRegExp(alias)}(?![A-Za-z0-9_])`,
-    "i"
+    `(^|[^${MENTION_NAME_CHAR_CLASS}])[@＠]${escapeRegExp(alias)}(?![${MENTION_NAME_CHAR_CLASS}])`,
+    "iu"
   );
 }
 
@@ -86,8 +87,8 @@ function removeMentionAliases(text: string, aliases: string[]): string {
   let result = text;
   for (const alias of aliases) {
     const pattern = new RegExp(
-      `(^|[^A-Za-z0-9_])[@＠]${escapeRegExp(alias)}(?![A-Za-z0-9_])`,
-      "gi"
+      `(^|[^${MENTION_NAME_CHAR_CLASS}])[@＠]${escapeRegExp(alias)}(?![${MENTION_NAME_CHAR_CLASS}])`,
+      "giu"
     );
     result = result.replace(pattern, (_match, prefix: string) => prefix);
   }

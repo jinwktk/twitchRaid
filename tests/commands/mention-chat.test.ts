@@ -32,12 +32,30 @@ describe("extractMentionChatPrompt", () => {
     });
   });
 
+  it("detects the Nyme bot Japanese display alias", () => {
+    const aliases = ["にめいやボットくん"];
+
+    expect(
+      extractMentionChatPrompt("@にめいやボットくん なにしてるの？", aliases)
+    ).toEqual({
+      alias: "にめいやボットくん",
+      prompt: "なにしてるの？",
+    });
+    expect(extractMentionChatPrompt("@nyme_ia2 なにしてるの？", aliases)).toBeNull();
+    expect(extractMentionChatPrompt("@るっかるん なにしてるの？", aliases)).toBeNull();
+  });
+
   it("does not match partial names", () => {
     expect(
       extractMentionChatPrompt("@rukalun_bot2 こんにちは", ["rukalun_bot"])
     ).toBeNull();
     expect(
       extractMentionChatPrompt("＠rukalun_bot2 こんにちは", ["rukalun_bot"])
+    ).toBeNull();
+    expect(
+      extractMentionChatPrompt("@にめいやボットくんさん なにしてるの？", [
+        "にめいやボットくん",
+      ])
     ).toBeNull();
   });
 
