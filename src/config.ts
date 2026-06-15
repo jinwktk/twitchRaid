@@ -16,7 +16,13 @@ const DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS = 200;
 const DEFAULT_CHAT_AI_COOLDOWN_SECONDS = 60;
 
 function parseEnabledFlag(raw: string): boolean {
-  return raw.toLowerCase() === "true" || raw === "1";
+  const normalized = raw.trim().toLowerCase();
+  return normalized === "true" || normalized === "1";
+}
+
+function parseOptionalEnabledFlag(raw: string | undefined): boolean | null {
+  if (raw === undefined || raw.trim() === "") return null;
+  return parseEnabledFlag(raw);
 }
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
@@ -153,13 +159,20 @@ export class Config {
       env["CHAT_RECOMMENDATION_INTERVAL_MINUTES"],
       60
     );
-    this.chatAiEnabled = parseEnabledFlag(env["CHAT_AI_ENABLED"] ?? "0");
     this.chatAiBaseUrl =
       env["CHAT_AI_BASE_URL"]?.trim() ||
       env["OLLAMA_BASE_URL"]?.trim() ||
       "http://127.0.0.1:11434";
     this.chatAiModel =
-      env["CHAT_AI_MODEL"]?.trim() || env["OLLAMA_MODEL"]?.trim() || "";
+      env["CHAT_AI_MODEL"]?.trim() ||
+      env["OLLAMA_MODEL"]?.trim() ||
+      env["OLLAMA_SHOUTOUT_MODEL"]?.trim() ||
+      "";
+    const chatAiEnabled = parseOptionalEnabledFlag(env["CHAT_AI_ENABLED"]);
+    this.chatAiEnabled =
+      chatAiEnabled ??
+      (this.chatAiModel !== "" &&
+        parseEnabledFlag(env["OLLAMA_SHOUTOUT_ENABLED"] ?? "0"));
     this.chatAiTimeoutMs = parsePositiveInt(
       env["CHAT_AI_TIMEOUT_MS"],
       DEFAULT_CHAT_AI_TIMEOUT_MS

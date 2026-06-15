@@ -161,4 +161,78 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiCooldownSeconds).toBe(60);
     expect(config.chatAiIgnoredUsers).toEqual(["rukalun"]);
   });
+
+  it("falls back to shoutout Ollama settings for chat AI when chat AI toggle is unset", () => {
+    const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+OLLAMA_SHOUTOUT_ENABLED=true
+OLLAMA_SHOUTOUT_MODEL=qwen2.5:7b
+`);
+
+    const config = new Config(envPath);
+
+    expect(config.chatAiEnabled).toBe(true);
+    expect(config.chatAiModel).toBe("qwen2.5:7b");
+  });
+
+  it("keeps chat AI disabled when explicitly disabled even if shoutout Ollama is enabled", () => {
+    for (const disabledValue of ["false", "0"]) {
+      const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+CHAT_AI_ENABLED=${disabledValue}
+OLLAMA_SHOUTOUT_ENABLED=true
+OLLAMA_SHOUTOUT_MODEL=qwen2.5:7b
+`);
+
+      const config = new Config(envPath);
+
+      expect(config.chatAiEnabled).toBe(false);
+      expect(config.chatAiModel).toBe("qwen2.5:7b");
+    }
+  });
+
+  it("does not enable chat AI from a shoutout model alone", () => {
+    const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+OLLAMA_SHOUTOUT_ENABLED=false
+OLLAMA_SHOUTOUT_MODEL=qwen2.5:7b
+`);
+
+    const config = new Config(envPath);
+
+    expect(config.chatAiEnabled).toBe(false);
+    expect(config.chatAiModel).toBe("qwen2.5:7b");
+  });
+
+  it("does not enable chat AI from the shoutout toggle without an inherited model", () => {
+    const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+OLLAMA_SHOUTOUT_ENABLED=true
+`);
+
+    const config = new Config(envPath);
+
+    expect(config.chatAiEnabled).toBe(false);
+    expect(config.chatAiModel).toBe("");
+  });
 });
