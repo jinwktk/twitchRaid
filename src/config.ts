@@ -11,6 +11,9 @@ const DEFAULT_CLIP_SEARCH_PUBLISH_REPO_DIR = path.resolve(
   "..",
   "RukalunPage"
 );
+const DEFAULT_CHAT_AI_TIMEOUT_MS = 8_000;
+const DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS = 200;
+const DEFAULT_CHAT_AI_COOLDOWN_SECONDS = 60;
 
 function parseEnabledFlag(raw: string): boolean {
   return raw.toLowerCase() === "true" || raw === "1";
@@ -23,6 +26,14 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
 
 function toEnvFlag(enabled: boolean): string {
   return enabled ? "true" : "false";
+}
+
+function parseNameList(raw: string | undefined, fallback: string[]): string[] {
+  const source = raw?.trim() ? raw : fallback.join(",");
+  return source
+    .split(",")
+    .map((u) => u.trim().replace(/^@+/, "").toLowerCase())
+    .filter(Boolean);
 }
 
 export class Config {
@@ -58,6 +69,15 @@ export class Config {
   readonly streamSummaryStatePath: string;
   readonly chatRecommendationEnabled: boolean;
   readonly chatRecommendationIntervalMinutes: number;
+  readonly chatAiEnabled: boolean;
+  readonly chatAiBaseUrl: string;
+  readonly chatAiModel: string;
+  readonly chatAiTimeoutMs: number;
+  readonly chatAiKeepAlive: string;
+  readonly chatAiMaxResponseChars: number;
+  readonly chatAiBotAliases: string[];
+  readonly chatAiCooldownSeconds: number;
+  readonly chatAiIgnoredUsers: string[];
   readonly clipSearchAutoPublishEnabled: boolean;
   readonly clipSearchDataPath: string;
   readonly clipSearchPublishRepoDir: string;
@@ -133,6 +153,32 @@ export class Config {
       env["CHAT_RECOMMENDATION_INTERVAL_MINUTES"],
       60
     );
+    this.chatAiEnabled = parseEnabledFlag(env["CHAT_AI_ENABLED"] ?? "0");
+    this.chatAiBaseUrl =
+      env["CHAT_AI_BASE_URL"]?.trim() ||
+      env["OLLAMA_BASE_URL"]?.trim() ||
+      "http://127.0.0.1:11434";
+    this.chatAiModel =
+      env["CHAT_AI_MODEL"]?.trim() || env["OLLAMA_MODEL"]?.trim() || "";
+    this.chatAiTimeoutMs = parsePositiveInt(
+      env["CHAT_AI_TIMEOUT_MS"],
+      DEFAULT_CHAT_AI_TIMEOUT_MS
+    );
+    this.chatAiKeepAlive = env["CHAT_AI_KEEP_ALIVE"]?.trim() || "30m";
+    this.chatAiMaxResponseChars = parsePositiveInt(
+      env["CHAT_AI_MAX_RESPONSE_CHARS"],
+      DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS
+    );
+    this.chatAiBotAliases = parseNameList(env["CHAT_AI_BOT_ALIASES"], [
+      this.loginChannel,
+    ]);
+    this.chatAiCooldownSeconds = parsePositiveInt(
+      env["CHAT_AI_COOLDOWN_SECONDS"],
+      DEFAULT_CHAT_AI_COOLDOWN_SECONDS
+    );
+    this.chatAiIgnoredUsers = parseNameList(env["CHAT_AI_IGNORED_USERS"], [
+      this.loginChannel,
+    ]);
     this.clipSearchAutoPublishEnabled = parseEnabledFlag(
       env["CLIP_SEARCH_AUTO_PUBLISH_ENABLED"] ?? "0"
     );

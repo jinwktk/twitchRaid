@@ -105,4 +105,60 @@ TWITCH_MODERATOR_ID=moderator
     expect(config.chatRecommendationEnabled).toBe(true);
     expect(config.chatRecommendationIntervalMinutes).toBe(60);
   });
+
+  it("loads chat AI mention settings", () => {
+    const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+CHAT_AI_ENABLED=true
+CHAT_AI_BASE_URL=http://127.0.0.1:11435
+CHAT_AI_MODEL=qwen2.5:7b
+CHAT_AI_TIMEOUT_MS=4500
+CHAT_AI_KEEP_ALIVE=10m
+CHAT_AI_MAX_RESPONSE_CHARS=120
+CHAT_AI_BOT_ALIASES=RukalunBot,@Rukalun
+CHAT_AI_COOLDOWN_SECONDS=30
+CHAT_AI_IGNORED_USERS=RukalunBot,nightbot
+`);
+
+    const config = new Config(envPath);
+
+    expect(config.chatAiEnabled).toBe(true);
+    expect(config.chatAiBaseUrl).toBe("http://127.0.0.1:11435");
+    expect(config.chatAiModel).toBe("qwen2.5:7b");
+    expect(config.chatAiTimeoutMs).toBe(4500);
+    expect(config.chatAiKeepAlive).toBe("10m");
+    expect(config.chatAiMaxResponseChars).toBe(120);
+    expect(config.chatAiBotAliases).toEqual(["rukalunbot", "rukalun"]);
+    expect(config.chatAiCooldownSeconds).toBe(30);
+    expect(config.chatAiIgnoredUsers).toEqual(["rukalunbot", "nightbot"]);
+  });
+
+  it("keeps chat AI disabled by default", () => {
+    const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+OLLAMA_MODEL=qwen2.5:7b
+`);
+
+    const config = new Config(envPath);
+
+    expect(config.chatAiEnabled).toBe(false);
+    expect(config.chatAiBaseUrl).toBe("http://127.0.0.1:11434");
+    expect(config.chatAiModel).toBe("qwen2.5:7b");
+    expect(config.chatAiTimeoutMs).toBe(8000);
+    expect(config.chatAiKeepAlive).toBe("30m");
+    expect(config.chatAiMaxResponseChars).toBe(200);
+    expect(config.chatAiBotAliases).toEqual(["rukalun"]);
+    expect(config.chatAiCooldownSeconds).toBe(60);
+    expect(config.chatAiIgnoredUsers).toEqual(["rukalun"]);
+  });
 });

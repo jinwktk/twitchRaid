@@ -57,6 +57,10 @@ import {
   buildRaidGreetingMessage,
 } from "./commands/shoutout-introduction";
 import {
+  extractMentionChatPrompt,
+  generateMentionChatReply,
+} from "./commands/mention-chat";
+import {
   isStreamNotifyAdmin,
   sendManualStreamNotification,
   type ManualStreamNotificationStream,
@@ -114,6 +118,8 @@ export class Bot {
   private readonly shoutoutQueue: ShoutoutQueue;
   private readonly clipSearchDataPublisher: ClipSearchDataPublisher | null;
   private clipCacheSynchronizer: ClipCacheSynchronizer | null = null;
+  private mentionChatInFlight = false;
+  private lastMentionChatAttemptAt = 0;
 
   // Keep-alive timers
   private keepAliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -317,10 +323,7 @@ export class Bot {
         logger.info(`🤖 コマンド検出: ${text}`);
         await this._handleCommand(channel, user, text, msg);
       } else {
-        const now = Date.now() / 1000;
-        this.commentSpeedMeter.record(now);
-        this._debouncedSaveCommentState();
-        this._persistStreamSummaryCounts();
+        await this._handleRegularMessage(channel, user, text);
       }
     });
 
@@ -338,6 +341,94 @@ export class Bot {
       this._enqueueRaidShoutout(user);
       await this._sendRaidGreeting(channel, sourceInfo, raidInfo.viewerCount);
     });
+  }
+
+  private async _handleRegularMessage(
+    channel: string,
+    user: string,
+    text: string,
+    now = Date.now() / 1000
+  ): Promise<void> {
+    this.commentSpeedMeter.record(now);
+    this._debouncedSaveCommentState();
+    this._persistStreamSummaryCounts();
+    await this._handleMentionChat(channel, user, text, now);
+  }
+
+  private async _handleMentionChat(
+    channel: string,
+    user: string,
+    text: string,
+    now: number
+  ): Promise<void> {
+    if (!(this.config.chatAiEnabled ?? false)) return;
+
+    const match = extractMentionChatPrompt(
+      text,
+      this.config.chatAiBotAliases ?? [this.config.loginChannel]
+    );
+    if (!match) return;
+
+    const normalizedUser = user.trim().replace(/^@+/, "").toLowerCase();
+    const ignoredUsers = this.config.chatAiIgnoredUsers ?? [
+      this.config.loginChannel,
+    ];
+    if (ignoredUsers.includes(normalizedUser)) {
+      logger.debug(
+        `AIメンション会話をスキップ: ignored_user=${normalizedUser}, alias=${match.alias}`
+      );
+      return;
+    }
+
+    if (this.mentionChatInFlight) {
+      logger.info(
+        `AIメンション会話をスキップ: in_flight=true, user=${normalizedUser}`
+      );
+      return;
+    }
+
+    const cooldownSeconds = this.config.chatAiCooldownSeconds ?? 60;
+    if (
+      this.lastMentionChatAttemptAt > 0 &&
+      now - this.lastMentionChatAttemptAt < cooldownSeconds
+    ) {
+      logger.info(
+        `AIメンション会話をスキップ: cooldown=${cooldownSeconds}s, user=${normalizedUser}`
+      );
+      return;
+    }
+
+    this.lastMentionChatAttemptAt = now;
+    this.mentionChatInFlight = true;
+    try {
+      const reply = await generateMentionChatReply({
+        enabled: true,
+        baseUrl: this.config.chatAiBaseUrl ?? this.config.ollamaBaseUrl,
+        model: this.config.chatAiModel ?? "",
+        timeoutMs: this.config.chatAiTimeoutMs ?? 8_000,
+        keepAlive: this.config.chatAiKeepAlive ?? "30m",
+        maxResponseChars: this.config.chatAiMaxResponseChars ?? 200,
+        channel,
+        userName: normalizedUser,
+        promptText: match.prompt,
+      });
+
+      if (!reply) {
+        logger.warn(
+          `⚠️ AIメンション会話は返信なし: user=${normalizedUser}, alias=${match.alias}`
+        );
+        return;
+      }
+
+      await this.chatClient.say(channel, reply);
+      logger.info(
+        `✅ AIメンション会話を送信: user=${normalizedUser}, alias=${match.alias}`
+      );
+    } catch (e) {
+      logger.error(`❌ AIメンション会話の送信に失敗しました: ${e}`);
+    } finally {
+      this.mentionChatInFlight = false;
+    }
   }
 
   private async _handleCommand(

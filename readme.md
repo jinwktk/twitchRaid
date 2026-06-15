@@ -58,6 +58,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定すると、直近Clip同期完了後に公開JSONを再生成し、差分があれば `CLIP_SEARCH_PUBLISH_REPO_DIR` の `main` へcommit/pushします。RukalunPage分離後の既定値は `C:\Users\mlove\Documents\GitHub\RukalunPage` と、その配下の `clip-search-data.json` です。別パスで運用する場合だけ `CLIP_SEARCH_PUBLISH_REPO_DIR` と `CLIP_SEARCH_DATA_PATH` を指定します。公開前には公開repoで `git fetch origin main` を行い、ローカルだけに残ったcommitがBotの `Clip検索JSONを同期時刻更新` だけなら `origin/main` へ戻してから再生成します。ローカル未コミット変更や開発commitがある場合は破壊せず自動公開をスキップします。新規/復活Clipが0件の同期も `CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS` ごとに公開し、新規/復活Clipまたは削除/非公開Clipの無効化があった場合は間隔内でも公開します。保存0件かつ無効化0件で直前HEADが `Clip検索JSONを同期時刻更新` の場合だけ、そのBot同期commitをamendして `--force-with-lease` でpushします。直前HEADがCodexなどの開発commitの場合や、Clip追加・復活・削除/非公開化がある同期では通常commit/pushします。未設定時の公開間隔は5分、remote/branchは `origin` / `main` です。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぎます
 - サブPC運用では `E:\GitHub\RukalunPage` を `https://github.com/jinwktk/RukalunPage.git` のcloneとして用意してください。既存フォルダに `clip-search-data.json` だけがあり `.git` が無い場合、同期後処理で `fatal: not a git repository` になります
 - `OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` を設定すると、Raid時にOllama `POST /api/generate` で1通のRaid挨拶文を生成してチャットへ送信します。AI生成文はコード側で250文字以内に丸めます。`OLLAMA_BASE_URL` は未設定時 `http://127.0.0.1:11434`、`OLLAMA_SHOUTOUT_TIMEOUT_MS` は未設定時 `15000`、`OLLAMA_SHOUTOUT_KEEP_ALIVE` は未設定時 `30m` です
+- `CHAT_AI_ENABLED=true` と `CHAT_AI_MODEL`（未設定時は `OLLAMA_MODEL`）を設定すると、通常チャットで `@rukalun` のようにBotへメンションされた時だけOllamaで短い日本語返信を生成します。未設定時は無効です。`CHAT_AI_BASE_URL` は未設定時 `OLLAMA_BASE_URL` または `http://127.0.0.1:11434`、`CHAT_AI_TIMEOUT_MS` は未設定時 `8000`、`CHAT_AI_KEEP_ALIVE` は `30m`、`CHAT_AI_MAX_RESPONSE_CHARS` は `200`、`CHAT_AI_COOLDOWN_SECONDS` は `60` です。`CHAT_AI_BOT_ALIASES` と `CHAT_AI_IGNORED_USERS` はカンマ区切りで、未設定時はいずれも `rukalun` を使います
 
 ## 技術スタック
 - **ランタイム**: Node.js 22.5+（`node:sqlite` を使用）
@@ -104,6 +105,12 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 
 - 送信失敗時はローテーション位置を進めず、次回の定期処理で同じコメントを再試行する。送信中に次の45秒キープアライブが来ても重複送信しない
 - Bot再起動時に配信中stateを復元した場合は、配信開始時刻から見た直近の1時間境界へ送信基準を揃え、停止中の過去分をまとめて送らない
+
+## AIメンション会話
+- `CHAT_AI_ENABLED=true` のときだけ、通常チャット内の `@rukalun` など `CHAT_AI_BOT_ALIASES` に一致するBot宛てメンションへAI返信する。`!help @rukalun` のようなコマンド本文は従来どおりコマンドとして扱い、AIは介入しない
+- 返信はOllama `POST /api/generate` で生成し、単一行・日本語かな必須・最大 `CHAT_AI_MAX_RESPONSE_CHARS` 文字へ整形する。先頭 `!`、引用符、絵文字、改行は除去または抑止する
+- Bot自身や `CHAT_AI_IGNORED_USERS` の発言には返信しない。Ollama処理中の追加メンションはスキップし、返信生成を試みた時点から `CHAT_AI_COOLDOWN_SECONDS` のクールダウンをかける。Ollama失敗、HTTPエラー、空応答、非日本語応答ではチャットへ何も返さず、`reason=http_error` / `invalid_response` / `policy_rejected` / `exception` のようにログだけ残す
+- 初回版はテキストメンションのみ。配信画面を画像としてAIへ渡して「今画面に何が映ってる？」のような質問へ答える機能は、画面取得元、保存しない方針、取得頻度、Vision対応モデル、プライバシー境界を別途設計する次フェーズ扱い
 
 ## .env保護
 - `.env` の更新は `env-store.ts` で実行し、更新前に `.env.backup` を作成
@@ -224,6 +231,7 @@ src/
 │   ├── clip.ts                    # !clip / !myclip / !clipsearch
 │   ├── game.ts                    # !game VOD由来ゲーム候補
 │   ├── manga.ts                   # !manga / 管理者判定
+│   ├── mention-chat.ts            # @メンションAI会話
 │   ├── raid-info.ts               # Raid元配信情報文言
 │   ├── random-commands.ts         # !weight / !height / !mood / !menu
 │   ├── shoutout-introduction.ts   # OllamaによるRaid挨拶文生成
@@ -268,6 +276,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-15**: 通常チャットでBotへ `@` メンションした時だけOllamaで短い日本語返信を返すAIメンション会話を追加。既定は無効で、自己返信除外、60秒クールダウン、Ollama処理中スキップ、失敗時無言、失敗理由ログ、コマンド非介入にした。配信画面をAIへ渡すVision質問応答は次フェーズとして分離
 - **2026-06-15**: 定期おすすめコメントを読み上げ対象にするため、投稿文の先頭 `!` を外し、`【定期】配信開始から...` で送るよう変更
 - **2026-06-15**: `!game` コマンドを追加。固定候補ではなくTwitchに残っている過去アーカイブVODのゲーム名から1件を選び、`ゲーム候補：...` 形式でチャットへ返すようにした。候補一覧は5分キャッシュし、`!help` の一覧にも `!game` を追加
 - **2026-06-14**: `!x` コマンドを追加し、`https://x.com/rukalunlol` をチャットへ返せるようにした。`!help` の一覧にも `!x` を追加
