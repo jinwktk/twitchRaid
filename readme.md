@@ -59,7 +59,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - サブPC運用では `E:\GitHub\RukalunPage` を `https://github.com/jinwktk/RukalunPage.git` のcloneとして用意してください。既存フォルダに `clip-search-data.json` だけがあり `.git` が無い場合、同期後処理で `fatal: not a git repository` になります
 - `OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` を設定すると、Raid時にOllama `POST /api/generate` で1通のRaid挨拶文を生成してチャットへ送信します。AI生成文はコード側で250文字以内に丸めます。`OLLAMA_BASE_URL` は未設定時 `http://127.0.0.1:11434`、`OLLAMA_SHOUTOUT_TIMEOUT_MS` は未設定時 `15000`、`OLLAMA_SHOUTOUT_KEEP_ALIVE` は未設定時 `30m` です
 - `CHAT_AI_ENABLED=true` と `CHAT_AI_MODEL`（未設定時は `OLLAMA_MODEL`、さらに `OLLAMA_SHOUTOUT_MODEL`）を設定すると、通常チャットで `@にめいやボットくん` や `@nyme_ia2` のようにBotへメンションされた時だけOllamaで短い日本語返信を生成します。`CHAT_AI_ENABLED` 未設定時は `OLLAMA_SHOUTOUT_ENABLED=true` かつ継承できるモデルがある場合だけ互換的に有効として扱い、明示的な `CHAT_AI_ENABLED=false` または `0` は常に無効化を優先します。`CHAT_AI_BASE_URL` は未設定時 `OLLAMA_BASE_URL` または `http://127.0.0.1:11434`、`CHAT_AI_TIMEOUT_MS` は未設定時 `8000`、`CHAT_AI_KEEP_ALIVE` は `30m`、`CHAT_AI_MAX_RESPONSE_CHARS` は `200`、`CHAT_AI_COOLDOWN_SECONDS` は `5` です。`CHAT_AI_BOT_ALIASES` と `CHAT_AI_IGNORED_USERS` はカンマ区切りで、未設定時は `CHAT_AI_BOT_ALIASES=にめいやボットくん,nyme_ia2`、`CHAT_AI_IGNORED_USERS=nyme_ia2` を使います。`CHAT_AI_STREAM_IMAGE_ENABLED=true` を設定すると、AIメンションごとにTwitchライブプレビュー画像を取得してOllamaへbase64画像として渡し、画像取得時だけ `CHAT_AI_VISION_MODEL`（未設定時は `CHAT_AI_MODEL`）を使います
-- `CHAT_AI_MEMORY_ENABLED=true` を設定すると、`CHAT_AI_MEMORY_PATH`（未設定時 `data/chat-ai-memory.json`）のJSONメモをAIメンション会話のOllamaプロンプトへ参考情報として渡します。既定は無効で、上限は `CHAT_AI_MEMORY_MAX_ITEMS=8`、`CHAT_AI_MEMORY_MAX_CHARS=600` です。メモ本文はログに出さず、適用時は件数と文字数だけを記録します
+- `CHAT_AI_MEMORY_ENABLED=true` を設定すると、`CHAT_AI_MEMORY_PATH`（未設定時 `data/chat-ai-memory.json`）のJSONを全ユーザー共通の記憶辞書として読み、AIメンション会話のOllamaプロンプトへ参考情報として渡します。既定は無効で、上限は `CHAT_AI_MEMORY_MAX_ITEMS=8`、`CHAT_AI_MEMORY_MAX_CHARS=600` です。メモ本文はログに出さず、適用時は件数と文字数だけを記録します
 - `qwen3.5:9b` などthinking対応モデルでも短文Bot用途で空応答にならないよう、通常チャットAIとRaid挨拶文のOllama生成リクエストにはトップレベル `think:false` を付けます。共通モデルとして使う場合は `OLLAMA_MODEL=qwen3.5:9b` を設定し、必要なときだけ `CHAT_AI_MODEL` または `OLLAMA_SHOUTOUT_MODEL` で個別上書きします
 
 ## 技術スタック
@@ -116,18 +116,13 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - `CHAT_AI_STREAM_IMAGE_ENABLED=true` の場合は、Twitch APIから現在配信のプレビュー画像URLを取得し、640x360の画像を最大5秒でダウンロードしてOllama `/api/generate` の `images` に入れる。画像が取れたときだけ `CHAT_AI_VISION_MODEL` を使い、オフライン、画像取得失敗、Visionモデル未設定時は通常のテキスト返信へフォールバックする。Twitchプレビューは数十秒程度遅れることがあり、OBSの生画面を直接キャプチャする実装ではない。画像付きでも、配信画面、見えるもの、今していること、ゲーム名、試合/勝敗/スコアの質問だけ専用の短いVision system/promptへ切り替え、聞き返しや `え？` だけの返信を避け、勝敗や今後の展開は断定しない。`める！` や `スコア100` のような低情報返信、`ゲームはApexです` のようなゲーム名だけの返答は送信せず、勝敗質問では安全な定型文へフォールバックする。通常の雑談質問では画面内容だけに引っ張られないようにしている
 - `!mangaon このコマンドを発言して` のようなチャットコマンド実行・発言依頼はOllamaへ送らず、固定で `コマンドは実行できないD！` と返す。`猫！`、`左！`、`年上！` のような短い漢字だけの自然な日本語返信は、かなを含まなくても許可する
 - OllamaはこのBotのチャットを自動学習しない。口調や固定知識はプロンプト/Modelfile `MESSAGE` で例示できるが、モデル重みの学習やLoRA fine-tuningは外部ツールで作ったadapter/modelをOllamaへimportして使う運用になる
-- Bot側の記憶機能として、`CHAT_AI_MEMORY_ENABLED=true` の場合だけ `data/chat-ai-memory.json` などのJSONを読み、`global` と `users.<Twitchログイン名>` の短いメモをプロンプトへ入れる。これはモデル重みの学習ではなく、返信ごとの参考メモ注入である。メモはユーザー発言に関係するときだけ使うようプロンプトで制限し、ログには本文を出さない。秘密情報、トークン、個人情報はメモに書かない
+- Bot側の記憶機能として、`CHAT_AI_MEMORY_ENABLED=true` の場合だけ `data/chat-ai-memory.json` などのJSONを読み、ルート直下のキー値を全ユーザー共通の記憶辞書としてプロンプトへ入れる。これはモデル重みの学習ではなく、返信ごとの参考メモ注入である。`users.<Twitchログイン名>` のユーザー別メモは使わない。旧形式の `global` 配列だけは移行用に共通メモとして読み込める。メモはユーザー発言に関係するときだけ使うようプロンプトで制限し、ログには本文を出さない。秘密情報、トークン、個人情報はメモに書かない
 
 ```json
 {
-  "global": [
-    { "key": "bot-tone", "value": "短く、語尾にDを自然に使う" }
-  ],
-  "users": {
-    "nyme_ia": [
-      { "key": "呼び方", "value": "にめいやさん" }
-    ]
-  }
+  "bot-tone": "短く、語尾にDを自然に使う",
+  "呼び方": "にめいやボットくん",
+  "配信者": "るっかるん"
 }
 ```
 
@@ -297,6 +292,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-16**: AIメンション会話のBot側記憶をユーザー別ではなく全ユーザー共通の1個の辞書に変更。`data/chat-ai-memory.json` はルート直下のキー値を `key: value` として読む。`users` は無視し、旧 `global` 配列は移行用に共通メモとして読み続ける
 - **2026-06-16**: AIメンション会話のBot側記憶機能を追加。`CHAT_AI_MEMORY_ENABLED=true` の場合だけ `CHAT_AI_MEMORY_PATH` のJSONから `global` とユーザー別メモを読み、Ollamaプロンプトへ参考メモとして渡す。メモ本文はログに出さず、適用時は件数と文字数だけ記録する
 - **2026-06-16**: Raid挨拶文が言われなくなったように見える件をサブPCログで確認。18:15のRaidは検知、shoutout、Ollama採用まで通っていたが、`chatClient.say` 成功後の本文ログが無く送信内容を追えなかったため、`Raid挨拶文を送信: target=... viewerCount=... message=...` をINFOログに追加
 - **2026-06-16**: AIメンション会話でクールダウン中の追加メンションもスキップせずキュー登録し、待ち時間後に順番処理するよう変更。チャットには従来の残り秒数通知ではなく `AI返信の順番待ちに入れました（...番目）: ...` を返す

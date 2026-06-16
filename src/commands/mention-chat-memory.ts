@@ -9,7 +9,6 @@ export interface MentionChatMemoryResult {
 export interface LoadMentionChatMemoryOptions {
   enabled: boolean;
   filePath: string;
-  userName: string;
   maxItems: number;
   maxChars: number;
 }
@@ -21,10 +20,6 @@ const EMPTY_MEMORY: MentionChatMemoryResult = {
   itemCount: 0,
   charCount: 0,
 };
-
-function normalizeUserName(value: string): string {
-  return value.trim().replace(/^[@＠]+/, "").toLowerCase();
-}
 
 function isRecord(value: unknown): value is MemoryRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -65,20 +60,6 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function userItems(users: unknown, userName: string): unknown[] {
-  if (!isRecord(users)) return [];
-  const normalizedUser = normalizeUserName(userName);
-  const items: unknown[] = [];
-
-  for (const [key, value] of Object.entries(users)) {
-    if (normalizeUserName(key) === normalizedUser) {
-      items.push(...asArray(value));
-    }
-  }
-
-  return items;
-}
-
 function truncate(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   if (maxChars <= 3) return value.slice(0, maxChars);
@@ -105,10 +86,32 @@ function capLines(lines: string[], maxItems: number, maxChars: number): string[]
   return capped;
 }
 
+function dictionaryValueToText(value: unknown): string | null {
+  const primitive = primitiveToText(value);
+  if (primitive) return primitive;
+  if (!isRecord(value)) return null;
+
+  return primitiveToText(value["text"]) ?? primitiveToText(value["value"]);
+}
+
+function dictionaryEntriesToLines(record: MemoryRecord): string[] {
+  const reservedKeys = new Set(["global", "users"]);
+  const lines: string[] = [];
+
+  for (const [key, value] of Object.entries(record)) {
+    const normalizedKey = singleLine(key);
+    if (!normalizedKey || reservedKeys.has(normalizedKey)) continue;
+
+    const text = dictionaryValueToText(value);
+    if (text) lines.push(`${normalizedKey}: ${text}`);
+  }
+
+  return lines;
+}
+
 export function loadMentionChatMemory({
   enabled,
   filePath,
-  userName,
   maxItems,
   maxChars,
 }: LoadMentionChatMemoryOptions): MentionChatMemoryResult {
@@ -122,10 +125,9 @@ export function loadMentionChatMemory({
     if (!isRecord(parsed)) return { ...EMPTY_MEMORY };
 
     const lines = [
-      ...asArray(parsed["global"]),
-      ...userItems(parsed["users"], userName),
+      ...dictionaryEntriesToLines(parsed),
+      ...asArray(parsed["global"]).map(itemToText),
     ]
-      .map(itemToText)
       .filter((line): line is string => Boolean(line));
     const capped = capLines(lines, maxItems, maxChars);
     const text = capped.join("\n");

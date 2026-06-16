@@ -30,7 +30,6 @@ describe("loadMentionChatMemory", () => {
     const result = loadMentionChatMemory({
       enabled: false,
       filePath: "missing.json",
-      userName: "viewer",
       maxItems: 8,
       maxChars: 600,
     });
@@ -42,7 +41,6 @@ describe("loadMentionChatMemory", () => {
     const missing = loadMentionChatMemory({
       enabled: true,
       filePath: path.join(createTempDir(), "missing.json"),
-      userName: "viewer",
       maxItems: 8,
       maxChars: 600,
     });
@@ -51,7 +49,6 @@ describe("loadMentionChatMemory", () => {
     const invalid = loadMentionChatMemory({
       enabled: true,
       filePath: path.join(tempDir!, "broken.json"),
-      userName: "viewer",
       maxItems: 8,
       maxChars: 600,
     });
@@ -60,35 +57,55 @@ describe("loadMentionChatMemory", () => {
     expect(invalid).toEqual({ text: null, itemCount: 0, charCount: 0 });
   });
 
-  it("loads global and user-specific memory for the normalized user name", () => {
+  it("loads a shared dictionary and ignores user-specific memory", () => {
     const filePath = writeMemoryFile({
-      global: [
-        { key: "bot-tone", value: "語尾はDを自然に使う" },
-        "るっかるんを悪く言わない",
-      ],
+      "bot-tone": "語尾はDを自然に使う",
+      "るっかるん": "悪く言わない",
+      "呼び方": { value: "にめいやボットくん" },
       users: {
-        nyme_ia: [{ key: "呼び方", value: "にめいやさん" }],
-        other: [{ key: "好物", value: "カレー" }],
+        viewer: [{ key: "好物", value: "カレー" }],
       },
     });
 
     const result = loadMentionChatMemory({
       enabled: true,
       filePath,
-      userName: "@Nyme_IA",
       maxItems: 8,
       maxChars: 600,
     });
 
+    const expectedText = [
+      "bot-tone: 語尾はDを自然に使う",
+      "るっかるん: 悪く言わない",
+      "呼び方: にめいやボットくん",
+    ].join("\n");
     expect(result).toEqual({
-      text: [
-        "bot-tone: 語尾はDを自然に使う",
-        "るっかるんを悪く言わない",
-        "呼び方: にめいやさん",
-      ].join("\n"),
+      text: expectedText,
       itemCount: 3,
-      charCount: 45,
+      charCount: expectedText.length,
     });
+    expect(result.text).not.toContain("カレー");
+  });
+
+  it("keeps loading the legacy global list as shared memory", () => {
+    const filePath = writeMemoryFile({
+      global: [
+        { key: "bot-tone", value: "語尾はDを自然に使う" },
+        "るっかるんを悪く言わない",
+      ],
+    });
+
+    const result = loadMentionChatMemory({
+      enabled: true,
+      filePath,
+      maxItems: 8,
+      maxChars: 600,
+    });
+
+    expect(result.text).toBe(
+      ["bot-tone: 語尾はDを自然に使う", "るっかるんを悪く言わない"].join("\n")
+    );
+    expect(result.itemCount).toBe(2);
   });
 
   it("caps memory by item count and character count", () => {
@@ -103,7 +120,6 @@ describe("loadMentionChatMemory", () => {
     const result = loadMentionChatMemory({
       enabled: true,
       filePath,
-      userName: "viewer",
       maxItems: 2,
       maxChars: 24,
     });

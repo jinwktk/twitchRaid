@@ -407,7 +407,7 @@ describe("Bot mention chat", () => {
     fs.writeFileSync(
       memoryPath,
       JSON.stringify({
-        global: [{ key: "口調", value: "語尾はDを自然に使う" }],
+        口調: "語尾はDを自然に使う",
         users: {
           viewer: [{ key: "好物", value: "カレー" }],
         },
@@ -435,9 +435,9 @@ describe("Bot mention chat", () => {
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
     expect(body.prompt).toContain("口調: 語尾はDを自然に使う");
-    expect(body.prompt).toContain("好物: カレー");
+    expect(body.prompt).not.toContain("好物: カレー");
     expect(infoSpy).toHaveBeenCalledWith(
-      expect.stringContaining("AIメンション会話メモを適用: user=viewer, items=2")
+      expect.stringContaining("AIメンション会話メモを適用: items=1")
     );
     for (const call of infoSpy.mock.calls) {
       expect(call[0]).not.toContain("好物: カレー");

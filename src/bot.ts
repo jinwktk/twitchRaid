@@ -492,13 +492,12 @@ export class Bot {
       const memory = loadMentionChatMemory({
         enabled: this.config.chatAiMemoryEnabled ?? false,
         filePath: this.config.chatAiMemoryPath ?? "",
-        userName: request.userName,
         maxItems: this.config.chatAiMemoryMaxItems ?? 8,
         maxChars: this.config.chatAiMemoryMaxChars ?? 600,
       });
       if (memory.text) {
         logger.info(
-          `AIメンション会話メモを適用: user=${request.userName}, items=${memory.itemCount}, chars=${memory.charCount}`
+          `AIメンション会話メモを適用: items=${memory.itemCount}, chars=${memory.charCount}`
         );
       }
       const model =
