@@ -99,9 +99,10 @@ function isMatchOutcomeQuestion(value: string): boolean {
 
 function isGenericMatchOutcomeReply(value: string): boolean {
   const compact = value.replace(/[！!？?。、,.，\s]/g, "").trim();
-  return ["ゲームだ", "ゲームです", "ゲーム画面だ", "ゲーム画面です"].includes(
-    compact
-  );
+  if (["ゲームだ", "ゲームです", "ゲーム画面だ", "ゲーム画面です"].includes(compact)) {
+    return true;
+  }
+  return /^ゲームは[\p{L}\p{N}_+-]+(?:だ|です)$/u.test(compact);
 }
 
 export function formatMentionChatLogValue(value: string): string {
