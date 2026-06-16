@@ -165,6 +165,9 @@ export class Bot {
   private mentionChatQueueDraining = false;
   private readonly mentionChatQueue: MentionChatRequest[] = [];
   private lastMentionChatAttemptAt = 0;
+  private streamClipPostRunning = false;
+  private streamClipPostRerunRequested = false;
+  private streamClipPostRerunAt: Date | null = null;
 
   // Keep-alive timers
   private keepAliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -1581,6 +1584,34 @@ export class Bot {
   }
 
   private async _postNewStreamClipsToSummaryThread(now = new Date()): Promise<void> {
+    if (this.streamClipPostRunning) {
+      this.streamClipPostRerunRequested = true;
+      this.streamClipPostRerunAt = now;
+      logger.info("配信まとめスレッドへのクリップ投稿を再実行予約しました。");
+      return;
+    }
+
+    this.streamClipPostRunning = true;
+    let nextNow = now;
+
+    try {
+      do {
+        this.streamClipPostRerunRequested = false;
+        this.streamClipPostRerunAt = null;
+        await this._postNewStreamClipsToSummaryThreadOnce(nextNow);
+
+        if (this.streamClipPostRerunRequested) {
+          nextNow = this.streamClipPostRerunAt ?? new Date();
+        }
+      } while (this.streamClipPostRerunRequested);
+    } finally {
+      this.streamClipPostRunning = false;
+      this.streamClipPostRerunRequested = false;
+      this.streamClipPostRerunAt = null;
+    }
+  }
+
+  private async _postNewStreamClipsToSummaryThreadOnce(now: Date): Promise<void> {
     if (!this._canPostDiscordSummary()) return;
 
     const state = this.streamSummaryStateStore.load();

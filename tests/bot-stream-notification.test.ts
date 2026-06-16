@@ -249,4 +249,74 @@ describe("Bot stream start notification", () => {
     expect(saved.summaryMessageId).toBeUndefined();
     expect(saved.postedClipIds).toEqual([]);
   });
+
+  it("serializes live clip posting so concurrent triggers do not duplicate a clip", async () => {
+    const config = {
+      ...makeConfig(),
+      discordWebhookUrl: "https://discord.com/api/webhooks/123/token",
+    };
+    const bot = new Bot(config) as unknown as Bot & {
+      clipCacheStore: {
+        close: () => void;
+        listClipsCreatedBetween: ReturnType<typeof vi.fn>;
+      };
+      streamSummaryStateStore: {
+        save: (state: unknown) => void;
+        load: () => { postedClipIds: string[] } | null;
+      };
+      _postNewStreamClipsToSummaryThread: (now?: Date) => Promise<void>;
+    };
+    activeBot = bot;
+    bot.streamSummaryStateStore.save({
+      status: "active",
+      streamId: "stream-1",
+      title: "配信タイトル",
+      gameName: "Just Chatting",
+      startedAt: "2026-06-16T09:00:00.000Z",
+      streamUrl: "https://www.twitch.tv/rukalun",
+      commentCount: 10,
+      raidCount: 0,
+      threadId: "thread-id",
+      postedClipIds: [],
+    });
+    bot.clipCacheStore.listClipsCreatedBetween = vi.fn().mockReturnValue([
+      {
+        id: "clip-a",
+        title: "Clip",
+        url: "https://www.twitch.tv/rukalun/clip/Clip",
+        creatorDisplayName: "viewer",
+        createdAt: "2026-06-16T09:30:00.000Z",
+        views: 1,
+      },
+    ]);
+
+    let resolveFirstPost: ((response: Response) => void) | null = null;
+    const firstPost = new Promise<Response>((resolve) => {
+      resolveFirstPost = resolve;
+    });
+    const fetchMock = vi
+      .fn()
+      .mockReturnValueOnce(firstPost)
+      .mockResolvedValue({ ok: true } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = bot._postNewStreamClipsToSummaryThread(
+      new Date("2026-06-16T09:30:12.000Z")
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const second = bot._postNewStreamClipsToSummaryThread(
+      new Date("2026-06-16T09:30:12.500Z")
+    );
+    await Promise.resolve();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolveFirstPost?.({ ok: true } as Response);
+    await Promise.all([first, second]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(bot.streamSummaryStateStore.load()?.postedClipIds).toEqual([
+      "clip-a",
+    ]);
+  });
 });

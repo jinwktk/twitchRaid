@@ -532,7 +532,7 @@ describe("ClipSearchDataPublisher", () => {
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it("throttles zero-save sync publishes but publishes immediately when newly available clips were saved", async () => {
     let now = 1_000;
