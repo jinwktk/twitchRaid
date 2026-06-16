@@ -182,6 +182,29 @@ describe("generateMentionChatReply", () => {
     expect(reply).toBe("画面にはゲーム画面が見えるよD！");
   });
 
+  it("uses a safe fallback for low-information match outcome replies", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "スコア100" }),
+    });
+
+    const reply = await generateMentionChatReply({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "gemma3:4b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "この試合かてる？",
+      streamImageBase64: "AQID",
+      fetchImpl,
+    });
+
+    expect(reply).toBe("画面だけだと断定できないけど、まだいけそうD！");
+  });
+
   it("returns null when disabled or missing model", async () => {
     const fetchImpl = vi.fn();
 

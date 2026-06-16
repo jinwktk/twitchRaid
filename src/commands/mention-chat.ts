@@ -28,6 +28,8 @@ const DEFAULT_OLLAMA_NUM_PREDICT = 80;
 const PROMPT_TEXT_LIMIT = 500;
 const LOG_TEXT_LIMIT = 160;
 const MENTION_NAME_CHAR_CLASS = "\\p{L}\\p{N}_";
+const MATCH_OUTCOME_FALLBACK_REPLY =
+  "画面だけだと断定できないけど、まだいけそうD！";
 
 const MENTION_CHAT_SYSTEM_PROMPT = [
   "あなたはTwitchチャットで短く返事する日本語アシスタントです。",
@@ -89,6 +91,17 @@ function isLowInformationReply(value: string): boolean {
   if (["え", "ん", "める", "はい", "うん"].includes(compact)) return true;
   if (/^(?:スコア)?\d+$/u.test(compact)) return true;
   return false;
+}
+
+function isMatchOutcomeQuestion(value: string): boolean {
+  return /試合|ラウンド|勝て|勝ち|かて|負け|スコア/u.test(value);
+}
+
+function isGenericMatchOutcomeReply(value: string): boolean {
+  const compact = value.replace(/[！!？?。、,.，\s]/g, "").trim();
+  return ["ゲームだ", "ゲームです", "ゲーム画面だ", "ゲーム画面です"].includes(
+    compact
+  );
 }
 
 export function formatMentionChatLogValue(value: string): string {
@@ -269,11 +282,27 @@ export async function generateMentionChatReply({
     }
 
     const reply = formatGeneratedMentionChatReply(body.response, maxResponseChars);
+    const matchOutcomeFallback =
+      trimmedImageBase64 && isMatchOutcomeQuestion(promptText)
+        ? MATCH_OUTCOME_FALLBACK_REPLY
+        : null;
     if (!reply) {
+      if (matchOutcomeFallback) {
+        logger.warn(
+          `⚠️ AIメンション会話は勝敗質問フォールバック: raw=${formatMentionChatLogValue(body.response)}, fallback=${formatMentionChatLogValue(matchOutcomeFallback)}`
+        );
+        return matchOutcomeFallback;
+      }
       logger.warn(
         `⚠️ AIメンション会話生成失敗: reason=policy_rejected, raw=${formatMentionChatLogValue(body.response)}`
       );
       return null;
+    }
+    if (matchOutcomeFallback && isGenericMatchOutcomeReply(reply)) {
+      logger.warn(
+        `⚠️ AIメンション会話は勝敗質問フォールバック: raw=${formatMentionChatLogValue(body.response)}, fallback=${formatMentionChatLogValue(matchOutcomeFallback)}`
+      );
+      return matchOutcomeFallback;
     }
     return reply;
   } catch (e) {
