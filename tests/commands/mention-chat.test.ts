@@ -158,7 +158,7 @@ describe("generateMentionChatReply", () => {
       maxResponseChars: 200,
       channel: "#rukalun",
       userName: "viewer",
-      promptText: "今なにしてる？",
+      promptText: "この試合かてる？",
       streamImageBase64: "AQID",
       fetchImpl,
     });
@@ -167,8 +167,9 @@ describe("generateMentionChatReply", () => {
     expect(body.model).toBe("qwen2.5vl:7b");
     expect(body.images).toEqual(["AQID"]);
     expect(body.system).toContain("画像から分かる内容");
-    expect(body.prompt).toContain("添付画像を見て、配信画面に見えるもの");
+    expect(body.prompt).toContain("ユーザーの質問に画像から分かる範囲");
     expect(body.prompt).toContain("ゲーム名");
+    expect(body.prompt).toContain("勝敗や今後の展開は断定しない");
     expect(body.prompt).toContain("聞き返し");
     expect(body.prompt).toContain("「え？」だけ");
     expect(reply).toBe("画面にはゲーム画面が見えるよD！");

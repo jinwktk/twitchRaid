@@ -88,7 +88,7 @@ export function formatMentionChatLogValue(value: string): string {
 }
 
 function isStreamImageQuestion(value: string): boolean {
-  return /配信画面|画面|見える|見えて|映って|写って|今なに|今何|何して|なにして|してる|している|ゲーム名|ゲーム|タイトル/u.test(
+  return /配信画面|画面|見える|見えて|映って|写って|今なに|今何|何して|なにして|してる|している|ゲーム名|ゲーム|タイトル|試合|ラウンド|勝て|勝ち|かて|負け|状況|スコア/u.test(
     value
   );
 }
@@ -120,9 +120,10 @@ function buildMentionChatPrompt(options: GenerateMentionChatReplyOptions): strin
   const promptText = shorten(singleLine(options.promptText) || "あいさつして", PROMPT_TEXT_LIMIT);
   if (options.streamImageBase64?.trim() && isStreamImageQuestion(promptText)) {
     return [
-      "添付画像を見て、配信画面に見えるものを日本語で一文だけ答えてください。",
-      "ゲーム名や大きな文字が分かれば具体名を入れてください。",
+      "添付画像を見て、ユーザーの質問に画像から分かる範囲で日本語一文だけ答えてください。",
+      "配信画面に見えるもの、ゲーム名、大きな文字、スコアなどが分かれば具体名を入れてください。",
       `ユーザーの質問: ${promptText}`,
+      "勝敗や今後の展開は断定しないでください。",
       "聞き返し、あいまいな相づち、画像を見ない返答、「え？」だけの返答は禁止です。",
       "完成したチャット返信だけを返してください。",
     ].join("\n");
