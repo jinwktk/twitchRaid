@@ -109,6 +109,21 @@ function removeMentionAliases(text: string, aliases: string[]): string {
 
 function buildMentionChatPrompt(options: GenerateMentionChatReplyOptions): string {
   const promptText = shorten(singleLine(options.promptText) || "あいさつして", PROMPT_TEXT_LIMIT);
+  if (options.streamImageBase64?.trim() && isStreamImageQuestion(promptText)) {
+    return [
+      "Twitchチャットで、配信画面について聞かれています。",
+      `チャンネル: ${options.channel}`,
+      `ユーザー名: ${options.userName}`,
+      `ユーザーの発言: ${promptText}`,
+      "添付画像を必ず見てから答えてください。",
+      "見える主要な要素を1つだけ、日本語の短文で具体的に答えてください。",
+      "ゲーム名、フェーズ表示、キャラクター、画面上の大きな文字が分かる場合は具体名を入れてください。",
+      "画像が真っ黒、未取得、不鮮明な時だけ「画面がよく見えないよD！」と答えてください。",
+      "聞き返し、あいまいな相づち、画像を見ない返答、「え？」だけの返答は禁止です。",
+      "完成したチャット返信だけを返してください。",
+    ].join("\n");
+  }
+
   const lines = [
     "TwitchチャットでBot宛てに届いたメンションへ、短く返事してください。",
     `チャンネル: ${options.channel}`,
@@ -120,12 +135,6 @@ function buildMentionChatPrompt(options: GenerateMentionChatReplyOptions): strin
       "配信画面画像: 現在のTwitchライブプレビュー画像を添付しています。ユーザーが配信画面について聞いた時だけ参照し、画像から分かる範囲だけ答えてください。",
       "画面質問の扱い: 発言が配信画面、見えるもの、今していること、今なにしてる、ゲーム名に関係する場合は、添付画像を見て主要な要素を1つだけ短く答えてください。画像が真っ黒、未取得、不鮮明な時だけ分からないと言ってください。"
     );
-    if (isStreamImageQuestion(promptText)) {
-      lines.push(
-        "今回の発言は画像質問です。添付画像を必ず確認し、見えるゲーム名、画面、人物など主要な要素を1つだけ具体的に答えてください。",
-        "聞き返し、あいまいな相づち、画像を見ない返答、「え？」だけの返答は禁止です。画像が真っ黒、未取得、不鮮明な時だけ「画面がよく見えないよD！」と答えてください。"
-      );
-    }
   } else {
     lines.push("配信画面画像: 添付なし。画面を見えているふりをしないでください。");
   }
