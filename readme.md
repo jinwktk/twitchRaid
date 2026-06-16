@@ -278,6 +278,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-16**: サブPC本番ログでAIメンション会話が `The operation was aborted due to timeout` になっていたため、`qwen3.5:9b` 用にサブPC `.env` の `CHAT_AI_TIMEOUT_MS` と `OLLAMA_SHOUTOUT_TIMEOUT_MS` を `30000` へ延長。`pm2 restart twitchRaid --update-env` 後、ビルド済みコードから `qwen3.5:9b` で日本語返信が返ることを確認
 - **2026-06-15**: Bot Token運用の配信終了まとめで、開始通知スレッドを保証できない場合に終了まとめとクリップURLを通常Webhookへ外出ししないよう修正。スレッド未作成時はpending stateを保持し、次回監視または `!streamnotify` 復旧後に再試行する
 - **2026-06-15**: AIメンション会話がサブPCの既存Ollama設定だけでは動かない問題を修正。`CHAT_AI_ENABLED` 未設定時は `OLLAMA_SHOUTOUT_ENABLED=true` かつ継承モデルがある場合だけ互換的に有効化し、モデルは `CHAT_AI_MODEL` → `OLLAMA_MODEL` → `OLLAMA_SHOUTOUT_MODEL` の順で解決するようにした。明示的な `CHAT_AI_ENABLED=false` / `0` は引き続き無効化を優先
 - **2026-06-15**: AIメンション検知を改善。半角 `@` だけでなく全角 `＠` のBot宛てメンションも検知し、`CHAT_AI_IGNORED_USERS` による自己ユーザー除外はINFOログへ出して運用中に原因を追えるようにした
