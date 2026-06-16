@@ -166,10 +166,9 @@ describe("generateMentionChatReply", () => {
     const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
     expect(body.model).toBe("qwen2.5vl:7b");
     expect(body.images).toEqual(["AQID"]);
-    expect(body.prompt).toContain("配信画面について聞かれています");
-    expect(body.prompt).toContain("添付画像を必ず見てから答えてください");
+    expect(body.system).toContain("画像から分かる内容");
+    expect(body.prompt).toContain("添付画像を見て、配信画面に見えるもの");
     expect(body.prompt).toContain("ゲーム名");
-    expect(body.prompt).toContain("画像が真っ黒");
     expect(body.prompt).toContain("聞き返し");
     expect(body.prompt).toContain("「え？」だけ");
     expect(reply).toBe("画面にはゲーム画面が見えるよD！");
