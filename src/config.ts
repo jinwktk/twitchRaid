@@ -18,6 +18,14 @@ const DEFAULT_CHAT_AI_BOT_ALIASES = ["にめいやボットくん", "nyme_ia2"];
 const DEFAULT_CHAT_AI_IGNORED_USERS = ["nyme_ia2"];
 const DEFAULT_CHAT_AI_MEMORY_MAX_ITEMS = 8;
 const DEFAULT_CHAT_AI_MEMORY_MAX_CHARS = 600;
+const DEFAULT_CHAT_AI_SEARCH_ENDPOINT = "https://api.duckduckgo.com/";
+const DEFAULT_CHAT_AI_SEARCH_TIMEOUT_MS = 2_500;
+const DEFAULT_CHAT_AI_SEARCH_MAX_QUERY_CHARS = 120;
+const DEFAULT_CHAT_AI_SEARCH_MAX_RESPONSE_BYTES = 65_536;
+const DEFAULT_CHAT_AI_SEARCH_MAX_RESULTS = 3;
+const DEFAULT_CHAT_AI_AUTO_LEARN_MAX_KEY_CHARS = 40;
+const DEFAULT_CHAT_AI_AUTO_LEARN_MAX_VALUE_CHARS = 120;
+const DEFAULT_CHAT_AI_AUTO_LEARN_MAX_ITEMS = 50;
 
 function parseEnabledFlag(raw: string): boolean {
   const normalized = raw.trim().toLowerCase();
@@ -94,6 +102,16 @@ export class Config {
   readonly chatAiMemoryPath: string;
   readonly chatAiMemoryMaxItems: number;
   readonly chatAiMemoryMaxChars: number;
+  readonly chatAiSearchEnabled: boolean;
+  readonly chatAiSearchEndpoint: string;
+  readonly chatAiSearchTimeoutMs: number;
+  readonly chatAiSearchMaxQueryChars: number;
+  readonly chatAiSearchMaxResponseBytes: number;
+  readonly chatAiSearchMaxResults: number;
+  readonly chatAiAutoLearnEnabled: boolean;
+  readonly chatAiAutoLearnMaxKeyChars: number;
+  readonly chatAiAutoLearnMaxValueChars: number;
+  readonly chatAiAutoLearnMaxItems: number;
   readonly clipSearchAutoPublishEnabled: boolean;
   readonly clipSearchDataPath: string;
   readonly clipSearchPublishRepoDir: string;
@@ -223,6 +241,43 @@ export class Config {
     this.chatAiMemoryMaxChars = parsePositiveInt(
       env["CHAT_AI_MEMORY_MAX_CHARS"],
       DEFAULT_CHAT_AI_MEMORY_MAX_CHARS
+    );
+    this.chatAiSearchEnabled = parseEnabledFlag(
+      env["CHAT_AI_SEARCH_ENABLED"] ?? "0"
+    );
+    this.chatAiSearchEndpoint =
+      env["CHAT_AI_SEARCH_ENDPOINT"]?.trim() ||
+      DEFAULT_CHAT_AI_SEARCH_ENDPOINT;
+    this.chatAiSearchTimeoutMs = parsePositiveInt(
+      env["CHAT_AI_SEARCH_TIMEOUT_MS"],
+      DEFAULT_CHAT_AI_SEARCH_TIMEOUT_MS
+    );
+    this.chatAiSearchMaxQueryChars = parsePositiveInt(
+      env["CHAT_AI_SEARCH_MAX_QUERY_CHARS"],
+      DEFAULT_CHAT_AI_SEARCH_MAX_QUERY_CHARS
+    );
+    this.chatAiSearchMaxResponseBytes = parsePositiveInt(
+      env["CHAT_AI_SEARCH_MAX_RESPONSE_BYTES"],
+      DEFAULT_CHAT_AI_SEARCH_MAX_RESPONSE_BYTES
+    );
+    this.chatAiSearchMaxResults = parsePositiveInt(
+      env["CHAT_AI_SEARCH_MAX_RESULTS"],
+      DEFAULT_CHAT_AI_SEARCH_MAX_RESULTS
+    );
+    this.chatAiAutoLearnEnabled = parseEnabledFlag(
+      env["CHAT_AI_AUTO_LEARN_ENABLED"] ?? "0"
+    );
+    this.chatAiAutoLearnMaxKeyChars = parsePositiveInt(
+      env["CHAT_AI_AUTO_LEARN_MAX_KEY_CHARS"],
+      DEFAULT_CHAT_AI_AUTO_LEARN_MAX_KEY_CHARS
+    );
+    this.chatAiAutoLearnMaxValueChars = parsePositiveInt(
+      env["CHAT_AI_AUTO_LEARN_MAX_VALUE_CHARS"],
+      DEFAULT_CHAT_AI_AUTO_LEARN_MAX_VALUE_CHARS
+    );
+    this.chatAiAutoLearnMaxItems = parsePositiveInt(
+      env["CHAT_AI_AUTO_LEARN_MAX_ITEMS"],
+      DEFAULT_CHAT_AI_AUTO_LEARN_MAX_ITEMS
     );
     this.clipSearchAutoPublishEnabled = parseEnabledFlag(
       env["CLIP_SEARCH_AUTO_PUBLISH_ENABLED"] ?? "0"

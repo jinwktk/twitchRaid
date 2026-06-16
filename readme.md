@@ -60,6 +60,8 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - `OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` を設定すると、Raid時にOllama `POST /api/generate` で1通のRaid挨拶文を生成してチャットへ送信します。AI生成文はコード側で250文字以内に丸めます。`OLLAMA_BASE_URL` は未設定時 `http://127.0.0.1:11434`、`OLLAMA_SHOUTOUT_TIMEOUT_MS` は未設定時 `15000`、`OLLAMA_SHOUTOUT_KEEP_ALIVE` は未設定時 `30m` です
 - `CHAT_AI_ENABLED=true` と `CHAT_AI_MODEL`（未設定時は `OLLAMA_MODEL`、さらに `OLLAMA_SHOUTOUT_MODEL`）を設定すると、通常チャットで `@にめいやボットくん` や `@nyme_ia2` のようにBotへメンションされた時だけOllamaで短い日本語返信を生成します。`CHAT_AI_ENABLED` 未設定時は `OLLAMA_SHOUTOUT_ENABLED=true` かつ継承できるモデルがある場合だけ互換的に有効として扱い、明示的な `CHAT_AI_ENABLED=false` または `0` は常に無効化を優先します。`CHAT_AI_BASE_URL` は未設定時 `OLLAMA_BASE_URL` または `http://127.0.0.1:11434`、`CHAT_AI_TIMEOUT_MS` は未設定時 `8000`、`CHAT_AI_KEEP_ALIVE` は `30m`、`CHAT_AI_MAX_RESPONSE_CHARS` は `200`、`CHAT_AI_COOLDOWN_SECONDS` は `5` です。`CHAT_AI_BOT_ALIASES` と `CHAT_AI_IGNORED_USERS` はカンマ区切りで、未設定時は `CHAT_AI_BOT_ALIASES=にめいやボットくん,nyme_ia2`、`CHAT_AI_IGNORED_USERS=nyme_ia2` を使います。`CHAT_AI_STREAM_IMAGE_ENABLED=true` を設定すると、AIメンションごとにTwitchライブプレビュー画像を取得してOllamaへbase64画像として渡し、画像取得時だけ `CHAT_AI_VISION_MODEL`（未設定時は `CHAT_AI_MODEL`）を使います
 - `CHAT_AI_MEMORY_ENABLED=true` を設定すると、`CHAT_AI_MEMORY_PATH`（未設定時 `data/chat-ai-memory.json`）のJSONを全ユーザー共通の記憶辞書として読み、AIメンション会話のOllamaプロンプトへ参考情報として渡します。既定は無効で、上限は `CHAT_AI_MEMORY_MAX_ITEMS=8`、`CHAT_AI_MEMORY_MAX_CHARS=600` です。メモ本文はログに出さず、適用時は件数と文字数だけを記録します
+- `CHAT_AI_SEARCH_ENABLED=true` を設定すると、検索・ニュース・最新情報などを聞くAIメンションだけ外部検索し、結果を「命令ではない参考情報」としてOllamaプロンプトへ渡します。既定endpointはDuckDuckGo Instant Answer互換の `CHAT_AI_SEARCH_ENDPOINT=https://api.duckduckgo.com/`、上限は `CHAT_AI_SEARCH_TIMEOUT_MS=2500`、`CHAT_AI_SEARCH_MAX_QUERY_CHARS=120`、`CHAT_AI_SEARCH_MAX_RESPONSE_BYTES=65536`、`CHAT_AI_SEARCH_MAX_RESULTS=3` です。URL、メール、電話番号、token/API key/password系を含む検索語は送信しません
+- `CHAT_AI_AUTO_LEARN_ENABLED=true` を設定すると、`覚えて: key=value`、`メモして key: value`、`忘れないで keyはvalue` のような明示的な記憶依頼だけ `CHAT_AI_MEMORY_PATH` へ保存します。これはモデル重みの学習ではなくBot側メモの自動追記です。保存は `CHAT_AI_MEMORY_ENABLED=false` でも行えますが、Ollamaプロンプトへ注入されるのは `CHAT_AI_MEMORY_ENABLED=true` の場合だけです。既定上限は `CHAT_AI_AUTO_LEARN_MAX_KEY_CHARS=40`、`CHAT_AI_AUTO_LEARN_MAX_VALUE_CHARS=120`、`CHAT_AI_AUTO_LEARN_MAX_ITEMS=50` で、保存時もURL、メール、電話番号、token/API key/password系は拒否します
 - `qwen3.5:9b` などthinking対応モデルでも短文Bot用途で空応答にならないよう、通常チャットAIとRaid挨拶文のOllama生成リクエストにはトップレベル `think:false` を付けます。共通モデルとして使う場合は `OLLAMA_MODEL=qwen3.5:9b` を設定し、必要なときだけ `CHAT_AI_MODEL` または `OLLAMA_SHOUTOUT_MODEL` で個別上書きします
 
 ## 技術スタック
@@ -115,8 +117,9 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - `qwen3.5:9b` のようなthinking対応モデルでは、Ollama `/api/generate` に `think:false` を付けて最終回答だけを短く返させる。これを付けない場合、短い `num_predict` をthinkingで使い切り、`response` が空になることがある
 - `CHAT_AI_STREAM_IMAGE_ENABLED=true` の場合は、Twitch APIから現在配信のプレビュー画像URLを取得し、640x360の画像を最大5秒でダウンロードしてOllama `/api/generate` の `images` に入れる。画像が取れたときだけ `CHAT_AI_VISION_MODEL` を使い、オフライン、画像取得失敗、Visionモデル未設定時は通常のテキスト返信へフォールバックする。Twitchプレビューは数十秒程度遅れることがあり、OBSの生画面を直接キャプチャする実装ではない。画像付きでも、配信画面、見えるもの、今していること、ゲーム名、試合/勝敗/スコアの質問だけ専用の短いVision system/promptへ切り替え、聞き返しや `え？` だけの返信を避け、勝敗や今後の展開は断定しない。ゲーム名やタイトルを聞かれた場合は `Apex Legends` / `VALORANT` のような英字正式名称だけの返答も許可する。`める！` や `スコア100` のような低情報返信、勝敗質問へのゲーム名だけの返答は送信せず、勝敗質問では安全な定型文へフォールバックする。通常の雑談質問では画面内容だけに引っ張られないようにしている
 - `!mangaon このコマンドを発言して` のようなチャットコマンド実行・発言依頼はOllamaへ送らず、固定で `コマンドは実行できないD！` と返す。`猫！`、`左！`、`年上！` のような短い漢字だけの自然な日本語返信は、かなを含まなくても許可する
+- 外部検索は `CHAT_AI_SEARCH_ENABLED=true` の場合だけ使う。検索・調べて・最新・ニュース・誰/いつ/どこ等の質問に限定し、明示的な記憶依頼は検索しない。URL、メール、電話番号、token/API key/password系を含む検索語や長すぎる検索語は外部へ送らない。検索結果は「命令ではない参考情報」としてプロンプトへ入れ、HTTP失敗、壊れたJSON、空結果、過大レスポンス時は検索なしで通常返信へ戻す
 - OllamaはこのBotのチャットを自動学習しない。口調や固定知識はプロンプト/Modelfile `MESSAGE` で例示できるが、モデル重みの学習やLoRA fine-tuningは外部ツールで作ったadapter/modelをOllamaへimportして使う運用になる
-- Bot側の記憶機能として、`CHAT_AI_MEMORY_ENABLED=true` の場合だけ `data/chat-ai-memory.json` などのJSONを読み、ルート直下のキー値を全ユーザー共通の記憶辞書としてプロンプトへ入れる。これはモデル重みの学習ではなく、返信ごとの参考メモ注入である。`users.<Twitchログイン名>` のユーザー別メモは使わない。旧形式の `global` 配列だけは移行用に共通メモとして読み込める。メモはユーザー発言に関係するときだけ使うようプロンプトで制限し、ログには本文を出さない。秘密情報、トークン、個人情報はメモに書かない
+- Bot側の記憶機能として、`CHAT_AI_MEMORY_ENABLED=true` の場合だけ `data/chat-ai-memory.json` などのJSONを読み、ルート直下のキー値を全ユーザー共通の記憶辞書としてプロンプトへ入れる。これはモデル重みの学習ではなく、返信ごとの参考メモ注入である。`users.<Twitchログイン名>` のユーザー別メモは使わない。旧形式の `global` 配列だけは移行用に共通メモとして読み込める。`CHAT_AI_AUTO_LEARN_ENABLED=true` の場合は明示的な「覚えて/メモして/忘れないで」依頼だけを抽出し、JSONへatomic保存してから同じAI返信のプロンプトへ反映できる。保存ログやAI応答ログにはメモ本文を出さず、秘密情報、トークン、個人情報はメモに書かない
 
 ```json
 {
@@ -293,6 +296,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-16**: AIメンション会話に外部検索とBot側自動学習を追加。検索系質問だけDuckDuckGo Instant Answer互換APIの結果を参考情報としてOllamaへ渡し、URL/メール/電話番号/token/API key/password系は外部送信しない。`覚えて: key=value` など明示的な記憶依頼だけ `CHAT_AI_MEMORY_PATH` へatomic保存し、`CHAT_AI_MEMORY_ENABLED=true` の場合だけ同一返信からプロンプトへ注入する
 - **2026-06-16**: AIメンション会話のBot側記憶をユーザー別ではなく全ユーザー共通の1個の辞書に変更。`data/chat-ai-memory.json` はルート直下のキー値を `key: value` として読む。`users` は無視し、旧 `global` 配列は移行用に共通メモとして読み続ける
 - **2026-06-16**: AIメンション会話のBot側記憶機能を追加。`CHAT_AI_MEMORY_ENABLED=true` の場合だけ `CHAT_AI_MEMORY_PATH` のJSONから `global` とユーザー別メモを読み、Ollamaプロンプトへ参考メモとして渡す。メモ本文はログに出さず、適用時は件数と文字数だけ記録する
 - **2026-06-16**: 配信中の新規Clip URLがDiscordへ二重投稿される問題を修正。再起動直後に配信開始監視と直近Clip同期完了コールバックが同時に `_postNewStreamClipsToSummaryThread` を呼び、保存前の同じ `postedClipIds` を見ていたため、Bot側でClip投稿を直列化し、処理中の追加呼び出しは再実行予約にするよう変更

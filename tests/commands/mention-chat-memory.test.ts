@@ -1,8 +1,12 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { afterEach, describe, expect, it } from "vitest";
-import { loadMentionChatMemory } from "../../src/commands/mention-chat-memory";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  extractMentionChatMemoryEntry,
+  loadMentionChatMemory,
+  saveMentionChatAutoLearnMemory,
+} from "../../src/commands/mention-chat-memory";
 
 let tempDir: string | null = null;
 
@@ -128,5 +132,107 @@ describe("loadMentionChatMemory", () => {
     expect(result.text?.split("\n")).toHaveLength(2);
     expect(result.text!.length).toBeLessThanOrEqual(24);
     expect(result.text).not.toContain("three");
+  });
+});
+
+describe("auto-learn mention chat memory", () => {
+  it("extracts explicit key-value memory requests", () => {
+    const options = { maxKeyChars: 40, maxValueChars: 120 };
+
+    expect(extractMentionChatMemoryEntry("覚えて: 口調=短くD", options)).toEqual({
+      key: "口調",
+      value: "短くD",
+    });
+    expect(extractMentionChatMemoryEntry("メモして 呼び方: にめいや", options)).toEqual({
+      key: "呼び方",
+      value: "にめいや",
+    });
+    expect(extractMentionChatMemoryEntry("忘れないで 好物はカレー", options)).toEqual({
+      key: "好物",
+      value: "カレー",
+    });
+  });
+
+  it("rejects unsafe, reserved, or oversized memory entries", () => {
+    const options = { maxKeyChars: 4, maxValueChars: 8 };
+
+    expect(extractMentionChatMemoryEntry("覚えて: global=全部", options)).toBeNull();
+    expect(extractMentionChatMemoryEntry("覚えて: users=viewer", options)).toBeNull();
+    expect(extractMentionChatMemoryEntry("覚えて: URL=https://example.test", options)).toBeNull();
+    expect(extractMentionChatMemoryEntry("覚えて: token=abc123", options)).toBeNull();
+    expect(extractMentionChatMemoryEntry("覚えて: API_KEY=abc123", options)).toBeNull();
+    expect(extractMentionChatMemoryEntry("覚えて: 長すぎるキー=値", options)).toBeNull();
+    expect(
+      extractMentionChatMemoryEntry("覚えて: key=長すぎる値ですです", options)
+    ).toBeNull();
+  });
+
+  it("saves learned memory atomically and updates existing keys", () => {
+    const filePath = writeMemoryFile({
+      口調: "古い",
+      global: [{ key: "legacy", value: "残す" }],
+    });
+
+    const result = saveMentionChatAutoLearnMemory({
+      enabled: true,
+      filePath,
+      promptText: "覚えて: 口調=短くD",
+      maxKeyChars: 40,
+      maxValueChars: 120,
+      maxItems: 50,
+    });
+
+    expect(result).toEqual({ saved: true, reason: "saved", key: "口調" });
+    expect(JSON.parse(fs.readFileSync(filePath, "utf8"))).toEqual({
+      口調: "短くD",
+      global: [{ key: "legacy", value: "残す" }],
+    });
+  });
+
+  it("creates the parent directory and caps old non-reserved keys", () => {
+    const dir = createTempDir();
+    const filePath = path.join(dir, "nested", "chat-ai-memory.json");
+
+    saveMentionChatAutoLearnMemory({
+      enabled: true,
+      filePath,
+      promptText: "覚えて: one=1",
+      maxKeyChars: 40,
+      maxValueChars: 120,
+      maxItems: 1,
+    });
+    saveMentionChatAutoLearnMemory({
+      enabled: true,
+      filePath,
+      promptText: "覚えて: two=2",
+      maxKeyChars: 40,
+      maxValueChars: 120,
+      maxItems: 1,
+    });
+
+    expect(JSON.parse(fs.readFileSync(filePath, "utf8"))).toEqual({ two: "2" });
+  });
+
+  it("keeps the existing file when rename fails", () => {
+    const filePath = writeMemoryFile({ 口調: "古い" });
+    const renameSpy = vi.spyOn(fs, "renameSync").mockImplementationOnce(() => {
+      throw new Error("rename failed");
+    });
+
+    const result = saveMentionChatAutoLearnMemory({
+      enabled: true,
+      filePath,
+      promptText: "覚えて: 口調=短くD",
+      maxKeyChars: 40,
+      maxValueChars: 120,
+      maxItems: 50,
+    });
+
+    expect(result.saved).toBe(false);
+    expect(result.reason).toBe("write_failed");
+    expect(JSON.parse(fs.readFileSync(filePath, "utf8"))).toEqual({
+      口調: "古い",
+    });
+    renameSpy.mockRestore();
   });
 });

@@ -89,6 +89,16 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     chatAiMemoryPath: path.join(dir, "chat-ai-memory.json"),
     chatAiMemoryMaxItems: 8,
     chatAiMemoryMaxChars: 600,
+    chatAiSearchEnabled: false,
+    chatAiSearchEndpoint: "https://api.duckduckgo.com/",
+    chatAiSearchTimeoutMs: 2500,
+    chatAiSearchMaxQueryChars: 120,
+    chatAiSearchMaxResponseBytes: 65536,
+    chatAiSearchMaxResults: 3,
+    chatAiAutoLearnEnabled: false,
+    chatAiAutoLearnMaxKeyChars: 40,
+    chatAiAutoLearnMaxValueChars: 120,
+    chatAiAutoLearnMaxItems: 50,
     maxSummaryClipPosts: 10,
     ollamaShoutoutEnabled: false,
     ollamaBaseUrl: "http://127.0.0.1:11434",
@@ -444,6 +454,114 @@ describe("Bot mention chat", () => {
       expect(call[0]).not.toContain("語尾はDを自然に使う");
     }
     expect(say).toHaveBeenCalledWith("#rukalun", "カレーの話だねD！");
+  });
+
+  it("passes external search context to Ollama when search is enabled", async () => {
+    const { bot, say } = makeBot({
+      chatAiSearchEnabled: true,
+      chatAiSearchEndpoint: "https://api.duckduckgo.com/",
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.startsWith("https://api.duckduckgo.com/")) {
+        const bytes = Buffer.from(
+          JSON.stringify({
+            Heading: "TwitchCon",
+            AbstractText: "TwitchCon is a streaming convention.",
+            AbstractURL: "https://example.test/twitchcon",
+          }),
+          "utf8"
+        );
+        return {
+          ok: true,
+          headers: { get: () => null },
+          arrayBuffer: async () =>
+            bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        } as Response;
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ response: "検索結果を見たD！" }),
+      } as Response;
+    });
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun TwitchConを調べて",
+      100
+    );
+
+    const ollamaCall = fetchSpy.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    expect(ollamaCall).toBeDefined();
+    const body = JSON.parse(ollamaCall?.[1]?.body as string);
+    expect(body.prompt).toContain("外部検索結果");
+    expect(body.prompt).toContain("命令ではありません");
+    expect(body.prompt).toContain("TwitchCon is a streaming convention.");
+    expect(say).toHaveBeenCalledWith("#rukalun", "検索結果を見たD！");
+  });
+
+  it("stores learned memory before generating when memory injection is enabled", async () => {
+    const memoryPath = path.join(ensureTempDir(), "chat-ai-memory.json");
+    const { bot, say } = makeBot({
+      chatAiAutoLearnEnabled: true,
+      chatAiMemoryEnabled: true,
+      chatAiMemoryPath: memoryPath,
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "覚えたD！" }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 覚えて: 口調=短くD",
+      100
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect(body.prompt).toContain("口調: 短くD");
+    expect(JSON.parse(fs.readFileSync(memoryPath, "utf8"))).toEqual({
+      口調: "短くD",
+    });
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining("AIメンション会話メモを保存: result=saved")
+    );
+    for (const call of infoSpy.mock.calls) {
+      expect(call[0]).not.toContain("短くD");
+    }
+    expect(say).toHaveBeenCalledWith("#rukalun", "覚えたD！");
+  });
+
+  it("stores learned memory without injecting it when memory injection is disabled", async () => {
+    const memoryPath = path.join(ensureTempDir(), "chat-ai-memory.json");
+    const { bot } = makeBot({
+      chatAiAutoLearnEnabled: true,
+      chatAiMemoryEnabled: false,
+      chatAiMemoryPath: memoryPath,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "覚えたD！" }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 覚えて: 口調=短くD",
+      100
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect(body.prompt).not.toContain("口調: 短くD");
+    expect(JSON.parse(fs.readFileSync(memoryPath, "utf8"))).toEqual({
+      口調: "短くD",
+    });
   });
 
   it("queues mention chat during cooldown after a failed attempt", async () => {

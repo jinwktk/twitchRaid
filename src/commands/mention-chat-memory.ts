@@ -1,4 +1,5 @@
 import fs from "fs";
+import path from "path";
 
 export interface MentionChatMemoryResult {
   text: string | null;
@@ -15,11 +16,48 @@ export interface LoadMentionChatMemoryOptions {
 
 type MemoryRecord = Record<string, unknown>;
 
+export interface MentionChatMemoryEntry {
+  key: string;
+  value: string;
+}
+
+export interface ExtractMentionChatMemoryEntryOptions {
+  maxKeyChars: number;
+  maxValueChars: number;
+}
+
+export interface SaveMentionChatAutoLearnMemoryOptions
+  extends ExtractMentionChatMemoryEntryOptions {
+  enabled: boolean;
+  filePath: string;
+  promptText: string;
+  maxItems: number;
+}
+
+export interface SaveMentionChatAutoLearnMemoryResult {
+  saved: boolean;
+  reason:
+    | "disabled"
+    | "not_memory_request"
+    | "invalid_file"
+    | "write_failed"
+    | "saved";
+  key?: string;
+}
+
 const EMPTY_MEMORY: MentionChatMemoryResult = {
   text: null,
   itemCount: 0,
   charCount: 0,
 };
+const RESERVED_MEMORY_KEYS = new Set(["global", "users"]);
+const MEMORY_REQUEST_PATTERN =
+  /(?:^|\s)(?:覚えて|メモして|忘れないで)[：:\s]*(.+)$/u;
+const URL_PATTERN = /(?:https?:\/\/|www\.)/iu;
+const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu;
+const PHONE_PATTERN = /(?:\+?\d[\d\s-]{8,}\d)/u;
+const SECRET_PATTERN =
+  /\b(?:token|secret|password|passwd|api[\s_-]?key|access[\s_-]?token|refresh[\s_-]?token)\b|認証|パスワード|秘密|環境変数/iu;
 
 function isRecord(value: unknown): value is MemoryRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -66,6 +104,19 @@ function truncate(value: string, maxChars: number): string {
   return `${value.slice(0, maxChars - 3).trimEnd()}...`;
 }
 
+function stripWrappingQuotes(value: string): string {
+  return value.replace(/^[`"'「『]+/, "").replace(/[`"'」』]+$/, "").trim();
+}
+
+function isUnsafeMemoryText(value: string): boolean {
+  return (
+    URL_PATTERN.test(value) ||
+    EMAIL_PATTERN.test(value) ||
+    PHONE_PATTERN.test(value) ||
+    SECRET_PATTERN.test(value)
+  );
+}
+
 function capLines(lines: string[], maxItems: number, maxChars: number): string[] {
   const capped: string[] = [];
   let usedChars = 0;
@@ -107,6 +158,116 @@ function dictionaryEntriesToLines(record: MemoryRecord): string[] {
   }
 
   return lines;
+}
+
+function splitMemoryKeyValue(body: string): MentionChatMemoryEntry | null {
+  for (const separator of ["=", "：", ":"]) {
+    const index = body.indexOf(separator);
+    if (index <= 0) continue;
+    return {
+      key: body.slice(0, index),
+      value: body.slice(index + separator.length),
+    };
+  }
+
+  const match = body.match(/^(.+?)は(.+)$/u);
+  if (!match) return null;
+  return { key: match[1], value: match[2] };
+}
+
+export function extractMentionChatMemoryEntry(
+  promptText: string,
+  { maxKeyChars, maxValueChars }: ExtractMentionChatMemoryEntryOptions
+): MentionChatMemoryEntry | null {
+  if (maxKeyChars <= 0 || maxValueChars <= 0) return null;
+
+  const requestMatch = singleLine(promptText).match(MEMORY_REQUEST_PATTERN);
+  if (!requestMatch) return null;
+
+  const parsed = splitMemoryKeyValue(requestMatch[1]);
+  if (!parsed) return null;
+
+  const key = stripWrappingQuotes(singleLine(parsed.key));
+  const value = stripWrappingQuotes(singleLine(parsed.value));
+  const normalizedKey = key.toLowerCase();
+  if (!key || !value) return null;
+  if (key.length > maxKeyChars || value.length > maxValueChars) return null;
+  if (RESERVED_MEMORY_KEYS.has(normalizedKey)) return null;
+  if (isUnsafeMemoryText(key) || isUnsafeMemoryText(value)) return null;
+
+  return { key, value };
+}
+
+function loadWritableMemoryRecord(filePath: string): MemoryRecord | null {
+  if (!fs.existsSync(filePath)) return {};
+
+  const parsed = JSON.parse(fs.readFileSync(filePath, "utf8")) as unknown;
+  return isRecord(parsed) ? parsed : null;
+}
+
+function capMemoryRecord(record: MemoryRecord, maxItems: number, keepKey: string): void {
+  if (maxItems <= 0) return;
+
+  let keys = Object.keys(record).filter(
+    (key) => !RESERVED_MEMORY_KEYS.has(key)
+  );
+  while (keys.length > maxItems) {
+    const deleteKey = keys.find((key) => key !== keepKey) ?? keys[0];
+    delete record[deleteKey];
+    keys = Object.keys(record).filter((key) => !RESERVED_MEMORY_KEYS.has(key));
+  }
+}
+
+function writeMemoryRecordAtomically(filePath: string, record: MemoryRecord): void {
+  const directory = path.dirname(filePath);
+  fs.mkdirSync(directory, { recursive: true });
+  const tempPath = path.join(
+    directory,
+    `${path.basename(filePath)}.${process.pid}.${Date.now()}.${Math.random()
+      .toString(36)
+      .slice(2)}.tmp`
+  );
+
+  try {
+    fs.writeFileSync(tempPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    fs.renameSync(tempPath, filePath);
+  } catch (error) {
+    try {
+      fs.rmSync(tempPath, { force: true });
+    } catch {
+      // Best effort cleanup only.
+    }
+    throw error;
+  }
+}
+
+export function saveMentionChatAutoLearnMemory({
+  enabled,
+  filePath,
+  promptText,
+  maxKeyChars,
+  maxValueChars,
+  maxItems,
+}: SaveMentionChatAutoLearnMemoryOptions): SaveMentionChatAutoLearnMemoryResult {
+  if (!enabled || !filePath.trim()) return { saved: false, reason: "disabled" };
+
+  const entry = extractMentionChatMemoryEntry(promptText, {
+    maxKeyChars,
+    maxValueChars,
+  });
+  if (!entry) return { saved: false, reason: "not_memory_request" };
+
+  try {
+    const record = loadWritableMemoryRecord(filePath);
+    if (!record) return { saved: false, reason: "invalid_file" };
+
+    record[entry.key] = entry.value;
+    capMemoryRecord(record, maxItems, entry.key);
+    writeMemoryRecordAtomically(filePath, record);
+    return { saved: true, reason: "saved", key: entry.key };
+  } catch {
+    return { saved: false, reason: "write_failed" };
+  }
 }
 
 export function loadMentionChatMemory({

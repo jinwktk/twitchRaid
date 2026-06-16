@@ -129,6 +129,16 @@ CHAT_AI_MEMORY_ENABLED=true
 CHAT_AI_MEMORY_PATH=data/custom-chat-ai-memory.json
 CHAT_AI_MEMORY_MAX_ITEMS=12
 CHAT_AI_MEMORY_MAX_CHARS=900
+CHAT_AI_SEARCH_ENABLED=true
+CHAT_AI_SEARCH_ENDPOINT=https://search.example.test/
+CHAT_AI_SEARCH_TIMEOUT_MS=1500
+CHAT_AI_SEARCH_MAX_QUERY_CHARS=90
+CHAT_AI_SEARCH_MAX_RESPONSE_BYTES=32768
+CHAT_AI_SEARCH_MAX_RESULTS=2
+CHAT_AI_AUTO_LEARN_ENABLED=true
+CHAT_AI_AUTO_LEARN_MAX_KEY_CHARS=24
+CHAT_AI_AUTO_LEARN_MAX_VALUE_CHARS=80
+CHAT_AI_AUTO_LEARN_MAX_ITEMS=30
 `);
 
     const config = new Config(envPath);
@@ -150,6 +160,16 @@ CHAT_AI_MEMORY_MAX_CHARS=900
     );
     expect(config.chatAiMemoryMaxItems).toBe(12);
     expect(config.chatAiMemoryMaxChars).toBe(900);
+    expect(config.chatAiSearchEnabled).toBe(true);
+    expect(config.chatAiSearchEndpoint).toBe("https://search.example.test/");
+    expect(config.chatAiSearchTimeoutMs).toBe(1500);
+    expect(config.chatAiSearchMaxQueryChars).toBe(90);
+    expect(config.chatAiSearchMaxResponseBytes).toBe(32768);
+    expect(config.chatAiSearchMaxResults).toBe(2);
+    expect(config.chatAiAutoLearnEnabled).toBe(true);
+    expect(config.chatAiAutoLearnMaxKeyChars).toBe(24);
+    expect(config.chatAiAutoLearnMaxValueChars).toBe(80);
+    expect(config.chatAiAutoLearnMaxItems).toBe(30);
   });
 
   it("keeps chat AI disabled by default", () => {
@@ -182,6 +202,16 @@ OLLAMA_MODEL=qwen2.5:7b
     );
     expect(config.chatAiMemoryMaxItems).toBe(8);
     expect(config.chatAiMemoryMaxChars).toBe(600);
+    expect(config.chatAiSearchEnabled).toBe(false);
+    expect(config.chatAiSearchEndpoint).toBe("https://api.duckduckgo.com/");
+    expect(config.chatAiSearchTimeoutMs).toBe(2500);
+    expect(config.chatAiSearchMaxQueryChars).toBe(120);
+    expect(config.chatAiSearchMaxResponseBytes).toBe(65536);
+    expect(config.chatAiSearchMaxResults).toBe(3);
+    expect(config.chatAiAutoLearnEnabled).toBe(false);
+    expect(config.chatAiAutoLearnMaxKeyChars).toBe(40);
+    expect(config.chatAiAutoLearnMaxValueChars).toBe(120);
+    expect(config.chatAiAutoLearnMaxItems).toBe(50);
   });
 
   it("falls back to shoutout Ollama settings for chat AI when chat AI toggle is unset", () => {

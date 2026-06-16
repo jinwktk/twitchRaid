@@ -61,7 +61,11 @@ import {
   formatMentionChatLogValue,
   generateMentionChatReply,
 } from "./commands/mention-chat";
-import { loadMentionChatMemory } from "./commands/mention-chat-memory";
+import {
+  loadMentionChatMemory,
+  saveMentionChatAutoLearnMemory,
+} from "./commands/mention-chat-memory";
+import { fetchMentionChatSearchContext } from "./commands/mention-chat-search";
 import {
   isStreamNotifyAdmin,
   sendManualStreamNotification,
@@ -100,6 +104,7 @@ const MENTION_CHAT_STREAM_IMAGE_HEIGHT = 360;
 const MENTION_CHAT_STREAM_IMAGE_TIMEOUT_MS = 5_000;
 const HELP_MESSAGE =
   "!使えるコマンド: 基本 !help / !age / !goods / !site / !x / !game / !weight / !height / !mood / !menu | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
+const MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE = "[memory-request]";
 
 function formatSkippedMentionPrompt(prompt: string): string {
   const singleLine = prompt.replace(/\s+/g, " ").trim() || "内容なし";
@@ -116,6 +121,10 @@ function formatMentionChatCooldownReply(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isMentionChatMemoryRequest(prompt: string): boolean {
+  return /(?:覚えて|メモして|忘れないで)/u.test(prompt);
 }
 
 interface MentionChatRequest {
@@ -481,6 +490,24 @@ export class Bot {
     this.mentionChatInFlight = true;
     try {
       const streamImageBase64 = await this._fetchMentionChatStreamImageBase64();
+      const learnResult = saveMentionChatAutoLearnMemory({
+        enabled: this.config.chatAiAutoLearnEnabled ?? false,
+        filePath: this.config.chatAiMemoryPath ?? "",
+        promptText: request.prompt,
+        maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
+        maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
+        maxItems: this.config.chatAiAutoLearnMaxItems ?? 50,
+      });
+      if (learnResult.saved) {
+        logger.info("AIメンション会話メモを保存: result=saved");
+      } else if (
+        (this.config.chatAiAutoLearnEnabled ?? false) &&
+        learnResult.reason !== "not_memory_request"
+      ) {
+        logger.info(
+          `AIメンション会話メモ保存をスキップ: reason=${learnResult.reason}`
+        );
+      }
       const memory = loadMentionChatMemory({
         enabled: this.config.chatAiMemoryEnabled ?? false,
         filePath: this.config.chatAiMemoryPath ?? "",
@@ -490,6 +517,21 @@ export class Bot {
       if (memory.text) {
         logger.info(
           `AIメンション会話メモを適用: items=${memory.itemCount}, chars=${memory.charCount}`
+        );
+      }
+      const searchContext = await fetchMentionChatSearchContext({
+        enabled: this.config.chatAiSearchEnabled ?? false,
+        endpoint:
+          this.config.chatAiSearchEndpoint ?? "https://api.duckduckgo.com/",
+        queryText: request.prompt,
+        timeoutMs: this.config.chatAiSearchTimeoutMs ?? 2_500,
+        maxQueryChars: this.config.chatAiSearchMaxQueryChars ?? 120,
+        maxResponseBytes: this.config.chatAiSearchMaxResponseBytes ?? 65_536,
+        maxResults: this.config.chatAiSearchMaxResults ?? 3,
+      });
+      if (searchContext) {
+        logger.info(
+          `AIメンション会話外部検索を適用: results=${searchContext.resultCount}`
         );
       }
       const model =
@@ -507,6 +549,7 @@ export class Bot {
         userName: request.userName,
         promptText: request.prompt,
         memoryText: memory.text,
+        searchContextText: searchContext?.text,
         streamImageBase64,
       });
 
@@ -517,8 +560,13 @@ export class Bot {
         return;
       }
 
+      const promptLogValue =
+        (this.config.chatAiAutoLearnEnabled ?? false) &&
+        isMentionChatMemoryRequest(request.prompt)
+          ? MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE
+          : request.prompt;
       logger.info(
-        `AIメンション会話応答: user=${request.userName}, alias=${request.alias}, model=${model}, image=${Boolean(streamImageBase64)}, prompt=${formatMentionChatLogValue(request.prompt)}, reply=${formatMentionChatLogValue(reply)}`
+        `AIメンション会話応答: user=${request.userName}, alias=${request.alias}, model=${model}, image=${Boolean(streamImageBase64)}, prompt=${formatMentionChatLogValue(promptLogValue)}, reply=${formatMentionChatLogValue(reply)}`
       );
       await this.chatClient.say(request.channel, reply);
       logger.info(
