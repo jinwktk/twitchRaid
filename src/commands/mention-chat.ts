@@ -83,6 +83,14 @@ function includesJapaneseKana(value: string): boolean {
   return /[\u3040-\u30ff]/.test(value);
 }
 
+function isLowInformationReply(value: string): boolean {
+  const compact = value.replace(/[！!？?。、,.，\s]/g, "").trim();
+  if (!compact) return true;
+  if (["え", "ん", "める", "はい", "うん"].includes(compact)) return true;
+  if (/^(?:スコア)?\d+$/u.test(compact)) return true;
+  return false;
+}
+
 export function formatMentionChatLogValue(value: string): string {
   return JSON.stringify(shorten(singleLine(value), LOG_TEXT_LIMIT));
 }
@@ -124,6 +132,7 @@ function buildMentionChatPrompt(options: GenerateMentionChatReplyOptions): strin
       "配信画面に見えるもの、ゲーム名、大きな文字、スコアなどが分かれば具体名を入れてください。",
       `ユーザーの質問: ${promptText}`,
       "勝敗や今後の展開は断定しないでください。",
+      "数字や単語だけの返答は禁止です。短い文章で答えてください。",
       "聞き返し、あいまいな相づち、画像を見ない返答、「え？」だけの返答は禁止です。",
       "完成したチャット返信だけを返してください。",
     ].join("\n");
@@ -183,6 +192,7 @@ export function formatGeneratedMentionChatReply(
   );
   if (!normalized) return null;
   if (!includesJapaneseKana(normalized)) return null;
+  if (isLowInformationReply(normalized)) return null;
   return shorten(normalized, maxResponseChars);
 }
 

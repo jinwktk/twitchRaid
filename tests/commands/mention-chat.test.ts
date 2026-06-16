@@ -92,6 +92,12 @@ describe("formatGeneratedMentionChatReply", () => {
       "今日はいい感じD！"
     );
   });
+
+  it("rejects low-information generated replies", () => {
+    expect(formatGeneratedMentionChatReply("める！", 200)).toBeNull();
+    expect(formatGeneratedMentionChatReply("え？", 200)).toBeNull();
+    expect(formatGeneratedMentionChatReply("スコア100", 200)).toBeNull();
+  });
 });
 
 describe("generateMentionChatReply", () => {
@@ -170,6 +176,7 @@ describe("generateMentionChatReply", () => {
     expect(body.prompt).toContain("ユーザーの質問に画像から分かる範囲");
     expect(body.prompt).toContain("ゲーム名");
     expect(body.prompt).toContain("勝敗や今後の展開は断定しない");
+    expect(body.prompt).toContain("数字や単語だけの返答は禁止");
     expect(body.prompt).toContain("聞き返し");
     expect(body.prompt).toContain("「え？」だけ");
     expect(reply).toBe("画面にはゲーム画面が見えるよD！");
