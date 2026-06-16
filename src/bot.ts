@@ -432,15 +432,30 @@ export class Bot {
       prompt: match.prompt,
     };
 
-    if (this.mentionChatInFlight || this.mentionChatQueueDraining) {
+    const cooldownRemainingSeconds =
+      this._getMentionChatCooldownRemainingSeconds(now);
+    if (
+      this.mentionChatInFlight ||
+      this.mentionChatQueueDraining ||
+      cooldownRemainingSeconds > 0
+    ) {
       const queuePosition = this.mentionChatQueue.push(request);
+      let queueReason = `cooldown_remaining=${cooldownRemainingSeconds}s`;
+      if (this.mentionChatInFlight) {
+        queueReason = "in_flight";
+      } else if (this.mentionChatQueueDraining) {
+        queueReason = "queue_draining";
+      }
       logger.info(
-        `AIメンション会話をキュー登録: position=${queuePosition}, user=${normalizedUser}, alias=${match.alias}`
+        `AIメンション会話をキュー登録: position=${queuePosition}, reason=${queueReason}, user=${normalizedUser}, alias=${match.alias}`
       );
       await this.chatClient.say(
         channel,
         formatMentionChatQueuedReply(match.prompt, queuePosition)
       );
+      if (!this.mentionChatInFlight && !this.mentionChatQueueDraining) {
+        void this._drainMentionChatQueue();
+      }
       return;
     }
 
@@ -455,18 +470,13 @@ export class Bot {
     now: number,
     options: { respectCooldown: boolean }
   ): Promise<void> {
-    const cooldownSeconds =
-      this.config.chatAiCooldownSeconds ?? DEFAULT_MENTION_CHAT_COOLDOWN_SECONDS;
-    if (
-      options.respectCooldown &&
-      this.lastMentionChatAttemptAt > 0 &&
-      now - this.lastMentionChatAttemptAt < cooldownSeconds
-    ) {
+    const remainingSeconds = this._getMentionChatCooldownRemainingSeconds(now);
+    if (options.respectCooldown && remainingSeconds > 0) {
+      const cooldownSeconds =
+        this.config.chatAiCooldownSeconds ??
+        DEFAULT_MENTION_CHAT_COOLDOWN_SECONDS;
       logger.info(
         `AIメンション会話をスキップ: cooldown=${cooldownSeconds}s, user=${request.userName}`
-      );
-      const remainingSeconds = Math.ceil(
-        cooldownSeconds - (now - this.lastMentionChatAttemptAt)
       );
       await this.chatClient.say(
         request.channel,
@@ -528,6 +538,17 @@ export class Bot {
     } finally {
       this.mentionChatInFlight = false;
     }
+  }
+
+  private _getMentionChatCooldownRemainingSeconds(now: number): number {
+    const cooldownSeconds =
+      this.config.chatAiCooldownSeconds ?? DEFAULT_MENTION_CHAT_COOLDOWN_SECONDS;
+    if (cooldownSeconds <= 0 || this.lastMentionChatAttemptAt <= 0) return 0;
+
+    return Math.max(
+      0,
+      Math.ceil(cooldownSeconds - (now - this.lastMentionChatAttemptAt))
+    );
   }
 
   private async _fetchMentionChatStreamImageBase64(): Promise<string | null> {

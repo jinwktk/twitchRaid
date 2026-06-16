@@ -129,6 +129,7 @@ function makeBot(overrides: Partial<Config> = {}): {
 afterEach(() => {
   activeBot?.clipCacheStore.close();
   activeBot = null;
+  vi.useRealTimers();
   vi.restoreAllMocks();
 
   if (tmpDir) {
@@ -445,7 +446,9 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "カレーの話だねD！");
   });
 
-  it("skips mention chat during cooldown after a failed attempt", async () => {
+  it("queues mention chat during cooldown after a failed attempt", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
     const { bot, say } = makeBot();
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
@@ -459,12 +462,16 @@ describe("Bot mention chat", () => {
       } as Response);
 
     await bot._handleRegularMessage("#rukalun", "viewer1", "@rukalun こんにちは", 100);
+    vi.setSystemTime(103_000);
     await bot._handleRegularMessage("#rukalun", "viewer2", "@rukalun もう一回", 103);
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "AI返信はクールダウン中です（残り2秒）: もう一回"
+      "AI返信の順番待ちに入れました（1番目）: もう一回"
     );
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    expect(say).toHaveBeenCalledWith("#rukalun", "二回目D！");
   });
 });
