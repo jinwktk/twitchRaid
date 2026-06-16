@@ -125,6 +125,10 @@ CHAT_AI_COOLDOWN_SECONDS=30
 CHAT_AI_IGNORED_USERS=＠RukalunBot,nightbot
 CHAT_AI_STREAM_IMAGE_ENABLED=true
 CHAT_AI_VISION_MODEL=qwen2.5vl:7b
+CHAT_AI_MEMORY_ENABLED=true
+CHAT_AI_MEMORY_PATH=data/custom-chat-ai-memory.json
+CHAT_AI_MEMORY_MAX_ITEMS=12
+CHAT_AI_MEMORY_MAX_CHARS=900
 `);
 
     const config = new Config(envPath);
@@ -140,6 +144,12 @@ CHAT_AI_VISION_MODEL=qwen2.5vl:7b
     expect(config.chatAiIgnoredUsers).toEqual(["rukalunbot", "nightbot"]);
     expect(config.chatAiStreamImageEnabled).toBe(true);
     expect(config.chatAiVisionModel).toBe("qwen2.5vl:7b");
+    expect(config.chatAiMemoryEnabled).toBe(true);
+    expect(config.chatAiMemoryPath).toBe(
+      path.resolve("data/custom-chat-ai-memory.json")
+    );
+    expect(config.chatAiMemoryMaxItems).toBe(12);
+    expect(config.chatAiMemoryMaxChars).toBe(900);
   });
 
   it("keeps chat AI disabled by default", () => {
@@ -166,6 +176,12 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiIgnoredUsers).toEqual(["nyme_ia2"]);
     expect(config.chatAiStreamImageEnabled).toBe(false);
     expect(config.chatAiVisionModel).toBe("qwen2.5:7b");
+    expect(config.chatAiMemoryEnabled).toBe(false);
+    expect(config.chatAiMemoryPath).toBe(
+      path.resolve("data/chat-ai-memory.json")
+    );
+    expect(config.chatAiMemoryMaxItems).toBe(8);
+    expect(config.chatAiMemoryMaxChars).toBe(600);
   });
 
   it("falls back to shoutout Ollama settings for chat AI when chat AI toggle is unset", () => {

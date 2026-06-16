@@ -32,10 +32,17 @@ type MentionChatTestBot = Bot & {
 
 let activeBot: MentionChatTestBot | null = null;
 
+function ensureTempDir(): string {
+  if (!tmpDir) {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "twitch-raid-mention-"));
+  }
+  return tmpDir;
+}
+
 function makeConfig(overrides: Partial<Config> = {}): Config {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "twitch-raid-mention-"));
+  const dir = ensureTempDir();
   return {
-    envFile: path.join(tmpDir, ".env"),
+    envFile: path.join(dir, ".env"),
     loginChannel: "rukalun",
     commandPrefix: "!",
     twitchClientId: "client-id",
@@ -53,15 +60,15 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     lastMyclipTime: 0,
     lastStreamTitle: "",
     restartInterval: 0,
-    restartFile: path.join(tmpDir, "last_restart.txt"),
+    restartFile: path.join(dir, "last_restart.txt"),
     updateCheckInterval: 0,
     restartCheckInterval: 0,
-    clipCacheDbPath: path.join(tmpDir, "clips.sqlite"),
+    clipCacheDbPath: path.join(dir, "clips.sqlite"),
     clipRecentWindowMinutes: 360,
-    streamSummaryStatePath: path.join(tmpDir, "stream-summary-state.json"),
+    streamSummaryStatePath: path.join(dir, "stream-summary-state.json"),
     clipSearchAutoPublishEnabled: false,
-    clipSearchDataPath: path.join(tmpDir, "clip-search-data.json"),
-    clipSearchPublishRepoDir: tmpDir,
+    clipSearchDataPath: path.join(dir, "clip-search-data.json"),
+    clipSearchPublishRepoDir: dir,
     clipSearchPublishMinIntervalMs: 300_000,
     clipSearchPublishRemote: "origin",
     clipSearchPublishBranch: "main",
@@ -78,6 +85,10 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     chatAiIgnoredUsers: ["rukalun"],
     chatAiStreamImageEnabled: false,
     chatAiVisionModel: "qwen2.5vl:7b",
+    chatAiMemoryEnabled: false,
+    chatAiMemoryPath: path.join(dir, "chat-ai-memory.json"),
+    chatAiMemoryMaxItems: 8,
+    chatAiMemoryMaxChars: 600,
     maxSummaryClipPosts: 10,
     ollamaShoutoutEnabled: false,
     ollamaBaseUrl: "http://127.0.0.1:11434",
@@ -388,6 +399,50 @@ describe("Bot mention chat", () => {
     expect(body.model).toBe("qwen2.5vl:7b");
     expect(body.images).toEqual(["AQID"]);
     expect(say).toHaveBeenCalledWith("#rukalun", "画面も見たよD！");
+  });
+
+  it("passes configured mention memory to Ollama without logging memory text", async () => {
+    const memoryPath = path.join(ensureTempDir(), "chat-ai-memory.json");
+    fs.writeFileSync(
+      memoryPath,
+      JSON.stringify({
+        global: [{ key: "口調", value: "語尾はDを自然に使う" }],
+        users: {
+          viewer: [{ key: "好物", value: "カレー" }],
+        },
+      }),
+      "utf8"
+    );
+    const { bot, say } = makeBot({
+      chatAiMemoryEnabled: true,
+      chatAiMemoryPath: memoryPath,
+      chatAiMemoryMaxItems: 8,
+      chatAiMemoryMaxChars: 600,
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "カレーの話だねD！" }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 好きな食べ物なんだっけ？",
+      100
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect(body.prompt).toContain("口調: 語尾はDを自然に使う");
+    expect(body.prompt).toContain("好物: カレー");
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining("AIメンション会話メモを適用: user=viewer, items=2")
+    );
+    for (const call of infoSpy.mock.calls) {
+      expect(call[0]).not.toContain("好物: カレー");
+      expect(call[0]).not.toContain("語尾はDを自然に使う");
+    }
+    expect(say).toHaveBeenCalledWith("#rukalun", "カレーの話だねD！");
   });
 
   it("skips mention chat during cooldown after a failed attempt", async () => {

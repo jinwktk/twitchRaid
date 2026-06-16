@@ -155,6 +155,37 @@ describe("generateMentionChatReply", () => {
     expect(reply).toBe("こんにちはD！配信たのしんでいってね！");
   });
 
+  it("adds mention chat memory to the Ollama prompt when provided", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response: "カレーの話も覚えてるD！",
+      }),
+    });
+
+    const reply = await generateMentionChatReply({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5:7b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "好きな食べ物なんだっけ？",
+      memoryText: ["bot-tone: 語尾はD", "好物: カレー"].join("\n"),
+      fetchImpl,
+    });
+
+    const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
+    expect(body.prompt).toContain("参考メモ");
+    expect(body.prompt).toContain("bot-tone: 語尾はD");
+    expect(body.prompt).toContain("好物: カレー");
+    expect(body.prompt).toContain("関係するときだけ");
+    expect(body.system).not.toContain("好物: カレー");
+    expect(reply).toBe("カレーの話も覚えてるD！");
+  });
+
   it("passes a stream image to Ollama when provided", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
