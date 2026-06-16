@@ -134,6 +134,7 @@ afterEach(() => {
 describe("Bot mention chat", () => {
   it("replies to a non-command bot mention when chat AI is enabled", async () => {
     const { bot, say } = makeBot();
+    const infoSpy = vi.spyOn(logger, "info");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
       json: async () => ({ response: "こんにちはD！" }),
@@ -148,6 +149,15 @@ describe("Bot mention chat", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(say).toHaveBeenCalledWith("#rukalun", "こんにちはD！");
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('AIメンション会話応答: user=viewer, alias=rukalun')
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('prompt="こんにちは"')
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('reply="こんにちはD！"')
+    );
   });
 
   it("replies to a full-width at-mark bot mention", async () => {

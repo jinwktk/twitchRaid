@@ -110,9 +110,9 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 ## AIメンション会話
 - `CHAT_AI_ENABLED=true`、または `CHAT_AI_ENABLED` 未設定かつ `OLLAMA_SHOUTOUT_ENABLED=true` で継承モデルがあるときだけ、通常チャット内の `@にめいやボットくん` / `@nyme_ia2` など `CHAT_AI_BOT_ALIASES` に一致するBot宛てメンションへAI返信する。未設定時の反応名は `にめいやボットくん` と `nyme_ia2` で、`@るっかるん` は明示的に `CHAT_AI_BOT_ALIASES` へ入れない限り反応しない。`CHAT_AI_ENABLED=false` / `0` は常に無効化を優先する。`!help @にめいやボットくん` のようなコマンド本文は従来どおりコマンドとして扱い、AIは介入しない
 - 返信はOllama `POST /api/generate` で生成し、単一行・日本語かな必須・最大 `CHAT_AI_MAX_RESPONSE_CHARS` 文字へ整形する。先頭 `!`、引用符、絵文字、改行は除去または抑止する
-- Bot自身や `CHAT_AI_IGNORED_USERS` の発言には返信しない。除外ユーザーのBot宛てメンションは `AIメンション会話をスキップ: ignored_user=...` とINFOログへ残る。Ollama処理中の追加メンションは `AI返信の順番待ちに入れました（...番目）: ...` とチャットへ返して内部キューへ積み、現在の返信後に順番に生成する。クールダウン中の単発メンションは従来どおりスキップし、チャットへ残り秒数と対象文を短く返す。返信生成を試みた時点から `CHAT_AI_COOLDOWN_SECONDS` のクールダウンをかける。Ollama失敗、HTTPエラー、空応答、非日本語応答ではチャットへ何も返さず、`reason=http_error` / `invalid_response` / `policy_rejected` / `exception` のようにログだけ残す
+- Bot自身や `CHAT_AI_IGNORED_USERS` の発言には返信しない。除外ユーザーのBot宛てメンションは `AIメンション会話をスキップ: ignored_user=...` とINFOログへ残る。Ollama処理中の追加メンションは `AI返信の順番待ちに入れました（...番目）: ...` とチャットへ返して内部キューへ積み、現在の返信後に順番に生成する。クールダウン中の単発メンションは従来どおりスキップし、チャットへ残り秒数と対象文を短く返す。返信生成を試みた時点から `CHAT_AI_COOLDOWN_SECONDS` のクールダウンをかける。Ollama失敗、HTTPエラー、空応答、非日本語応答ではチャットへ何も返さず、`reason=http_error` / `invalid_response` / `policy_rejected` / `exception` のようにログだけ残す。送信するAI返信は `AIメンション会話応答: user=... model=... image=... prompt="..." reply="..."` としてINFOログへ短縮出力し、`policy_rejected` ではOllamaのraw返却値も短くWARNログへ残す
 - `qwen3.5:9b` のようなthinking対応モデルでは、Ollama `/api/generate` に `think:false` を付けて最終回答だけを短く返させる。これを付けない場合、短い `num_predict` をthinkingで使い切り、`response` が空になることがある
-- `CHAT_AI_STREAM_IMAGE_ENABLED=true` の場合は、Twitch APIから現在配信のプレビュー画像URLを取得し、640x360の画像を最大5秒でダウンロードしてOllama `/api/generate` の `images` に入れる。画像が取れたときだけ `CHAT_AI_VISION_MODEL` を使い、オフライン、画像取得失敗、Visionモデル未設定時は通常のテキスト返信へフォールバックする。Twitchプレビューは数十秒程度遅れることがあり、OBSの生画面を直接キャプチャする実装ではない
+- `CHAT_AI_STREAM_IMAGE_ENABLED=true` の場合は、Twitch APIから現在配信のプレビュー画像URLを取得し、640x360の画像を最大5秒でダウンロードしてOllama `/api/generate` の `images` に入れる。画像が取れたときだけ `CHAT_AI_VISION_MODEL` を使い、オフライン、画像取得失敗、Visionモデル未設定時は通常のテキスト返信へフォールバックする。Twitchプレビューは数十秒程度遅れることがあり、OBSの生画面を直接キャプチャする実装ではない。画像付きでも、ユーザーが配信画面について聞いた時だけ画像を参照するようプロンプトで制御し、通常の雑談質問では画面内容だけに引っ張られないようにしている
 - OllamaはこのBotのチャットを自動学習しない。口調や固定知識はプロンプト/Modelfile `MESSAGE` で例示できるが、モデル重みの学習やLoRA fine-tuningは外部ツールで作ったadapter/modelをOllamaへimportして使う運用になる。配信中の短期記憶が必要な場合は、Bot側で会話履歴やユーザー別メモを保存してプロンプトへ渡す別機能として実装する
 - 現行の配信画像入力はTwitchプレビュー画像のみ。OBS画面の直接キャプチャ、画像保存、連続フレーム解析、画面内個人情報のマスクは未実装で、必要になった場合に別途設計する
 
@@ -280,6 +280,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-16**: AIメンション会話の診断用に、実際に送る返信を `AIメンション会話応答: user=... model=... image=... prompt="..." reply="..."` としてINFOログへ残すようにした。`policy_rejected` ではOllamaのraw返却値も短縮してWARNログへ出す。返信品質調整としてOllama temperatureを0.4へ下げ、画像付き時も画面質問の時だけ画像を参照するようプロンプトを調整
 - **2026-06-16**: AIメンション会話に配信画像送信を追加。`CHAT_AI_STREAM_IMAGE_ENABLED=true` のときTwitchライブプレビュー画像を取得し、OllamaのVision対応モデルへ `images` として渡す。画像取得時は `CHAT_AI_VISION_MODEL` を使い、取れない場合は通常テキストモデルへ戻す
 - **2026-06-16**: AIメンション会話でOllama処理中に追加メンションが来た場合、スキップせず `AI返信の順番待ち` としてキュー登録し、現在の返信後に順番に処理するよう変更。Ollamaは会話から自動学習せず、fine-tuned adapter/modelは外部学習後にimportする運用であることをREADMEへ明記
 - **2026-06-16**: AIメンション会話の既定反応名に `nyme_ia2` を追加。通常チャットで `@にめいやボットくん` だけでなく `@nyme_ia2` でも反応し、発言者が `nyme_ia2` の場合は従来どおり自己返信防止で無視する

@@ -131,7 +131,7 @@ describe("generateMentionChatReply", () => {
       think: false,
       keep_alive: "30m",
       options: {
-        temperature: 0.7,
+        temperature: 0.4,
         num_predict: 80,
       },
     });
@@ -167,6 +167,7 @@ describe("generateMentionChatReply", () => {
     expect(body.model).toBe("qwen2.5vl:7b");
     expect(body.images).toEqual(["AQID"]);
     expect(body.prompt).toContain("配信画面画像");
+    expect(body.prompt).toContain("ユーザーが配信画面について聞いた時だけ参照");
     expect(reply).toBe("画面にはゲーム画面が見えるよD！");
   });
 
@@ -260,7 +261,8 @@ describe("generateMentionChatReply", () => {
       "⚠️ AIメンション会話生成失敗: reason=invalid_response, responseType=number"
     );
     expect(warnSpy).toHaveBeenCalledWith(
-      "⚠️ AIメンション会話生成失敗: reason=policy_rejected"
+      expect.stringContaining("⚠️ AIメンション会話生成失敗: reason=policy_rejected")
     );
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('raw="Hello there"'));
   });
 });

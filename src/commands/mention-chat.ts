@@ -23,9 +23,10 @@ interface OllamaGenerateResponse {
   response?: unknown;
 }
 
-const DEFAULT_OLLAMA_TEMPERATURE = 0.7;
+const DEFAULT_OLLAMA_TEMPERATURE = 0.4;
 const DEFAULT_OLLAMA_NUM_PREDICT = 80;
 const PROMPT_TEXT_LIMIT = 500;
+const LOG_TEXT_LIMIT = 160;
 const MENTION_NAME_CHAR_CLASS = "\\p{L}\\p{N}_";
 
 const MENTION_CHAT_SYSTEM_PROMPT = [
@@ -73,6 +74,10 @@ function includesJapaneseKana(value: string): boolean {
   return /[\u3040-\u30ff]/.test(value);
 }
 
+export function formatMentionChatLogValue(value: string): string {
+  return JSON.stringify(shorten(singleLine(value), LOG_TEXT_LIMIT));
+}
+
 function buildOllamaGenerateUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/api/generate`;
 }
@@ -106,13 +111,13 @@ function buildMentionChatPrompt(options: GenerateMentionChatReplyOptions): strin
   ];
   if (options.streamImageBase64?.trim()) {
     lines.push(
-      "配信画面画像: 現在のTwitchライブプレビュー画像を添付しています。画像から分かる範囲だけ答えてください。"
+      "配信画面画像: 現在のTwitchライブプレビュー画像を添付しています。ユーザーが配信画面について聞いた時だけ参照し、画像から分かる範囲だけ答えてください。"
     );
   } else {
     lines.push("配信画面画像: 添付なし。画面を見えているふりをしないでください。");
   }
   lines.push(
-    "条件: 日本語、短文、事実だけ、内部情報や秘密は話さない、配信画面は入力画像から分かる範囲だけ答える。",
+    "条件: 日本語、短文、事実だけ、内部情報や秘密は話さない、通常の雑談質問では配信画面だけに引っ張られない、配信画面は入力画像から分かる範囲だけ答える。",
     "完成したチャット返信だけを返してください。"
   );
   return lines.join("\n");
@@ -224,7 +229,9 @@ export async function generateMentionChatReply({
 
     const reply = formatGeneratedMentionChatReply(body.response, maxResponseChars);
     if (!reply) {
-      logger.warn("⚠️ AIメンション会話生成失敗: reason=policy_rejected");
+      logger.warn(
+        `⚠️ AIメンション会話生成失敗: reason=policy_rejected, raw=${formatMentionChatLogValue(body.response)}`
+      );
       return null;
     }
     return reply;

@@ -58,6 +58,7 @@ import {
 } from "./commands/shoutout-introduction";
 import {
   extractMentionChatPrompt,
+  formatMentionChatLogValue,
   generateMentionChatReply,
 } from "./commands/mention-chat";
 import {
@@ -501,6 +502,9 @@ export class Bot {
         return;
       }
 
+      logger.info(
+        `AIメンション会話応答: user=${request.userName}, alias=${request.alias}, model=${model}, image=${Boolean(streamImageBase64)}, prompt=${formatMentionChatLogValue(request.prompt)}, reply=${formatMentionChatLogValue(reply)}`
+      );
       await this.chatClient.say(request.channel, reply);
       logger.info(
         `✅ AIメンション会話を送信: user=${request.userName}, alias=${request.alias}`
