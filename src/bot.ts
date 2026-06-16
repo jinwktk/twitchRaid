@@ -1216,6 +1216,9 @@ export class Bot {
         },
       });
       await this.chatClient.say(channel, message);
+      logger.info(
+        `✅ Raid挨拶文を送信: target=${info.userName}, viewerCount=${viewerCount}, message=${formatMentionChatLogValue(message)}`
+      );
     } catch (sendErr) {
       logger.error(`❌ Raid挨拶文の送信に失敗しました: ${sendErr}`);
     }

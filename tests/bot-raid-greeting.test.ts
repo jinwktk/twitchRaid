@@ -4,6 +4,7 @@ import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Config } from "../src/config";
 import { Bot } from "../src/bot";
+import logger from "../src/utils/logger";
 
 let tmpDir: string | null = null;
 
@@ -59,6 +60,8 @@ function makeConfig(): Config {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
+
   if (tmpDir) {
     fs.rmSync(tmpDir, {
       recursive: true,
@@ -72,6 +75,7 @@ afterEach(() => {
 
 describe("Bot raid greeting", () => {
   it("fetches raid info without sending chat and sends exactly one greeting", async () => {
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
     const bot = new Bot(makeConfig()) as unknown as {
       chatClient: { say: ReturnType<typeof vi.fn> };
       apiClient: {
@@ -104,6 +108,16 @@ describe("Bot raid greeting", () => {
     expect(bot.chatClient.say).toHaveBeenCalledWith(
       "#rukalun",
       "レイドありがとうD！！ @raiduser さんは、「Minecraft」で「たのしい建築配信」をしてたD！お疲れ様D！チャンネルはこD→https://www.twitch.tv/raiduser"
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '✅ Raid挨拶文を送信: target=raiduser, viewerCount=1, message="レイドありがとうD！！ @raiduser さんは、「Minecraft」で「たのしい建築配信」をしてたD！'
+      )
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'https://www.twitch.tv/raiduser"'
+      )
     );
   });
 });
