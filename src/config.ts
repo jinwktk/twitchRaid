@@ -86,6 +86,8 @@ export class Config {
   readonly chatAiBotAliases: string[];
   readonly chatAiCooldownSeconds: number;
   readonly chatAiIgnoredUsers: string[];
+  readonly chatAiStreamImageEnabled: boolean;
+  readonly chatAiVisionModel: string;
   readonly clipSearchAutoPublishEnabled: boolean;
   readonly clipSearchDataPath: string;
   readonly clipSearchPublishRepoDir: string;
@@ -196,6 +198,11 @@ export class Config {
       env["CHAT_AI_IGNORED_USERS"],
       DEFAULT_CHAT_AI_IGNORED_USERS
     );
+    this.chatAiStreamImageEnabled = parseEnabledFlag(
+      env["CHAT_AI_STREAM_IMAGE_ENABLED"] ?? "0"
+    );
+    this.chatAiVisionModel =
+      env["CHAT_AI_VISION_MODEL"]?.trim() || this.chatAiModel;
     this.clipSearchAutoPublishEnabled = parseEnabledFlag(
       env["CLIP_SEARCH_AUTO_PUBLISH_ENABLED"] ?? "0"
     );

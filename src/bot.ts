@@ -93,6 +93,9 @@ import { restartProcess } from "./utils/process-restart";
 const MANGA_DELETE_DELAY_SECONDS = 10;
 const DEFAULT_MENTION_CHAT_COOLDOWN_SECONDS = 5;
 const MENTION_CHAT_SKIP_PROMPT_LIMIT = 80;
+const MENTION_CHAT_STREAM_IMAGE_WIDTH = 640;
+const MENTION_CHAT_STREAM_IMAGE_HEIGHT = 360;
+const MENTION_CHAT_STREAM_IMAGE_TIMEOUT_MS = 5_000;
 const HELP_MESSAGE =
   "!使えるコマンド: 基本 !help / !age / !goods / !site / !x / !game / !weight / !height / !mood / !menu | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
 
@@ -102,8 +105,11 @@ function formatSkippedMentionPrompt(prompt: string): string {
   return `${singleLine.slice(0, MENTION_CHAT_SKIP_PROMPT_LIMIT - 3).trimEnd()}...`;
 }
 
-function formatMentionChatInFlightReply(prompt: string): string {
-  return `AI返信を考え中です。少し待ってね: ${formatSkippedMentionPrompt(prompt)}`;
+function formatMentionChatQueuedReply(
+  prompt: string,
+  queuePosition: number
+): string {
+  return `AI返信の順番待ちに入れました（${queuePosition}番目）: ${formatSkippedMentionPrompt(prompt)}`;
 }
 
 function formatMentionChatCooldownReply(
@@ -111,6 +117,22 @@ function formatMentionChatCooldownReply(
   remainingSeconds: number
 ): string {
   return `AI返信はクールダウン中です（残り${remainingSeconds}秒）: ${formatSkippedMentionPrompt(prompt)}`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+interface MentionChatRequest {
+  channel: string;
+  userName: string;
+  alias: string;
+  prompt: string;
+}
+
+interface StreamThumbnailSource {
+  getThumbnailUrl?: (width: number, height: number) => string;
+  thumbnailUrl?: string | null;
 }
 
 export class Bot {
@@ -138,6 +160,8 @@ export class Bot {
   private readonly clipSearchDataPublisher: ClipSearchDataPublisher | null;
   private clipCacheSynchronizer: ClipCacheSynchronizer | null = null;
   private mentionChatInFlight = false;
+  private mentionChatQueueDraining = false;
+  private readonly mentionChatQueue: MentionChatRequest[] = [];
   private lastMentionChatAttemptAt = 0;
 
   // Keep-alive timers
@@ -399,32 +423,52 @@ export class Bot {
       return;
     }
 
-    if (this.mentionChatInFlight) {
+    const request: MentionChatRequest = {
+      channel,
+      userName: normalizedUser,
+      alias: match.alias,
+      prompt: match.prompt,
+    };
+
+    if (this.mentionChatInFlight || this.mentionChatQueueDraining) {
+      const queuePosition = this.mentionChatQueue.push(request);
       logger.info(
-        `AIメンション会話をスキップ: in_flight=true, user=${normalizedUser}`
+        `AIメンション会話をキュー登録: position=${queuePosition}, user=${normalizedUser}, alias=${match.alias}`
       );
       await this.chatClient.say(
         channel,
-        formatMentionChatInFlightReply(match.prompt)
+        formatMentionChatQueuedReply(match.prompt, queuePosition)
       );
       return;
     }
 
+    await this._processMentionChatRequest(request, now, {
+      respectCooldown: true,
+    });
+    void this._drainMentionChatQueue();
+  }
+
+  private async _processMentionChatRequest(
+    request: MentionChatRequest,
+    now: number,
+    options: { respectCooldown: boolean }
+  ): Promise<void> {
     const cooldownSeconds =
       this.config.chatAiCooldownSeconds ?? DEFAULT_MENTION_CHAT_COOLDOWN_SECONDS;
     if (
+      options.respectCooldown &&
       this.lastMentionChatAttemptAt > 0 &&
       now - this.lastMentionChatAttemptAt < cooldownSeconds
     ) {
       logger.info(
-        `AIメンション会話をスキップ: cooldown=${cooldownSeconds}s, user=${normalizedUser}`
+        `AIメンション会話をスキップ: cooldown=${cooldownSeconds}s, user=${request.userName}`
       );
       const remainingSeconds = Math.ceil(
         cooldownSeconds - (now - this.lastMentionChatAttemptAt)
       );
       await this.chatClient.say(
-        channel,
-        formatMentionChatCooldownReply(match.prompt, remainingSeconds)
+        request.channel,
+        formatMentionChatCooldownReply(request.prompt, remainingSeconds)
       );
       return;
     }
@@ -432,33 +476,131 @@ export class Bot {
     this.lastMentionChatAttemptAt = now;
     this.mentionChatInFlight = true;
     try {
+      const streamImageBase64 = await this._fetchMentionChatStreamImageBase64();
+      const model =
+        streamImageBase64 && this.config.chatAiVisionModel
+          ? this.config.chatAiVisionModel
+          : this.config.chatAiModel ?? "";
       const reply = await generateMentionChatReply({
         enabled: true,
         baseUrl: this.config.chatAiBaseUrl ?? this.config.ollamaBaseUrl,
-        model: this.config.chatAiModel ?? "",
+        model,
         timeoutMs: this.config.chatAiTimeoutMs ?? 8_000,
         keepAlive: this.config.chatAiKeepAlive ?? "30m",
         maxResponseChars: this.config.chatAiMaxResponseChars ?? 200,
-        channel,
-        userName: normalizedUser,
-        promptText: match.prompt,
+        channel: request.channel,
+        userName: request.userName,
+        promptText: request.prompt,
+        streamImageBase64,
       });
 
       if (!reply) {
         logger.warn(
-          `⚠️ AIメンション会話は返信なし: user=${normalizedUser}, alias=${match.alias}`
+          `⚠️ AIメンション会話は返信なし: user=${request.userName}, alias=${request.alias}`
         );
         return;
       }
 
-      await this.chatClient.say(channel, reply);
+      await this.chatClient.say(request.channel, reply);
       logger.info(
-        `✅ AIメンション会話を送信: user=${normalizedUser}, alias=${match.alias}`
+        `✅ AIメンション会話を送信: user=${request.userName}, alias=${request.alias}`
       );
     } catch (e) {
       logger.error(`❌ AIメンション会話の送信に失敗しました: ${e}`);
     } finally {
       this.mentionChatInFlight = false;
+    }
+  }
+
+  private async _fetchMentionChatStreamImageBase64(): Promise<string | null> {
+    if (!(this.config.chatAiStreamImageEnabled ?? false)) return null;
+    if (!this.apiClient) return null;
+
+    try {
+      const stream = await this.apiClient.streams.getStreamByUserName(
+        this.config.loginChannel
+      );
+      if (!stream) return null;
+
+      const thumbnailUrl = this._resolveMentionChatStreamThumbnailUrl(stream);
+      if (!thumbnailUrl) return null;
+
+      const response = await fetch(thumbnailUrl, {
+        signal: AbortSignal.timeout(
+          Math.min(
+            this.config.chatAiTimeoutMs ?? MENTION_CHAT_STREAM_IMAGE_TIMEOUT_MS,
+            MENTION_CHAT_STREAM_IMAGE_TIMEOUT_MS
+          )
+        ),
+      });
+      if (!response.ok) {
+        logger.warn(
+          `⚠️ AIメンション会話の配信画像取得失敗: status=${response.status}`
+        );
+        return null;
+      }
+
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (bytes.length === 0) return null;
+
+      logger.info(
+        `AIメンション会話へ配信画像を添付: bytes=${bytes.length}`
+      );
+      return bytes.toString("base64");
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      logger.warn(
+        `⚠️ AIメンション会話の配信画像取得失敗: reason=exception, error=${message}`
+      );
+      return null;
+    }
+  }
+
+  private _resolveMentionChatStreamThumbnailUrl(
+    stream: StreamThumbnailSource
+  ): string | null {
+    if (typeof stream.getThumbnailUrl === "function") {
+      return stream.getThumbnailUrl(
+        MENTION_CHAT_STREAM_IMAGE_WIDTH,
+        MENTION_CHAT_STREAM_IMAGE_HEIGHT
+      );
+    }
+
+    const thumbnailUrl = stream.thumbnailUrl?.trim();
+    if (!thumbnailUrl) return null;
+    return thumbnailUrl
+      .replace("{width}", String(MENTION_CHAT_STREAM_IMAGE_WIDTH))
+      .replace("{height}", String(MENTION_CHAT_STREAM_IMAGE_HEIGHT));
+  }
+
+  private async _drainMentionChatQueue(): Promise<void> {
+    if (this.mentionChatQueueDraining) return;
+    this.mentionChatQueueDraining = true;
+
+    try {
+      while (this.mentionChatQueue.length > 0) {
+        const request = this.mentionChatQueue.shift();
+        if (!request) continue;
+
+        const cooldownSeconds =
+          this.config.chatAiCooldownSeconds ??
+          DEFAULT_MENTION_CHAT_COOLDOWN_SECONDS;
+        const now = Date.now() / 1000;
+        const remainingMs = Math.max(
+          0,
+          (cooldownSeconds - (now - this.lastMentionChatAttemptAt)) * 1000
+        );
+        if (remainingMs > 0) await sleep(remainingMs);
+
+        await this._processMentionChatRequest(request, Date.now() / 1000, {
+          respectCooldown: false,
+        });
+      }
+    } finally {
+      this.mentionChatQueueDraining = false;
+      if (this.mentionChatQueue.length > 0) {
+        void this._drainMentionChatQueue();
+      }
     }
   }
 

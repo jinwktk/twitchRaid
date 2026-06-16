@@ -143,6 +143,33 @@ describe("generateMentionChatReply", () => {
     expect(reply).toBe("こんにちはD！配信たのしんでいってね！");
   });
 
+  it("passes a stream image to Ollama when provided", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "画面にはゲーム画面が見えるよD！" }),
+    });
+
+    const reply = await generateMentionChatReply({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5vl:7b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "今なにしてる？",
+      streamImageBase64: "AQID",
+      fetchImpl,
+    });
+
+    const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
+    expect(body.model).toBe("qwen2.5vl:7b");
+    expect(body.images).toEqual(["AQID"]);
+    expect(body.prompt).toContain("配信画面画像");
+    expect(reply).toBe("画面にはゲーム画面が見えるよD！");
+  });
+
   it("returns null when disabled or missing model", async () => {
     const fetchImpl = vi.fn();
 

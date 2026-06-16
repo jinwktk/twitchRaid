@@ -10,6 +10,11 @@ let tmpDir: string | null = null;
 
 type MentionChatTestBot = Bot & {
   chatClient: { say: ReturnType<typeof vi.fn> };
+  apiClient: {
+    streams: {
+      getStreamByUserName: ReturnType<typeof vi.fn>;
+    };
+  };
   clipCacheStore: { close: () => void };
   _handleRegularMessage: (
     channel: string,
@@ -71,6 +76,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     chatAiBotAliases: ["rukalun"],
     chatAiCooldownSeconds: 5,
     chatAiIgnoredUsers: ["rukalun"],
+    chatAiStreamImageEnabled: false,
+    chatAiVisionModel: "qwen2.5vl:7b",
     maxSummaryClipPosts: 10,
     ollamaShoutoutEnabled: false,
     ollamaBaseUrl: "http://127.0.0.1:11434",
@@ -278,7 +285,7 @@ describe("Bot mention chat", () => {
     );
   });
 
-  it("skips mention chat while a request is already in flight", async () => {
+  it("queues mention chat while a request is already in flight", async () => {
     const { bot, say } = makeBot();
     let resolveFetch: ((value: Response) => void) | null = null;
     const firstFetch = new Promise<Response>((resolve) => {
@@ -289,7 +296,7 @@ describe("Bot mention chat", () => {
       .mockReturnValueOnce(firstFetch)
       .mockResolvedValue({
         ok: true,
-        json: async () => ({ response: "二回目D！" }),
+        json: async () => ({ response: "二回目だよD！" }),
       } as Response);
 
     const first = bot._handleRegularMessage(
@@ -310,14 +317,67 @@ describe("Bot mention chat", () => {
       json: async () => ({ response: "一回目だよD！" }),
     } as Response);
     await first;
-
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(say).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(say).toHaveBeenCalledTimes(3));
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "AI返信を考え中です。少し待ってね: もう一回"
+      "AI返信の順番待ちに入れました（1番目）: もう一回"
     );
     expect(say).toHaveBeenCalledWith("#rukalun", "一回目だよD！");
+    expect(say).toHaveBeenCalledWith("#rukalun", "二回目だよD！");
+  });
+
+  it("passes the current stream preview image to the vision model when enabled", async () => {
+    const { bot, say } = makeBot({
+      chatAiStreamImageEnabled: true,
+      chatAiVisionModel: "qwen2.5vl:7b",
+    });
+    bot.apiClient = {
+      streams: {
+        getStreamByUserName: vi.fn().mockResolvedValue({
+          getThumbnailUrl: vi.fn(
+            (width: number, height: number) =>
+              `https://static-cdn.jtvnw.net/previews-ttv/live_user_rukalun-${width}x${height}.jpg`
+          ),
+        }),
+      },
+    };
+    const imageBytes = new Uint8Array([1, 2, 3]);
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.startsWith("https://static-cdn.jtvnw.net/")) {
+          return {
+            ok: true,
+            arrayBuffer: async () => imageBytes.buffer,
+          } as Response;
+        }
+
+        return {
+          ok: true,
+          json: async () => ({ response: "画面も見たよD！" }),
+        } as Response;
+      });
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 今なにしてる？",
+      100
+    );
+
+    const ollamaCall = fetchSpy.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    expect(bot.apiClient.streams.getStreamByUserName).toHaveBeenCalledWith(
+      "rukalun"
+    );
+    expect(ollamaCall).toBeDefined();
+    const body = JSON.parse(ollamaCall?.[1]?.body as string);
+    expect(body.model).toBe("qwen2.5vl:7b");
+    expect(body.images).toEqual(["AQID"]);
+    expect(say).toHaveBeenCalledWith("#rukalun", "画面も見たよD！");
   });
 
   it("skips mention chat during cooldown after a failed attempt", async () => {
