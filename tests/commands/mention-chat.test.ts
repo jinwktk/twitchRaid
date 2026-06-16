@@ -168,6 +168,8 @@ describe("generateMentionChatReply", () => {
     expect(body.images).toEqual(["AQID"]);
     expect(body.prompt).toContain("配信画面画像");
     expect(body.prompt).toContain("ユーザーが配信画面について聞いた時だけ参照");
+    expect(body.prompt).toContain("今していること");
+    expect(body.prompt).toContain("画像が真っ黒");
     expect(reply).toBe("画面にはゲーム画面が見えるよD！");
   });
 
