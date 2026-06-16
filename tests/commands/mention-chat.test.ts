@@ -32,8 +32,8 @@ describe("extractMentionChatPrompt", () => {
     });
   });
 
-  it("detects the Nyme bot Japanese display alias", () => {
-    const aliases = ["にめいやボットくん"];
+  it("detects the Nyme bot aliases", () => {
+    const aliases = ["にめいやボットくん", "nyme_ia2"];
 
     expect(
       extractMentionChatPrompt("@にめいやボットくん なにしてるの？", aliases)
@@ -41,7 +41,10 @@ describe("extractMentionChatPrompt", () => {
       alias: "にめいやボットくん",
       prompt: "なにしてるの？",
     });
-    expect(extractMentionChatPrompt("@nyme_ia2 なにしてるの？", aliases)).toBeNull();
+    expect(extractMentionChatPrompt("@nyme_ia2 なにしてるの？", aliases)).toEqual({
+      alias: "nyme_ia2",
+      prompt: "なにしてるの？",
+    });
     expect(extractMentionChatPrompt("@るっかるん なにしてるの？", aliases)).toBeNull();
   });
 
@@ -51,6 +54,9 @@ describe("extractMentionChatPrompt", () => {
     ).toBeNull();
     expect(
       extractMentionChatPrompt("＠rukalun_bot2 こんにちは", ["rukalun_bot"])
+    ).toBeNull();
+    expect(
+      extractMentionChatPrompt("@nyme_ia2x こんにちは", ["nyme_ia2"])
     ).toBeNull();
     expect(
       extractMentionChatPrompt("@にめいやボットくんさん なにしてるの？", [

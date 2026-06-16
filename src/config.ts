@@ -14,7 +14,7 @@ const DEFAULT_CLIP_SEARCH_PUBLISH_REPO_DIR = path.resolve(
 const DEFAULT_CHAT_AI_TIMEOUT_MS = 8_000;
 const DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS = 200;
 const DEFAULT_CHAT_AI_COOLDOWN_SECONDS = 5;
-const DEFAULT_CHAT_AI_BOT_ALIASES = ["にめいやボットくん"];
+const DEFAULT_CHAT_AI_BOT_ALIASES = ["にめいやボットくん", "nyme_ia2"];
 const DEFAULT_CHAT_AI_IGNORED_USERS = ["nyme_ia2"];
 
 function parseEnabledFlag(raw: string): boolean {

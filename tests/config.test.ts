@@ -157,7 +157,7 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiTimeoutMs).toBe(8000);
     expect(config.chatAiKeepAlive).toBe("30m");
     expect(config.chatAiMaxResponseChars).toBe(200);
-    expect(config.chatAiBotAliases).toEqual(["にめいやボットくん"]);
+    expect(config.chatAiBotAliases).toEqual(["にめいやボットくん", "nyme_ia2"]);
     expect(config.chatAiCooldownSeconds).toBe(5);
     expect(config.chatAiIgnoredUsers).toEqual(["nyme_ia2"]);
   });

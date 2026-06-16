@@ -161,9 +161,9 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "全角でも見えてるよD！");
   });
 
-  it("replies only to the Nyme bot Japanese display alias", async () => {
+  it("replies to the Nyme bot display and login aliases", async () => {
     const { bot, say } = makeBot({
-      chatAiBotAliases: ["にめいやボットくん"],
+      chatAiBotAliases: ["にめいやボットくん", "nyme_ia2"],
       chatAiIgnoredUsers: ["nyme_ia2"],
     });
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
@@ -180,11 +180,18 @@ describe("Bot mention chat", () => {
     await bot._handleRegularMessage(
       "#rukalun",
       "nyme_ia",
+      "@nyme_ia2 なにしてるの？",
+      110
+    );
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "nyme_ia",
       "@るっかるん なにしてるの？",
       200
     );
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(say).toHaveBeenCalledTimes(2);
     expect(say).toHaveBeenCalledWith("#rukalun", "見てるよD！");
   });
 
