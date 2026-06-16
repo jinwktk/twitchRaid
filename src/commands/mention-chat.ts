@@ -30,6 +30,7 @@ const LOG_TEXT_LIMIT = 160;
 const MENTION_NAME_CHAR_CLASS = "\\p{L}\\p{N}_";
 const MATCH_OUTCOME_FALLBACK_REPLY =
   "画面だけだと断定できないけど、まだいけそうD！";
+const COMMAND_EXECUTION_REFUSAL_REPLY = "コマンドは実行できないD！";
 
 const MENTION_CHAT_SYSTEM_PROMPT = [
   "あなたはTwitchチャットで短く返事する日本語アシスタントです。",
@@ -81,8 +82,8 @@ function removeEmoji(value: string): string {
   return value.replace(/\p{Extended_Pictographic}/gu, "");
 }
 
-function includesJapaneseKana(value: string): boolean {
-  return /[\u3040-\u30ff]/.test(value);
+function includesJapaneseText(value: string): boolean {
+  return /[\u3040-\u30ff\u3400-\u9fff々〆ヵヶ]/.test(value);
 }
 
 function isLowInformationReply(value: string): boolean {
@@ -95,6 +96,13 @@ function isLowInformationReply(value: string): boolean {
 
 function isMatchOutcomeQuestion(value: string): boolean {
   return /試合|ラウンド|勝て|勝ち|かて|負け|スコア/u.test(value);
+}
+
+function isCommandExecutionRequest(value: string): boolean {
+  return (
+    /![\p{L}\p{N}_:-]+/u.test(value) &&
+    /実行|発言|送信|送って|打って|言って|唱えて|投稿|入力/u.test(value)
+  );
 }
 
 function isGenericMatchOutcomeReply(value: string): boolean {
@@ -205,7 +213,7 @@ export function formatGeneratedMentionChatReply(
     stripWrappingQuotes(singleLine(removeEmoji(generated)))
   );
   if (!normalized) return null;
-  if (!includesJapaneseKana(normalized)) return null;
+  if (!includesJapaneseText(normalized)) return null;
   if (isLowInformationReply(normalized)) return null;
   return shorten(normalized, maxResponseChars);
 }
@@ -225,6 +233,12 @@ export async function generateMentionChatReply({
 }: GenerateMentionChatReplyOptions): Promise<string | null> {
   const trimmedModel = model.trim();
   if (!enabled || !trimmedModel) return null;
+  if (isCommandExecutionRequest(promptText)) {
+    logger.warn(
+      `⚠️ AIメンション会話はコマンド実行依頼を拒否: prompt=${formatMentionChatLogValue(promptText)}, reply=${formatMentionChatLogValue(COMMAND_EXECUTION_REFUSAL_REPLY)}`
+    );
+    return COMMAND_EXECUTION_REFUSAL_REPLY;
+  }
   const trimmedImageBase64 = streamImageBase64?.trim();
   const isVisionQuestion =
     Boolean(trimmedImageBase64) && isStreamImageQuestion(promptText);
@@ -290,18 +304,18 @@ export async function generateMentionChatReply({
     if (!reply) {
       if (matchOutcomeFallback) {
         logger.warn(
-          `⚠️ AIメンション会話は勝敗質問フォールバック: raw=${formatMentionChatLogValue(body.response)}, fallback=${formatMentionChatLogValue(matchOutcomeFallback)}`
+          `⚠️ AIメンション会話は勝敗質問フォールバック: prompt=${formatMentionChatLogValue(promptText)}, raw=${formatMentionChatLogValue(body.response)}, fallback=${formatMentionChatLogValue(matchOutcomeFallback)}`
         );
         return matchOutcomeFallback;
       }
       logger.warn(
-        `⚠️ AIメンション会話生成失敗: reason=policy_rejected, raw=${formatMentionChatLogValue(body.response)}`
+        `⚠️ AIメンション会話生成失敗: reason=policy_rejected, prompt=${formatMentionChatLogValue(promptText)}, raw=${formatMentionChatLogValue(body.response)}`
       );
       return null;
     }
     if (matchOutcomeFallback && isGenericMatchOutcomeReply(reply)) {
       logger.warn(
-        `⚠️ AIメンション会話は勝敗質問フォールバック: raw=${formatMentionChatLogValue(body.response)}, fallback=${formatMentionChatLogValue(matchOutcomeFallback)}`
+        `⚠️ AIメンション会話は勝敗質問フォールバック: prompt=${formatMentionChatLogValue(promptText)}, raw=${formatMentionChatLogValue(body.response)}, fallback=${formatMentionChatLogValue(matchOutcomeFallback)}`
       );
       return matchOutcomeFallback;
     }

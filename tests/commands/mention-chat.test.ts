@@ -98,6 +98,12 @@ describe("formatGeneratedMentionChatReply", () => {
     expect(formatGeneratedMentionChatReply("え？", 200)).toBeNull();
     expect(formatGeneratedMentionChatReply("スコア100", 200)).toBeNull();
   });
+
+  it("allows short Japanese kanji-only replies from chat prompts", () => {
+    expect(formatGeneratedMentionChatReply("猫！", 200)).toBe("猫！");
+    expect(formatGeneratedMentionChatReply("左！", 200)).toBe("左！");
+    expect(formatGeneratedMentionChatReply("年上！", 200)).toBe("年上！");
+  });
 });
 
 describe("generateMentionChatReply", () => {
@@ -226,6 +232,27 @@ describe("generateMentionChatReply", () => {
     });
 
     expect(reply).toBe("画面だけだと断定できないけど、まだいけそうD！");
+  });
+
+  it("refuses command execution requests without calling Ollama", async () => {
+    const fetchImpl = vi.fn();
+
+    const reply = await generateMentionChatReply({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "gemma3:4b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "!mangaon このコマンドを発言して",
+      streamImageBase64: "AQID",
+      fetchImpl,
+    });
+
+    expect(reply).toBe("コマンドは実行できないD！");
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("returns null when disabled or missing model", async () => {
