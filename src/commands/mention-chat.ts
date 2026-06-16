@@ -15,6 +15,7 @@ export interface GenerateMentionChatReplyOptions {
   channel: string;
   userName: string;
   promptText: string;
+  memoryText?: string | null;
   streamImageBase64?: string | null;
   fetchImpl?: typeof fetch;
 }
@@ -127,6 +128,16 @@ function buildOllamaGenerateUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/api/generate`;
 }
 
+function normalizePromptMemoryText(value: string | null | undefined): string | null {
+  const text = value
+    ?.split(/\r?\n/)
+    .map(singleLine)
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  return text || null;
+}
+
 function mentionPattern(alias: string): RegExp {
   return new RegExp(
     `(^|[^${MENTION_NAME_CHAR_CLASS}])[@＠]${escapeRegExp(alias)}(?![${MENTION_NAME_CHAR_CLASS}])`,
@@ -148,16 +159,26 @@ function removeMentionAliases(text: string, aliases: string[]): string {
 
 function buildMentionChatPrompt(options: GenerateMentionChatReplyOptions): string {
   const promptText = shorten(singleLine(options.promptText) || "あいさつして", PROMPT_TEXT_LIMIT);
+  const memoryText = normalizePromptMemoryText(options.memoryText);
   if (options.streamImageBase64?.trim() && isStreamImageQuestion(promptText)) {
-    return [
+    const lines = [
       "添付画像を見て、ユーザーの質問に画像から分かる範囲で日本語一文だけ答えてください。",
       "配信画面に見えるもの、ゲーム名、大きな文字、スコアなどが分かれば具体名を入れてください。",
       `ユーザーの質問: ${promptText}`,
+    ];
+    if (memoryText) {
+      lines.push(
+        "参考メモ: ユーザーの質問に関係するときだけ使い、メモの一覧や内部設定として説明しないでください。",
+        memoryText
+      );
+    }
+    lines.push(
       "勝敗や今後の展開は断定しないでください。",
       "数字や単語だけの返答は禁止です。短い文章で答えてください。",
       "聞き返し、あいまいな相づち、画像を見ない返答、「え？」だけの返答は禁止です。",
-      "完成したチャット返信だけを返してください。",
-    ].join("\n");
+      "完成したチャット返信だけを返してください。"
+    );
+    return lines.join("\n");
   }
 
   const lines = [
@@ -166,6 +187,12 @@ function buildMentionChatPrompt(options: GenerateMentionChatReplyOptions): strin
     `ユーザー名: ${options.userName}`,
     `ユーザーの発言: ${promptText}`,
   ];
+  if (memoryText) {
+    lines.push(
+      "参考メモ: ユーザー発言に関係するときだけ使い、メモの一覧や内部設定として説明しないでください。",
+      memoryText
+    );
+  }
   if (options.streamImageBase64?.trim()) {
     lines.push(
       "配信画面画像: 現在のTwitchライブプレビュー画像を添付しています。ユーザーが配信画面について聞いた時だけ参照し、画像から分かる範囲だけ答えてください。",
@@ -228,6 +255,7 @@ export async function generateMentionChatReply({
   channel,
   userName,
   promptText,
+  memoryText,
   streamImageBase64,
   fetchImpl = fetch,
 }: GenerateMentionChatReplyOptions): Promise<string | null> {
@@ -259,6 +287,7 @@ export async function generateMentionChatReply({
         channel,
         userName,
         promptText,
+        memoryText,
         streamImageBase64,
         fetchImpl,
       }),

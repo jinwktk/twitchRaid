@@ -16,6 +16,8 @@ const DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS = 200;
 const DEFAULT_CHAT_AI_COOLDOWN_SECONDS = 5;
 const DEFAULT_CHAT_AI_BOT_ALIASES = ["にめいやボットくん", "nyme_ia2"];
 const DEFAULT_CHAT_AI_IGNORED_USERS = ["nyme_ia2"];
+const DEFAULT_CHAT_AI_MEMORY_MAX_ITEMS = 8;
+const DEFAULT_CHAT_AI_MEMORY_MAX_CHARS = 600;
 
 function parseEnabledFlag(raw: string): boolean {
   const normalized = raw.trim().toLowerCase();
@@ -88,6 +90,10 @@ export class Config {
   readonly chatAiIgnoredUsers: string[];
   readonly chatAiStreamImageEnabled: boolean;
   readonly chatAiVisionModel: string;
+  readonly chatAiMemoryEnabled: boolean;
+  readonly chatAiMemoryPath: string;
+  readonly chatAiMemoryMaxItems: number;
+  readonly chatAiMemoryMaxChars: number;
   readonly clipSearchAutoPublishEnabled: boolean;
   readonly clipSearchDataPath: string;
   readonly clipSearchPublishRepoDir: string;
@@ -203,6 +209,21 @@ export class Config {
     );
     this.chatAiVisionModel =
       env["CHAT_AI_VISION_MODEL"]?.trim() || this.chatAiModel;
+    this.chatAiMemoryEnabled = parseEnabledFlag(
+      env["CHAT_AI_MEMORY_ENABLED"] ?? "0"
+    );
+    this.chatAiMemoryPath = path.resolve(
+      BASE_DIR,
+      env["CHAT_AI_MEMORY_PATH"] ?? "data/chat-ai-memory.json"
+    );
+    this.chatAiMemoryMaxItems = parsePositiveInt(
+      env["CHAT_AI_MEMORY_MAX_ITEMS"],
+      DEFAULT_CHAT_AI_MEMORY_MAX_ITEMS
+    );
+    this.chatAiMemoryMaxChars = parsePositiveInt(
+      env["CHAT_AI_MEMORY_MAX_CHARS"],
+      DEFAULT_CHAT_AI_MEMORY_MAX_CHARS
+    );
     this.clipSearchAutoPublishEnabled = parseEnabledFlag(
       env["CLIP_SEARCH_AUTO_PUBLISH_ENABLED"] ?? "0"
     );

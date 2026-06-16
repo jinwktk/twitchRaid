@@ -87,7 +87,7 @@ describe("loadMentionChatMemory", () => {
         "呼び方: にめいやさん",
       ].join("\n"),
       itemCount: 3,
-      charCount: 51,
+      charCount: 45,
     });
   });
 

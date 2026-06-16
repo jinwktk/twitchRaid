@@ -61,6 +61,7 @@ import {
   formatMentionChatLogValue,
   generateMentionChatReply,
 } from "./commands/mention-chat";
+import { loadMentionChatMemory } from "./commands/mention-chat-memory";
 import {
   isStreamNotifyAdmin,
   sendManualStreamNotification,
@@ -478,6 +479,18 @@ export class Bot {
     this.mentionChatInFlight = true;
     try {
       const streamImageBase64 = await this._fetchMentionChatStreamImageBase64();
+      const memory = loadMentionChatMemory({
+        enabled: this.config.chatAiMemoryEnabled ?? false,
+        filePath: this.config.chatAiMemoryPath ?? "",
+        userName: request.userName,
+        maxItems: this.config.chatAiMemoryMaxItems ?? 8,
+        maxChars: this.config.chatAiMemoryMaxChars ?? 600,
+      });
+      if (memory.text) {
+        logger.info(
+          `AIメンション会話メモを適用: user=${request.userName}, items=${memory.itemCount}, chars=${memory.charCount}`
+        );
+      }
       const model =
         streamImageBase64 && this.config.chatAiVisionModel
           ? this.config.chatAiVisionModel
@@ -492,6 +505,7 @@ export class Bot {
         channel: request.channel,
         userName: request.userName,
         promptText: request.prompt,
+        memoryText: memory.text,
         streamImageBase64,
       });
 
