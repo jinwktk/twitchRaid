@@ -107,13 +107,6 @@ function formatSkippedMentionPrompt(prompt: string): string {
   return `${singleLine.slice(0, MENTION_CHAT_SKIP_PROMPT_LIMIT - 3).trimEnd()}...`;
 }
 
-function formatMentionChatQueuedReply(
-  prompt: string,
-  queuePosition: number
-): string {
-  return `AI返信の順番待ちに入れました（${queuePosition}番目）: ${formatSkippedMentionPrompt(prompt)}`;
-}
-
 function formatMentionChatCooldownReply(
   prompt: string,
   remainingSeconds: number
@@ -451,10 +444,6 @@ export class Bot {
       }
       logger.info(
         `AIメンション会話をキュー登録: position=${queuePosition}, reason=${queueReason}, user=${normalizedUser}, alias=${match.alias}`
-      );
-      await this.chatClient.say(
-        channel,
-        formatMentionChatQueuedReply(match.prompt, queuePosition)
       );
       if (!this.mentionChatInFlight && !this.mentionChatQueueDraining) {
         void this._drainMentionChatQueue();

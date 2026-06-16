@@ -213,10 +213,33 @@ describe("generateMentionChatReply", () => {
     expect(body.prompt).toContain("ユーザーの質問に画像から分かる範囲");
     expect(body.prompt).toContain("ゲーム名");
     expect(body.prompt).toContain("勝敗や今後の展開は断定しない");
-    expect(body.prompt).toContain("数字や単語だけの返答は禁止");
+    expect(body.prompt).toContain("ゲーム名やタイトルを聞かれた場合は正式名称だけでもよい");
     expect(body.prompt).toContain("聞き返し");
     expect(body.prompt).toContain("「え？」だけ");
     expect(reply).toBe("画面にはゲーム画面が見えるよD！");
+  });
+
+  it("allows English game titles for stream image game-name questions", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "Apex Legends" }),
+    });
+
+    const reply = await generateMentionChatReply({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5vl:7b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "この画面のゲームは何ですか？",
+      streamImageBase64: "AQID",
+      fetchImpl,
+    });
+
+    expect(reply).toBe("Apex Legends");
   });
 
   it("uses a safe fallback for low-information match outcome replies", async () => {

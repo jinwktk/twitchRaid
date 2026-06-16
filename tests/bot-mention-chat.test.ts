@@ -340,10 +340,10 @@ describe("Bot mention chat", () => {
     } as Response);
     await first;
     await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
-    await vi.waitFor(() => expect(say).toHaveBeenCalledTimes(3));
-    expect(say).toHaveBeenCalledWith(
+    await vi.waitFor(() => expect(say).toHaveBeenCalledTimes(2));
+    expect(say).not.toHaveBeenCalledWith(
       "#rukalun",
-      "AI返信の順番待ちに入れました（1番目）: もう一回"
+      expect.stringContaining("AI返信の順番待ち")
     );
     expect(say).toHaveBeenCalledWith("#rukalun", "一回目だよD！");
     expect(say).toHaveBeenCalledWith("#rukalun", "二回目だよD！");
@@ -466,9 +466,9 @@ describe("Bot mention chat", () => {
     await bot._handleRegularMessage("#rukalun", "viewer2", "@rukalun もう一回", 103);
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(say).toHaveBeenCalledWith(
+    expect(say).not.toHaveBeenCalledWith(
       "#rukalun",
-      "AI返信の順番待ちに入れました（1番目）: もう一回"
+      expect.stringContaining("AI返信の順番待ち")
     );
     await vi.advanceTimersByTimeAsync(2000);
     await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
