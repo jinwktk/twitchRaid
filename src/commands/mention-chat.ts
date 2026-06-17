@@ -99,9 +99,19 @@ function isMatchOutcomeQuestion(value: string): boolean {
 }
 
 function isCommandExecutionRequest(value: string): boolean {
-  return (
-    /![\p{L}\p{N}_:-]+/u.test(value) &&
-    /実行|発言|送信|送って|打って|言って|唱えて|投稿|入力/u.test(value)
+  if (!/![\p{L}\p{N}_:-]+/u.test(value)) return false;
+
+  const normalized = singleLine(value);
+  if (
+    /^["'「『\s]*![\p{L}\p{N}_:-]+["'」』\s]*[。.!！?？]*$/u.test(
+      normalized
+    )
+  ) {
+    return true;
+  }
+
+  return /実行|発言|送信|送って|打って|言って|いって|唱えて|投稿|入力|読み上げ|読んで|読む|かっこの中身|カッコの中身|ってして/u.test(
+    normalized
   );
 }
 
@@ -192,7 +202,7 @@ async function readHttpErrorDetail(response: Response): Promise<string> {
   }
 }
 
-function isStreamImageQuestion(value: string): boolean {
+export function isMentionChatStreamImageQuestion(value: string): boolean {
   return /配信画面|画面|見える|見えて|映って|写って|今なに|今何|何して|なにして|してる|している|ゲーム名|ゲーム|タイトル|試合|ラウンド|勝て|勝ち|かて|負け|状況|スコア/u.test(
     value
   );
@@ -245,7 +255,10 @@ function buildMentionChatPrompt(options: GenerateMentionChatReplyOptions): strin
   const promptText = shorten(singleLine(options.promptText) || "あいさつして", PROMPT_TEXT_LIMIT);
   const memoryText = normalizePromptMemoryText(options.memoryText);
   const searchContextText = normalizePromptContextText(options.searchContextText);
-  if (options.streamImageBase64?.trim() && isStreamImageQuestion(promptText)) {
+  if (
+    options.streamImageBase64?.trim() &&
+    isMentionChatStreamImageQuestion(promptText)
+  ) {
     const lines = [
       "添付画像を見て、ユーザーの質問に画像から分かる範囲で日本語一文だけ答えてください。",
       "配信画面に見えるもの、ゲーム名、大きな文字、スコアなどが分かれば具体名を入れてください。",
@@ -367,7 +380,8 @@ export async function generateMentionChatReply({
   }
   const trimmedImageBase64 = streamImageBase64?.trim();
   const isVisionQuestion =
-    Boolean(trimmedImageBase64) && isStreamImageQuestion(promptText);
+    Boolean(trimmedImageBase64) &&
+    isMentionChatStreamImageQuestion(promptText);
 
   try {
     const startedAt = Date.now();
@@ -388,7 +402,7 @@ export async function generateMentionChatReply({
         promptText,
         memoryText,
         searchContextText,
-        streamImageBase64,
+        streamImageBase64: isVisionQuestion ? trimmedImageBase64 : null,
         fetchImpl,
       }),
       stream: false,
@@ -399,7 +413,7 @@ export async function generateMentionChatReply({
         num_predict: DEFAULT_OLLAMA_NUM_PREDICT,
       },
     };
-    if (trimmedImageBase64) {
+    if (isVisionQuestion && trimmedImageBase64) {
       payload.images = [trimmedImageBase64];
     }
 

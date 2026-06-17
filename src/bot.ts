@@ -61,6 +61,7 @@ import {
   extractMentionChatPrompt,
   formatMentionChatLogValue,
   generateMentionChatReply,
+  isMentionChatStreamImageQuestion,
 } from "./commands/mention-chat";
 import {
   loadMentionChatMemory,
@@ -130,7 +131,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 function isMentionChatMemoryRequest(prompt: string): boolean {
-  return /(?:覚えて|メモして|忘れないで)/u.test(prompt);
+  return /(?:覚えて|記憶して|メモして|忘れないで)/u.test(prompt);
 }
 
 interface MentionChatRequest {
@@ -541,7 +542,10 @@ export class Bot {
     this.lastMentionChatAttemptAt = now;
     this.mentionChatInFlight = true;
     try {
-      const streamImageBase64 = await this._fetchMentionChatStreamImageBase64();
+      const shouldUseStreamImage = isMentionChatStreamImageQuestion(request.prompt);
+      const streamImageBase64 = shouldUseStreamImage
+        ? await this._fetchMentionChatStreamImageBase64()
+        : null;
       const learnResult = saveMentionChatAutoLearnMemory({
         enabled: this.config.chatAiAutoLearnEnabled ?? false,
         filePath: this.config.chatAiMemoryPath ?? "",
@@ -622,7 +626,7 @@ export class Bot {
         );
       }
       const model =
-        streamImageBase64 && this.config.chatAiVisionModel
+        shouldUseStreamImage && streamImageBase64 && this.config.chatAiVisionModel
           ? this.config.chatAiVisionModel
           : this.config.chatAiModel ?? "";
       const promptLogValue =

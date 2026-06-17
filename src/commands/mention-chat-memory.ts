@@ -52,7 +52,9 @@ const EMPTY_MEMORY: MentionChatMemoryResult = {
 };
 const RESERVED_MEMORY_KEYS = new Set(["global", "users"]);
 const MEMORY_REQUEST_PATTERN =
-  /(?:^|\s)(?:覚えて|メモして|忘れないで)[：:\s]*(.+)$/u;
+  /(?:^|\s)(?:覚えて|記憶して|メモして|忘れないで)[：:\s]*(.+)$/u;
+const SUFFIX_MEMORY_REQUEST_PATTERN =
+  /^(.+?)[。.!！?？\s]*(?:覚えて|記憶して|メモして|忘れないで)[！!。.\s]*$/u;
 const URL_PATTERN = /(?:https?:\/\/|www\.)/iu;
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu;
 const PHONE_PATTERN = /(?:\+?\d[\d\s-]{8,}\d)/u;
@@ -106,6 +108,13 @@ function truncate(value: string, maxChars: number): string {
 
 function stripWrappingQuotes(value: string): string {
   return value.replace(/^[`"'「『]+/, "").replace(/[`"'」』]+$/, "").trim();
+}
+
+function stripTrailingSentenceNoise(value: string): string {
+  return value
+    .replace(/[。.!！?？\s]+$/u, "")
+    .replace(/(?:だよね|だよ|だね|です|だ|ね)$/u, "")
+    .trim();
 }
 
 function isUnsafeMemoryText(value: string): boolean {
@@ -181,17 +190,23 @@ export function extractMentionChatMemoryEntry(
 ): MentionChatMemoryEntry | null {
   if (maxKeyChars <= 0 || maxValueChars <= 0) return null;
 
-  const requestMatch = singleLine(promptText).match(MEMORY_REQUEST_PATTERN);
-  if (!requestMatch) return null;
+  const prompt = singleLine(promptText);
+  const requestMatch = prompt.match(MEMORY_REQUEST_PATTERN);
+  const suffixRequestMatch = requestMatch
+    ? null
+    : prompt.match(SUFFIX_MEMORY_REQUEST_PATTERN);
+  const requestBody = requestMatch?.[1] ?? suffixRequestMatch?.[1];
+  if (!requestBody) return null;
 
-  const parsed = splitMemoryKeyValue(requestMatch[1]);
+  const parsed = splitMemoryKeyValue(requestBody);
   if (!parsed) return null;
 
   const key = stripWrappingQuotes(singleLine(parsed.key));
-  const value = stripWrappingQuotes(singleLine(parsed.value));
+  const rawValue = stripWrappingQuotes(singleLine(parsed.value));
+  const value = stripTrailingSentenceNoise(rawValue);
   const normalizedKey = key.toLowerCase();
   if (!key || !value) return null;
-  if (key.length > maxKeyChars || value.length > maxValueChars) return null;
+  if (key.length > maxKeyChars || rawValue.length > maxValueChars) return null;
   if (RESERVED_MEMORY_KEYS.has(normalizedKey)) return null;
   if (isUnsafeMemoryText(key) || isUnsafeMemoryText(value)) return null;
 

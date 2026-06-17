@@ -151,6 +151,12 @@ describe("auto-learn mention chat memory", () => {
       key: "好物",
       value: "カレー",
     });
+    expect(
+      extractMentionChatMemoryEntry("るっかは32歳ね。記憶して！", options)
+    ).toEqual({
+      key: "るっか",
+      value: "32歳",
+    });
   });
 
   it("rejects unsafe, reserved, or oversized memory entries", () => {

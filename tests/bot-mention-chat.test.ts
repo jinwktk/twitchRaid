@@ -489,6 +489,36 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "画面も見たよD！");
   });
 
+  it("uses the text model and skips stream image fetches for non-visual chat", async () => {
+    const { bot, say } = makeBot({
+      chatAiStreamImageEnabled: true,
+      chatAiVisionModel: "qwen2.5vl:7b",
+    });
+    bot.apiClient = {
+      streams: {
+        getStreamByUserName: vi.fn(),
+      },
+    };
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "普通に答えるD！" }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 円周率を数値で教えて",
+      100
+    );
+
+    expect(bot.apiClient.streams.getStreamByUserName).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect(body.model).toBe("qwen2.5:7b");
+    expect(body.images).toBeUndefined();
+    expect(say).toHaveBeenCalledWith("#rukalun", "普通に答えるD！");
+  });
+
   it("passes configured mention memory to Ollama without logging memory text", async () => {
     const memoryPath = path.join(ensureTempDir(), "chat-ai-memory.json");
     fs.writeFileSync(
