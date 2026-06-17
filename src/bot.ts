@@ -538,6 +538,11 @@ export class Bot {
         streamImageBase64 && this.config.chatAiVisionModel
           ? this.config.chatAiVisionModel
           : this.config.chatAiModel ?? "";
+      const promptLogValue =
+        (this.config.chatAiAutoLearnEnabled ?? false) &&
+        isMentionChatMemoryRequest(request.prompt)
+          ? MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE
+          : request.prompt;
       const reply = await generateMentionChatReply({
         enabled: true,
         baseUrl: this.config.chatAiBaseUrl ?? this.config.ollamaBaseUrl,
@@ -548,6 +553,7 @@ export class Bot {
         channel: request.channel,
         userName: request.userName,
         promptText: request.prompt,
+        redactedPromptText: promptLogValue,
         memoryText: memory.text,
         searchContextText: searchContext?.text,
         streamImageBase64,
@@ -560,11 +566,6 @@ export class Bot {
         return;
       }
 
-      const promptLogValue =
-        (this.config.chatAiAutoLearnEnabled ?? false) &&
-        isMentionChatMemoryRequest(request.prompt)
-          ? MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE
-          : request.prompt;
       logger.info(
         `AIメンション会話応答: user=${request.userName}, alias=${request.alias}, model=${model}, image=${Boolean(streamImageBase64)}, prompt=${formatMentionChatLogValue(promptLogValue)}, reply=${formatMentionChatLogValue(reply)}`
       );

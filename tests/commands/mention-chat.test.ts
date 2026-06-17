@@ -7,6 +7,8 @@ import {
   resolveMentionChatAliases,
 } from "../../src/commands/mention-chat";
 
+const HTTP_ERROR_DETAIL_MAX_BYTES_FOR_TEST = 4096;
+
 describe("extractMentionChatPrompt", () => {
   it("detects bot mention aliases and extracts prompt text", () => {
     expect(
@@ -396,6 +398,46 @@ describe("generateMentionChatReply", () => {
       })
     ).resolves.toBeNull();
 
+    const oversizedText = vi.fn(async () => "this should not be read");
+    await expect(
+      generateMentionChatReply({
+        ...baseOptions,
+        fetchImpl: vi.fn().mockResolvedValue({
+          ok: false,
+          status: 500,
+          headers: { get: () => "5000" },
+          text: oversizedText,
+        }),
+      })
+    ).resolves.toBeNull();
+    expect(oversizedText).not.toHaveBeenCalled();
+
+    await expect(
+      generateMentionChatReply({
+        ...baseOptions,
+        fetchImpl: vi.fn().mockResolvedValue(
+          new Response("x".repeat(HTTP_ERROR_DETAIL_MAX_BYTES_FOR_TEST + 1), {
+            status: 500,
+          })
+        ),
+      })
+    ).resolves.toBeNull();
+
+    await expect(
+      generateMentionChatReply({
+        ...baseOptions,
+        fetchImpl: vi.fn().mockResolvedValue({
+          ok: false,
+          status: 500,
+          text: async () =>
+            JSON.stringify({
+              error:
+                "proxy failed with Bearer secret-token password=hunter2 API key: abc123",
+            }),
+        }),
+      })
+    ).resolves.toBeNull();
+
     await expect(
       generateMentionChatReply({
         ...baseOptions,
@@ -405,6 +447,19 @@ describe("generateMentionChatReply", () => {
           ok: false,
           status: 503,
           text: async () => "runner busy",
+        }),
+      })
+    ).resolves.toBeNull();
+
+    await expect(
+      generateMentionChatReply({
+        ...baseOptions,
+        fetchImpl: vi.fn().mockResolvedValue({
+          ok: false,
+          status: 502,
+          text: async () => {
+            throw new Error("body unavailable");
+          },
         }),
       })
     ).resolves.toBeNull();
@@ -454,6 +509,22 @@ describe("generateMentionChatReply", () => {
     );
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('detail="runner busy"')
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '⚠️ AIメンション会話生成失敗: reason=http_error, status=502, model="qwen2.5:7b", image=false, prompt="hello", elapsedMs='
+      )
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('detail="unavailable"')
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('detail="too_large"')
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'detail="proxy failed with Bearer [redacted] password=[redacted] API key=[redacted]"'
+      )
     );
     expect(warnSpy).toHaveBeenCalledWith(
       "⚠️ AIメンション会話生成失敗: reason=invalid_response, responseType=number"

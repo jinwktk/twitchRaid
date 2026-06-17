@@ -15,6 +15,7 @@ export interface GenerateMentionChatReplyOptions {
   channel: string;
   userName: string;
   promptText: string;
+  redactedPromptText?: string;
   memoryText?: string | null;
   searchContextText?: string | null;
   streamImageBase64?: string | null;
@@ -29,6 +30,7 @@ const DEFAULT_OLLAMA_TEMPERATURE = 0.4;
 const DEFAULT_OLLAMA_NUM_PREDICT = 80;
 const PROMPT_TEXT_LIMIT = 500;
 const LOG_TEXT_LIMIT = 160;
+const HTTP_ERROR_DETAIL_MAX_BYTES = 4096;
 const MENTION_NAME_CHAR_CLASS = "\\p{L}\\p{N}_";
 const MATCH_OUTCOME_FALLBACK_REPLY =
   "画面だけだと断定できないけど、まだいけそうD！";
@@ -117,6 +119,81 @@ function isGenericMatchOutcomeReply(value: string): boolean {
 
 export function formatMentionChatLogValue(value: string): string {
   return JSON.stringify(shorten(singleLine(value), LOG_TEXT_LIMIT));
+}
+
+function redactDiagnosticText(value: string): string {
+  return value
+    .replace(/\b(Bearer\s+)[^\s"',}]+/giu, "$1[redacted]")
+    .replace(
+      /\b(api\s+key|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password)\s*[:=]\s*["']?[^"',\s}]+/giu,
+      "$1=[redacted]"
+    );
+}
+
+function parseHttpErrorDetail(text: string): string | null {
+  const normalized = singleLine(text);
+  if (!normalized) return null;
+
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+    if (parsed && typeof parsed === "object" && "error" in parsed) {
+      const errorValue = (parsed as { error?: unknown }).error;
+      if (typeof errorValue === "string") {
+        const errorText = singleLine(errorValue);
+        if (errorText) return redactDiagnosticText(errorText);
+      }
+    }
+  } catch {
+    // Non-JSON error bodies are logged as plain text below.
+  }
+
+  return redactDiagnosticText(normalized);
+}
+
+async function readHttpErrorDetail(response: Response): Promise<string> {
+  const contentLength = Number.parseInt(
+    response.headers?.get("content-length") ?? "",
+    10
+  );
+  if (Number.isFinite(contentLength) && contentLength > HTTP_ERROR_DETAIL_MAX_BYTES) {
+    return "too_large";
+  }
+
+  try {
+    if (response.body) {
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let totalBytes = 0;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+
+          totalBytes += value.byteLength;
+          if (totalBytes > HTTP_ERROR_DETAIL_MAX_BYTES) {
+            await reader.cancel();
+            return "too_large";
+          }
+          chunks.push(value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+      const text = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString(
+        "utf8"
+      );
+      return parseHttpErrorDetail(text) ?? "empty";
+    }
+
+    const text = await response.text();
+    return (
+      parseHttpErrorDetail(text.slice(0, HTTP_ERROR_DETAIL_MAX_BYTES)) ?? "empty"
+    );
+  } catch {
+    return "unavailable";
+  }
 }
 
 function isStreamImageQuestion(value: string): boolean {
@@ -290,6 +367,7 @@ export async function generateMentionChatReply({
   channel,
   userName,
   promptText,
+  redactedPromptText,
   memoryText,
   searchContextText,
   streamImageBase64,
@@ -297,9 +375,10 @@ export async function generateMentionChatReply({
 }: GenerateMentionChatReplyOptions): Promise<string | null> {
   const trimmedModel = model.trim();
   if (!enabled || !trimmedModel) return null;
+  const logPromptText = redactedPromptText ?? promptText;
   if (isCommandExecutionRequest(promptText)) {
     logger.warn(
-      `⚠️ AIメンション会話はコマンド実行依頼を拒否: prompt=${formatMentionChatLogValue(promptText)}, reply=${formatMentionChatLogValue(COMMAND_EXECUTION_REFUSAL_REPLY)}`
+      `⚠️ AIメンション会話はコマンド実行依頼を拒否: prompt=${formatMentionChatLogValue(logPromptText)}, reply=${formatMentionChatLogValue(COMMAND_EXECUTION_REFUSAL_REPLY)}`
     );
     return COMMAND_EXECUTION_REFUSAL_REPLY;
   }
@@ -308,6 +387,7 @@ export async function generateMentionChatReply({
     Boolean(trimmedImageBase64) && isStreamImageQuestion(promptText);
 
   try {
+    const startedAt = Date.now();
     const payload: Record<string, unknown> = {
       model: trimmedModel,
       system: isVisionQuestion
@@ -348,8 +428,10 @@ export async function generateMentionChatReply({
     });
 
     if (!response.ok) {
+      const detail = await readHttpErrorDetail(response);
+      const elapsedMs = Math.max(0, Date.now() - startedAt);
       logger.warn(
-        `⚠️ AIメンション会話生成失敗: reason=http_error, status=${response.status}`
+        `⚠️ AIメンション会話生成失敗: reason=http_error, status=${response.status}, model=${formatMentionChatLogValue(trimmedModel)}, image=${Boolean(trimmedImageBase64)}, prompt=${formatMentionChatLogValue(logPromptText)}, elapsedMs=${elapsedMs}, detail=${formatMentionChatLogValue(detail)}`
       );
       return null;
     }
@@ -373,18 +455,18 @@ export async function generateMentionChatReply({
     if (!reply) {
       if (matchOutcomeFallback) {
         logger.warn(
-          `⚠️ AIメンション会話は勝敗質問フォールバック: prompt=${formatMentionChatLogValue(promptText)}, raw=${formatMentionChatLogValue(body.response)}, fallback=${formatMentionChatLogValue(matchOutcomeFallback)}`
+          `⚠️ AIメンション会話は勝敗質問フォールバック: prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}, fallback=${formatMentionChatLogValue(matchOutcomeFallback)}`
         );
         return matchOutcomeFallback;
       }
       logger.warn(
-        `⚠️ AIメンション会話生成失敗: reason=policy_rejected, prompt=${formatMentionChatLogValue(promptText)}, raw=${formatMentionChatLogValue(body.response)}`
+        `⚠️ AIメンション会話生成失敗: reason=policy_rejected, prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}`
       );
       return null;
     }
     if (matchOutcomeFallback && isGenericMatchOutcomeReply(reply)) {
       logger.warn(
-        `⚠️ AIメンション会話は勝敗質問フォールバック: prompt=${formatMentionChatLogValue(promptText)}, raw=${formatMentionChatLogValue(body.response)}, fallback=${formatMentionChatLogValue(matchOutcomeFallback)}`
+        `⚠️ AIメンション会話は勝敗質問フォールバック: prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}, fallback=${formatMentionChatLogValue(matchOutcomeFallback)}`
       );
       return matchOutcomeFallback;
     }

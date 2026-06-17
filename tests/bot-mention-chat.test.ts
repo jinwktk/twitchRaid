@@ -564,6 +564,34 @@ describe("Bot mention chat", () => {
     });
   });
 
+  it("masks memory request text in mention chat failure logs", async () => {
+    const memoryPath = path.join(ensureTempDir(), "chat-ai-memory.json");
+    const { bot, say } = makeBot({
+      chatAiAutoLearnEnabled: true,
+      chatAiMemoryEnabled: true,
+      chatAiMemoryPath: memoryPath,
+    });
+    const warnSpy = vi.spyOn(logger, "warn");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: async () => JSON.stringify({ error: "model load failed" }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 覚えて: 口調=短くD",
+      100
+    );
+
+    const warningText = warnSpy.mock.calls.map(([message]) => String(message)).join("\n");
+    expect(warningText).toContain('prompt="[memory-request]"');
+    expect(warningText).not.toContain("口調=短くD");
+    expect(warningText).not.toContain("短くD");
+    expect(say).not.toHaveBeenCalled();
+  });
+
   it("queues mention chat during cooldown after a failed attempt", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(100_000);
