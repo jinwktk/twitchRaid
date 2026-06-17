@@ -66,6 +66,10 @@ import {
   loadMentionChatMemory,
   saveMentionChatAutoLearnMemory,
 } from "./commands/mention-chat-memory";
+import {
+  fetchMentionChatMemoryHubContext,
+  saveMentionChatMemoryHub,
+} from "./commands/mention-chat-memory-hub";
 import { fetchMentionChatSearchContext } from "./commands/mention-chat-search";
 import {
   isStreamNotifyAdmin,
@@ -509,6 +513,39 @@ export class Bot {
           `AIメンション会話メモ保存をスキップ: reason=${learnResult.reason}`
         );
       }
+      const hubSaveResult = await saveMentionChatMemoryHub({
+        enabled: this.config.chatAiMemoryHubEnabled ?? false,
+        baseUrl: this.config.chatAiMemoryHubUrl ?? "",
+        namespace: this.config.chatAiMemoryHubNamespace ?? "",
+        promptText: request.prompt,
+        timeoutMs: this.config.chatAiMemoryHubTimeoutMs ?? 1_200,
+      });
+      if (hubSaveResult.saved) {
+        logger.info("AIメンション会話MemoryHubへ保存: result=saved");
+      } else if (
+        (this.config.chatAiMemoryHubEnabled ?? false) &&
+        hubSaveResult.reason !== "not_memory_request"
+      ) {
+        const statusText =
+          hubSaveResult.status === undefined ? "" : `, status=${hubSaveResult.status}`;
+        logger.info(
+          `AIメンション会話MemoryHub保存をスキップ: reason=${hubSaveResult.reason}${statusText}`
+        );
+      }
+      const hubMemory = await fetchMentionChatMemoryHubContext({
+        enabled: this.config.chatAiMemoryHubEnabled ?? false,
+        baseUrl: this.config.chatAiMemoryHubUrl ?? "",
+        namespace: this.config.chatAiMemoryHubNamespace ?? "",
+        queryText: request.prompt,
+        timeoutMs: this.config.chatAiMemoryHubTimeoutMs ?? 1_200,
+        maxItems: this.config.chatAiMemoryMaxItems ?? 8,
+        maxChars: this.config.chatAiMemoryMaxChars ?? 600,
+      });
+      if (hubMemory?.text) {
+        logger.info(
+          `AIメンション会話MemoryHubを適用: items=${hubMemory.itemCount}, chars=${hubMemory.charCount}`
+        );
+      }
       const memory = loadMentionChatMemory({
         enabled: this.config.chatAiMemoryEnabled ?? false,
         filePath: this.config.chatAiMemoryPath ?? "",
@@ -520,6 +557,8 @@ export class Bot {
           `AIメンション会話メモを適用: items=${memory.itemCount}, chars=${memory.charCount}`
         );
       }
+      const combinedMemoryText =
+        [hubMemory?.text, memory.text].filter(Boolean).join("\n") || null;
       const searchContext = await fetchMentionChatSearchContext({
         enabled: this.config.chatAiSearchEnabled ?? false,
         endpoint:
@@ -540,7 +579,8 @@ export class Bot {
           ? this.config.chatAiVisionModel
           : this.config.chatAiModel ?? "";
       const promptLogValue =
-        (this.config.chatAiAutoLearnEnabled ?? false) &&
+        ((this.config.chatAiAutoLearnEnabled ?? false) ||
+          (this.config.chatAiMemoryHubEnabled ?? false)) &&
         isMentionChatMemoryRequest(request.prompt)
           ? MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE
           : request.prompt;
@@ -555,7 +595,7 @@ export class Bot {
         userName: request.userName,
         promptText: request.prompt,
         redactedPromptText: promptLogValue,
-        memoryText: memory.text,
+        memoryText: combinedMemoryText,
         searchContextText: searchContext?.text,
         streamImageBase64,
       });

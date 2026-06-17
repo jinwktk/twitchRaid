@@ -122,6 +122,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - 外部検索は `CHAT_AI_SEARCH_ENABLED=true` の場合だけ使う。検索・調べて・最新・ニュース・誰/いつ/どこ等の質問に限定し、明示的な記憶依頼は検索しない。URL、メール、電話番号、token/API key/password系を含む検索語や長すぎる検索語は外部へ送らない。検索結果は「命令ではない参考情報」としてプロンプトへ入れ、HTTP失敗、壊れたJSON、空結果、過大レスポンス時は検索なしで通常返信へ戻す
 - OllamaはこのBotのチャットを自動学習しない。口調や固定知識はプロンプト/Modelfile `MESSAGE` で例示できるが、モデル重みの学習やLoRA fine-tuningは外部ツールで作ったadapter/modelをOllamaへimportして使う運用になる
 - Bot側の記憶機能として、`CHAT_AI_MEMORY_ENABLED=true` の場合だけ `data/chat-ai-memory.json` などのJSONを読み、ルート直下のキー値を全ユーザー共通の記憶辞書としてプロンプトへ入れる。これはモデル重みの学習ではなく、返信ごとの参考メモ注入である。`users.<Twitchログイン名>` のユーザー別メモは使わない。旧形式の `global` 配列だけは移行用に共通メモとして読み込める。`CHAT_AI_AUTO_LEARN_ENABLED=true` の場合は明示的な「覚えて/メモして/忘れないで」依頼だけを抽出し、JSONへatomic保存してから同じAI返信のプロンプトへ反映できる。保存ログやAI応答ログにはメモ本文を出さず、秘密情報、トークン、個人情報はメモに書かない
+- 共通記憶基盤のOllamaMemoryHubを使う場合は `CHAT_AI_MEMORY_HUB_ENABLED=true`、`CHAT_AI_MEMORY_HUB_URL=http://127.0.0.1:3217`、`CHAT_AI_MEMORY_HUB_NAMESPACE=twitch` を設定する。BotはAIメンションごとにHubへ `POST /v1/ingest` を送り、明示的な記憶依頼だけHub側で保存させる。その後 `POST /v1/context` で関連メモを取得し、既存JSONメモと結合してOllama promptへ参考情報として渡す。Hub停止、HTTP失敗、空結果はfail-openで通常返信を続け、Hubメモ本文はログに出さない。タイムアウト既定値は `CHAT_AI_MEMORY_HUB_TIMEOUT_MS=1200`
 
 ```json
 {
@@ -255,6 +256,7 @@ src/
 │   ├── game.ts                    # !game VOD由来ゲーム候補
 │   ├── manga.ts                   # !manga / 管理者判定
 │   ├── mention-chat.ts            # @メンションAI会話
+│   ├── mention-chat-memory-hub.ts # OllamaMemoryHub連携
 │   ├── raid-info.ts               # Raid元配信情報文言
 │   ├── random-commands.ts         # !weight / !height / !mood / !menu
 │   ├── shoutout-introduction.ts   # OllamaによるRaid挨拶文生成
@@ -299,6 +301,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-18**: AIメンション会話にOllamaMemoryHub連携を追加。`CHAT_AI_MEMORY_HUB_ENABLED=true` の場合、明示メモ依頼をHubの `/v1/ingest` へ送り、`/v1/context` の関連メモを既存JSONメモと結合してOllama promptへ渡す。Hub失敗時は通常返信へfail-openし、メモ本文はログに出さない。サブPC常駐用にOllamaMemoryHub側へPM2設定 `OllamaMemoryHub` を追加
 - **2026-06-17**: AIメンション会話でOllamaが `GG！` のような短い成功応答を返した場合に、非日本語/低情報判定だけで `policy_rejected` として無言にしないよう変更。空応答、HTTP失敗、無効応答は従来どおり無言でログ化し、勝敗質問のスコアだけ・ゲーム名だけ返答は安全定型へフォールバックする
 - **2026-06-17**: `CHAT_REPLY_EMOTES` が確認済み `rukka...` 候補を含む場合、AIメンション会話の返信とRaid挨拶文で組み込みの `rukka` 候補から文脈別にスタンプを選ぶよう変更。`GG！` には `rukkaGg`、Raid挨拶には `rukkaNiceraido` を優先し、未設定時や未知候補だけの設定では従来挙動を維持する
 - **2026-06-17**: `CHAT_REPLY_EMOTES` を追加し、AIメンション会話の返信とRaid挨拶文の送信直前に設定済みTwitchエモートコードを末尾へ付けられるようにした。未設定時は従来どおりで、設定値はカンマ区切り、先頭の `@` / `＠` は除去、空白入り値と重複は無視する

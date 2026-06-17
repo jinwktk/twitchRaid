@@ -89,6 +89,10 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     chatAiMemoryPath: path.join(dir, "chat-ai-memory.json"),
     chatAiMemoryMaxItems: 8,
     chatAiMemoryMaxChars: 600,
+    chatAiMemoryHubEnabled: false,
+    chatAiMemoryHubUrl: "http://127.0.0.1:3217",
+    chatAiMemoryHubNamespace: "twitch",
+    chatAiMemoryHubTimeoutMs: 1200,
     chatAiSearchEnabled: false,
     chatAiSearchEndpoint: "https://api.duckduckgo.com/",
     chatAiSearchTimeoutMs: 2500,
@@ -497,6 +501,63 @@ describe("Bot mention chat", () => {
       expect(call[0]).not.toContain("語尾はDを自然に使う");
     }
     expect(say).toHaveBeenCalledWith("#rukalun", "カレーの話だねD！");
+  });
+
+  it("passes MemoryHub context to Ollama without logging memory text", async () => {
+    const { bot, say } = makeBot({
+      chatAiMemoryHubEnabled: true,
+      chatAiMemoryHubUrl: "http://127.0.0.1:3217",
+      chatAiMemoryHubNamespace: "twitch",
+      chatAiMemoryHubTimeoutMs: 1200,
+      chatAiMemoryMaxItems: 5,
+      chatAiMemoryMaxChars: 400,
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/v1/ingest")) {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, saved: false, reason: "not_memory_request" }),
+        } as Response;
+      }
+      if (url.endsWith("/v1/context")) {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            entries: [{ key: "口調", value: "短くD" }],
+            contextText: "口調: 短くD",
+          }),
+        } as Response;
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ response: "短く返すD！" }),
+      } as Response;
+    });
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 今日の調子どう？",
+      100
+    );
+
+    const ollamaCall = fetchSpy.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    expect(ollamaCall).toBeDefined();
+    const body = JSON.parse(ollamaCall?.[1]?.body as string);
+    expect(body.prompt).toContain("口調: 短くD");
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining("AIメンション会話MemoryHubを適用: items=1")
+    );
+    for (const call of infoSpy.mock.calls) {
+      expect(call[0]).not.toContain("短くD");
+    }
+    expect(say).toHaveBeenCalledWith("#rukalun", "短く返すD！");
   });
 
   it("passes external search context to Ollama when search is enabled", async () => {
