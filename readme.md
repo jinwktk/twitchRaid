@@ -296,6 +296,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-17**: AIメンション会話の返信ログを再調査。実運用ログでは `http_error status=500` が多く、HTTP失敗時だけOllama返却本文・モデル・画像有無・prompt・経過時間が不足していたため、HTTP失敗ログ詳細化のテストを先行追加。未実装状態で `npm test -- --run tests/commands/mention-chat.test.ts` が期待どおり失敗することを確認
 - **2026-06-16**: AIメンション会話に外部検索とBot側自動学習を追加。検索系質問だけDuckDuckGo Instant Answer互換APIの結果を参考情報としてOllamaへ渡し、URL/メール/電話番号/token/API key/password系は外部送信しない。`覚えて: key=value` など明示的な記憶依頼だけ `CHAT_AI_MEMORY_PATH` へatomic保存し、`CHAT_AI_MEMORY_ENABLED=true` の場合だけ同一返信からプロンプトへ注入する
 - **2026-06-16**: AIメンション会話のBot側記憶をユーザー別ではなく全ユーザー共通の1個の辞書に変更。`data/chat-ai-memory.json` はルート直下のキー値を `key: value` として読む。`users` は無視し、旧 `global` 配列は移行用に共通メモとして読み続ける
 - **2026-06-16**: AIメンション会話のBot側記憶機能を追加。`CHAT_AI_MEMORY_ENABLED=true` の場合だけ `CHAT_AI_MEMORY_PATH` のJSONから `global` とユーザー別メモを読み、Ollamaプロンプトへ参考メモとして渡す。メモ本文はログに出さず、適用時は件数と文字数だけ記録する

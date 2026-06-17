@@ -388,7 +388,24 @@ describe("generateMentionChatReply", () => {
     await expect(
       generateMentionChatReply({
         ...baseOptions,
-        fetchImpl: vi.fn().mockResolvedValue({ ok: false, status: 500 }),
+        fetchImpl: vi.fn().mockResolvedValue({
+          ok: false,
+          status: 500,
+          text: async () => JSON.stringify({ error: "model load failed" }),
+        }),
+      })
+    ).resolves.toBeNull();
+
+    await expect(
+      generateMentionChatReply({
+        ...baseOptions,
+        promptText: "この画面のゲームは何ですか？",
+        streamImageBase64: "AQID",
+        fetchImpl: vi.fn().mockResolvedValue({
+          ok: false,
+          status: 503,
+          text: async () => "runner busy",
+        }),
       })
     ).resolves.toBeNull();
 
@@ -423,7 +440,20 @@ describe("generateMentionChatReply", () => {
     ).resolves.toBeNull();
 
     expect(warnSpy).toHaveBeenCalledWith(
-      "⚠️ AIメンション会話生成失敗: reason=http_error, status=500"
+      expect.stringContaining(
+        '⚠️ AIメンション会話生成失敗: reason=http_error, status=500, model="qwen2.5:7b", image=false, prompt="hello", elapsedMs='
+      )
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('detail="model load failed"')
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '⚠️ AIメンション会話生成失敗: reason=http_error, status=503, model="qwen2.5:7b", image=true, prompt="この画面のゲームは何ですか？", elapsedMs='
+      )
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('detail="runner busy"')
     );
     expect(warnSpy).toHaveBeenCalledWith(
       "⚠️ AIメンション会話生成失敗: reason=invalid_response, responseType=number"
