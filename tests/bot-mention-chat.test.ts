@@ -204,6 +204,27 @@ describe("Bot mention chat", () => {
     );
   });
 
+  it("uses a contextual rukka emote for AI mention replies", async () => {
+    const { bot, say } = makeBot({ chatReplyEmotes: ["rukkaNikoniko"] });
+    const infoSpy = vi.spyOn(logger, "info");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "GG！" }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun GG",
+      Date.now() / 1000
+    );
+
+    expect(say).toHaveBeenCalledWith("#rukalun", "GG！ rukkaGg");
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('reply="GG！ rukkaGg"')
+    );
+  });
+
   it("replies to a full-width at-mark bot mention", async () => {
     const { bot, say } = makeBot();
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({

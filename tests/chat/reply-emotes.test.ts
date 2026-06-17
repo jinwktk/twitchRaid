@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendContextualChatReplyEmote,
   appendChatReplyEmote,
   normalizeChatReplyEmotes,
 } from "../../src/chat/reply-emotes";
@@ -37,5 +38,31 @@ describe("chat reply emotes", () => {
 
   it("keeps the suffix within the limit when no reply body can fit", () => {
     expect(appendChatReplyEmote("abcdef", ["abcd"], 5)).toBe(" abcd");
+  });
+
+  it("uses a contextual GG emote when a known rukka emote enables the built-in set", () => {
+    expect(
+      appendContextualChatReplyEmote("GG！", ["rukkaNikoniko"], {
+        source: "mention",
+        promptText: "GG",
+      })
+    ).toBe("GG！ rukkaGg");
+  });
+
+  it("uses a raid emote for raid greetings from the built-in rukka set", () => {
+    expect(
+      appendContextualChatReplyEmote("レイドありがとうD！", ["rukkaNikoniko"], {
+        source: "raid",
+      })
+    ).toBe("レイドありがとうD！ rukkaNiceraido");
+  });
+
+  it("keeps legacy first-emote behavior for unknown configured emotes", () => {
+    expect(
+      appendContextualChatReplyEmote("GG！", ["rukkaHi"], {
+        source: "mention",
+        promptText: "GG",
+      })
+    ).toBe("GG！ rukkaHi");
   });
 });

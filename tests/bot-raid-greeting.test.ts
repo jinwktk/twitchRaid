@@ -167,4 +167,44 @@ describe("Bot raid greeting", () => {
       expect.stringContaining('rukkaHi"')
     );
   });
+
+  it("uses a contextual rukka emote for raid greetings", async () => {
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    const bot = new Bot(
+      makeConfig({ chatReplyEmotes: ["rukkaNikoniko"] })
+    ) as unknown as {
+      chatClient: { say: ReturnType<typeof vi.fn> };
+      apiClient: {
+        streams: {
+          getStreamByUserName: ReturnType<typeof vi.fn>;
+        };
+      };
+      _fetchRaidSourceInfo: (username: string) => Promise<unknown>;
+      _sendRaidGreeting: (
+        channel: string,
+        info: unknown,
+        viewerCount: number
+      ) => Promise<void>;
+    };
+    bot.chatClient = { say: vi.fn().mockResolvedValue(undefined) };
+    bot.apiClient = {
+      streams: {
+        getStreamByUserName: vi.fn().mockResolvedValue({
+          title: "たのしい建築配信",
+          gameName: "Minecraft",
+        }),
+      },
+    };
+
+    const info = await bot._fetchRaidSourceInfo("RaidUser");
+    await bot._sendRaidGreeting("#rukalun", info, 1);
+
+    expect(bot.chatClient.say).toHaveBeenCalledWith(
+      "#rukalun",
+      "レイドありがとうD！！ @raiduser さんは、「Minecraft」で「たのしい建築配信」をしてたD！お疲れ様D！チャンネルはこD→https://www.twitch.tv/raiduser rukkaNiceraido"
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('rukkaNiceraido"')
+    );
+  });
 });

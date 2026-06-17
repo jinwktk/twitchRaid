@@ -11,7 +11,7 @@ import { CommentSpeedMeter } from "./chat/comment-speed-meter";
 import { CommandCooldownState } from "./chat/command-cooldown-state";
 import { isCommandMessage } from "./chat/message-filters";
 import { formatTotalCommentCount } from "./chat/comment-count-formatter";
-import { appendChatReplyEmote } from "./chat/reply-emotes";
+import { appendContextualChatReplyEmote } from "./chat/reply-emotes";
 import {
   loadCommentState,
   saveCommentState,
@@ -567,9 +567,13 @@ export class Bot {
         return;
       }
 
-      const replyWithEmote = appendChatReplyEmote(
+      const replyWithEmote = appendContextualChatReplyEmote(
         reply,
-        this.config.chatReplyEmotes
+        this.config.chatReplyEmotes,
+        {
+          source: "mention",
+          promptText: request.prompt,
+        }
       );
       logger.info(
         `AIメンション会話応答: user=${request.userName}, alias=${request.alias}, model=${model}, image=${Boolean(streamImageBase64)}, prompt=${formatMentionChatLogValue(promptLogValue)}, reply=${formatMentionChatLogValue(replyWithEmote)}`
@@ -1260,9 +1264,13 @@ export class Bot {
           );
         },
       });
-      const messageWithEmote = appendChatReplyEmote(
+      const messageWithEmote = appendContextualChatReplyEmote(
         message,
-        this.config.chatReplyEmotes
+        this.config.chatReplyEmotes,
+        {
+          source: "raid",
+          promptText: [info.gameName, info.title].filter(Boolean).join(" "),
+        }
       );
       await this.chatClient.say(channel, messageWithEmote);
       logger.info(
