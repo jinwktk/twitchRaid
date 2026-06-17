@@ -34,4 +34,8 @@ describe("chat reply emotes", () => {
     expect(result.length).toBeLessThanOrEqual(500);
     expect(result.endsWith(" rukkaHi")).toBe(true);
   });
+
+  it("keeps the suffix within the limit when no reply body can fit", () => {
+    expect(appendChatReplyEmote("abcdef", ["abcd"], 5)).toBe(" abcd");
+  });
 });

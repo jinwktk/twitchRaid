@@ -33,7 +33,7 @@ function trimReplyForSuffix(
   maxChars: number
 ): string {
   const available = maxChars - suffix.length;
-  if (available <= 0) return reply.slice(0, maxChars).trimEnd();
+  if (available <= 0) return "";
   if (reply.length <= available) return reply;
 
   const ellipsis = "...";
