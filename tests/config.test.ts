@@ -139,6 +139,7 @@ CHAT_AI_AUTO_LEARN_ENABLED=true
 CHAT_AI_AUTO_LEARN_MAX_KEY_CHARS=24
 CHAT_AI_AUTO_LEARN_MAX_VALUE_CHARS=80
 CHAT_AI_AUTO_LEARN_MAX_ITEMS=30
+CHAT_REPLY_EMOTES= rukkaHi, @rukkaGG, ＠rukkaHi, RukkaNice
 `);
 
     const config = new Config(envPath);
@@ -170,6 +171,11 @@ CHAT_AI_AUTO_LEARN_MAX_ITEMS=30
     expect(config.chatAiAutoLearnMaxKeyChars).toBe(24);
     expect(config.chatAiAutoLearnMaxValueChars).toBe(80);
     expect(config.chatAiAutoLearnMaxItems).toBe(30);
+    expect(config.chatReplyEmotes).toEqual([
+      "rukkaHi",
+      "rukkaGG",
+      "RukkaNice",
+    ]);
   });
 
   it("keeps chat AI disabled by default", () => {
@@ -212,6 +218,7 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiAutoLearnMaxKeyChars).toBe(40);
     expect(config.chatAiAutoLearnMaxValueChars).toBe(120);
     expect(config.chatAiAutoLearnMaxItems).toBe(50);
+    expect(config.chatReplyEmotes).toEqual([]);
   });
 
   it("falls back to shoutout Ollama settings for chat AI when chat AI toggle is unset", () => {

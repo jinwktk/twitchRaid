@@ -99,6 +99,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     chatAiAutoLearnMaxKeyChars: 40,
     chatAiAutoLearnMaxValueChars: 120,
     chatAiAutoLearnMaxItems: 50,
+    chatReplyEmotes: [],
     maxSummaryClipPosts: 10,
     ollamaShoutoutEnabled: false,
     ollamaBaseUrl: "http://127.0.0.1:11434",
@@ -179,6 +180,27 @@ describe("Bot mention chat", () => {
     );
     expect(infoSpy).toHaveBeenCalledWith(
       expect.stringContaining('reply="こんにちはD！"')
+    );
+  });
+
+  it("appends a configured Twitch emote to AI mention replies", async () => {
+    const { bot, say } = makeBot({ chatReplyEmotes: ["rukkaHi"] });
+    const infoSpy = vi.spyOn(logger, "info");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "こんにちはD！" }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun こんにちは",
+      Date.now() / 1000
+    );
+
+    expect(say).toHaveBeenCalledWith("#rukalun", "こんにちはD！ rukkaHi");
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('reply="こんにちはD！ rukkaHi"')
     );
   });
 

@@ -2,6 +2,7 @@ import { config as dotenvConfig } from "dotenv";
 import path from "path";
 import { updateEnvFile } from "./utils/env-store";
 import { REQUIRED_AUTH_SCOPES } from "./auth/auth-scope-sets";
+import { normalizeChatReplyEmotes } from "./chat/reply-emotes";
 
 const BASE_DIR = path.resolve(__dirname, "..");
 const DEFAULT_TWITCH_GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
@@ -112,6 +113,7 @@ export class Config {
   readonly chatAiAutoLearnMaxKeyChars: number;
   readonly chatAiAutoLearnMaxValueChars: number;
   readonly chatAiAutoLearnMaxItems: number;
+  readonly chatReplyEmotes: string[];
   readonly clipSearchAutoPublishEnabled: boolean;
   readonly clipSearchDataPath: string;
   readonly clipSearchPublishRepoDir: string;
@@ -279,6 +281,7 @@ export class Config {
       env["CHAT_AI_AUTO_LEARN_MAX_ITEMS"],
       DEFAULT_CHAT_AI_AUTO_LEARN_MAX_ITEMS
     );
+    this.chatReplyEmotes = normalizeChatReplyEmotes(env["CHAT_REPLY_EMOTES"]);
     this.clipSearchAutoPublishEnabled = parseEnabledFlag(
       env["CLIP_SEARCH_AUTO_PUBLISH_ENABLED"] ?? "0"
     );

@@ -11,6 +11,7 @@ import { CommentSpeedMeter } from "./chat/comment-speed-meter";
 import { CommandCooldownState } from "./chat/command-cooldown-state";
 import { isCommandMessage } from "./chat/message-filters";
 import { formatTotalCommentCount } from "./chat/comment-count-formatter";
+import { appendChatReplyEmote } from "./chat/reply-emotes";
 import {
   loadCommentState,
   saveCommentState,
@@ -566,10 +567,14 @@ export class Bot {
         return;
       }
 
-      logger.info(
-        `AIメンション会話応答: user=${request.userName}, alias=${request.alias}, model=${model}, image=${Boolean(streamImageBase64)}, prompt=${formatMentionChatLogValue(promptLogValue)}, reply=${formatMentionChatLogValue(reply)}`
+      const replyWithEmote = appendChatReplyEmote(
+        reply,
+        this.config.chatReplyEmotes
       );
-      await this.chatClient.say(request.channel, reply);
+      logger.info(
+        `AIメンション会話応答: user=${request.userName}, alias=${request.alias}, model=${model}, image=${Boolean(streamImageBase64)}, prompt=${formatMentionChatLogValue(promptLogValue)}, reply=${formatMentionChatLogValue(replyWithEmote)}`
+      );
+      await this.chatClient.say(request.channel, replyWithEmote);
       logger.info(
         `✅ AIメンション会話を送信: user=${request.userName}, alias=${request.alias}`
       );
@@ -1255,9 +1260,13 @@ export class Bot {
           );
         },
       });
-      await this.chatClient.say(channel, message);
+      const messageWithEmote = appendChatReplyEmote(
+        message,
+        this.config.chatReplyEmotes
+      );
+      await this.chatClient.say(channel, messageWithEmote);
       logger.info(
-        `✅ Raid挨拶文を送信: target=${info.userName}, viewerCount=${viewerCount}, message=${formatMentionChatLogValue(message)}`
+        `✅ Raid挨拶文を送信: target=${info.userName}, viewerCount=${viewerCount}, message=${formatMentionChatLogValue(messageWithEmote)}`
       );
     } catch (sendErr) {
       logger.error(`❌ Raid挨拶文の送信に失敗しました: ${sendErr}`);

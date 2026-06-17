@@ -60,6 +60,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - サブPC運用では `E:\GitHub\RukalunPage` を `https://github.com/jinwktk/RukalunPage.git` のcloneとして用意してください。既存フォルダに `clip-search-data.json` だけがあり `.git` が無い場合、同期後処理で `fatal: not a git repository` になります
 - `OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` を設定すると、Raid時にOllama `POST /api/generate` で1通のRaid挨拶文を生成してチャットへ送信します。AI生成文はコード側で250文字以内に丸めます。`OLLAMA_BASE_URL` は未設定時 `http://127.0.0.1:11434`、`OLLAMA_SHOUTOUT_TIMEOUT_MS` は未設定時 `15000`、`OLLAMA_SHOUTOUT_KEEP_ALIVE` は未設定時 `30m` です
 - `CHAT_AI_ENABLED=true` と `CHAT_AI_MODEL`（未設定時は `OLLAMA_MODEL`、さらに `OLLAMA_SHOUTOUT_MODEL`）を設定すると、通常チャットで `@にめいやボットくん` や `@nyme_ia2` のようにBotへメンションされた時だけOllamaで短い日本語返信を生成します。`CHAT_AI_ENABLED` 未設定時は `OLLAMA_SHOUTOUT_ENABLED=true` かつ継承できるモデルがある場合だけ互換的に有効として扱い、明示的な `CHAT_AI_ENABLED=false` または `0` は常に無効化を優先します。`CHAT_AI_BASE_URL` は未設定時 `OLLAMA_BASE_URL` または `http://127.0.0.1:11434`、`CHAT_AI_TIMEOUT_MS` は未設定時 `8000`、`CHAT_AI_KEEP_ALIVE` は `30m`、`CHAT_AI_MAX_RESPONSE_CHARS` は `200`、`CHAT_AI_COOLDOWN_SECONDS` は `5` です。`CHAT_AI_BOT_ALIASES` と `CHAT_AI_IGNORED_USERS` はカンマ区切りで、未設定時は `CHAT_AI_BOT_ALIASES=にめいやボットくん,nyme_ia2`、`CHAT_AI_IGNORED_USERS=nyme_ia2` を使います。`CHAT_AI_STREAM_IMAGE_ENABLED=true` を設定すると、AIメンションごとにTwitchライブプレビュー画像を取得してOllamaへbase64画像として渡し、画像取得時だけ `CHAT_AI_VISION_MODEL`（未設定時は `CHAT_AI_MODEL`）を使います
+- `CHAT_REPLY_EMOTES=rukkaHi,rukkaGG` のようにカンマ区切りでTwitchエモートコードを設定すると、AIメンション会話の返信とRaid挨拶文の送信直前に先頭候補を末尾へ付けます。先頭の `@` / `＠` は除去し、空白を含む値や重複は無視します。未設定時は従来どおりエモートを付けません
 - `CHAT_AI_MEMORY_ENABLED=true` を設定すると、`CHAT_AI_MEMORY_PATH`（未設定時 `data/chat-ai-memory.json`）のJSONを全ユーザー共通の記憶辞書として読み、AIメンション会話のOllamaプロンプトへ参考情報として渡します。既定は無効で、上限は `CHAT_AI_MEMORY_MAX_ITEMS=8`、`CHAT_AI_MEMORY_MAX_CHARS=600` です。メモ本文はログに出さず、適用時は件数と文字数だけを記録します
 - `CHAT_AI_SEARCH_ENABLED=true` を設定すると、検索・ニュース・最新情報などを聞くAIメンションだけ外部検索し、結果を「命令ではない参考情報」としてOllamaプロンプトへ渡します。既定endpointはDuckDuckGo Instant Answer互換の `CHAT_AI_SEARCH_ENDPOINT=https://api.duckduckgo.com/`、上限は `CHAT_AI_SEARCH_TIMEOUT_MS=2500`、`CHAT_AI_SEARCH_MAX_QUERY_CHARS=120`、`CHAT_AI_SEARCH_MAX_RESPONSE_BYTES=65536`、`CHAT_AI_SEARCH_MAX_RESULTS=3` です。URL、メール、電話番号、token/API key/password系を含む検索語は送信しません
 - `CHAT_AI_AUTO_LEARN_ENABLED=true` を設定すると、`覚えて: key=value`、`メモして key: value`、`忘れないで keyはvalue` のような明示的な記憶依頼だけ `CHAT_AI_MEMORY_PATH` へ保存します。これはモデル重みの学習ではなくBot側メモの自動追記です。保存は `CHAT_AI_MEMORY_ENABLED=false` でも行えますが、Ollamaプロンプトへ注入されるのは `CHAT_AI_MEMORY_ENABLED=true` の場合だけです。既定上限は `CHAT_AI_AUTO_LEARN_MAX_KEY_CHARS=40`、`CHAT_AI_AUTO_LEARN_MAX_VALUE_CHARS=120`、`CHAT_AI_AUTO_LEARN_MAX_ITEMS=50` で、保存時もURL、メール、電話番号、token/API key/password系は拒否します
@@ -113,7 +114,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 
 ## AIメンション会話
 - `CHAT_AI_ENABLED=true`、または `CHAT_AI_ENABLED` 未設定かつ `OLLAMA_SHOUTOUT_ENABLED=true` で継承モデルがあるときだけ、通常チャット内の `@にめいやボットくん` / `@nyme_ia2` など `CHAT_AI_BOT_ALIASES` に一致するBot宛てメンションへAI返信する。未設定時の反応名は `にめいやボットくん` と `nyme_ia2` で、`@るっかるん` は明示的に `CHAT_AI_BOT_ALIASES` へ入れない限り反応しない。`CHAT_AI_ENABLED=false` / `0` は常に無効化を優先する。`!help @にめいやボットくん` のようなコマンド本文は従来どおりコマンドとして扱い、AIは介入しない
-- 返信はOllama `POST /api/generate` で生成し、単一行・通常は日本語文字必須・最大 `CHAT_AI_MAX_RESPONSE_CHARS` 文字へ整形する。画像付きでゲーム名やタイトルを聞かれた場合だけ、英字の正式名称単体も許可する。先頭 `!`、引用符、絵文字、改行は除去または抑止する
+- 返信はOllama `POST /api/generate` で生成し、単一行・通常は日本語文字必須・最大 `CHAT_AI_MAX_RESPONSE_CHARS` 文字へ整形する。画像付きでゲーム名やタイトルを聞かれた場合だけ、英字の正式名称単体も許可する。先頭 `!`、引用符、絵文字、改行は除去または抑止する。`CHAT_REPLY_EMOTES` が設定されていれば、最終送信本文の500文字上限内でTwitchエモートコードを末尾へ付ける
 - Bot自身や `CHAT_AI_IGNORED_USERS` の発言には返信しない。除外ユーザーのBot宛てメンションは `AIメンション会話をスキップ: ignored_user=...` とINFOログへ残る。Ollama処理中、キュー処理中、クールダウン中の追加メンションはチャットへ順番待ち通知を出さず、内部キューへ積んで待ち時間を挟み順番に生成する。返信生成を試みた時点から `CHAT_AI_COOLDOWN_SECONDS` のクールダウンをかける。Ollama失敗、HTTPエラー、空応答、条件外の非日本語応答ではチャットへ何も返さず、`reason=http_error` / `invalid_response` / `policy_rejected` / `exception` のようにログだけ残す。HTTPエラー時は `status` / `model` / `image` / ユーザー入力prompt / `elapsedMs` / `detail` を短縮して出し、構築済みpromptやメモ本文は出さない。`detail` は4KBまで読み、過大本文は `too_large`、読取失敗は `unavailable` とし、Bearer tokenやpassword/API key系の値はマスクする。送信するAI返信は `AIメンション会話応答: user=... model=... image=... prompt="..." reply="..."` としてINFOログへ短縮出力し、`policy_rejected` ではOllamaのraw返却値も短くWARNログへ残す
 - `qwen3.5:9b` のようなthinking対応モデルでは、Ollama `/api/generate` に `think:false` を付けて最終回答だけを短く返させる。これを付けない場合、短い `num_predict` をthinkingで使い切り、`response` が空になることがある
 - `CHAT_AI_STREAM_IMAGE_ENABLED=true` の場合は、Twitch APIから現在配信のプレビュー画像URLを取得し、640x360の画像を最大5秒でダウンロードしてOllama `/api/generate` の `images` に入れる。画像が取れたときだけ `CHAT_AI_VISION_MODEL` を使い、オフライン、画像取得失敗、Visionモデル未設定時は通常のテキスト返信へフォールバックする。Twitchプレビューは数十秒程度遅れることがあり、OBSの生画面を直接キャプチャする実装ではない。画像付きでも、配信画面、見えるもの、今していること、ゲーム名、試合/勝敗/スコアの質問だけ専用の短いVision system/promptへ切り替え、聞き返しや `え？` だけの返信を避け、勝敗や今後の展開は断定しない。ゲーム名やタイトルを聞かれた場合は `Apex Legends` / `VALORANT` のような英字正式名称だけの返答も許可する。`める！` や `スコア100` のような低情報返信、勝敗質問へのゲーム名だけの返答は送信せず、勝敗質問では安全な定型文へフォールバックする。通常の雑談質問では画面内容だけに引っ張られないようにしている
@@ -173,7 +174,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - レイド検知時は `src/commands/shoutout.ts` でレイド元のユーザーIDを解決し、Bot/Moderator のユーザーコンテキストで `chat.shoutoutUser` を実行
 - レイド検知時は `src/commands/raid-info.ts` でレイド元の配信情報を取得し、Ollamaが無効または失敗した場合はチャットへ `レイドありがとうD！！ @ユーザー さんは、「ゲーム名」で「配信タイトル」をしてたD！お疲れ様D！チャンネルはこD→URL` を1通だけ送信する
 - `OLLAMA_SHOUTOUT_ENABLED=true` の場合は、取得したRaid元のユーザー名/ゲーム/タイトル/URLをもとに `src/commands/shoutout-introduction.ts` で同じ役割のRaid挨拶文を生成し、固定文の代わりに1通だけ送信する。Raid人数はAI入力に含めず、人数の多い少ないには触れさせない
-- Ollama挨拶文生成はshoutoutキュー投入後に実行する。AI生成文は `@ユーザー名` とチャンネルURLを必ず含むよう補正し、絵文字を除去し、URLを残したまま250文字以内へ丸める。取得済みゲーム名や配信タイトルがAI文から抜けた場合は、固定文へ戻さずコード側で不足分だけを補ってAI文として採用する。タイトルの括弧内装飾や `@ユーザー名` まで完全一致していなくても、主要部が既に含まれていれば長い定型紹介文は追記しない。`人数少なかった`、`少人数`、`寂しい` などRaid規模を下げる表現を含む場合はAI文を採用せず、固定のRaid挨拶文へフォールバックする。Ollamaが未設定、タイムアウト、HTTPエラー、空応答、日本語かなを含まない返答の場合も固定文へフォールバックし、Twitch shoutout APIは継続する
+- Ollama挨拶文生成はshoutoutキュー投入後に実行する。AI生成文は `@ユーザー名` とチャンネルURLを必ず含むよう補正し、絵文字を除去し、URLを残したまま250文字以内へ丸める。取得済みゲーム名や配信タイトルがAI文から抜けた場合は、固定文へ戻さずコード側で不足分だけを補ってAI文として採用する。タイトルの括弧内装飾や `@ユーザー名` まで完全一致していなくても、主要部が既に含まれていれば長い定型紹介文は追記しない。`人数少なかった`、`少人数`、`寂しい` などRaid規模を下げる表現を含む場合はAI文を採用せず、固定のRaid挨拶文へフォールバックする。Ollamaが未設定、タイムアウト、HTTPエラー、空応答、日本語かなを含まない返答の場合も固定文へフォールバックし、Twitch shoutout APIは継続する。`CHAT_REPLY_EMOTES` が設定されていれば、AI/固定フォールバックどちらのRaid挨拶にもTwitchエモートコードを末尾へ付ける
 - Ollama挨拶文の採用/フォールバックは `Ollama Raid挨拶文を採用` / `Ollama Raid挨拶文を固定文へフォールバック` として、対象ユーザー、理由、所要時間をログに出す。チャット送信に成功した場合は `Raid挨拶文を送信` として対象ユーザー、Raid人数、実際の送信本文を短縮してINFOログに出す
 - Raid元の配信がすでにオフライン、またはTwitch APIでタイトル/ゲームを取得できない場合でも、チャンネルURL付きのフォールバック文を送信する
 - Raid自動shoutoutは `ShoutoutQueue` で直列化し、Twitchの `429 Too Many Requests` に当たった対象はキュー先頭へ戻して2分後に再実行する
@@ -243,7 +244,8 @@ src/
 │   ├── command-cooldown-state.ts  # コマンド別クールダウン
 │   ├── comment-count-formatter.ts # コメント数文言
 │   ├── comment-speed-meter.ts     # コメント風速
-│   └── message-filters.ts         # コマンド判定
+│   ├── message-filters.ts         # コマンド判定
+│   └── reply-emotes.ts            # AI/Raid返信へのTwitchエモート付与
 ├── commands/
 │   ├── age.ts
 │   ├── boom.ts                    # 過去30日ゲーム時間集計
@@ -297,6 +299,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-17**: `CHAT_REPLY_EMOTES` を追加し、AIメンション会話の返信とRaid挨拶文の送信直前に設定済みTwitchエモートコードを末尾へ付けられるようにした。未設定時は従来どおりで、設定値はカンマ区切り、先頭の `@` / `＠` は除去、空白入り値と重複は無視する
 - **2026-06-17**: Botが使えるTwitchスタンプ一覧取得に向け、TypeScript版の再認可スコープへ `user:read:emotes` を追加。通常起動の最小スコープには含めず、再認可時だけ要求する。現ローカル `.env` はTwitch側で `invalid client secret` になるため、実認可には正しいClient Secretの反映が必要
 - **2026-06-17**: AIメンション会話の返信ログを再調査。実運用ログでは `http_error status=500` が多く、HTTP失敗時だけOllama返却本文・モデル・画像有無・prompt・経過時間が不足していたため、HTTP失敗ログへ `status` / `model` / `image` / `prompt` / `elapsedMs` / `detail` を追加。`detail` はOllama JSON `error` またはテキスト本文を4KBまで短縮し、過大本文は `too_large`、読取失敗は `unavailable`、token/password/API key系はマスクする。promptは構築済みpromptではなくユーザー入力だけを短縮し、記憶依頼本文は失敗ログでも `[memory-request]` に伏せる
 - **2026-06-16**: AIメンション会話に外部検索とBot側自動学習を追加。検索系質問だけDuckDuckGo Instant Answer互換APIの結果を参考情報としてOllamaへ渡し、URL/メール/電話番号/token/API key/password系は外部送信しない。`覚えて: key=value` など明示的な記憶依頼だけ `CHAT_AI_MEMORY_PATH` へatomic保存し、`CHAT_AI_MEMORY_ENABLED=true` の場合だけ同一返信からプロンプトへ注入する

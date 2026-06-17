@@ -8,7 +8,7 @@ import logger from "../src/utils/logger";
 
 let tmpDir: string | null = null;
 
-function makeConfig(): Config {
+function makeConfig(overrides: Partial<Config> = {}): Config {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "twitch-raid-bot-"));
   return {
     envFile: path.join(tmpDir, ".env"),
@@ -40,6 +40,7 @@ function makeConfig(): Config {
     ollamaShoutoutModel: "",
     ollamaShoutoutTimeoutMs: 8000,
     ollamaShoutoutKeepAlive: "5m",
+    chatReplyEmotes: [],
     clipSpecialUsers: [],
     mangaCommandEnabled: false,
     mangaAdminUsers: [],
@@ -56,6 +57,7 @@ function makeConfig(): Config {
     updateLastStreamTitle: vi.fn(),
     updateMangaCommandEnabled: vi.fn(),
     getLastStreamTitle: vi.fn(() => ""),
+    ...overrides,
   } as unknown as Config;
 }
 
@@ -118,6 +120,51 @@ describe("Bot raid greeting", () => {
       expect.stringContaining(
         'https://www.twitch.tv/raiduser"'
       )
+    );
+  });
+
+  it("appends a configured Twitch emote to raid greetings", async () => {
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    const bot = new Bot(
+      makeConfig({ chatReplyEmotes: ["rukkaHi"] })
+    ) as unknown as {
+      chatClient: { say: ReturnType<typeof vi.fn> };
+      apiClient: {
+        streams: {
+          getStreamByUserName: ReturnType<typeof vi.fn>;
+        };
+      };
+      _fetchRaidSourceInfo: (username: string) => Promise<unknown>;
+      _sendRaidGreeting: (
+        channel: string,
+        info: unknown,
+        viewerCount: number
+      ) => Promise<void>;
+    };
+    bot.chatClient = { say: vi.fn().mockResolvedValue(undefined) };
+    bot.apiClient = {
+      streams: {
+        getStreamByUserName: vi.fn().mockResolvedValue({
+          title: "たのしい建築配信",
+          gameName: "Minecraft",
+        }),
+      },
+    };
+
+    const info = await bot._fetchRaidSourceInfo("RaidUser");
+    await bot._sendRaidGreeting("#rukalun", info, 1);
+
+    expect(bot.chatClient.say).toHaveBeenCalledWith(
+      "#rukalun",
+      "レイドありがとうD！！ @raiduser さんは、「Minecraft」で「たのしい建築配信」をしてたD！お疲れ様D！チャンネルはこD→https://www.twitch.tv/raiduser rukkaHi"
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'message="レイドありがとうD！！ @raiduser さんは、「Minecraft」で「たのしい建築配信」をしてたD！'
+      )
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('rukkaHi"')
     );
   });
 });
