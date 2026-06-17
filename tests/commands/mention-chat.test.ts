@@ -95,10 +95,13 @@ describe("formatGeneratedMentionChatReply", () => {
     );
   });
 
-  it("rejects low-information generated replies", () => {
-    expect(formatGeneratedMentionChatReply("める！", 200)).toBeNull();
-    expect(formatGeneratedMentionChatReply("え？", 200)).toBeNull();
-    expect(formatGeneratedMentionChatReply("スコア100", 200)).toBeNull();
+  it("keeps short generated chat replies after normalization", () => {
+    expect(formatGeneratedMentionChatReply("める！", 200)).toBe("める！");
+    expect(formatGeneratedMentionChatReply("え？", 200)).toBe("え？");
+    expect(formatGeneratedMentionChatReply("GG！", 200)).toBe("GG！");
+    expect(formatGeneratedMentionChatReply("Hello there", 200)).toBe(
+      "Hello there"
+    );
   });
 
   it("allows short Japanese kanji-only replies from chat prompts", () => {
@@ -274,6 +277,29 @@ describe("generateMentionChatReply", () => {
     expect(reply).toBe("Apex Legends");
   });
 
+  it("returns short successful generated replies instead of policy rejecting them", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "GG！" }),
+    });
+
+    const reply = await generateMentionChatReply({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5vl:7b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "GG",
+      streamImageBase64: "AQID",
+      fetchImpl,
+    });
+
+    expect(reply).toBe("GG！");
+  });
+
   it("uses a safe fallback for low-information match outcome replies", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
@@ -374,7 +400,7 @@ describe("generateMentionChatReply", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("returns null for http error, invalid response, empty response, and non-Japanese response", async () => {
+  it("returns null for http error, invalid response, and empty response", async () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => logger);
     const baseOptions = {
       enabled: true,
@@ -492,7 +518,7 @@ describe("generateMentionChatReply", () => {
           json: async () => ({ response: "Hello there" }),
         }),
       })
-    ).resolves.toBeNull();
+    ).resolves.toBe("Hello there");
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -532,6 +558,6 @@ describe("generateMentionChatReply", () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("⚠️ AIメンション会話生成失敗: reason=policy_rejected")
     );
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('raw="Hello there"'));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('raw=""'));
   });
 });

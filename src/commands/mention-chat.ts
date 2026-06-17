@@ -86,10 +86,6 @@ function removeEmoji(value: string): string {
   return value.replace(/\p{Extended_Pictographic}/gu, "");
 }
 
-function includesJapaneseText(value: string): boolean {
-  return /[\u3040-\u30ff\u3400-\u9fff々〆ヵヶ]/.test(value);
-}
-
 function isLowInformationReply(value: string): boolean {
   const compact = value.replace(/[！!？?。、,.，\s]/g, "").trim();
   if (!compact) return true;
@@ -199,14 +195,6 @@ async function readHttpErrorDetail(response: Response): Promise<string> {
 function isStreamImageQuestion(value: string): boolean {
   return /配信画面|画面|見える|見えて|映って|写って|今なに|今何|何して|なにして|してる|している|ゲーム名|ゲーム|タイトル|試合|ラウンド|勝て|勝ち|かて|負け|状況|スコア/u.test(
     value
-  );
-}
-
-function isStreamImageNameQuestion(value: string): boolean {
-  return (
-    /ゲーム名|ゲーム|タイトル|何ですか|なんですか|なにですか|何？|なに？/u.test(
-      value
-    ) && !isMatchOutcomeQuestion(value)
   );
 }
 
@@ -343,17 +331,12 @@ export function extractMentionChatPrompt(
 
 export function formatGeneratedMentionChatReply(
   generated: string,
-  maxResponseChars: number,
-  options: { allowNonJapaneseShortName?: boolean } = {}
+  maxResponseChars: number
 ): string | null {
   const normalized = stripCommandPrefix(
     stripWrappingQuotes(singleLine(removeEmoji(generated)))
   );
   if (!normalized) return null;
-  if (!includesJapaneseText(normalized) && !options.allowNonJapaneseShortName) {
-    return null;
-  }
-  if (isLowInformationReply(normalized)) return null;
   return shorten(normalized, maxResponseChars);
 }
 
@@ -444,10 +427,10 @@ export async function generateMentionChatReply({
       return null;
     }
 
-    const reply = formatGeneratedMentionChatReply(body.response, maxResponseChars, {
-      allowNonJapaneseShortName:
-        isVisionQuestion && isStreamImageNameQuestion(promptText),
-    });
+    const reply = formatGeneratedMentionChatReply(
+      body.response,
+      maxResponseChars
+    );
     const matchOutcomeFallback =
       trimmedImageBase64 && isMatchOutcomeQuestion(promptText)
         ? MATCH_OUTCOME_FALLBACK_REPLY
@@ -464,7 +447,10 @@ export async function generateMentionChatReply({
       );
       return null;
     }
-    if (matchOutcomeFallback && isGenericMatchOutcomeReply(reply)) {
+    if (
+      matchOutcomeFallback &&
+      (isLowInformationReply(reply) || isGenericMatchOutcomeReply(reply))
+    ) {
       logger.warn(
         `⚠️ AIメンション会話は勝敗質問フォールバック: prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}, fallback=${formatMentionChatLogValue(matchOutcomeFallback)}`
       );
