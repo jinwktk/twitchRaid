@@ -301,7 +301,7 @@ internal-docs/
 ```
 
 ## 更新履歴
-- **2026-06-18**: AIメンション会話にOllamaMemoryHub連携を追加。`CHAT_AI_MEMORY_HUB_ENABLED=true` の場合、明示メモ依頼をHubの `/v1/ingest` へ送り、`/v1/context` の関連メモを既存JSONメモと結合してOllama promptへ渡す。Hub失敗時は通常返信へfail-openし、メモ本文はログに出さない。サブPC常駐用にOllamaMemoryHub側へPM2設定 `OllamaMemoryHub` を追加
+- **2026-06-18**: AIメンション会話にOllamaMemoryHub連携を追加。`CHAT_AI_MEMORY_HUB_ENABLED=true` の場合、明示メモ依頼をHubの `/v1/ingest` へ送り、`/v1/context` の関連メモを既存JSONメモと結合してOllama promptへ渡す。Hub失敗時は通常返信へfail-openし、メモ本文はログに出さない。サブPC常駐用にOllamaMemoryHub側へPM2設定 `OllamaMemoryHub` を追加し、サブPC `E:\GitHub\OllamaMemoryHub` へSSH配置してPM2 online / health OKを確認。twitchRaid側 `.env` もHub有効化済み
 - **2026-06-17**: AIメンション会話でOllamaが `GG！` のような短い成功応答を返した場合に、非日本語/低情報判定だけで `policy_rejected` として無言にしないよう変更。空応答、HTTP失敗、無効応答は従来どおり無言でログ化し、勝敗質問のスコアだけ・ゲーム名だけ返答は安全定型へフォールバックする
 - **2026-06-17**: `CHAT_REPLY_EMOTES` が確認済み `rukka...` 候補を含む場合、AIメンション会話の返信とRaid挨拶文で組み込みの `rukka` 候補から文脈別にスタンプを選ぶよう変更。`GG！` には `rukkaGg`、Raid挨拶には `rukkaNiceraido` を優先し、未設定時や未知候補だけの設定では従来挙動を維持する
 - **2026-06-17**: `CHAT_REPLY_EMOTES` を追加し、AIメンション会話の返信とRaid挨拶文の送信直前に設定済みTwitchエモートコードを末尾へ付けられるようにした。未設定時は従来どおりで、設定値はカンマ区切り、先頭の `@` / `＠` は除去、空白入り値と重複は無視する
