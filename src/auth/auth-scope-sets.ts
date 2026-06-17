@@ -18,4 +18,8 @@ export const REQUIRED_AUTH_SCOPES: string[] = [
   "user:write:chat",
 ];
 
-export const REAUTH_AUTH_SCOPES: string[] = [...REQUIRED_AUTH_SCOPES];
+export const EMOTE_READ_REAUTH_SCOPES: string[] = ["user:read:emotes"];
+
+export const REAUTH_AUTH_SCOPES: string[] = [
+  ...new Set([...REQUIRED_AUTH_SCOPES, ...EMOTE_READ_REAUTH_SCOPES]),
+];

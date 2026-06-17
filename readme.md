@@ -42,9 +42,10 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 
 ### 環境設定
 - `.env` に Twitch/Discord 認証情報と `LAST_STREAM_TITLE` を設定
-- Twitch認証は Bot 動作に必要な最小スコープのみ要求（`chat` / `shoutout` / `chat message delete` 系）
+- Twitch認証は Bot 動作に必要な最小スコープのみ要求（`chat` / `shoutout` / `chat message delete` 系）。Botが使えるTwitchスタンプ一覧を取得する再認可では追加で `user:read:emotes` を要求します
 - トークン検証時は 401 Unauthorized の場合のみ再取得を実行します
 - 起動時の有効トークン検証と再取得成功時に、付与済みスコープ一覧を `[ECHO]` ログとして出力します
+- `user:read:emotes` を含む更新可能なユーザートークン取得にはTwitch OAuth Authorization Code Grantが必要で、`.env` の `TWITCH_CLIENT_ID` と正しい `TWITCH_SECRET_TOKEN` が必要です。`invalid client secret` が出る場合はTwitch Developer ConsoleでClient Secretを再発行し、`.env` へ反映してから再認可してください
 - `SHOUTOUT_ADMIN_USERS` に `!shoutout` を実行できる追加ユーザーをカンマ区切りで設定できます（未設定時は `rukalun`）
 - `MANGA_ADMIN_USERS` に `!mangaon` / `!mangaoff` を実行できる追加ユーザーをカンマ区切りで設定できます。にめいやアカウントは表示名ではなくTwitchログイン名 `nyme_ia` で登録します
 - `TWITCH_CLIP_CACHE_DB_PATH` に `!clip` / `!myclip` / `!clipsearch` のクリップキャッシュ SQLite DB パスを設定できます（未設定時は `data/clips.sqlite`）
@@ -234,7 +235,7 @@ src/
 ├── git-manager.ts                 # Git更新検知・build・再起動
 ├── system-watcher.ts              # 定期監視（更新・再起動）
 ├── auth/
-│   ├── auth-scope-sets.ts         # 必須OAuthスコープ
+│   ├── auth-scope-sets.ts         # 必須OAuthスコープと再認可用追加スコープ
 │   ├── scope-policy.ts            # スコープ不足判定
 │   ├── token-manager.ts           # token validate/refresh
 │   └── token-refresh-policy.ts    # refresh fallback判定
@@ -296,6 +297,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-17**: Botが使えるTwitchスタンプ一覧取得に向け、TypeScript版の再認可スコープへ `user:read:emotes` を追加。通常起動の最小スコープには含めず、再認可時だけ要求する。現ローカル `.env` はTwitch側で `invalid client secret` になるため、実認可には正しいClient Secretの反映が必要
 - **2026-06-17**: AIメンション会話の返信ログを再調査。実運用ログでは `http_error status=500` が多く、HTTP失敗時だけOllama返却本文・モデル・画像有無・prompt・経過時間が不足していたため、HTTP失敗ログへ `status` / `model` / `image` / `prompt` / `elapsedMs` / `detail` を追加。`detail` はOllama JSON `error` またはテキスト本文を4KBまで短縮し、過大本文は `too_large`、読取失敗は `unavailable`、token/password/API key系はマスクする。promptは構築済みpromptではなくユーザー入力だけを短縮し、記憶依頼本文は失敗ログでも `[memory-request]` に伏せる
 - **2026-06-16**: AIメンション会話に外部検索とBot側自動学習を追加。検索系質問だけDuckDuckGo Instant Answer互換APIの結果を参考情報としてOllamaへ渡し、URL/メール/電話番号/token/API key/password系は外部送信しない。`覚えて: key=value` など明示的な記憶依頼だけ `CHAT_AI_MEMORY_PATH` へatomic保存し、`CHAT_AI_MEMORY_ENABLED=true` の場合だけ同一返信からプロンプトへ注入する
 - **2026-06-16**: AIメンション会話のBot側記憶をユーザー別ではなく全ユーザー共通の1個の辞書に変更。`data/chat-ai-memory.json` はルート直下のキー値を `key: value` として読む。`users` は無視し、旧 `global` 配列は移行用に共通メモとして読み続ける
