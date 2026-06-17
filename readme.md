@@ -88,6 +88,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!height` | ランダムな身長を表示（120〜220cm） | ネタ枠 |
 | `!mood` | 今日の気分をランダム表示 | 15種類からランダム |
 | `!menu` | 今日のおすすめメニューをランダム表示 | 70種類以上からランダム |
+| `!chat <メッセージ>` | Bot宛てメンションなしでAIメンション会話と同じ返信を生成 | 既存AI会話と同じクールダウン、キュー、MemoryHub、外部検索、スタンプ付与を使用 |
 | `!clip` | 過去のクリップをランダム表示 | 30分クールダウン（特別ユーザー除外） |
 | `!myclip` | 自分が作成したクリップをランダム表示 | 30分クールダウン（`!clip`とは独立） |
 | `!clipsearch <キーワード>` | Clipタイトル/作成者名/ゲーム名から過去クリップを検索して1件表示 | SQLiteキャッシュ検索、クールダウンなし |
@@ -113,7 +114,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - Bot再起動時に配信中stateを復元した場合は、配信開始時刻から見た直近の1時間境界へ送信基準を揃え、停止中の過去分をまとめて送らない
 
 ## AIメンション会話
-- `CHAT_AI_ENABLED=true`、または `CHAT_AI_ENABLED` 未設定かつ `OLLAMA_SHOUTOUT_ENABLED=true` で継承モデルがあるときだけ、通常チャット内の `@にめいやボットくん` / `@nyme_ia2` など `CHAT_AI_BOT_ALIASES` に一致するBot宛てメンションへAI返信する。未設定時の反応名は `にめいやボットくん` と `nyme_ia2` で、`@るっかるん` は明示的に `CHAT_AI_BOT_ALIASES` へ入れない限り反応しない。`CHAT_AI_ENABLED=false` / `0` は常に無効化を優先する。`!help @にめいやボットくん` のようなコマンド本文は従来どおりコマンドとして扱い、AIは介入しない
+- `CHAT_AI_ENABLED=true`、または `CHAT_AI_ENABLED` 未設定かつ `OLLAMA_SHOUTOUT_ENABLED=true` で継承モデルがあるときだけ、通常チャット内の `@にめいやボットくん` / `@nyme_ia2` など `CHAT_AI_BOT_ALIASES` に一致するBot宛てメンション、または `!chat <メッセージ>` へAI返信する。未設定時の反応名は `にめいやボットくん` と `nyme_ia2` で、`@るっかるん` は明示的に `CHAT_AI_BOT_ALIASES` へ入れない限り反応しない。`CHAT_AI_ENABLED=false` / `0` は常に無効化を優先する。`!help @にめいやボットくん` のような `!chat` 以外のコマンド本文は従来どおりコマンドとして扱い、AIは介入しない
 - 返信はOllama `POST /api/generate` で生成し、単一行・最大 `CHAT_AI_MAX_RESPONSE_CHARS` 文字へ整形する。成功応答が空でなければ、`GG！` のような短い英字返答も含めて原則そのまま送信する。先頭 `!`、引用符、絵文字、改行は除去または抑止する。勝敗質問では `スコア100` や `ゲームはApexです` のような断定に使いにくい返答だけ安全な定型文へフォールバックする。`CHAT_REPLY_EMOTES` が設定されていれば、最終送信本文の500文字上限内でTwitchエモートコードを末尾へ付ける。確認済み `rukka...` 候補が設定されている場合は、`GG` 系なら `rukkaGg`、Raidなら `rukkaNiceraido` のように文脈別に選ぶ
 - Bot自身や `CHAT_AI_IGNORED_USERS` の発言には返信しない。除外ユーザーのBot宛てメンションは `AIメンション会話をスキップ: ignored_user=...` とINFOログへ残る。Ollama処理中、キュー処理中、クールダウン中の追加メンションはチャットへ順番待ち通知を出さず、内部キューへ積んで待ち時間を挟み順番に生成する。返信生成を試みた時点から `CHAT_AI_COOLDOWN_SECONDS` のクールダウンをかける。Ollama失敗、HTTPエラー、空応答、無効応答ではチャットへ何も返さず、`reason=http_error` / `invalid_response` / `policy_rejected` / `exception` のようにログだけ残す。HTTPエラー時は `status` / `model` / `image` / ユーザー入力prompt / `elapsedMs` / `detail` を短縮して出し、構築済みpromptやメモ本文は出さない。`detail` は4KBまで読み、過大本文は `too_large`、読取失敗は `unavailable` とし、Bearer tokenやpassword/API key系の値はマスクする。送信するAI返信は `AIメンション会話応答: user=... model=... image=... prompt="..." reply="..."` としてINFOログへ短縮出力し、`policy_rejected` ではOllamaのraw返却値も短くWARNログへ残す
 - `qwen3.5:9b` のようなthinking対応モデルでは、Ollama `/api/generate` に `think:false` を付けて最終回答だけを短く返させる。これを付けない場合、短い `num_predict` をthinkingで使い切り、`response` が空になることがある
@@ -301,6 +302,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-18**: `!chat <メッセージ>` を追加。Bot宛て `@` メンションなしでもAIメンション会話と同じOllama生成、MemoryHub文脈、外部検索、クールダウン/キュー、返信スタンプ付与を使って返信できるようにした。空の `!chat` は使い方を返す
 - **2026-06-18**: AIメンション会話にOllamaMemoryHub連携を追加。`CHAT_AI_MEMORY_HUB_ENABLED=true` の場合、明示メモ依頼をHubの `/v1/ingest` へ送り、`/v1/context` の関連メモを既存JSONメモと結合してOllama promptへ渡す。Hub失敗時は通常返信へfail-openし、メモ本文はログに出さない。サブPC常駐用にOllamaMemoryHub側へPM2設定 `OllamaMemoryHub` を追加し、サブPC `E:\GitHub\OllamaMemoryHub` へSSH配置してPM2 online / health OKを確認。twitchRaid側 `.env` もHub有効化済み
 - **2026-06-17**: AIメンション会話でOllamaが `GG！` のような短い成功応答を返した場合に、非日本語/低情報判定だけで `policy_rejected` として無言にしないよう変更。空応答、HTTP失敗、無効応答は従来どおり無言でログ化し、勝敗質問のスコアだけ・ゲーム名だけ返答は安全定型へフォールバックする
 - **2026-06-17**: `CHAT_REPLY_EMOTES` が確認済み `rukka...` 候補を含む場合、AIメンション会話の返信とRaid挨拶文で組み込みの `rukka` 候補から文脈別にスタンプを選ぶよう変更。`GG！` には `rukkaGg`、Raid挨拶には `rukkaNiceraido` を優先し、未設定時や未知候補だけの設定では従来挙動を維持する

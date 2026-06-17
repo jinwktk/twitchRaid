@@ -141,6 +141,7 @@ describe("Bot help command", () => {
       "!height",
       "!mood",
       "!menu",
+      "!chat",
       "!clip",
       "!myclip",
       "!clipsearch",

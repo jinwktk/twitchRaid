@@ -107,8 +107,9 @@ const MENTION_CHAT_SKIP_PROMPT_LIMIT = 80;
 const MENTION_CHAT_STREAM_IMAGE_WIDTH = 640;
 const MENTION_CHAT_STREAM_IMAGE_HEIGHT = 360;
 const MENTION_CHAT_STREAM_IMAGE_TIMEOUT_MS = 5_000;
+const CHAT_AI_COMMAND_USAGE = "⚠️ 使い方: !chat <メッセージ>";
 const HELP_MESSAGE =
-  "!使えるコマンド: 基本 !help / !age / !goods / !site / !x / !game / !weight / !height / !mood / !menu | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
+  "!使えるコマンド: 基本 !help / !age / !goods / !site / !x / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
 const MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE = "[memory-request]";
 
 function formatSkippedMentionPrompt(prompt: string): string {
@@ -137,6 +138,14 @@ interface MentionChatRequest {
   userName: string;
   alias: string;
   prompt: string;
+}
+
+interface MentionChatInput {
+  channel: string;
+  user: string;
+  alias: string;
+  prompt: string;
+  now: number;
 }
 
 interface StreamThumbnailSource {
@@ -424,13 +433,51 @@ export class Bot {
     );
     if (!match) return;
 
+    await this._enqueueMentionChatRequest({
+      channel,
+      user,
+      alias: match.alias,
+      prompt: match.prompt,
+      now,
+    });
+  }
+
+  private async _handleChatAiCommand(
+    channel: string,
+    user: string,
+    prompt: string,
+    now: number
+  ): Promise<void> {
+    const normalizedPrompt = prompt.trim();
+    if (!normalizedPrompt) {
+      await this.chatClient.say(channel, CHAT_AI_COMMAND_USAGE);
+      return;
+    }
+    if (!(this.config.chatAiEnabled ?? false)) return;
+
+    await this._enqueueMentionChatRequest({
+      channel,
+      user,
+      alias: "!chat",
+      prompt: normalizedPrompt,
+      now,
+    });
+  }
+
+  private async _enqueueMentionChatRequest({
+    channel,
+    user,
+    alias,
+    prompt,
+    now,
+  }: MentionChatInput): Promise<void> {
     const normalizedUser = user.trim().replace(/^[@＠]+/, "").toLowerCase();
     const ignoredUsers = this.config.chatAiIgnoredUsers ?? [
       this.config.loginChannel,
     ];
     if (ignoredUsers.includes(normalizedUser)) {
       logger.info(
-        `AIメンション会話をスキップ: ignored_user=${normalizedUser}, alias=${match.alias}`
+        `AIメンション会話をスキップ: ignored_user=${normalizedUser}, alias=${alias}`
       );
       return;
     }
@@ -438,8 +485,8 @@ export class Bot {
     const request: MentionChatRequest = {
       channel,
       userName: normalizedUser,
-      alias: match.alias,
-      prompt: match.prompt,
+      alias,
+      prompt,
     };
 
     const cooldownRemainingSeconds =
@@ -457,7 +504,7 @@ export class Bot {
         queueReason = "queue_draining";
       }
       logger.info(
-        `AIメンション会話をキュー登録: position=${queuePosition}, reason=${queueReason}, user=${normalizedUser}, alias=${match.alias}`
+        `AIメンション会話をキュー登録: position=${queuePosition}, reason=${queueReason}, user=${normalizedUser}, alias=${alias}`
       );
       if (!this.mentionChatInFlight && !this.mentionChatQueueDraining) {
         void this._drainMentionChatQueue();
@@ -773,6 +820,14 @@ export class Bot {
         break;
       case "menu":
         await this.chatClient.say(channel, randomMenu());
+        break;
+      case "chat":
+        await this._handleChatAiCommand(
+          channel,
+          user,
+          restText,
+          Date.now() / 1000
+        );
         break;
       case "speed":
         await this._handleSpeedCommand(channel);

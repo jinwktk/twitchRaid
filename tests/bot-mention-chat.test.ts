@@ -306,6 +306,36 @@ describe("Bot mention chat", () => {
     expect(say.mock.calls[0][1]).toContain("使えるコマンド");
   });
 
+  it("replies to chat AI command without requiring a bot mention", async () => {
+    const { bot, say } = makeBot();
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "呼ばれたD！" }),
+    } as Response);
+
+    await bot._handleCommand("#rukalun", "viewer", "!chat こんにちは", {});
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith("#rukalun", "呼ばれたD！");
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('AIメンション会話応答: user=viewer, alias=!chat')
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('prompt="こんにちは"')
+    );
+  });
+
+  it("shows usage for chat AI command without a message", async () => {
+    const { bot, say } = makeBot();
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await bot._handleCommand("#rukalun", "viewer", "!chat", {});
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(say).toHaveBeenCalledWith("#rukalun", "⚠️ 使い方: !chat <メッセージ>");
+  });
+
   it("does not send chat message when AI returns null", async () => {
     const { bot, say } = makeBot();
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
