@@ -302,6 +302,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-19**: AIメンション外部検索で `夏尾さんについて` のような `〜について` 質問が検索対象にならない問題を調査。この作業PCの `logs/` とPM2ログには実運用の夏尾発言は見つからず、`.env` では `CHAT_AI_SEARCH_ENABLED` 未設定のため検索無効だった。コード上も検索トリガーに `について` がなく、まず `tests/commands/mention-chat-search.test.ts` に失敗テストを追加して再現した
 - **2026-06-18**: `!chat <メッセージ>` を追加。Bot宛て `@` メンションなしでもAIメンション会話と同じOllama生成、MemoryHub文脈、外部検索、クールダウン/キュー、返信スタンプ付与を使って返信できるようにした。空の `!chat` は使い方を返す
 - **2026-06-18**: サブPCログで、通常質問まで配信画像付きの `gemma3:4b` Vision経路へ流れていること、OllamaMemoryHubの`twitch` namespaceに実メモが入っていないこと、`記憶して！` やコマンド読み上げ依頼の判定漏れを確認。通常質問は画像取得せず `CHAT_AI_MODEL` へ流し、画面質問だけ `CHAT_AI_VISION_MODEL` と `images` を使うよう変更。`るっかは32歳ね。記憶して！` のような後置き記憶依頼と、`!mangaon` の読み上げ/再投稿依頼を固定拒否できるようにした
 - **2026-06-18**: AIメンション会話にOllamaMemoryHub連携を追加。`CHAT_AI_MEMORY_HUB_ENABLED=true` の場合、明示メモ依頼をHubの `/v1/ingest` へ送り、`/v1/context` の関連メモを既存JSONメモと結合してOllama promptへ渡す。Hub失敗時は通常返信へfail-openし、メモ本文はログに出さない。サブPC常駐用にOllamaMemoryHub側へPM2設定 `OllamaMemoryHub` を追加し、サブPC `E:\GitHub\OllamaMemoryHub` へSSH配置してPM2 online / health OKを確認。twitchRaid側 `.env` もHub有効化済み
