@@ -24,6 +24,7 @@ type SearchRecord = Record<string, unknown>;
 
 const SEARCH_PROMPT_PATTERN =
   /検索|調べ|調べて|ググ|最新|ニュース|とは|誰|だれ|いつ|どこ|何年|価格|値段|天気|wiki|wikipedia|what|who|when|where|latest|news|search/iu;
+const ABOUT_PROMPT_PATTERN = /について(?:教えて|知りたい|$|[？?])/u;
 const MEMORY_REQUEST_PATTERN = /(?:^|\s)(?:覚えて|メモして|忘れないで)/u;
 const URL_PATTERN = /(?:https?:\/\/|www\.)/iu;
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu;
@@ -63,7 +64,10 @@ function isRecord(value: unknown): value is SearchRecord {
 
 export function shouldSearchMentionChat(value: string): boolean {
   const query = singleLine(value);
-  return !MEMORY_REQUEST_PATTERN.test(query) && SEARCH_PROMPT_PATTERN.test(query);
+  return (
+    !MEMORY_REQUEST_PATTERN.test(query) &&
+    (SEARCH_PROMPT_PATTERN.test(query) || ABOUT_PROMPT_PATTERN.test(query))
+  );
 }
 
 function isUnsafeExternalQuery(value: string, maxQueryChars: number): boolean {
