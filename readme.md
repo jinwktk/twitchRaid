@@ -83,6 +83,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!goods` | グッズ販売ページのURLを表示 | [booth.pm](https://rukalun.booth.pm) |
 | `!site` | Clip検索サイトのURLを表示 | [rukalun.mydns.jp](https://www.rukalun.mydns.jp) |
 | `!x` | XアカウントのURLを表示 | [x.com/rukalunlol](https://x.com/rukalunlol) |
+| `!youtube` | YouTubeチャンネルのURLを表示 | [youtube.com](https://www.youtube.com/@%E3%82%8B%E3%81%A3%E3%81%8B%E3%82%8B%E3%82%93%E3%82%8B%E3%81%A3%E3%81%8B) |
 | `!game` | ランダムなゲーム候補を表示 | Twitchに残っている過去アーカイブVODで配信したゲームからランダム、権限不要、クールダウンなし |
 | `!weight` | ランダムな体重を表示（15〜200kg） | ネタ枠 |
 | `!height` | ランダムな身長を表示（120〜220cm） | ネタ枠 |
@@ -303,6 +304,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-19**: `!youtube` コマンドを追加し、`https://www.youtube.com/@%E3%82%8B%E3%81%A3%E3%81%8B%E3%82%8B%E3%82%93%E3%82%8B%E3%81%A3%E3%81%8B` をチャットへ返せるようにした。`!help` の一覧にも `!youtube` を追加
 - **2026-06-19**: `!boom 7` のように日数を指定できるようにした。省略時は従来どおり30日、指定値はTwitch VOD保存期間に合わせて1〜60の整数だけ受け付け、期間別に5分キャッシュして `!boom 7` と `!boom` の結果が混ざらないようにした
 - **2026-06-19**: AIメンション外部検索で `夏尾さんについて` のような `〜について` 質問が検索対象にならない問題を調査。この作業PCの `logs/` とPM2ログには実運用の夏尾発言は見つからず、`.env` では `CHAT_AI_SEARCH_ENABLED` 未設定のため検索無効だった。コード上も検索トリガーに `について` がなく、`tests/commands/mention-chat-search.test.ts` に失敗テストを追加して再現後、語尾の `〜について` と `について教えて/知りたい` を検索対象へ追加した。追加調査で `夏尾さんについて知ってる？` も検索候補にし、検索候補なのに検索無効または結果なし/失敗で未適用だった場合の理由ログを追加した
 - **2026-06-19**: `夏尾さんについて` の外部検索ログを再確認。このPCの `logs/bot_2026-06-19.log` に出ている `夏尾さんについて` と `reason=disabled` / `reason=no_result_or_failed` はVitestの `viewer` テストログで、実運用発言は確認できなかった。`C:\Users\mlove\.pm2\logs` にアプリログはなく、PM2本体ログだけだった。ローカル `.env` は引き続き `CHAT_AI_SEARCH_ENABLED` 未設定で、DuckDuckGo Instant Answer APIへ `夏尾さんについて` を直接問い合わせても `Heading` / `AbstractText` / `Answer` / `RelatedTopics` / `Results` が空だったため、有効化後も現行endpointでは検索文脈なしになり得る

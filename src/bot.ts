@@ -114,8 +114,10 @@ const MENTION_CHAT_STREAM_IMAGE_WIDTH = 640;
 const MENTION_CHAT_STREAM_IMAGE_HEIGHT = 360;
 const MENTION_CHAT_STREAM_IMAGE_TIMEOUT_MS = 5_000;
 const CHAT_AI_COMMAND_USAGE = "⚠️ 使い方: !chat <メッセージ>";
+const YOUTUBE_CHANNEL_URL =
+  "https://www.youtube.com/@%E3%82%8B%E3%81%A3%E3%81%8B%E3%82%8B%E3%82%93%E3%82%8B%E3%81%A3%E3%81%8B";
 const HELP_MESSAGE =
-  "!使えるコマンド: 基本 !help / !age / !goods / !site / !x / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
+  "!使えるコマンド: 基本 !help / !age / !goods / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
 const MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE = "[memory-request]";
 
 function formatSkippedMentionPrompt(prompt: string): string {
@@ -822,6 +824,9 @@ export class Bot {
         break;
       case "x":
         await this.chatClient.say(channel, "https://x.com/rukalunlol");
+        break;
+      case "youtube":
+        await this.chatClient.say(channel, YOUTUBE_CHANNEL_URL);
         break;
       case "game":
         await this._handleGameCommand(channel);

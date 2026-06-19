@@ -11,6 +11,7 @@
 | `!goods` | グッズ販売ページURLを表示 | `https://rukalun.booth.pm` |
 | `!site` | Clip検索サイトURLを表示 | `https://www.rukalun.mydns.jp` |
 | `!x` | XアカウントURLを表示 | `https://x.com/rukalunlol` |
+| `!youtube` | YouTubeチャンネルURLを表示 | `https://www.youtube.com/@%E3%82%8B%E3%81%A3%E3%81%8B%E3%82%8B%E3%82%93%E3%82%8B%E3%81%A3%E3%81%8B` |
 | `!game` | ゲーム候補を表示 | Twitchに残っている過去アーカイブVODで配信したゲームからランダム。候補一覧は5分キャッシュ |
 | `!weight` | ランダム体重を表示 | 15から200kg |
 | `!height` | ランダム身長を表示 | 120から220cm |
