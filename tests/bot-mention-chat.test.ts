@@ -668,6 +668,66 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "検索結果を見たD！");
   });
 
+  it("logs when a search-like mention is skipped because external search is disabled", async () => {
+    const { bot, say } = makeBot({
+      chatAiSearchEnabled: false,
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "通常返信D！" }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 夏尾さんについて",
+      100
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(infoSpy).toHaveBeenCalledWith(
+      "AIメンション会話外部検索は未適用: reason=disabled"
+    );
+    expect(say).toHaveBeenCalledWith("#rukalun", "通常返信D！");
+  });
+
+  it("logs when external search returns no usable context", async () => {
+    const { bot, say } = makeBot({
+      chatAiSearchEnabled: true,
+      chatAiSearchEndpoint: "https://api.duckduckgo.com/",
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.startsWith("https://api.duckduckgo.com/")) {
+        return {
+          ok: true,
+          headers: { get: () => null },
+          arrayBuffer: async () => Buffer.from("{}", "utf8").buffer,
+        } as Response;
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ response: "検索なしで返すD！" }),
+      } as Response;
+    });
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 夏尾さんについて",
+      100
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(infoSpy).toHaveBeenCalledWith(
+      "AIメンション会話外部検索は未適用: reason=no_result_or_failed"
+    );
+    expect(say).toHaveBeenCalledWith("#rukalun", "検索なしで返すD！");
+  });
+
   it("stores learned memory before generating when memory injection is enabled", async () => {
     const memoryPath = path.join(ensureTempDir(), "chat-ai-memory.json");
     const { bot, say } = makeBot({

@@ -71,7 +71,10 @@ import {
   fetchMentionChatMemoryHubContext,
   saveMentionChatMemoryHub,
 } from "./commands/mention-chat-memory-hub";
-import { fetchMentionChatSearchContext } from "./commands/mention-chat-search";
+import {
+  fetchMentionChatSearchContext,
+  shouldSearchMentionChat,
+} from "./commands/mention-chat-search";
 import {
   isStreamNotifyAdmin,
   sendManualStreamNotification,
@@ -612,8 +615,10 @@ export class Bot {
       }
       const combinedMemoryText =
         [hubMemory?.text, memory.text].filter(Boolean).join("\n") || null;
+      const searchEnabled = this.config.chatAiSearchEnabled ?? false;
+      const searchCandidate = shouldSearchMentionChat(request.prompt);
       const searchContext = await fetchMentionChatSearchContext({
-        enabled: this.config.chatAiSearchEnabled ?? false,
+        enabled: searchEnabled,
         endpoint:
           this.config.chatAiSearchEndpoint ?? "https://api.duckduckgo.com/",
         queryText: request.prompt,
@@ -625,6 +630,12 @@ export class Bot {
       if (searchContext) {
         logger.info(
           `AIメンション会話外部検索を適用: results=${searchContext.resultCount}`
+        );
+      } else if (searchCandidate) {
+        logger.info(
+          `AIメンション会話外部検索は未適用: reason=${
+            searchEnabled ? "no_result_or_failed" : "disabled"
+          }`
         );
       }
       const model =

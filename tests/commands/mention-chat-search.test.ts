@@ -21,6 +21,7 @@ describe("mention chat external search", () => {
     expect(shouldSearchMentionChat("TwitchConの日程を調べて")).toBe(true);
     expect(shouldSearchMentionChat("最新ニュースは？")).toBe(true);
     expect(shouldSearchMentionChat("夏尾さんについて")).toBe(true);
+    expect(shouldSearchMentionChat("夏尾さんについて知ってる？")).toBe(true);
     expect(shouldSearchMentionChat("覚えて: 最新情報=配信中")).toBe(false);
     expect(shouldSearchMentionChat("こんにちは")).toBe(false);
   });

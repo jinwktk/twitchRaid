@@ -24,7 +24,8 @@ type SearchRecord = Record<string, unknown>;
 
 const SEARCH_PROMPT_PATTERN =
   /検索|調べ|調べて|ググ|最新|ニュース|とは|誰|だれ|いつ|どこ|何年|価格|値段|天気|wiki|wikipedia|what|who|when|where|latest|news|search/iu;
-const ABOUT_PROMPT_PATTERN = /について(?:教えて|知りたい|$|[？?])/u;
+const ABOUT_PROMPT_PATTERN =
+  /について(?:教えて|知りたい|知ってる|知っています|わかる|分かる|$|[？?])/u;
 const MEMORY_REQUEST_PATTERN = /(?:^|\s)(?:覚えて|メモして|忘れないで)/u;
 const URL_PATTERN = /(?:https?:\/\/|www\.)/iu;
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu;
