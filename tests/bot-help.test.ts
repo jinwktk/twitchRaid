@@ -205,7 +205,7 @@ describe("Bot help command", () => {
     expect(say).toHaveBeenCalledTimes(1);
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "https://www.youtube.com/@%E3%82%8B%E3%81%A3%E3%81%8B%E3%82%8B%E3%82%93%E3%82%8B%E3%81%A3%E3%81%8B"
+      "https://youtube.com/@るっかるんるっか"
     );
   });
 
