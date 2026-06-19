@@ -5,6 +5,7 @@ import {
   formatBoomSummary,
   formatDuration,
   parseGameChapters,
+  parseBoomCommandLookbackDays,
 } from "../../src/commands/boom";
 
 interface FakeVideo {
@@ -500,6 +501,16 @@ describe("BoomSummaryCache", () => {
 
     expect(sevenDayLoader).toHaveBeenCalledTimes(1);
     expect(thirtyDayLoader).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("parseBoomCommandLookbackDays", () => {
+  it("accepts omitted or 1-60 day values and rejects values outside Twitch VOD retention", () => {
+    expect(parseBoomCommandLookbackDays("")).toBe(30);
+    expect(parseBoomCommandLookbackDays("1")).toBe(1);
+    expect(parseBoomCommandLookbackDays("60")).toBe(60);
+    expect(parseBoomCommandLookbackDays("61")).toBeNull();
+    expect(parseBoomCommandLookbackDays("0")).toBeNull();
   });
 });
 

@@ -65,7 +65,7 @@ interface MomentNode {
 const TWITCH_GQL_URL = "https://gql.twitch.tv/gql";
 export const DEFAULT_TWITCH_GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 export const DEFAULT_BOOM_LOOKBACK_DAYS = 30;
-export const MAX_BOOM_COMMAND_LOOKBACK_DAYS = 365;
+export const MAX_BOOM_COMMAND_LOOKBACK_DAYS = 60;
 export const BOOM_COMMAND_USAGE = `⚠️ 使い方: !boom [日数]（1〜${MAX_BOOM_COMMAND_LOOKBACK_DAYS}の整数）`;
 const DEFAULT_MIN_GAME_SECONDS = 60 * 60;
 const DEFAULT_MAX_GAMES = 6;

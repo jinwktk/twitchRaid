@@ -328,19 +328,19 @@ describe("Bot help command", () => {
     );
   });
 
-  it("returns usage when boom day count is invalid", async () => {
+  it("returns usage when boom day count is outside the supported VOD retention window", async () => {
     const { bot, say } = makeBot();
     const getVideosByUserPaginated = vi.fn();
     bot.apiClient = {
       videos: { getVideosByUserPaginated },
     };
 
-    await bot._handleCommand("#rukalun", "viewer", "!boom abc", {});
+    await bot._handleCommand("#rukalun", "viewer", "!boom 61", {});
 
     expect(say).toHaveBeenCalledTimes(1);
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "⚠️ 使い方: !boom [日数]（1〜365の整数）"
+      "⚠️ 使い方: !boom [日数]（1〜60の整数）"
     );
     expect(getVideosByUserPaginated).not.toHaveBeenCalled();
   });
