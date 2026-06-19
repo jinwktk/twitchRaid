@@ -83,7 +83,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!goods` | グッズ販売ページのURLを表示 | [booth.pm](https://rukalun.booth.pm) |
 | `!site` | Clip検索サイトのURLを表示 | [rukalun.mydns.jp](https://www.rukalun.mydns.jp) |
 | `!x` | XアカウントのURLを表示 | [x.com/rukalunlol](https://x.com/rukalunlol) |
-| `!youtube` | YouTubeチャンネルのURLを表示 | [youtube.com](https://youtube.com/@るっかるんるっか) |
+| `!youtube` | YouTubeチャンネルのURLを表示 | [is.gd/rukalunyt](https://is.gd/rukalunyt) |
 | `!game` | ランダムなゲーム候補を表示 | Twitchに残っている過去アーカイブVODで配信したゲームからランダム、権限不要、クールダウンなし |
 | `!weight` | ランダムな体重を表示（15〜200kg） | ネタ枠 |
 | `!height` | ランダムな身長を表示（120〜220cm） | ネタ枠 |
@@ -304,6 +304,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-19**: Twitchチャットで日本語ハンドルURLがリンク化されず、ASCIIエンコードURLも読み上げが長くなるため、`!youtube` の返却URLを作成済み短縮URL `https://is.gd/rukalunyt` へ変更した。短縮URLは指定YouTubeチャンネルへ301リダイレクトすることを確認済み
 - **2026-06-19**: `!youtube` の返却URLを短縮表記 `https://youtube.com/@るっかるんるっか` へ変更した
 - **2026-06-19**: `!youtube` コマンドを追加し、指定YouTubeチャンネルURLをチャットへ返せるようにした。`!help` の一覧にも `!youtube` を追加
 - **2026-06-19**: `!boom 7` のように日数を指定できるようにした。省略時は従来どおり30日、指定値はTwitch VOD保存期間に合わせて1〜60の整数だけ受け付け、期間別に5分キャッシュして `!boom 7` と `!boom` の結果が混ざらないようにした

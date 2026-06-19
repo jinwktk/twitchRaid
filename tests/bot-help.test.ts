@@ -205,8 +205,11 @@ describe("Bot help command", () => {
     expect(say).toHaveBeenCalledTimes(1);
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "https://youtube.com/@るっかるんるっか"
+      "https://is.gd/rukalunyt"
     );
+
+    const message = say.mock.calls[0][1] as string;
+    expect(message).toMatch(/^[\x20-\x7E]+$/);
   });
 
   it("sends a random game suggestion from streamed VOD games", async () => {
