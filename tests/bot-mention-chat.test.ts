@@ -39,7 +39,9 @@ function ensureTempDir(): string {
   return tmpDir;
 }
 
-function makeConfig(overrides: Partial<Config> = {}): Config {
+function makeConfig(
+  overrides: Partial<Config> & Record<string, unknown> = {}
+): Config {
   const dir = ensureTempDir();
   return {
     envFile: path.join(dir, ".env"),
@@ -89,10 +91,6 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     chatAiMemoryPath: path.join(dir, "chat-ai-memory.json"),
     chatAiMemoryMaxItems: 8,
     chatAiMemoryMaxChars: 600,
-    chatAiMemoryHubEnabled: false,
-    chatAiMemoryHubUrl: "http://127.0.0.1:3217",
-    chatAiMemoryHubNamespace: "twitch",
-    chatAiMemoryHubTimeoutMs: 1200,
     chatAiSearchEnabled: false,
     chatAiSearchEndpoint: "https://api.duckduckgo.com/",
     chatAiSearchTimeoutMs: 2500,
@@ -130,7 +128,9 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
   } as unknown as Config;
 }
 
-function makeBot(overrides: Partial<Config> = {}): {
+function makeBot(
+  overrides: Partial<Config> & Record<string, unknown> = {}
+): {
   bot: MentionChatTestBot;
   say: ReturnType<typeof vi.fn>;
 } {
@@ -563,7 +563,7 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "カレーの話だねD！");
   });
 
-  it("passes MemoryHub context to Ollama without logging memory text", async () => {
+  it("ignores legacy MemoryHub settings and does not call Hub APIs", async () => {
     const { bot, say } = makeBot({
       chatAiMemoryHubEnabled: true,
       chatAiMemoryHubUrl: "http://127.0.0.1:3217",
@@ -586,15 +586,15 @@ describe("Bot mention chat", () => {
           ok: true,
           json: async () => ({
             ok: true,
-            entries: [{ key: "口調", value: "短くD" }],
-            contextText: "口調: 短くD",
+            entries: [{ key: "Hubだけ", value: "使わない" }],
+            contextText: "Hubだけ: 使わない",
           }),
         } as Response;
       }
 
       return {
         ok: true,
-        json: async () => ({ response: "短く返すD！" }),
+        json: async () => ({ response: "ローカルだけD！" }),
       } as Response;
     });
 
@@ -608,16 +608,17 @@ describe("Bot mention chat", () => {
     const ollamaCall = fetchSpy.mock.calls.find(([input]) =>
       String(input).endsWith("/api/generate")
     );
+    const hubCalls = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).includes("/v1/")
+    );
+    expect(hubCalls).toHaveLength(0);
     expect(ollamaCall).toBeDefined();
     const body = JSON.parse(ollamaCall?.[1]?.body as string);
-    expect(body.prompt).toContain("口調: 短くD");
-    expect(infoSpy).toHaveBeenCalledWith(
-      expect.stringContaining("AIメンション会話MemoryHubを適用: items=1")
-    );
+    expect(body.prompt).not.toContain("Hubだけ: 使わない");
     for (const call of infoSpy.mock.calls) {
-      expect(call[0]).not.toContain("短くD");
+      expect(call[0]).not.toContain("Hubだけ: 使わない");
     }
-    expect(say).toHaveBeenCalledWith("#rukalun", "短く返すD！");
+    expect(say).toHaveBeenCalledWith("#rukalun", "ローカルだけD！");
   });
 
   it("passes external search context to Ollama when search is enabled", async () => {
@@ -794,6 +795,32 @@ describe("Bot mention chat", () => {
       chatAiAutoLearnEnabled: true,
       chatAiMemoryEnabled: true,
       chatAiMemoryPath: memoryPath,
+    });
+    const warnSpy = vi.spyOn(logger, "warn");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: async () => JSON.stringify({ error: "model load failed" }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 覚えて: 口調=短くD",
+      100
+    );
+
+    const warningText = warnSpy.mock.calls.map(([message]) => String(message)).join("\n");
+    expect(warningText).toContain('prompt="[memory-request]"');
+    expect(warningText).not.toContain("口調=短くD");
+    expect(warningText).not.toContain("短くD");
+    expect(say).not.toHaveBeenCalled();
+  });
+
+  it("masks memory request text even when auto learning is disabled", async () => {
+    const { bot, say } = makeBot({
+      chatAiAutoLearnEnabled: false,
+      chatAiMemoryEnabled: false,
     });
     const warnSpy = vi.spyOn(logger, "warn");
     vi.spyOn(globalThis, "fetch").mockResolvedValue({

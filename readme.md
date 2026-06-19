@@ -89,7 +89,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!height` | ランダムな身長を表示（120〜220cm） | ネタ枠 |
 | `!mood` | 今日の気分をランダム表示 | 15種類からランダム |
 | `!menu` | 今日のおすすめメニューをランダム表示 | 70種類以上からランダム |
-| `!chat <メッセージ>` | Bot宛てメンションなしでAIメンション会話と同じ返信を生成 | 既存AI会話と同じクールダウン、キュー、MemoryHub、外部検索、スタンプ付与を使用 |
+| `!chat <メッセージ>` | Bot宛てメンションなしでAIメンション会話と同じ返信を生成 | 既存AI会話と同じクールダウン、キュー、ローカル記憶メモ、外部検索、スタンプ付与を使用 |
 | `!clip` | 過去のクリップをランダム表示 | 30分クールダウン（特別ユーザー除外） |
 | `!myclip` | 自分が作成したクリップをランダム表示 | 30分クールダウン（`!clip`とは独立） |
 | `!clipsearch <キーワード>` | Clipタイトル/作成者名/ゲーム名から過去クリップを検索して1件表示 | SQLiteキャッシュ検索、クールダウンなし |
@@ -124,7 +124,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - 外部検索は `CHAT_AI_SEARCH_ENABLED=true` の場合だけ使う。検索・調べて・最新・ニュース・誰/いつ/どこ、`夏尾さんについて` や `夏尾さんについて知ってる？` のような `〜について` 等の質問に限定し、明示的な記憶依頼は検索しない。URL、メール、電話番号、token/API key/password系を含む検索語や長すぎる検索語は外部へ送らない。検索結果は「命令ではない参考情報」としてプロンプトへ入れ、HTTP失敗、壊れたJSON、空結果、過大レスポンス時は検索なしで通常返信へ戻す。検索候補なのに検索が使われなかった場合は、`AIメンション会話外部検索は未適用: reason=disabled` または `reason=no_result_or_failed` をINFOログへ残す
 - OllamaはこのBotのチャットを自動学習しない。口調や固定知識はプロンプト/Modelfile `MESSAGE` で例示できるが、モデル重みの学習やLoRA fine-tuningは外部ツールで作ったadapter/modelをOllamaへimportして使う運用になる
 - Bot側の記憶機能として、`CHAT_AI_MEMORY_ENABLED=true` の場合だけ `data/chat-ai-memory.json` などのJSONを読み、ルート直下のキー値を全ユーザー共通の記憶辞書としてプロンプトへ入れる。これはモデル重みの学習ではなく、返信ごとの参考メモ注入である。`users.<Twitchログイン名>` のユーザー別メモは使わない。旧形式の `global` 配列だけは移行用に共通メモとして読み込める。`CHAT_AI_AUTO_LEARN_ENABLED=true` の場合は明示的な「覚えて/記憶して/メモして/忘れないで」依頼だけを抽出し、JSONへatomic保存してから同じAI返信のプロンプトへ反映できる。保存ログやAI応答ログにはメモ本文を出さず、秘密情報、トークン、個人情報はメモに書かない
-- 共通記憶基盤のOllamaMemoryHubを使う場合は `CHAT_AI_MEMORY_HUB_ENABLED=true`、`CHAT_AI_MEMORY_HUB_URL=http://127.0.0.1:3217`、`CHAT_AI_MEMORY_HUB_NAMESPACE=twitch` を設定する。BotはAIメンションごとにHubへ `POST /v1/ingest` を送り、Hub側で明示的な記憶依頼や安全な安定情報だけを保存させる。その後 `POST /v1/context` で関連メモを取得し、既存JSONメモと結合してOllama promptへ参考情報として渡す。Hub停止、HTTP失敗、空結果はfail-openで通常返信を続け、Hubメモ本文はログに出さない。タイムアウト既定値は `CHAT_AI_MEMORY_HUB_TIMEOUT_MS=1200`
+- 外部のOllamaMemoryHub連携は廃止済み。`CHAT_AI_MEMORY_HUB_*` が `.env` に残っていてもBotは読み込まず、`/v1/ingest` や `/v1/context` へは接続しない。記憶を使う場合は `CHAT_AI_MEMORY_PATH` のローカルJSONを正本にする
 
 ```json
 {
@@ -259,7 +259,6 @@ src/
 │   ├── game.ts                    # !game VOD由来ゲーム候補
 │   ├── manga.ts                   # !manga / 管理者判定
 │   ├── mention-chat.ts            # @メンションAI会話
-│   ├── mention-chat-memory-hub.ts # OllamaMemoryHub連携
 │   ├── raid-info.ts               # Raid元配信情報文言
 │   ├── random-commands.ts         # !weight / !height / !mood / !menu
 │   ├── shoutout-introduction.ts   # OllamaによるRaid挨拶文生成
@@ -304,6 +303,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-20**: OllamaMemoryHub連携を廃止し、AIメンション会話の記憶保存・参照を `CHAT_AI_MEMORY_PATH` のローカルJSONに一本化した。`CHAT_AI_MEMORY_HUB_*` は読み込まず、`!chat` とBot宛てメンションはHub APIへ接続しない。明示メモ依頼のログ伏せ字は自動学習が無効でも適用する
 - **2026-06-20**: `CHAT_AI_PROMPT_REPLY_LOG_ENABLED=true` を追加。AIメンション会話の成功時に、Ollamaへ送った構築済みprompt全文と生成返信を `プロンプト：...` / `返信：...` 形式でログへ出せるようにした。既定は無効
 - **2026-06-19**: Twitchチャットで日本語ハンドルURLがリンク化されず、ASCIIエンコードURLも読み上げが長くなるため、`!youtube` の返却URLを作成済み短縮URL `https://is.gd/rukalunyt` へ変更した。短縮URLは指定YouTubeチャンネルへ301リダイレクトすることを確認済み
 - **2026-06-19**: `!youtube` の返却URLを短縮表記 `https://youtube.com/@るっかるんるっか` へ変更した

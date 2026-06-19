@@ -19,9 +19,6 @@ const DEFAULT_CHAT_AI_BOT_ALIASES = ["にめいやボットくん", "nyme_ia2"];
 const DEFAULT_CHAT_AI_IGNORED_USERS = ["nyme_ia2"];
 const DEFAULT_CHAT_AI_MEMORY_MAX_ITEMS = 8;
 const DEFAULT_CHAT_AI_MEMORY_MAX_CHARS = 600;
-const DEFAULT_CHAT_AI_MEMORY_HUB_URL = "http://127.0.0.1:3217";
-const DEFAULT_CHAT_AI_MEMORY_HUB_NAMESPACE = "twitch";
-const DEFAULT_CHAT_AI_MEMORY_HUB_TIMEOUT_MS = 1_200;
 const DEFAULT_CHAT_AI_SEARCH_ENDPOINT = "https://api.duckduckgo.com/";
 const DEFAULT_CHAT_AI_SEARCH_TIMEOUT_MS = 2_500;
 const DEFAULT_CHAT_AI_SEARCH_MAX_QUERY_CHARS = 120;
@@ -106,10 +103,6 @@ export class Config {
   readonly chatAiMemoryPath: string;
   readonly chatAiMemoryMaxItems: number;
   readonly chatAiMemoryMaxChars: number;
-  readonly chatAiMemoryHubEnabled: boolean;
-  readonly chatAiMemoryHubUrl: string;
-  readonly chatAiMemoryHubNamespace: string;
-  readonly chatAiMemoryHubTimeoutMs: number;
   readonly chatAiSearchEnabled: boolean;
   readonly chatAiSearchEndpoint: string;
   readonly chatAiSearchTimeoutMs: number;
@@ -251,19 +244,6 @@ export class Config {
     this.chatAiMemoryMaxChars = parsePositiveInt(
       env["CHAT_AI_MEMORY_MAX_CHARS"],
       DEFAULT_CHAT_AI_MEMORY_MAX_CHARS
-    );
-    this.chatAiMemoryHubEnabled = parseEnabledFlag(
-      env["CHAT_AI_MEMORY_HUB_ENABLED"] ?? "0"
-    );
-    this.chatAiMemoryHubUrl =
-      env["CHAT_AI_MEMORY_HUB_URL"]?.trim() ||
-      DEFAULT_CHAT_AI_MEMORY_HUB_URL;
-    this.chatAiMemoryHubNamespace =
-      env["CHAT_AI_MEMORY_HUB_NAMESPACE"]?.trim() ||
-      DEFAULT_CHAT_AI_MEMORY_HUB_NAMESPACE;
-    this.chatAiMemoryHubTimeoutMs = parsePositiveInt(
-      env["CHAT_AI_MEMORY_HUB_TIMEOUT_MS"],
-      DEFAULT_CHAT_AI_MEMORY_HUB_TIMEOUT_MS
     );
     this.chatAiSearchEnabled = parseEnabledFlag(
       env["CHAT_AI_SEARCH_ENABLED"] ?? "0"
