@@ -143,6 +143,7 @@ CHAT_AI_AUTO_LEARN_ENABLED=true
 CHAT_AI_AUTO_LEARN_MAX_KEY_CHARS=24
 CHAT_AI_AUTO_LEARN_MAX_VALUE_CHARS=80
 CHAT_AI_AUTO_LEARN_MAX_ITEMS=30
+CHAT_AI_PROMPT_REPLY_LOG_ENABLED=true
 CHAT_REPLY_EMOTES= rukkaHi, @rukkaGG, ＠rukkaHi, RukkaNice
 `);
 
@@ -179,6 +180,7 @@ CHAT_REPLY_EMOTES= rukkaHi, @rukkaGG, ＠rukkaHi, RukkaNice
     expect(config.chatAiAutoLearnMaxKeyChars).toBe(24);
     expect(config.chatAiAutoLearnMaxValueChars).toBe(80);
     expect(config.chatAiAutoLearnMaxItems).toBe(30);
+    expect(config.chatAiPromptReplyLogEnabled).toBe(true);
     expect(config.chatReplyEmotes).toEqual([
       "rukkaHi",
       "rukkaGG",
@@ -230,6 +232,7 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiAutoLearnMaxKeyChars).toBe(40);
     expect(config.chatAiAutoLearnMaxValueChars).toBe(120);
     expect(config.chatAiAutoLearnMaxItems).toBe(50);
+    expect(config.chatAiPromptReplyLogEnabled).toBe(false);
     expect(config.chatReplyEmotes).toEqual([]);
   });
 

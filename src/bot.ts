@@ -663,6 +663,7 @@ export class Bot {
         memoryText: combinedMemoryText,
         searchContextText: searchContext?.text,
         streamImageBase64,
+        promptReplyLogEnabled: this.config.chatAiPromptReplyLogEnabled ?? false,
       });
 
       if (!reply) {

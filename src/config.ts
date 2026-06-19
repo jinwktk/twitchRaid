@@ -120,6 +120,7 @@ export class Config {
   readonly chatAiAutoLearnMaxKeyChars: number;
   readonly chatAiAutoLearnMaxValueChars: number;
   readonly chatAiAutoLearnMaxItems: number;
+  readonly chatAiPromptReplyLogEnabled: boolean;
   readonly chatReplyEmotes: string[];
   readonly clipSearchAutoPublishEnabled: boolean;
   readonly clipSearchDataPath: string;
@@ -300,6 +301,9 @@ export class Config {
     this.chatAiAutoLearnMaxItems = parsePositiveInt(
       env["CHAT_AI_AUTO_LEARN_MAX_ITEMS"],
       DEFAULT_CHAT_AI_AUTO_LEARN_MAX_ITEMS
+    );
+    this.chatAiPromptReplyLogEnabled = parseEnabledFlag(
+      env["CHAT_AI_PROMPT_REPLY_LOG_ENABLED"] ?? "0"
     );
     this.chatReplyEmotes = normalizeChatReplyEmotes(env["CHAT_REPLY_EMOTES"]);
     this.clipSearchAutoPublishEnabled = parseEnabledFlag(

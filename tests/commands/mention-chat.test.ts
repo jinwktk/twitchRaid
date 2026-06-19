@@ -221,6 +221,62 @@ describe("generateMentionChatReply", () => {
     expect(reply).toBe("TwitchConの情報だよD！");
   });
 
+  it("logs the built prompt and final reply when prompt/reply diagnostics are enabled", async () => {
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response: "カレーの話も覚えてるD！",
+      }),
+    });
+
+    const reply = await generateMentionChatReply({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5:7b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "好きな食べ物なんだっけ？",
+      memoryText: "好物: カレー",
+      promptReplyLogEnabled: true,
+      fetchImpl,
+    });
+
+    const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
+    expect(reply).toBe("カレーの話も覚えてるD！");
+    expect(infoSpy).toHaveBeenCalledWith(
+      `AIメンション会話プロンプト/返信:\nプロンプト：${body.prompt}\n返信：カレーの話も覚えてるD！`
+    );
+  });
+
+  it("does not log the built prompt by default", async () => {
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "了解D！" }),
+    });
+
+    await generateMentionChatReply({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5:7b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "こんにちは",
+      fetchImpl,
+    });
+
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("AIメンション会話プロンプト/返信")
+    );
+  });
+
   it("passes a stream image to Ollama when provided", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,

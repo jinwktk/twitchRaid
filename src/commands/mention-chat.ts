@@ -19,6 +19,7 @@ export interface GenerateMentionChatReplyOptions {
   memoryText?: string | null;
   searchContextText?: string | null;
   streamImageBase64?: string | null;
+  promptReplyLogEnabled?: boolean;
   fetchImpl?: typeof fetch;
 }
 
@@ -125,6 +126,15 @@ function isGenericMatchOutcomeReply(value: string): boolean {
 
 export function formatMentionChatLogValue(value: string): string {
   return JSON.stringify(shorten(singleLine(value), LOG_TEXT_LIMIT));
+}
+
+function logPromptAndReplyIfEnabled(
+  enabled: boolean | undefined,
+  prompt: string,
+  reply: string
+): void {
+  if (!enabled) return;
+  logger.info(`AIメンション会話プロンプト/返信:\nプロンプト：${prompt}\n返信：${reply}`);
 }
 
 function redactDiagnosticText(value: string): string {
@@ -367,6 +377,7 @@ export async function generateMentionChatReply({
   memoryText,
   searchContextText,
   streamImageBase64,
+  promptReplyLogEnabled,
   fetchImpl = fetch,
 }: GenerateMentionChatReplyOptions): Promise<string | null> {
   const trimmedModel = model.trim();
@@ -385,26 +396,27 @@ export async function generateMentionChatReply({
 
   try {
     const startedAt = Date.now();
+    const builtPrompt = buildMentionChatPrompt({
+      enabled,
+      baseUrl,
+      model,
+      timeoutMs,
+      keepAlive,
+      maxResponseChars,
+      channel,
+      userName,
+      promptText,
+      memoryText,
+      searchContextText,
+      streamImageBase64: isVisionQuestion ? trimmedImageBase64 : null,
+      fetchImpl,
+    });
     const payload: Record<string, unknown> = {
       model: trimmedModel,
       system: isVisionQuestion
         ? MENTION_CHAT_VISION_SYSTEM_PROMPT
         : MENTION_CHAT_SYSTEM_PROMPT,
-      prompt: buildMentionChatPrompt({
-        enabled,
-        baseUrl,
-        model,
-        timeoutMs,
-        keepAlive,
-        maxResponseChars,
-        channel,
-        userName,
-        promptText,
-        memoryText,
-        searchContextText,
-        streamImageBase64: isVisionQuestion ? trimmedImageBase64 : null,
-        fetchImpl,
-      }),
+      prompt: builtPrompt,
       stream: false,
       think: false,
       keep_alive: keepAlive,
@@ -454,6 +466,11 @@ export async function generateMentionChatReply({
         logger.warn(
           `⚠️ AIメンション会話は勝敗質問フォールバック: prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}, fallback=${formatMentionChatLogValue(matchOutcomeFallback)}`
         );
+        logPromptAndReplyIfEnabled(
+          promptReplyLogEnabled,
+          builtPrompt,
+          matchOutcomeFallback
+        );
         return matchOutcomeFallback;
       }
       logger.warn(
@@ -468,8 +485,14 @@ export async function generateMentionChatReply({
       logger.warn(
         `⚠️ AIメンション会話は勝敗質問フォールバック: prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}, fallback=${formatMentionChatLogValue(matchOutcomeFallback)}`
       );
+      logPromptAndReplyIfEnabled(
+        promptReplyLogEnabled,
+        builtPrompt,
+        matchOutcomeFallback
+      );
       return matchOutcomeFallback;
     }
+    logPromptAndReplyIfEnabled(promptReplyLogEnabled, builtPrompt, reply);
     return reply;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
