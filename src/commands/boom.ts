@@ -64,7 +64,9 @@ interface MomentNode {
 
 const TWITCH_GQL_URL = "https://gql.twitch.tv/gql";
 export const DEFAULT_TWITCH_GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
-const DEFAULT_LOOKBACK_DAYS = 30;
+export const DEFAULT_BOOM_LOOKBACK_DAYS = 30;
+export const MAX_BOOM_COMMAND_LOOKBACK_DAYS = 365;
+export const BOOM_COMMAND_USAGE = `⚠️ 使い方: !boom [日数]（1〜${MAX_BOOM_COMMAND_LOOKBACK_DAYS}の整数）`;
 const DEFAULT_MIN_GAME_SECONDS = 60 * 60;
 const DEFAULT_MAX_GAMES = 6;
 const DEFAULT_MAX_CONCURRENT_VIDEOS = 4;
@@ -83,6 +85,23 @@ function numberValue(value: unknown): number | null {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export function parseBoomCommandLookbackDays(input: string): number | null {
+  const trimmed = input.trim();
+  if (!trimmed) return DEFAULT_BOOM_LOOKBACK_DAYS;
+  if (!/^\d+$/.test(trimmed)) return null;
+
+  const days = Number(trimmed);
+  if (
+    !Number.isSafeInteger(days) ||
+    days < 1 ||
+    days > MAX_BOOM_COMMAND_LOOKBACK_DAYS
+  ) {
+    return null;
+  }
+
+  return days;
 }
 
 function extractMomentNodes(response: unknown): MomentNode[] {
@@ -304,23 +323,44 @@ async function fetchVideoGameDurations(
 }
 
 export class BoomSummaryCache {
-  private summary: BoomSummary | null = null;
-  private expiresAt = 0;
+  private readonly entries = new Map<
+    string,
+    { summary: BoomSummary; expiresAt: number }
+  >();
 
   constructor(
     private readonly ttlMs = 5 * 60 * 1000,
     private readonly now: () => number = () => Date.now()
   ) {}
 
-  async getOrLoad(loader: () => Promise<BoomSummary>): Promise<BoomSummary> {
+  async getOrLoad(loader: () => Promise<BoomSummary>): Promise<BoomSummary>;
+  async getOrLoad(
+    key: string | number,
+    loader: () => Promise<BoomSummary>
+  ): Promise<BoomSummary>;
+  async getOrLoad(
+    keyOrLoader: string | number | (() => Promise<BoomSummary>),
+    maybeLoader?: () => Promise<BoomSummary>
+  ): Promise<BoomSummary> {
+    const key =
+      typeof keyOrLoader === "function" ? "default" : String(keyOrLoader);
+    const loader =
+      typeof keyOrLoader === "function" ? keyOrLoader : maybeLoader;
+    if (!loader) {
+      throw new TypeError("BoomSummaryCache loader is required");
+    }
+
     const currentTime = this.now();
-    if (this.summary && currentTime < this.expiresAt) {
-      return this.summary;
+    const cached = this.entries.get(key);
+    if (cached && currentTime < cached.expiresAt) {
+      return cached.summary;
     }
 
     const summary = await loader();
-    this.summary = summary;
-    this.expiresAt = currentTime + this.ttlMs;
+    this.entries.set(key, {
+      summary,
+      expiresAt: currentTime + this.ttlMs,
+    });
     return summary;
   }
 }
@@ -331,7 +371,7 @@ export async function buildBoomSummary(
 ): Promise<BoomSummary> {
   const lookbackDays = Math.max(
     1,
-    options.lookbackDays ?? DEFAULT_LOOKBACK_DAYS
+    options.lookbackDays ?? DEFAULT_BOOM_LOOKBACK_DAYS
   );
   const maxVideos =
     options.maxVideos === undefined ? null : Math.max(1, options.maxVideos);

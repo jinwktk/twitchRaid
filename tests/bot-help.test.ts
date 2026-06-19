@@ -266,4 +266,82 @@ describe("Bot help command", () => {
       type: "archive",
     });
   });
+
+  it("uses an optional day count for boom without reusing the default cache", async () => {
+    const { bot, say } = makeBot();
+    const now = Date.now();
+    const getVideosByUserPaginated = vi.fn(() =>
+      iterableVideos([
+        {
+          id: "recent",
+          durationInSeconds: 3_600,
+          creationDate: new Date(now - 2 * 24 * 60 * 60 * 1000),
+        },
+        {
+          id: "older",
+          durationInSeconds: 3_600,
+          creationDate: new Date(now - 20 * 24 * 60 * 60 * 1000),
+        },
+      ])
+    );
+    const fetchSpy = vi.fn(async (_input, init) => {
+      const body = JSON.parse(init.body) as { operationName: string };
+      if (body.operationName === "VideoMetadata") {
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              video: {
+                game: { displayName: "Game A" },
+                lengthSeconds: 3_600,
+              },
+            },
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({
+          data: { video: { moments: { edges: [] } } },
+        }),
+      };
+    });
+    bot.apiClient = {
+      videos: { getVideosByUserPaginated },
+    };
+    vi.stubGlobal("fetch", fetchSpy);
+
+    try {
+      await bot._handleCommand("#rukalun", "viewer", "!boom 7", {});
+      await bot._handleCommand("#rukalun", "viewer", "!boom", {});
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(say).toHaveBeenCalledTimes(2);
+    expect(say.mock.calls[0][1]).toBe(
+      "!過去7日間の総配信時間 1時間 / ゲーム時間(1時間以上): Game A 1時間"
+    );
+    expect(say.mock.calls[1][1]).toBe(
+      "!過去30日間の総配信時間 2時間 / ゲーム時間(1時間以上): Game A 2時間"
+    );
+  });
+
+  it("returns usage when boom day count is invalid", async () => {
+    const { bot, say } = makeBot();
+    const getVideosByUserPaginated = vi.fn();
+    bot.apiClient = {
+      videos: { getVideosByUserPaginated },
+    };
+
+    await bot._handleCommand("#rukalun", "viewer", "!boom abc", {});
+
+    expect(say).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "⚠️ 使い方: !boom [日数]（1〜365の整数）"
+    );
+    expect(getVideosByUserPaginated).not.toHaveBeenCalled();
+  });
 });

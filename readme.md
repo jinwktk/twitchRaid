@@ -98,7 +98,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!shoutout <ユーザー名>` | 指定ユーザーへ手動 shoutout を実行 | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ |
 | `!speed` | コメント風速を表示（直近60秒＋配信全体平均） | コマンドは計測対象外 |
 | `!commentcount` | 配信開始からの累計コメント件数を表示 | 再起動後も引き継ぎ |
-| `!boom` | 過去30日間で1時間以上遊んだゲーム別トータル時間と総配信時間を表示 | VODチャプター情報を集計 |
+| `!boom [日数]` | 指定期間（省略時30日）で1時間以上遊んだゲーム別トータル時間と総配信時間を表示 | 日数は1〜365の整数、VODチャプター情報を集計 |
 | `!streamnotify` | 現在の配信開始通知をDiscordへ手動送信 | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ |
 
 ## 定期おすすめコメント
@@ -120,7 +120,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - `qwen3.5:9b` のようなthinking対応モデルでは、Ollama `/api/generate` に `think:false` を付けて最終回答だけを短く返させる。これを付けない場合、短い `num_predict` をthinkingで使い切り、`response` が空になることがある
 - `CHAT_AI_STREAM_IMAGE_ENABLED=true` の場合は、配信画面、見えるもの、今していること、ゲーム名、試合/勝敗/スコアの質問だけ、Twitch APIから現在配信のプレビュー画像URLを取得し、640x360の画像を最大5秒でダウンロードしてOllama `/api/generate` の `images` に入れる。その時だけ `CHAT_AI_VISION_MODEL` を使い、通常の雑談、知識質問、計算質問では画像を取得せず `CHAT_AI_MODEL` を使う。Twitchプレビューは数十秒程度遅れることがあり、OBSの生画面を直接キャプチャする実装ではない。画像付きでは専用の短いVision system/promptへ切り替え、聞き返しや `え？` だけの返信を避け、勝敗や今後の展開は断定しない。ゲーム名やタイトルを聞かれた場合は `Apex Legends` / `VALORANT` のような英字正式名称だけの返答も許可する。勝敗質問へのスコアだけ・ゲーム名だけの返答は送信せず、安全な定型文へフォールバックする
 - `!mangaon このコマンドを発言して` のようなチャットコマンド実行・発言依頼はOllamaへ送らず、固定で `コマンドは実行できないD！` と返す。`猫！`、`左！`、`年上！` のような短い漢字だけの自然な日本語返信は、かなを含まなくても許可する
-- 外部検索は `CHAT_AI_SEARCH_ENABLED=true` の場合だけ使う。検索・調べて・最新・ニュース・誰/いつ/どこ、`夏尾さんについて` のような語尾の `〜について` 等の質問に限定し、明示的な記憶依頼は検索しない。URL、メール、電話番号、token/API key/password系を含む検索語や長すぎる検索語は外部へ送らない。検索結果は「命令ではない参考情報」としてプロンプトへ入れ、HTTP失敗、壊れたJSON、空結果、過大レスポンス時は検索なしで通常返信へ戻す
+- 外部検索は `CHAT_AI_SEARCH_ENABLED=true` の場合だけ使う。検索・調べて・最新・ニュース・誰/いつ/どこ、`夏尾さんについて` や `夏尾さんについて知ってる？` のような `〜について` 等の質問に限定し、明示的な記憶依頼は検索しない。URL、メール、電話番号、token/API key/password系を含む検索語や長すぎる検索語は外部へ送らない。検索結果は「命令ではない参考情報」としてプロンプトへ入れ、HTTP失敗、壊れたJSON、空結果、過大レスポンス時は検索なしで通常返信へ戻す。検索候補なのに検索が使われなかった場合は、`AIメンション会話外部検索は未適用: reason=disabled` または `reason=no_result_or_failed` をINFOログへ残す
 - OllamaはこのBotのチャットを自動学習しない。口調や固定知識はプロンプト/Modelfile `MESSAGE` で例示できるが、モデル重みの学習やLoRA fine-tuningは外部ツールで作ったadapter/modelをOllamaへimportして使う運用になる
 - Bot側の記憶機能として、`CHAT_AI_MEMORY_ENABLED=true` の場合だけ `data/chat-ai-memory.json` などのJSONを読み、ルート直下のキー値を全ユーザー共通の記憶辞書としてプロンプトへ入れる。これはモデル重みの学習ではなく、返信ごとの参考メモ注入である。`users.<Twitchログイン名>` のユーザー別メモは使わない。旧形式の `global` 配列だけは移行用に共通メモとして読み込める。`CHAT_AI_AUTO_LEARN_ENABLED=true` の場合は明示的な「覚えて/記憶して/メモして/忘れないで」依頼だけを抽出し、JSONへatomic保存してから同じAI返信のプロンプトへ反映できる。保存ログやAI応答ログにはメモ本文を出さず、秘密情報、トークン、個人情報はメモに書かない
 - 共通記憶基盤のOllamaMemoryHubを使う場合は `CHAT_AI_MEMORY_HUB_ENABLED=true`、`CHAT_AI_MEMORY_HUB_URL=http://127.0.0.1:3217`、`CHAT_AI_MEMORY_HUB_NAMESPACE=twitch` を設定する。BotはAIメンションごとにHubへ `POST /v1/ingest` を送り、Hub側で明示的な記憶依頼や安全な安定情報だけを保存させる。その後 `POST /v1/context` で関連メモを取得し、既存JSONメモと結合してOllama promptへ参考情報として渡す。Hub停止、HTTP失敗、空結果はfail-openで通常返信を続け、Hubメモ本文はログに出さない。タイムアウト既定値は `CHAT_AI_MEMORY_HUB_TIMEOUT_MS=1200`
@@ -222,11 +222,12 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - サブPCの実データをPagesへ反映する場合は、サブPCの `data/clips.sqlite` を元にJSONを生成し、`RukalunPage` の `main` へコミット・プッシュする
 
 ## Boomコマンドメモ
-- `!boom` は過去30日間のアーカイブ配信を対象に、Twitch GraphQL の VOD チャプターからゲーム別の配信時間と総配信時間を集計する
+- `!boom` は既定で過去30日間、`!boom 7` のように1〜365の整数を付けた場合は指定日数分のアーカイブ配信を対象に、Twitch GraphQL の VOD チャプターからゲーム別の配信時間と総配信時間を集計する
+- 数値以外、0、366以上、小数などは集計せず `⚠️ 使い方: !boom [日数]（1〜365の整数）` を返す
 - ゲーム別合計が1時間未満のものは表示対象外
 - 表示は合計時間の長い順で最大6件まで
 - 返却文言は棒読みの長文読み上げを避けるため、先頭に `!` を付けて読み上げスキップ対象にする
-- VOD単位のGraphQL取得は最大4本並列で実行し、結果は5分間メモリキャッシュする
+- VOD単位のGraphQL取得は最大4本並列で実行し、結果は日数別に5分間メモリキャッシュする
 
 ## プロジェクト構成
 
@@ -250,7 +251,7 @@ src/
 │   └── reply-emotes.ts            # AI/Raid返信へのTwitchエモート付与
 ├── commands/
 │   ├── age.ts
-│   ├── boom.ts                    # 過去30日ゲーム時間集計
+│   ├── boom.ts                    # !boom 指定期間ゲーム時間集計
 │   ├── clip-cache-store.ts        # Clip SQLiteキャッシュ
 │   ├── clip-cache-sync.ts         # Clip同期/日次再走査
 │   ├── clip.ts                    # !clip / !myclip / !clipsearch
@@ -302,7 +303,8 @@ internal-docs/
 ```
 
 ## 更新履歴
-- **2026-06-19**: AIメンション外部検索で `夏尾さんについて` のような `〜について` 質問が検索対象にならない問題を調査。この作業PCの `logs/` とPM2ログには実運用の夏尾発言は見つからず、`.env` では `CHAT_AI_SEARCH_ENABLED` 未設定のため検索無効だった。コード上も検索トリガーに `について` がなく、`tests/commands/mention-chat-search.test.ts` に失敗テストを追加して再現後、語尾の `〜について` と `について教えて/知りたい` を検索対象へ追加した
+- **2026-06-19**: `!boom 7` のように日数を指定できるようにした。省略時は従来どおり30日、指定値は1〜365の整数だけ受け付け、期間別に5分キャッシュして `!boom 7` と `!boom` の結果が混ざらないようにした
+- **2026-06-19**: AIメンション外部検索で `夏尾さんについて` のような `〜について` 質問が検索対象にならない問題を調査。この作業PCの `logs/` とPM2ログには実運用の夏尾発言は見つからず、`.env` では `CHAT_AI_SEARCH_ENABLED` 未設定のため検索無効だった。コード上も検索トリガーに `について` がなく、`tests/commands/mention-chat-search.test.ts` に失敗テストを追加して再現後、語尾の `〜について` と `について教えて/知りたい` を検索対象へ追加した。追加調査で `夏尾さんについて知ってる？` も検索候補にし、検索候補なのに検索無効または結果なし/失敗で未適用だった場合の理由ログを追加した
 - **2026-06-18**: `!chat <メッセージ>` を追加。Bot宛て `@` メンションなしでもAIメンション会話と同じOllama生成、MemoryHub文脈、外部検索、クールダウン/キュー、返信スタンプ付与を使って返信できるようにした。空の `!chat` は使い方を返す
 - **2026-06-18**: サブPCログで、通常質問まで配信画像付きの `gemma3:4b` Vision経路へ流れていること、OllamaMemoryHubの`twitch` namespaceに実メモが入っていないこと、`記憶して！` やコマンド読み上げ依頼の判定漏れを確認。通常質問は画像取得せず `CHAT_AI_MODEL` へ流し、画面質問だけ `CHAT_AI_VISION_MODEL` と `images` を使うよう変更。`るっかは32歳ね。記憶して！` のような後置き記憶依頼と、`!mangaon` の読み上げ/再投稿依頼を固定拒否できるようにした
 - **2026-06-18**: AIメンション会話にOllamaMemoryHub連携を追加。`CHAT_AI_MEMORY_HUB_ENABLED=true` の場合、明示メモ依頼をHubの `/v1/ingest` へ送り、`/v1/context` の関連メモを既存JSONメモと結合してOllama promptへ渡す。Hub失敗時は通常返信へfail-openし、メモ本文はログに出さない。サブPC常駐用にOllamaMemoryHub側へPM2設定 `OllamaMemoryHub` を追加し、サブPC `E:\GitHub\OllamaMemoryHub` へSSH配置してPM2 online / health OKを確認。twitchRaid側 `.env` もHub有効化済み

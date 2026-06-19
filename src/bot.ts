@@ -95,9 +95,11 @@ import {
   selectRandomStreamedGame,
 } from "./commands/game";
 import {
+  BOOM_COMMAND_USAGE,
   BoomSummaryCache,
   buildBoomSummary,
   formatBoomSummary,
+  parseBoomCommandLookbackDays,
 } from "./commands/boom";
 import { restartProcess } from "./utils/process-restart";
 
@@ -110,7 +112,7 @@ const MENTION_CHAT_STREAM_IMAGE_HEIGHT = 360;
 const MENTION_CHAT_STREAM_IMAGE_TIMEOUT_MS = 5_000;
 const CHAT_AI_COMMAND_USAGE = "⚠️ 使い方: !chat <メッセージ>";
 const HELP_MESSAGE =
-  "!使えるコマンド: 基本 !help / !age / !goods / !site / !x / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
+  "!使えるコマンド: 基本 !help / !age / !goods / !site / !x / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
 const MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE = "[memory-request]";
 
 function formatSkippedMentionPrompt(prompt: string): string {
@@ -840,7 +842,7 @@ export class Bot {
         await this._handleCommentCountCommand(channel);
         break;
       case "boom":
-        await this._handleBoomCommand(channel);
+        await this._handleBoomCommand(channel, restText);
         break;
       case "clip":
         await this._handleClipCommand(channel, user, "clip");
@@ -916,12 +918,22 @@ export class Bot {
     await this.chatClient.say(channel, formatTotalCommentCount(totalCount));
   }
 
-  private async _handleBoomCommand(channel: string): Promise<void> {
+  private async _handleBoomCommand(
+    channel: string,
+    restText: string
+  ): Promise<void> {
+    const lookbackDays = parseBoomCommandLookbackDays(restText);
+    if (lookbackDays === null) {
+      await this.chatClient.say(channel, BOOM_COMMAND_USAGE);
+      return;
+    }
+
     try {
-      const summary = await this.boomSummaryCache.getOrLoad(() =>
+      const summary = await this.boomSummaryCache.getOrLoad(lookbackDays, () =>
         buildBoomSummary(this.apiClient, {
           broadcasterId: this.config.twitchBroadcasterId,
           gqlClientId: this.config.twitchGqlClientId,
+          lookbackDays,
         })
       );
       await this.chatClient.say(channel, formatBoomSummary(summary));

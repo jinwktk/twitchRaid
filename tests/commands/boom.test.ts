@@ -470,6 +470,37 @@ describe("BoomSummaryCache", () => {
     await expect(cache.getOrLoad(loader)).resolves.toBe(second);
     expect(loader).toHaveBeenCalledTimes(2);
   });
+
+  it("keeps summaries isolated by cache key", async () => {
+    const cache = new BoomSummaryCache(5_000, () => 1_000);
+    const sevenDaySummary = {
+      analyzedVideos: 1,
+      lookbackDays: 7,
+      totalStreamSeconds: 3_600,
+      games: [{ gameName: "Game A", totalSeconds: 3_600 }],
+    };
+    const thirtyDaySummary = {
+      analyzedVideos: 2,
+      lookbackDays: 30,
+      totalStreamSeconds: 7_200,
+      games: [{ gameName: "Game A", totalSeconds: 7_200 }],
+    };
+    const sevenDayLoader = vi.fn().mockResolvedValue(sevenDaySummary);
+    const thirtyDayLoader = vi.fn().mockResolvedValue(thirtyDaySummary);
+
+    await expect(cache.getOrLoad(7, sevenDayLoader)).resolves.toBe(
+      sevenDaySummary
+    );
+    await expect(cache.getOrLoad(30, thirtyDayLoader)).resolves.toBe(
+      thirtyDaySummary
+    );
+    await expect(cache.getOrLoad(7, sevenDayLoader)).resolves.toBe(
+      sevenDaySummary
+    );
+
+    expect(sevenDayLoader).toHaveBeenCalledTimes(1);
+    expect(thirtyDayLoader).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("formatBoomSummary", () => {
