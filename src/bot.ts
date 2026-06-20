@@ -584,8 +584,10 @@ export class Bot {
       const searchCandidate = shouldSearchMentionChat(request.prompt);
       const searchContext = await fetchMentionChatSearchContext({
         enabled: searchEnabled,
+        provider: this.config.chatAiSearchProvider ?? "duckduckgo",
         endpoint:
           this.config.chatAiSearchEndpoint ?? "https://api.duckduckgo.com/",
+        engines: this.config.chatAiSearchEngines ?? "",
         queryText: request.prompt,
         timeoutMs: this.config.chatAiSearchTimeoutMs ?? 2_500,
         maxQueryChars: this.config.chatAiSearchMaxQueryChars ?? 120,

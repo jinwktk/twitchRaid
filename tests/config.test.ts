@@ -258,7 +258,9 @@ CHAT_AI_MEMORY_HUB_URL=http://127.0.0.1:3218
 CHAT_AI_MEMORY_HUB_NAMESPACE=rukalun
 CHAT_AI_MEMORY_HUB_TIMEOUT_MS=1400
 CHAT_AI_SEARCH_ENABLED=true
+CHAT_AI_SEARCH_PROVIDER=searxng
 CHAT_AI_SEARCH_ENDPOINT=https://search.example.test/
+CHAT_AI_SEARCH_ENGINES=google
 CHAT_AI_SEARCH_TIMEOUT_MS=1500
 CHAT_AI_SEARCH_MAX_QUERY_CHARS=90
 CHAT_AI_SEARCH_MAX_RESPONSE_BYTES=32768
@@ -296,7 +298,9 @@ CHAT_REPLY_EMOTES= rukkaHi, @rukkaGG, ＠rukkaHi, RukkaNice
     expect(config).not.toHaveProperty("chatAiMemoryHubNamespace");
     expect(config).not.toHaveProperty("chatAiMemoryHubTimeoutMs");
     expect(config.chatAiSearchEnabled).toBe(true);
+    expect(config.chatAiSearchProvider).toBe("searxng");
     expect(config.chatAiSearchEndpoint).toBe("https://search.example.test/");
+    expect(config.chatAiSearchEngines).toBe("google");
     expect(config.chatAiSearchTimeoutMs).toBe(1500);
     expect(config.chatAiSearchMaxQueryChars).toBe(90);
     expect(config.chatAiSearchMaxResponseBytes).toBe(32768);
@@ -351,7 +355,9 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config).not.toHaveProperty("chatAiMemoryHubNamespace");
     expect(config).not.toHaveProperty("chatAiMemoryHubTimeoutMs");
     expect(config.chatAiSearchEnabled).toBe(false);
+    expect(config.chatAiSearchProvider).toBe("duckduckgo");
     expect(config.chatAiSearchEndpoint).toBe("https://api.duckduckgo.com/");
+    expect(config.chatAiSearchEngines).toBe("");
     expect(config.chatAiSearchTimeoutMs).toBe(2500);
     expect(config.chatAiSearchMaxQueryChars).toBe(120);
     expect(config.chatAiSearchMaxResponseBytes).toBe(65536);

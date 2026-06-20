@@ -85,6 +85,51 @@ describe("mention chat external search", () => {
     expect(result?.text).toContain("https://example.test/twitchcon");
   });
 
+  it("formats SearXNG results and can restrict the request to Google", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        query: "るっかるん",
+        results: [
+          {
+            title: "るっかるん - Twitch",
+            content: "るっかるんさんのTwitchチャンネル。",
+            url: "https://www.twitch.tv/rukalun",
+            engine: "google",
+          },
+          {
+            title: "るっかるん - X",
+            content: "配信告知や日常投稿。",
+            url: "https://x.com/rukalun",
+            engine: "google",
+          },
+        ],
+      })
+    );
+
+    const result = await fetchMentionChatSearchContext({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "google",
+      queryText: "るっかるんについて調べて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 2,
+      fetchImpl,
+    });
+
+    const url = new URL(String(fetchImpl.mock.calls[0][0]));
+    expect(url.pathname).toBe("/search");
+    expect(url.searchParams.get("q")).toBe("るっかるん");
+    expect(url.searchParams.get("format")).toBe("json");
+    expect(url.searchParams.get("engines")).toBe("google");
+    expect(result?.resultCount).toBe(2);
+    expect(result?.text).toContain("るっかるん - Twitch");
+    expect(result?.text).toContain("るっかるんさんのTwitchチャンネル。");
+    expect(result?.text).toContain("https://www.twitch.tv/rukalun");
+  });
+
   it("does not call fetch for unsafe or oversized queries", async () => {
     const fetchImpl = vi.fn();
     const base = {

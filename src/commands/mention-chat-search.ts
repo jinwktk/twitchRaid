@@ -3,9 +3,13 @@ export interface MentionChatSearchContext {
   resultCount: number;
 }
 
+export type MentionChatSearchProvider = "duckduckgo" | "searxng";
+
 export interface FetchMentionChatSearchContextOptions {
   enabled: boolean;
+  provider?: MentionChatSearchProvider;
   endpoint: string;
+  engines?: string;
   queryText: string;
   timeoutMs: number;
   maxQueryChars: number;
@@ -111,6 +115,10 @@ export function shouldSearchMentionChat(value: string): boolean {
 
 function isUnsafeExternalQuery(value: string, maxQueryChars: number): boolean {
   if (!value || value.length > maxQueryChars) return true;
+  return hasUnsafeExternalQueryContent(value);
+}
+
+function hasUnsafeExternalQueryContent(value: string): boolean {
   return (
     URL_PATTERN.test(value) ||
     EMAIL_PATTERN.test(value) ||
@@ -119,13 +127,69 @@ function isUnsafeExternalQuery(value: string, maxQueryChars: number): boolean {
   );
 }
 
-function buildSearchUrl(endpoint: string, query: string): string | null {
+function normalizeSearchQuery(value: string): string {
+  let query = singleLine(
+    value
+      .replace(/[「」『』【】（）()[\]{}]/g, " ")
+      .replace(/[、。！？!?]+$/gu, "")
+  );
+
+  const suffixes = [
+    /(?:を|について)?(?:検索|調べて|調べ|ググって|ググる)(?:ください|して)?$/iu,
+    /について(?:教えて|知りたい|知ってる|知っています|わかる|分かる)?$/u,
+    /(?:とは|って何|ってなに)$/iu,
+    /(?:教えて|知りたい|知ってる|知っています|わからない|分からない)$/u,
+    /(?:ですか|でしょうか|なの|かな|か)$/u,
+  ];
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const suffix of suffixes) {
+      const next = singleLine(query.replace(suffix, ""));
+      if (next !== query) {
+        query = next;
+        changed = true;
+      }
+    }
+    query = singleLine(query.replace(/[、。！？!?]+$/gu, ""));
+  }
+
+  return query;
+}
+
+function applySearxngSearchPath(url: URL): void {
+  const normalizedPath = url.pathname.replace(/\/+$/u, "");
+  if (!normalizedPath) {
+    url.pathname = "/search";
+    return;
+  }
+  if (!normalizedPath.endsWith("/search")) {
+    url.pathname = `${normalizedPath}/search`;
+  }
+}
+
+function buildSearchUrl(
+  endpoint: string,
+  query: string,
+  provider: MentionChatSearchProvider,
+  engines: string
+): string | null {
   try {
     const url = new URL(endpoint);
+    if (provider === "searxng") {
+      applySearxngSearchPath(url);
+    }
+
     url.searchParams.set("q", query);
     url.searchParams.set("format", "json");
-    url.searchParams.set("no_html", "1");
-    url.searchParams.set("skip_disambig", "1");
+    if (provider === "duckduckgo") {
+      url.searchParams.set("no_html", "1");
+      url.searchParams.set("skip_disambig", "1");
+    }
+    if (provider === "searxng" && engines.trim()) {
+      url.searchParams.set("engines", engines.trim());
+    }
     return url.toString();
   } catch {
     return null;
@@ -197,6 +261,19 @@ function extractResults(body: unknown): SearchResult[] {
   }
 
   collectRelatedTopics(body["RelatedTopics"], results);
+
+  if (Array.isArray(body["results"])) {
+    for (const item of body["results"]) {
+      if (!isRecord(item)) continue;
+      pushResult(
+        results,
+        primitiveToText(item["title"]),
+        primitiveToText(item["content"]),
+        primitiveToText(item["url"])
+      );
+    }
+  }
+
   return results;
 }
 
@@ -214,7 +291,9 @@ function formatSearchContext(results: SearchResult[]): string {
 
 export async function fetchMentionChatSearchContext({
   enabled,
+  provider = "duckduckgo",
   endpoint,
+  engines = "",
   queryText,
   timeoutMs,
   maxQueryChars,
@@ -223,6 +302,7 @@ export async function fetchMentionChatSearchContext({
   fetchImpl = fetch,
 }: FetchMentionChatSearchContextOptions): Promise<MentionChatSearchContext | null> {
   const query = singleLine(queryText);
+  const searchQuery = normalizeSearchQuery(query);
   if (
     !enabled ||
     !endpoint.trim() ||
@@ -231,12 +311,13 @@ export async function fetchMentionChatSearchContext({
     maxResponseBytes <= 0 ||
     maxResults <= 0 ||
     !shouldSearchMentionChat(query) ||
-    isUnsafeExternalQuery(query, maxQueryChars)
+    hasUnsafeExternalQueryContent(query) ||
+    isUnsafeExternalQuery(searchQuery, maxQueryChars)
   ) {
     return null;
   }
 
-  const url = buildSearchUrl(endpoint, query);
+  const url = buildSearchUrl(endpoint, searchQuery, provider, engines);
   if (!url) return null;
 
   try {

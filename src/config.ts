@@ -24,6 +24,7 @@ const DEFAULT_CHAT_AI_IGNORED_USERS = ["nyme_ia2"];
 const DEFAULT_CHAT_AI_MEMORY_MAX_ITEMS = 8;
 const DEFAULT_CHAT_AI_MEMORY_MAX_CHARS = 600;
 const DEFAULT_CHAT_AI_SEARCH_ENDPOINT = "https://api.duckduckgo.com/";
+const DEFAULT_CHAT_AI_SEARCH_PROVIDER = "duckduckgo";
 const DEFAULT_CHAT_AI_SEARCH_TIMEOUT_MS = 2_500;
 const DEFAULT_CHAT_AI_SEARCH_MAX_QUERY_CHARS = 120;
 const DEFAULT_CHAT_AI_SEARCH_MAX_RESPONSE_BYTES = 65_536;
@@ -31,6 +32,8 @@ const DEFAULT_CHAT_AI_SEARCH_MAX_RESULTS = 3;
 const DEFAULT_CHAT_AI_AUTO_LEARN_MAX_KEY_CHARS = 40;
 const DEFAULT_CHAT_AI_AUTO_LEARN_MAX_VALUE_CHARS = 120;
 const DEFAULT_CHAT_AI_AUTO_LEARN_MAX_ITEMS = 50;
+
+type ChatAiSearchProvider = "duckduckgo" | "searxng";
 
 function parseEnabledFlag(raw: string): boolean {
   const normalized = raw.trim().toLowerCase();
@@ -57,6 +60,15 @@ function parseNameList(raw: string | undefined, fallback: string[]): string[] {
     .split(",")
     .map((u) => u.trim().replace(/^[@＠]+/, "").toLowerCase())
     .filter(Boolean);
+}
+
+function parseChatAiSearchProvider(
+  raw: string | undefined
+): ChatAiSearchProvider {
+  const normalized = raw?.trim().toLowerCase();
+  return normalized === "searxng"
+    ? "searxng"
+    : DEFAULT_CHAT_AI_SEARCH_PROVIDER;
 }
 
 export class Config {
@@ -110,7 +122,9 @@ export class Config {
   readonly chatAiMemoryMaxItems: number;
   readonly chatAiMemoryMaxChars: number;
   readonly chatAiSearchEnabled: boolean;
+  readonly chatAiSearchProvider: ChatAiSearchProvider;
   readonly chatAiSearchEndpoint: string;
+  readonly chatAiSearchEngines: string;
   readonly chatAiSearchTimeoutMs: number;
   readonly chatAiSearchMaxQueryChars: number;
   readonly chatAiSearchMaxResponseBytes: number;
@@ -280,9 +294,13 @@ export class Config {
     this.chatAiSearchEnabled = parseEnabledFlag(
       env["CHAT_AI_SEARCH_ENABLED"] ?? "0"
     );
+    this.chatAiSearchProvider = parseChatAiSearchProvider(
+      env["CHAT_AI_SEARCH_PROVIDER"]
+    );
     this.chatAiSearchEndpoint =
       env["CHAT_AI_SEARCH_ENDPOINT"]?.trim() ||
       DEFAULT_CHAT_AI_SEARCH_ENDPOINT;
+    this.chatAiSearchEngines = env["CHAT_AI_SEARCH_ENGINES"]?.trim() || "";
     this.chatAiSearchTimeoutMs = parsePositiveInt(
       env["CHAT_AI_SEARCH_TIMEOUT_MS"],
       DEFAULT_CHAT_AI_SEARCH_TIMEOUT_MS
