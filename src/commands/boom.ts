@@ -4,8 +4,23 @@ interface BoomVideo {
   durationInSeconds: number;
 }
 
+interface BoomVideoPage {
+  data: BoomVideo[];
+  cursor?: string;
+}
+
+interface BoomVideoFilter {
+  type?: "archive" | "highlight" | "upload" | "all";
+  limit?: number;
+  after?: string;
+}
+
 export interface BoomApiClient {
   videos: {
+    getVideosByUser?(
+      broadcasterId: string,
+      filter?: BoomVideoFilter
+    ): Promise<BoomVideoPage>;
     getVideosByUserPaginated(
       broadcasterId: string,
       filter?: { type?: "archive" | "highlight" | "upload" | "all" }
@@ -48,6 +63,7 @@ interface BuildBoomSummaryOptions {
   minGameSeconds?: number;
   maxGames?: number;
   maxConcurrentVideos?: number;
+  archiveVideoPageSize?: number;
   archiveVideoRetryAttempts?: number;
   archiveVideoRetryDelayMs?: number;
   now?: () => Date;
@@ -72,6 +88,7 @@ export const BOOM_COMMAND_USAGE = `⚠️ 使い方: !boom [日数]（1〜${MAX_
 const DEFAULT_MIN_GAME_SECONDS = 60 * 60;
 const DEFAULT_MAX_GAMES = 6;
 const DEFAULT_MAX_CONCURRENT_VIDEOS = 4;
+const DEFAULT_ARCHIVE_VIDEO_PAGE_SIZE = 20;
 const DEFAULT_ARCHIVE_VIDEO_RETRY_ATTEMPTS = 2;
 const DEFAULT_ARCHIVE_VIDEO_RETRY_DELAY_MS = 500;
 const VIDEO_METADATA_HASH =
@@ -220,12 +237,24 @@ async function fetchRecentArchiveVideos(
     lookbackDays: number;
     maxVideos: number | null;
     now: Date;
+    pageSize: number;
     retryAttempts: number;
     retryDelayMs: number;
   }
 ): Promise<BoomVideo[]> {
   const cutoffTime =
     options.now.getTime() - options.lookbackDays * 24 * 60 * 60 * 1000;
+
+  if (typeof apiClient.videos.getVideosByUser === "function") {
+    return fetchRecentArchiveVideosByPage(apiClient, broadcasterId, {
+      cutoffTime,
+      maxVideos: options.maxVideos,
+      pageSize: options.pageSize,
+      retryAttempts: options.retryAttempts,
+      retryDelayMs: options.retryDelayMs,
+    });
+  }
+
   const maxAttempts = Math.max(1, options.retryAttempts + 1);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -255,6 +284,77 @@ async function fetchRecentArchiveVideos(
   }
 
   throw new Error("Twitch archive video pagination did not complete");
+}
+
+async function fetchRecentArchiveVideosByPage(
+  apiClient: BoomApiClient,
+  broadcasterId: string,
+  options: {
+    cutoffTime: number;
+    maxVideos: number | null;
+    pageSize: number;
+    retryAttempts: number;
+    retryDelayMs: number;
+  }
+): Promise<BoomVideo[]> {
+  const videos: BoomVideo[] = [];
+  let after: string | undefined;
+
+  while (true) {
+    const page = await fetchArchiveVideoPageWithRetry(
+      apiClient,
+      broadcasterId,
+      {
+        type: "archive",
+        limit: options.pageSize,
+        ...(after ? { after } : {}),
+      },
+      {
+        retryAttempts: options.retryAttempts,
+        retryDelayMs: options.retryDelayMs,
+      }
+    );
+
+    if (!page.data.length) return videos;
+
+    for (const video of page.data) {
+      if (video.creationDate.getTime() < options.cutoffTime) return videos;
+
+      videos.push(video);
+      if (options.maxVideos !== null && videos.length >= options.maxVideos) {
+        return videos;
+      }
+    }
+
+    if (!page.cursor || page.cursor === after) return videos;
+    after = page.cursor;
+  }
+}
+
+async function fetchArchiveVideoPageWithRetry(
+  apiClient: BoomApiClient,
+  broadcasterId: string,
+  filter: BoomVideoFilter,
+  options: {
+    retryAttempts: number;
+    retryDelayMs: number;
+  }
+): Promise<BoomVideoPage> {
+  const maxAttempts = Math.max(1, options.retryAttempts + 1);
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await apiClient.videos.getVideosByUser!(broadcasterId, filter);
+    } catch (e) {
+      if (attempt >= maxAttempts || !isTransientArchiveVideoError(e)) {
+        throw e;
+      }
+
+      await delay(options.retryDelayMs);
+    }
+  }
+
+  throw new Error("Twitch archive video page fetch did not complete");
 }
 
 async function fetchVideoChapters(
@@ -427,6 +527,10 @@ export async function buildBoomSummary(
     1,
     options.maxConcurrentVideos ?? DEFAULT_MAX_CONCURRENT_VIDEOS
   );
+  const archiveVideoPageSize = Math.min(
+    100,
+    Math.max(1, options.archiveVideoPageSize ?? DEFAULT_ARCHIVE_VIDEO_PAGE_SIZE)
+  );
   const archiveVideoRetryAttempts = Math.max(
     0,
     Math.floor(
@@ -447,6 +551,7 @@ export async function buildBoomSummary(
       lookbackDays,
       maxVideos,
       now,
+      pageSize: archiveVideoPageSize,
       retryAttempts: archiveVideoRetryAttempts,
       retryDelayMs: archiveVideoRetryDelayMs,
     }

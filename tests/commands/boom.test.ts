@@ -385,6 +385,78 @@ describe("buildBoomSummary", () => {
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
+  it("uses small Helix video pages instead of the default 100-item paginator", async () => {
+    const now = new Date("2026-05-31T12:00:00.000Z");
+    const getVideosByUser = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: "v1",
+            durationInSeconds: 3_600,
+            creationDate: new Date("2026-05-31T12:00:00.000Z"),
+          },
+        ],
+        cursor: "next-page",
+      })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: "v2",
+            durationInSeconds: 3_600,
+            creationDate: new Date("2026-05-30T12:00:00.000Z"),
+          },
+        ],
+      });
+    const getVideosByUserPaginated = vi.fn(() => {
+      throw new Error("100-item paginator should not be used");
+    });
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {
+          video: {
+            game: { displayName: "Game A" },
+            lengthSeconds: 3_600,
+            moments: {
+              edges: [
+                {
+                  node: {
+                    positionMilliseconds: 0,
+                    durationMilliseconds: 3_600_000,
+                    details: { game: { displayName: "Game A" } },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      }),
+    });
+
+    const summary = await buildBoomSummary(
+      { videos: { getVideosByUser, getVideosByUserPaginated } },
+      {
+        broadcasterId: "broadcaster-id",
+        gqlClientId: "gql-client",
+        fetchFn,
+        now: () => now,
+      }
+    );
+
+    expect(summary.analyzedVideos).toBe(2);
+    expect(getVideosByUserPaginated).not.toHaveBeenCalled();
+    expect(getVideosByUser).toHaveBeenNthCalledWith(1, "broadcaster-id", {
+      type: "archive",
+      limit: 20,
+    });
+    expect(getVideosByUser).toHaveBeenNthCalledWith(2, "broadcaster-id", {
+      type: "archive",
+      limit: 20,
+      after: "next-page",
+    });
+  });
+
   it("retries transient Helix archive video body failures", async () => {
     const getVideosByUserPaginated = vi
       .fn()
