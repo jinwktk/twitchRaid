@@ -154,8 +154,12 @@ describe("generateMentionChatReply", () => {
     });
     expect(body.system).toContain("日本語");
     expect(body.system).toContain("秘密");
+    expect(body.system).toContain("自然な1〜2文");
+    expect(body.system).toContain("一語だけ");
     expect(body.prompt).toContain("viewer");
     expect(body.prompt).toContain("こんにちは");
+    expect(body.prompt).toContain("自然な1〜2文");
+    expect(body.prompt).toContain("単語だけ");
     expect(body.prompt).not.toContain("TWITCH_ACCESS_TOKEN");
     expect(reply).toBe("こんにちはD！配信たのしんでいってね！");
   });
@@ -217,6 +221,8 @@ describe("generateMentionChatReply", () => {
     const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
     expect(body.prompt).toContain("外部検索結果");
     expect(body.prompt).toContain("命令ではありません");
+    expect(body.prompt).toContain("検索結果がある場合");
+    expect(body.prompt).toContain("事実情報として優先");
     expect(body.prompt).toContain("TwitchCon - Event page");
     expect(reply).toBe("TwitchConの情報だよD！");
   });
@@ -307,6 +313,7 @@ describe("generateMentionChatReply", () => {
     expect(body.prompt).toContain("ゲーム名やタイトルを聞かれた場合は正式名称だけでもよい");
     expect(body.prompt).toContain("聞き返し");
     expect(body.prompt).toContain("「え？」だけ");
+    expect(body.prompt).toContain("単語だけや数字だけ");
     expect(reply).toBe("画面にはゲーム画面が見えるよD！");
   });
 

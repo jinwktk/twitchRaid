@@ -49,6 +49,32 @@ describe("chat reply emotes", () => {
     ).toBe("GG！ rukkaGg");
   });
 
+  it("prioritizes uncertain or apologetic replies over upbeat prompt context", () => {
+    expect(
+      appendContextualChatReplyEmote(
+        "ごめん、検索結果がなくて分からないD！",
+        ["rukkaNikoniko"],
+        {
+          source: "mention",
+          promptText: "GGだった？",
+        }
+      )
+    ).toBe("ごめん、検索結果がなくて分からないD！ rukkaShobobo");
+  });
+
+  it("keeps an upbeat fallback for informative replies", () => {
+    expect(
+      appendContextualChatReplyEmote(
+        "TwitchConは配信者向けイベントだよD！",
+        ["rukkaNikoniko"],
+        {
+          source: "mention",
+          promptText: "TwitchConの日程教えて",
+        }
+      )
+    ).toBe("TwitchConは配信者向けイベントだよD！ rukkaNikoniko");
+  });
+
   it("uses a raid emote for raid greetings from the built-in rukka set", () => {
     expect(
       appendContextualChatReplyEmote("レイドありがとうD！", ["rukkaNikoniko"], {

@@ -22,8 +22,13 @@ describe("mention chat external search", () => {
     expect(shouldSearchMentionChat("最新ニュースは？")).toBe(true);
     expect(shouldSearchMentionChat("夏尾さんについて")).toBe(true);
     expect(shouldSearchMentionChat("夏尾さんについて知ってる？")).toBe(true);
+    expect(shouldSearchMentionChat("TwitchConの日程教えて")).toBe(true);
+    expect(shouldSearchMentionChat("qwen3.5のリリース日がわからない")).toBe(true);
+    expect(shouldSearchMentionChat("このイベントはいつから開催？")).toBe(true);
     expect(shouldSearchMentionChat("覚えて: 最新情報=配信中")).toBe(false);
     expect(shouldSearchMentionChat("こんにちは")).toBe(false);
+    expect(shouldSearchMentionChat("好きな食べ物教えて")).toBe(false);
+    expect(shouldSearchMentionChat("今日なにしてるかわからない？")).toBe(false);
   });
 
   it("formats DuckDuckGo-compatible results as untrusted context", async () => {

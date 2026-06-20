@@ -687,6 +687,67 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "検索結果を見たD！");
   });
 
+  it("searches natural unknown information questions without searching casual chat", async () => {
+    const { bot, say } = makeBot({
+      chatAiSearchEnabled: true,
+      chatAiSearchEndpoint: "https://api.duckduckgo.com/",
+      chatAiCooldownSeconds: 0,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.startsWith("https://api.duckduckgo.com/")) {
+        const bytes = Buffer.from(
+          JSON.stringify({
+            Heading: "TwitchCon",
+            AbstractText: "TwitchCon event schedule.",
+            AbstractURL: "https://example.test/twitchcon",
+          }),
+          "utf8"
+        );
+        return {
+          ok: true,
+          headers: { get: () => null },
+          arrayBuffer: async () =>
+            bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        } as Response;
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ response: "自然に答えるD！" }),
+      } as Response;
+    });
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun TwitchConの日程教えて",
+      100
+    );
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 好きな食べ物教えて",
+      101
+    );
+
+    const searchCalls = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).startsWith("https://api.duckduckgo.com/")
+    );
+    const ollamaCalls = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    expect(searchCalls).toHaveLength(1);
+    expect(String(searchCalls[0][0])).toContain("TwitchCon");
+    expect(ollamaCalls).toHaveLength(2);
+    const searchedPrompt = JSON.parse(ollamaCalls[0]?.[1]?.body as string).prompt;
+    const casualPrompt = JSON.parse(ollamaCalls[1]?.[1]?.body as string).prompt;
+    expect(searchedPrompt).toContain("外部検索結果");
+    expect(searchedPrompt).toContain("TwitchCon event schedule.");
+    expect(casualPrompt).not.toContain("外部検索結果");
+    expect(say).toHaveBeenCalledWith("#rukalun", "自然に答えるD！");
+  });
+
   it("logs when a search-like mention is skipped because external search is disabled", async () => {
     const { bot, say } = makeBot({
       chatAiSearchEnabled: false,
