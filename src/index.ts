@@ -13,17 +13,23 @@ async function main(): Promise<void> {
   logger.info("=== TwitchRaid Bot Starting (TypeScript) ===");
 
   const config = new Config();
-  const gitManager = new GitManager(config);
-  const systemWatcher = new SystemWatcher(gitManager);
+  let systemWatcher: SystemWatcher | null = null;
 
-  // 起動時にGit更新チェック
-  logger.info("GitHub更新チェックを実行中...");
-  gitManager.pullAndRestartIfUpdated();
+  if (config.gitAutoUpdateEnabled) {
+    const gitManager = new GitManager(config);
+    systemWatcher = new SystemWatcher(gitManager);
 
-  // 監視開始
-  systemWatcher.startUpdateWatcher();
-  systemWatcher.startRestartWatcher();
-  logger.info("全ての監視が開始されました。");
+    // 起動時にGit更新チェック
+    logger.info("GitHub更新チェックを実行中...");
+    gitManager.pullAndRestartIfUpdated();
+
+    // 監視開始
+    systemWatcher.startUpdateWatcher();
+    systemWatcher.startRestartWatcher();
+    logger.info("全ての監視が開始されました。");
+  } else {
+    logger.info("内部Git自動更新は無効です。Dokployのデプロイ管理を使用します。");
+  }
 
   let bot: Bot | null = null;
 
@@ -31,7 +37,7 @@ async function main(): Promise<void> {
   const shutdown = async () => {
     logger.info("シャットダウン中...");
     if (bot) await bot.stop();
-    systemWatcher.stop();
+    systemWatcher?.stop();
     process.exit(0);
   };
   process.once("SIGINT", shutdown);

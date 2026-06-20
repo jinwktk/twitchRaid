@@ -62,6 +62,37 @@ describe("Config", () => {
     }
   });
 
+  it("can disable the internal Git updater for Dokploy deployments", () => {
+    const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+GIT_AUTO_UPDATE_ENABLED=false
+`);
+
+    const config = new Config(envPath);
+
+    expect(config.gitAutoUpdateEnabled).toBe(false);
+  });
+
+  it("keeps the internal Git updater enabled by default", () => {
+    const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+`);
+
+    const config = new Config(envPath);
+
+    expect(config.gitAutoUpdateEnabled).toBe(true);
+  });
+
   it("loads clip search auto-publish settings for GitHub Pages JSON updates", () => {
     const envPath = writeEnvFile(`
 TWITCH_CLIENT_ID=client

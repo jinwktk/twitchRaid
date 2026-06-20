@@ -83,6 +83,7 @@ export class Config {
   readonly restartFile: string;
   readonly updateCheckInterval: number;
   readonly restartCheckInterval: number;
+  readonly gitAutoUpdateEnabled: boolean;
   readonly clipCacheDbPath: string;
   readonly clipRecentWindowMinutes: number;
   readonly streamSummaryStatePath: string;
@@ -176,6 +177,9 @@ export class Config {
     this.restartFile = path.resolve(BASE_DIR, "last_restart.txt");
     this.updateCheckInterval = 600; // 10分
     this.restartCheckInterval = 300; // 5分
+    this.gitAutoUpdateEnabled = parseEnabledFlag(
+      env["GIT_AUTO_UPDATE_ENABLED"] ?? "true"
+    );
     this.clipCacheDbPath = path.resolve(
       BASE_DIR,
       env["TWITCH_CLIP_CACHE_DB_PATH"] ?? "data/clips.sqlite"
