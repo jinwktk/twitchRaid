@@ -68,7 +68,7 @@ OllamaのVRAMは `ollama ps` / `/api/ps` の `size_vram` から約4.98GBと分�
 
 2026-06-21 01:18 JST時点で、SearXNGは独立stackではなくSUB AI Services内へ移した。Dokploy Compose `sub-ai-services` の `sub-ai` stackに `searxng` serviceを追加し、旧standalone `twitchraid-searxng` は `idle` に停止済み。Swarm上は `sub-ai_ollama` / `sub-ai_whisper-api` / `sub-ai_sbvits2` / `sub-ai_searxng` の4サービス構成。
 
-SearXNGは `/home/mlove/dokploy/searxng/settings.yml` を `/etc/searxng/settings.yml:ro` にbind mountし、JSON出力とGoogle engineだけを有効化する。公開portは持たせず、Botは `CHAT_AI_SEARCH_ENDPOINT=http://searxng:8080/search` で接続する。Botコンテナから `http://searxng:8080/search?q=...&format=json&engines=google` と実関数 `fetchMentionChatSearchContext("るっかるんについて調べて")` が成功し、検索結果3件を返すことを確認済み。
+SearXNGは `/home/mlove/dokploy/searxng/settings.yml` を `/etc/searxng/settings.yml:ro` にbind mountし、JSON出力とGoogle engineだけを有効化する。公開portは持たせず、Botは `CHAT_AI_SEARCH_ENDPOINT=http://searxng:8080/search?language=all&safesearch=0` で接続する。Botコンテナ内DNSでは `searxng` と `sub-ai_searxng` が同じIPへ解決される。実行中Botの `fetchMentionChatSearchContext("OpenAIについて調べて")` はSearXNG/Google経由で検索結果3件を返すことを確認済み。
 
 ## Botサービス
 - Service: `twitch-raid-apcz9n`
@@ -183,7 +183,7 @@ CHAT_AI_MEMORY_MAX_ITEMS=8
 CHAT_AI_MEMORY_MAX_CHARS=600
 CHAT_AI_SEARCH_ENABLED=true
 CHAT_AI_SEARCH_PROVIDER=searxng
-CHAT_AI_SEARCH_ENDPOINT=http://searxng:8080/search
+CHAT_AI_SEARCH_ENDPOINT=http://searxng:8080/search?language=all&safesearch=0
 CHAT_AI_SEARCH_ENGINES=google
 CHAT_AI_SEARCH_TIMEOUT_MS=4000
 CHAT_AI_SEARCH_MAX_RESULTS=3

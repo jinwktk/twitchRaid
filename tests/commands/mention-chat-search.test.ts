@@ -109,7 +109,7 @@ describe("mention chat external search", () => {
     const result = await fetchMentionChatSearchContext({
       enabled: true,
       provider: "searxng",
-      endpoint: "http://searxng.test/search",
+      endpoint: "http://searxng.test/search?language=all&safesearch=0",
       engines: "google",
       queryText: "るっかるんについて調べて",
       timeoutMs: 2500,
@@ -121,6 +121,8 @@ describe("mention chat external search", () => {
 
     const url = new URL(String(fetchImpl.mock.calls[0][0]));
     expect(url.pathname).toBe("/search");
+    expect(url.searchParams.get("language")).toBe("all");
+    expect(url.searchParams.get("safesearch")).toBe("0");
     expect(url.searchParams.get("q")).toBe("るっかるん rukalun");
     expect(url.searchParams.get("format")).toBe("json");
     expect(url.searchParams.get("engines")).toBe("google");
