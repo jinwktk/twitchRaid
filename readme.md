@@ -199,7 +199,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - 一般ユーザーは 30 分のクールダウンが適用
 - クールダウン終了時に Bot がチャットへ「リキャスト復帰」コメントを自動送信
 - `!myclip` は `!clip` とは独立したクールダウン管理
-- 起動後に `data/clips.sqlite` へ全期間クリップをバックグラウンド同期する
+- 起動後に `data/clips.sqlite` へ全期間クリップをバックグラウンド同期する。Twitch APIの一時的な `Premature close` などで期間窓の取得に失敗した場合は、その期間窓だけ既定2回再試行し、再試行後も失敗した窓は完了扱いにしない
 - 同期済み期間は `clip_scan_windows` に保存し、再起動後は取得済み期間をスキップ
 - 配信していない時間に1日1回、全期間を再走査してTwitch側で返らなくなったClipを `unavailable_at` 付きで無効化する。直近同期でも、DBに既にあるClipが一覧から消えた場合は `getClipsByIds` で個別確認し、返らないIDだけ削除/非公開として無効化する。ただし作成から2時間以内のClipはTwitch API反映の揺れとして直近削除確認の対象外にし、すでに無効化されていた場合も直近同期時に有効へ戻す
 - 無効化されたClipは `!clip` / `!myclip` と配信まとめクリップ候補から除外され、Twitch APIで再び返った場合は自動で有効化される
@@ -311,6 +311,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-20**: Twitch APIの一時切断で `clip全期間バックフィル失敗: ... Premature close` が出た場合に、全期間バックフィル全体を即中断せず、失敗した期間窓だけ再試行するようにした。再試行後も失敗する窓は `clip_scan_windows` 完了扱いにせず、次回以降のバックフィル/再走査で再取得できるようにした
 - **2026-06-20**: DokployのtwitchRaidアプリが `localhost:5000/twitch-raid-apcz9n:local` をpullして失敗していたため、実registryである `localhost:5050` へ最新imageをpushし、Dokploy DBの対象アプリ `dockerImage` を `localhost:5050/twitch-raid-apcz9n:local` へ修正。Dokploy内部の `deployApplication` で再デプロイし、修正時Deployment `Manual deploy after registry port fix` が `done`、Swarm service imageが `localhost:5050/twitch-raid-apcz9n:local`、実コンテナrevisionが `4da65c0`、起動ログが `全てのチャンネルにログインしました` まで進んだことを確認
 - **2026-06-20**: Dokploy移行後も旧PM2用 `Auto Deploy` workflowがmain pushでqueuedになっていたため、`.github/workflows/deploy.yml` を手動実行専用に変更した。デプロイ確認はGitHub Actionsの旧workflowではなく、Dokploy/Swarmサービスの更新完了、実コンテナrevision、起動ログで確認する
 - **2026-06-20**: `!chat` / Bot宛てAIメンションのOllama timeoutを通常例外と分け、`reason=timeout`、`timeoutMs`、`elapsedMs` をログへ残し、既定では `今ちょっとAIが混み合ってるD！` をチャットへ返すようにした。文面は `CHAT_AI_TIMEOUT_FALLBACK_REPLY` で変更でき、空にするとtimeout時も返信なしにできる

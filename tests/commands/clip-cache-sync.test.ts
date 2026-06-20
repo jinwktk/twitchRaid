@@ -36,6 +36,14 @@ function iterableClips(clips: HelixClip[]): AsyncIterable<HelixClip> {
   };
 }
 
+function failingIterable(error: Error): AsyncIterable<HelixClip> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      throw error;
+    },
+  };
+}
+
 describe("clip cache sync helpers", () => {
   it("builds fixed date windows for full backfill", () => {
     const windows = buildClipDateWindows(
@@ -368,6 +376,64 @@ describe("ClipCacheSynchronizer", () => {
         )
         .map((clip) => clip.id)
     ).toEqual(["kept"]);
+  });
+
+  it("retries a transient full-backfill window failure before continuing", async () => {
+    const getClipsForBroadcasterPaginated = vi
+      .fn()
+      .mockReturnValueOnce(failingIterable(new Error("Premature close")))
+      .mockReturnValueOnce(iterableClips([makeClip("retried")]));
+    const sync = new ClipCacheSynchronizer({
+      apiClient: { clips: { getClipsForBroadcasterPaginated } },
+      broadcasterId: "broadcaster-id",
+      store,
+      oldestClipDate: new Date("2026-01-01T00:00:00.000Z"),
+      fullWindowDays: 1,
+      fullWindowRetryAttempts: 1,
+      fullWindowRetryDelayMs: 0,
+    });
+
+    const completed = await sync.runFullBackfill(
+      new Date("2026-01-02T00:00:00.000Z")
+    );
+
+    expect(completed).toBe(true);
+    expect(getClipsForBroadcasterPaginated).toHaveBeenCalledTimes(2);
+    expect(store.clipCount()).toBe(1);
+    expect(
+      store.isWindowCompleted(
+        "2026-01-01T00:00:00.000Z",
+        "2026-01-02T00:00:00.000Z"
+      )
+    ).toBe(true);
+  });
+
+  it("leaves a full-backfill window incomplete after retry exhaustion", async () => {
+    const getClipsForBroadcasterPaginated = vi.fn(() =>
+      failingIterable(new Error("Premature close"))
+    );
+    const sync = new ClipCacheSynchronizer({
+      apiClient: { clips: { getClipsForBroadcasterPaginated } },
+      broadcasterId: "broadcaster-id",
+      store,
+      oldestClipDate: new Date("2026-01-01T00:00:00.000Z"),
+      fullWindowDays: 1,
+      fullWindowRetryAttempts: 1,
+      fullWindowRetryDelayMs: 0,
+    });
+
+    const completed = await sync.runFullBackfill(
+      new Date("2026-01-02T00:00:00.000Z")
+    );
+
+    expect(completed).toBe(false);
+    expect(getClipsForBroadcasterPaginated).toHaveBeenCalledTimes(2);
+    expect(
+      store.isWindowCompleted(
+        "2026-01-01T00:00:00.000Z",
+        "2026-01-02T00:00:00.000Z"
+      )
+    ).toBe(false);
   });
 
   it("runs daily reconcile only while offline and only once per interval", async () => {

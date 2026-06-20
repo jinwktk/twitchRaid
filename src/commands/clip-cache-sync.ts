@@ -28,6 +28,8 @@ interface ClipCacheSyncOptions {
   store: ClipCacheStore;
   oldestClipDate?: Date;
   fullWindowDays?: number;
+  fullWindowRetryAttempts?: number;
+  fullWindowRetryDelayMs?: number;
   splitThreshold?: number;
   recentWindowMinutes?: number;
   recentUnavailableGraceMinutes?: number;
@@ -53,6 +55,8 @@ interface FullBackfillOptions {
 
 const DEFAULT_OLDEST_CLIP_DATE = new Date("2016-05-01T00:00:00.000Z");
 const DEFAULT_FULL_WINDOW_DAYS = 30;
+const DEFAULT_FULL_WINDOW_RETRY_ATTEMPTS = 2;
+const DEFAULT_FULL_WINDOW_RETRY_DELAY_MS = 1000;
 const DEFAULT_SPLIT_THRESHOLD = 950;
 const DEFAULT_RECENT_WINDOW_MINUTES = 6 * 60;
 const DEFAULT_RECENT_UNAVAILABLE_GRACE_MINUTES = 2 * 60;
@@ -70,6 +74,11 @@ function chunkArray<T>(values: T[], size: number): T[][] {
     chunks.push(values.slice(index, index + size));
   }
   return chunks;
+}
+
+function delay(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function buildClipDateWindows(
@@ -142,6 +151,8 @@ export async function clipsToCachedClips(
 export class ClipCacheSynchronizer {
   private readonly oldestClipDate: Date;
   private readonly fullWindowDays: number;
+  private readonly fullWindowRetryAttempts: number;
+  private readonly fullWindowRetryDelayMs: number;
   private readonly splitThreshold: number;
   private readonly recentWindowMinutes: number;
   private readonly recentUnavailableGraceMinutes: number;
@@ -162,6 +173,16 @@ export class ClipCacheSynchronizer {
   constructor(private readonly options: ClipCacheSyncOptions) {
     this.oldestClipDate = options.oldestClipDate ?? DEFAULT_OLDEST_CLIP_DATE;
     this.fullWindowDays = options.fullWindowDays ?? DEFAULT_FULL_WINDOW_DAYS;
+    this.fullWindowRetryAttempts = Math.max(
+      0,
+      Math.floor(
+        options.fullWindowRetryAttempts ?? DEFAULT_FULL_WINDOW_RETRY_ATTEMPTS
+      )
+    );
+    this.fullWindowRetryDelayMs = Math.max(
+      0,
+      options.fullWindowRetryDelayMs ?? DEFAULT_FULL_WINDOW_RETRY_DELAY_MS
+    );
     this.splitThreshold = options.splitThreshold ?? DEFAULT_SPLIT_THRESHOLD;
     this.recentWindowMinutes =
       options.recentWindowMinutes ?? DEFAULT_RECENT_WINDOW_MINUTES;
@@ -278,13 +299,26 @@ export class ClipCacheSynchronizer {
         ? "clip全期間再走査"
         : "clip全期間バックフィル";
       logger.info(`🎬 ${scanLabel}開始: windows=${windows.length}`);
+      let failedWindows = 0;
 
       for (const window of windows) {
         if (this.stopped) return false;
-        await this.syncWindow(window, {
-          reconcileMissing: options.reconcileMissing,
-        });
+        const completed = await this.syncWindowWithRetry(
+          window,
+          {
+            reconcileMissing: options.reconcileMissing,
+          },
+          scanLabel
+        );
+        if (!completed) failedWindows += 1;
         if (this.stopped) return false;
+      }
+
+      if (failedWindows > 0) {
+        logger.warn(
+          `⚠️ ${scanLabel}は一部未完了です: failedWindows=${failedWindows}, windows=${windows.length}`
+        );
+        return false;
       }
 
       logger.info(
@@ -382,6 +416,37 @@ export class ClipCacheSynchronizer {
       `🎬 clip期間同期完了: ${startAt} - ${endAt}, clips=${clips.length}, unavailable=${unavailable}`
     );
     return saved;
+  }
+
+  private async syncWindowWithRetry(
+    window: ClipDateWindow,
+    options: SyncWindowOptions,
+    scanLabel: string
+  ): Promise<boolean> {
+    const startAt = window.start.toISOString();
+    const endAt = window.end.toISOString();
+    const maxAttempts = this.fullWindowRetryAttempts + 1;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        await this.syncWindow(window, options);
+        return true;
+      } catch (e) {
+        if (attempt >= maxAttempts) {
+          logger.warn(
+            `⚠️ ${scanLabel}期間同期をスキップ: ${startAt} - ${endAt}, attempts=${attempt}, error=${e}`
+          );
+          return false;
+        }
+
+        logger.warn(
+          `⚠️ ${scanLabel}期間同期失敗、再試行します: ${startAt} - ${endAt}, attempt=${attempt}/${maxAttempts}, error=${e}`
+        );
+        await delay(this.fullWindowRetryDelayMs);
+      }
+    }
+
+    return false;
   }
 
   private async fetchWindow(window: ClipDateWindow): Promise<HelixClip[]> {
