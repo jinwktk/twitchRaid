@@ -25,6 +25,7 @@ npm run pm2:logs    # ログ確認
 - Dokploy運用では `GIT_AUTO_UPDATE_ENABLED=false` を設定し、コンテナ内の自己 `git pull` / 定期再起動監視を止める。更新はDokployのデプロイで反映する
 - `.github/workflows/deploy.yml` は旧PM2運用向けの手動workflowとして残し、main pushでは起動しない。Dokploy移行後の本番反映はDokploy/Swarmサービス側で確認する
 - サブPCのDokploy用ローカルregistryは `127.0.0.1:5050`。twitchRaidのDokployアプリ `dockerImage` は `localhost:5050/twitch-raid-apcz9n:local` を使う。`127.0.0.1:5000` は現在registryではないため、`localhost:5000/twitch-raid-apcz9n:local` のままだとDokployのpullが `not found` で失敗する
+- 2026-06-21時点のサブPCDokploy本番は revision `7bce437ec86986c5c013c7c488ff0666900af0d0` を反映済み。`!boom` / `!game` のアーカイブ配信取得は、Bot本番のTwitch client id/access tokenを使って Helix videos API を `Accept-Encoding: identity` の直fetchで20件ずつ取得する。実コンテナ上で `buildBoomSummary` が実Twitch APIから `analyzedVideos=2` を返すこと、起動ログが正常で `boom集計失敗` が出ていないことを確認済み
 - Dokployコンテナから `/mnt/e/GitHub/RukalunPage` を見る場合、Windows側checkoutのCRLF差分だけで公開repoがdirtyに見えることがある。公開JSON publisherは追跡済みファイルの空白・改行だけの差分ならremote同期で破棄し、実内容の未コミット変更や未追跡ファイルは引き続き保護してスキップする
 - DokployコンテナのようにGitのglobal `user.name` / `user.email` が未設定の環境でも公開JSONをcommitできるよう、Clip検索JSON publisherはcommit/amend時だけ `twitchRaid Bot <twitchraid-bot@users.noreply.github.com>` をauthor/committerとして明示する
 - DokployコンテナからRukalunPageへpushするには、Dokploy環境変数に `CLIP_SEARCH_PUBLISH_GITHUB_TOKEN` を設定する。`GITHUB_TOKEN` / `GH_TOKEN` もfallbackとして読める。必要に応じて `CLIP_SEARCH_PUBLISH_GITHUB_USERNAME` も設定でき、未指定時は `x-access-token` を使う。トークンはGitコマンド引数へ入れず、fetch/push時のGit環境変数として渡す。GitHub HTTPS pushでtokenが無い場合は、同期後処理全体を例外にせず `github-auth-missing` として公開をスキップし、0件同期の再試行は公開最小間隔で間引く。同一プロセス内では初回だけWARN、2回目以降はINFOにする
@@ -113,6 +114,8 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!commentcount` | 配信開始からの累計コメント件数を表示 | 再起動後も引き継ぎ |
 | `!boom [日数]` | 指定期間（省略時30日）で1時間以上遊んだゲーム別トータル時間と総配信時間を表示 | 日数は1〜60の整数、VODチャプター情報を集計 |
 | `!streamnotify` | 現在の配信開始通知をDiscordへ手動送信 | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ |
+
+2026-06-21の全コマンド検証では、上記23コマンドをBot dispatcher経由のスモークテスト対象にし、外部副作用が大きい `!shoutout` と `!streamnotify` は権限拒否・usage・offline応答で安全に確認しています。併せて `!clip` / `!myclip` / `!clipsearch` はSQLiteキャッシュ、`!chat` はAI生成スタブ、`!boom` / `!game` はHelix identity fetchスタブで確認します。
 
 ## 定期おすすめコメント
 - 配信中のみ、配信開始から1時間後に最初のおすすめコメントを投稿し、それ以降は既定1時間ごとに1通ずつ投稿する。起動直後や配信開始直後には即投稿しない
