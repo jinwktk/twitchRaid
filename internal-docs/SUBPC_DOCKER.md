@@ -63,6 +63,12 @@
 
 OllamaのVRAMは `ollama ps` / `/api/ps` の `size_vram` から約4.98GBと分かる。一方、WSL2の `nvidia-smi --query-compute-apps=used_memory` は `N/A` のため、Whisper/SBVITS2/Xwayland/ランタイムの厳密なMiB内訳は非停止では取れない。正確な差分を出す場合は、配信影響を確認したうえでSUB AI Servicesを一つずつ停止し、停止前後の総VRAM差分を見る。
 
+### SUB AI Services分割方針
+
+2026-06-21時点のSUB AI Servicesは、`sub-ai` Compose stack内に `ollama` / `whisper-api` / `sbvits2` がまとまっている。Dokploy上で3つを個別Compose/Applicationへ分割することは可能だが、分割だけでは単一RTX 2070 SUPER 8GBのVRAM競合は解消しない。
+
+分割する場合は、既存volume、公開port、内部DNS名、Bot側 `OLLAMA_BASE_URL`、GPU runtime/env、Swarm service名変更の影響を確認する。作業順はOllamaを先に単独化して `http://192.168.0.99:11434` とBot疎通を維持し、その後Whisper API、SBVITS2の順に切り出すのが安全。各段階で `docker service ls`、対象コンテナ内 `nvidia-smi`、ヘルスチェック/API疎通、Botログを確認してから次へ進める。
+
 ## Botサービス
 - Service: `twitch-raid-apcz9n`
 - Image: `localhost:5050/twitch-raid-apcz9n:local`
