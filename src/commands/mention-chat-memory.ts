@@ -12,6 +12,7 @@ export interface LoadMentionChatMemoryOptions {
   filePath: string;
   maxItems: number;
   maxChars: number;
+  queryText?: string;
 }
 
 type MemoryRecord = Record<string, unknown>;
@@ -32,6 +33,8 @@ export interface SaveMentionChatAutoLearnMemoryOptions
   filePath: string;
   promptText: string;
   maxItems: number;
+  sourceUser?: string;
+  now?: () => string;
 }
 
 export interface SaveMentionChatAutoLearnMemoryResult {
@@ -39,10 +42,47 @@ export interface SaveMentionChatAutoLearnMemoryResult {
   reason:
     | "disabled"
     | "not_memory_request"
+    | "invalid_format"
+    | "unsafe"
+    | "reserved_key"
+    | "too_long"
     | "invalid_file"
     | "write_failed"
     | "saved";
   key?: string;
+}
+
+type SaveMentionChatAutoLearnMemoryFailureReason = Exclude<
+  SaveMentionChatAutoLearnMemoryResult["reason"],
+  "saved"
+>;
+
+export interface AnalyzeMentionChatMemoryRequestResult {
+  isMemoryRequest: boolean;
+  reason:
+    | "valid"
+    | "not_memory_request"
+    | "invalid_format"
+    | "unsafe"
+    | "reserved_key"
+    | "too_long";
+  entry?: MentionChatMemoryEntry;
+}
+
+interface MemoryMetadata {
+  kind?: string;
+  status?: string;
+  sourceUser?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface MemoryLine {
+  key: string;
+  value: string;
+  line: string;
+  index: number;
+  updatedAt: number;
 }
 
 const EMPTY_MEMORY: MentionChatMemoryResult = {
@@ -50,16 +90,25 @@ const EMPTY_MEMORY: MentionChatMemoryResult = {
   itemCount: 0,
   charCount: 0,
 };
-const RESERVED_MEMORY_KEYS = new Set(["global", "users"]);
+const MEMORY_META_KEY = "__meta";
+const RESERVED_MEMORY_KEYS = new Set(["global", "users", MEMORY_META_KEY]);
 const MEMORY_REQUEST_PATTERN =
-  /(?:^|\s)(?:覚えて|記憶して|メモして|忘れないで)[：:\s]*(.+)$/u;
+  /(?:覚えて|記憶して|メモして|忘れないで)[：:\s]+(.+)$/u;
 const SUFFIX_MEMORY_REQUEST_PATTERN =
   /^(.+?)[。.!！?？\s]*(?:覚えて|記憶して|メモして|忘れないで)[！!。.\s]*$/u;
+const MEMORY_KEYWORD_PATTERN =
+  /(?:覚えて(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|記憶して(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|メモして(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|忘れないで(?!いる|いた|います|た|しょ))/u;
 const URL_PATTERN = /(?:https?:\/\/|www\.)/iu;
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu;
 const PHONE_PATTERN = /(?:\+?\d[\d\s-]{8,}\d)/u;
+const PII_KEY_PATTERN =
+  /^(?:本名|氏名|住所|所在地|誕生日|生年月日|マイナンバー|個人番号|電話番号|メールアドレス|メール)$/iu;
 const SECRET_PATTERN =
-  /\b(?:token|secret|password|passwd|api[\s_-]?key|access[\s_-]?token|refresh[\s_-]?token)\b|認証|パスワード|秘密|環境変数/iu;
+  /\b(?:token|secret|password|passwd|api[\s_-]?key|access[\s_-]?token|refresh[\s_-]?token)\b|apiキー|トークン|アクセストークン|リフレッシュトークン|シークレット|認証情報|認証|パスワード|秘密鍵|秘密|環境変数/iu;
+const CREDENTIAL_VALUE_PATTERN =
+  /\b(?:sk(?:-proj)?-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{8,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b/u;
+const PROMPT_INJECTION_PATTERN =
+  /前の指示|上の指示|以前の指示|指示を無視|命令を無視|ルールを無視|システムプロンプト|プロンプトを表示|内部設定|developer message|system prompt|ignore (?:all )?(?:previous|above) instructions/iu;
 
 function isRecord(value: unknown): value is MemoryRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -122,8 +171,14 @@ function isUnsafeMemoryText(value: string): boolean {
     URL_PATTERN.test(value) ||
     EMAIL_PATTERN.test(value) ||
     PHONE_PATTERN.test(value) ||
-    SECRET_PATTERN.test(value)
+    SECRET_PATTERN.test(value) ||
+    CREDENTIAL_VALUE_PATTERN.test(value) ||
+    PROMPT_INJECTION_PATTERN.test(value)
   );
+}
+
+function isUnsafeMemoryKey(value: string): boolean {
+  return PII_KEY_PATTERN.test(value) || isUnsafeMemoryText(value);
 }
 
 function capLines(lines: string[], maxItems: number, maxChars: number): string[] {
@@ -154,19 +209,75 @@ function dictionaryValueToText(value: unknown): string | null {
   return primitiveToText(value["text"]) ?? primitiveToText(value["value"]);
 }
 
-function dictionaryEntriesToLines(record: MemoryRecord): string[] {
-  const reservedKeys = new Set(["global", "users"]);
-  const lines: string[] = [];
+function metadataRecord(record: MemoryRecord): Record<string, MemoryMetadata> {
+  const value = record[MEMORY_META_KEY];
+  if (!isRecord(value)) return {};
+  return value as Record<string, MemoryMetadata>;
+}
+
+function parseTime(value: string | undefined): number {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function dictionaryEntriesToMemoryLines(record: MemoryRecord): MemoryLine[] {
+  const metadata = metadataRecord(record);
+  const lines: MemoryLine[] = [];
+  let index = 0;
 
   for (const [key, value] of Object.entries(record)) {
     const normalizedKey = singleLine(key);
-    if (!normalizedKey || reservedKeys.has(normalizedKey)) continue;
+    if (!normalizedKey || RESERVED_MEMORY_KEYS.has(normalizedKey)) continue;
+
+    const meta = metadata[normalizedKey];
+    if (meta?.status && meta.status !== "active") continue;
 
     const text = dictionaryValueToText(value);
-    if (text) lines.push(`${normalizedKey}: ${text}`);
+    if (text && (isUnsafeMemoryKey(normalizedKey) || isUnsafeMemoryText(text))) {
+      continue;
+    }
+    if (text) {
+      lines.push({
+        key: normalizedKey,
+        value: text,
+        line: `${normalizedKey}: ${text}`,
+        index,
+        updatedAt: parseTime(meta?.updatedAt),
+      });
+    }
+    index++;
   }
 
   return lines;
+}
+
+function legacyGlobalItemsToMemoryLines(items: unknown[], startIndex: number): MemoryLine[] {
+  return items
+    .map((item, offset) => {
+      const line = itemToText(item);
+      if (!line) return null;
+      const separatorIndex = line.indexOf(":");
+      const key =
+        separatorIndex > 0 ? singleLine(line.slice(0, separatorIndex)) : "";
+      const value =
+        separatorIndex > 0 ? singleLine(line.slice(separatorIndex + 1)) : line;
+      if (
+        isUnsafeMemoryKey(key) ||
+        isUnsafeMemoryText(value) ||
+        isUnsafeMemoryText(line)
+      ) {
+        return null;
+      }
+      return {
+        key,
+        value,
+        line,
+        index: startIndex + offset,
+        updatedAt: 0,
+      };
+    })
+    .filter((line): line is MemoryLine => Boolean(line));
 }
 
 function splitMemoryKeyValue(body: string): MentionChatMemoryEntry | null {
@@ -188,7 +299,20 @@ export function extractMentionChatMemoryEntry(
   promptText: string,
   { maxKeyChars, maxValueChars }: ExtractMentionChatMemoryEntryOptions
 ): MentionChatMemoryEntry | null {
-  if (maxKeyChars <= 0 || maxValueChars <= 0) return null;
+  const result = analyzeMentionChatMemoryRequest(promptText, {
+    maxKeyChars,
+    maxValueChars,
+  });
+  return result.reason === "valid" ? result.entry ?? null : null;
+}
+
+export function analyzeMentionChatMemoryRequest(
+  promptText: string,
+  { maxKeyChars, maxValueChars }: ExtractMentionChatMemoryEntryOptions
+): AnalyzeMentionChatMemoryRequestResult {
+  if (maxKeyChars <= 0 || maxValueChars <= 0) {
+    return { isMemoryRequest: false, reason: "not_memory_request" };
+  }
 
   const prompt = singleLine(promptText);
   const requestMatch = prompt.match(MEMORY_REQUEST_PATTERN);
@@ -196,21 +320,35 @@ export function extractMentionChatMemoryEntry(
     ? null
     : prompt.match(SUFFIX_MEMORY_REQUEST_PATTERN);
   const requestBody = requestMatch?.[1] ?? suffixRequestMatch?.[1];
-  if (!requestBody) return null;
+  if (!requestBody) {
+    return MEMORY_KEYWORD_PATTERN.test(prompt)
+      ? { isMemoryRequest: true, reason: "invalid_format" }
+      : { isMemoryRequest: false, reason: "not_memory_request" };
+  }
 
   const parsed = splitMemoryKeyValue(requestBody);
-  if (!parsed) return null;
+  if (!parsed) {
+    return { isMemoryRequest: true, reason: "invalid_format" };
+  }
 
   const key = stripWrappingQuotes(singleLine(parsed.key));
   const rawValue = stripWrappingQuotes(singleLine(parsed.value));
   const value = stripTrailingSentenceNoise(rawValue);
   const normalizedKey = key.toLowerCase();
-  if (!key || !value) return null;
-  if (key.length > maxKeyChars || rawValue.length > maxValueChars) return null;
-  if (RESERVED_MEMORY_KEYS.has(normalizedKey)) return null;
-  if (isUnsafeMemoryText(key) || isUnsafeMemoryText(value)) return null;
+  if (!key || !value) {
+    return { isMemoryRequest: true, reason: "invalid_format" };
+  }
+  if (key.length > maxKeyChars || rawValue.length > maxValueChars) {
+    return { isMemoryRequest: true, reason: "too_long" };
+  }
+  if (RESERVED_MEMORY_KEYS.has(normalizedKey)) {
+    return { isMemoryRequest: true, reason: "reserved_key" };
+  }
+  if (isUnsafeMemoryKey(key) || isUnsafeMemoryText(value)) {
+    return { isMemoryRequest: true, reason: "unsafe" };
+  }
 
-  return { key, value };
+  return { isMemoryRequest: true, reason: "valid", entry: { key, value } };
 }
 
 function loadWritableMemoryRecord(filePath: string): MemoryRecord | null {
@@ -222,6 +360,7 @@ function loadWritableMemoryRecord(filePath: string): MemoryRecord | null {
 
 function capMemoryRecord(record: MemoryRecord, maxItems: number, keepKey: string): void {
   if (maxItems <= 0) return;
+  const meta = metadataRecord(record);
 
   let keys = Object.keys(record).filter(
     (key) => !RESERVED_MEMORY_KEYS.has(key)
@@ -229,7 +368,13 @@ function capMemoryRecord(record: MemoryRecord, maxItems: number, keepKey: string
   while (keys.length > maxItems) {
     const deleteKey = keys.find((key) => key !== keepKey) ?? keys[0];
     delete record[deleteKey];
+    delete meta[deleteKey];
     keys = Object.keys(record).filter((key) => !RESERVED_MEMORY_KEYS.has(key));
+  }
+  if (Object.keys(meta).length > 0) {
+    record[MEMORY_META_KEY] = meta;
+  } else {
+    delete record[MEMORY_META_KEY];
   }
 }
 
@@ -263,20 +408,38 @@ export function saveMentionChatAutoLearnMemory({
   maxKeyChars,
   maxValueChars,
   maxItems,
+  sourceUser,
+  now = () => new Date().toISOString(),
 }: SaveMentionChatAutoLearnMemoryOptions): SaveMentionChatAutoLearnMemoryResult {
   if (!enabled || !filePath.trim()) return { saved: false, reason: "disabled" };
 
-  const entry = extractMentionChatMemoryEntry(promptText, {
+  const analysis = analyzeMentionChatMemoryRequest(promptText, {
     maxKeyChars,
     maxValueChars,
   });
-  if (!entry) return { saved: false, reason: "not_memory_request" };
+  if (analysis.reason !== "valid" || !analysis.entry) {
+    const reason: SaveMentionChatAutoLearnMemoryFailureReason =
+      analysis.reason === "valid" ? "invalid_format" : analysis.reason;
+    return { saved: false, reason };
+  }
 
   try {
     const record = loadWritableMemoryRecord(filePath);
     if (!record) return { saved: false, reason: "invalid_file" };
 
+    const entry = analysis.entry;
+    const timestamp = now();
+    const meta = metadataRecord(record);
+    const existingMeta = meta[entry.key];
     record[entry.key] = entry.value;
+    meta[entry.key] = {
+      kind: "semantic",
+      status: "active",
+      sourceUser: singleLine(sourceUser ?? "") || "unknown",
+      createdAt: existingMeta?.createdAt || timestamp,
+      updatedAt: timestamp,
+    };
+    record[MEMORY_META_KEY] = meta;
     capMemoryRecord(record, maxItems, entry.key);
     writeMemoryRecordAtomically(filePath, record);
     return { saved: true, reason: "saved", key: entry.key };
@@ -290,6 +453,7 @@ export function loadMentionChatMemory({
   filePath,
   maxItems,
   maxChars,
+  queryText,
 }: LoadMentionChatMemoryOptions): MentionChatMemoryResult {
   if (!enabled || !filePath.trim() || maxItems <= 0 || maxChars <= 0) {
     return { ...EMPTY_MEMORY };
@@ -300,12 +464,20 @@ export function loadMentionChatMemory({
     const parsed = JSON.parse(raw) as unknown;
     if (!isRecord(parsed)) return { ...EMPTY_MEMORY };
 
+    const dictionaryLines = dictionaryEntriesToMemoryLines(parsed);
     const lines = [
-      ...dictionaryEntriesToLines(parsed),
-      ...asArray(parsed["global"]).map(itemToText),
-    ]
-      .filter((line): line is string => Boolean(line));
-    const capped = capLines(lines, maxItems, maxChars);
+      ...dictionaryLines,
+      ...legacyGlobalItemsToMemoryLines(
+        asArray(parsed["global"]),
+        dictionaryLines.length
+      ),
+    ];
+    const ranked = rankMemoryLines(lines, queryText);
+    const capped = capLines(
+      ranked.map((line) => line.line),
+      maxItems,
+      maxChars
+    );
     const text = capped.join("\n");
 
     return {
@@ -316,4 +488,46 @@ export function loadMentionChatMemory({
   } catch {
     return { ...EMPTY_MEMORY };
   }
+}
+
+function normalizedSearchText(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function asciiTerms(value: string): string[] {
+  return normalizedSearchText(value).match(/[a-z0-9_+-]{2,}/gu) ?? [];
+}
+
+function relevanceScore(line: MemoryLine, queryText: string): number {
+  const query = normalizedSearchText(queryText);
+  const key = normalizedSearchText(line.key);
+  const value = normalizedSearchText(line.value);
+  let score = 0;
+
+  if (key && query.includes(key)) score += 100;
+  if (value && query.includes(value)) score += 30;
+
+  for (const term of asciiTerms(query)) {
+    if (key.includes(term)) score += 20;
+    if (value.includes(term)) score += 8;
+  }
+
+  if (/(?:何歳|年齢|歳)/u.test(query) && /歳/u.test(value)) {
+    score += 20;
+  }
+
+  return score;
+}
+
+function rankMemoryLines(lines: MemoryLine[], queryText: string | undefined): MemoryLine[] {
+  const query = queryText?.trim();
+  if (!query) return lines;
+
+  return [...lines].sort((a, b) => {
+    const scoreDiff = relevanceScore(b, query) - relevanceScore(a, query);
+    if (scoreDiff !== 0) return scoreDiff;
+    const timeDiff = b.updatedAt - a.updatedAt;
+    if (timeDiff !== 0) return timeDiff;
+    return a.index - b.index;
+  });
 }

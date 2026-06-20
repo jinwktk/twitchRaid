@@ -121,6 +121,7 @@ export class Config {
   readonly chatAiMemoryPath: string;
   readonly chatAiMemoryMaxItems: number;
   readonly chatAiMemoryMaxChars: number;
+  readonly chatAiMemoryWriterUsers: string[];
   readonly chatAiSearchEnabled: boolean;
   readonly chatAiSearchProvider: ChatAiSearchProvider;
   readonly chatAiSearchEndpoint: string;
@@ -290,6 +291,10 @@ export class Config {
     this.chatAiMemoryMaxChars = parsePositiveInt(
       env["CHAT_AI_MEMORY_MAX_CHARS"],
       DEFAULT_CHAT_AI_MEMORY_MAX_CHARS
+    );
+    this.chatAiMemoryWriterUsers = parseNameList(
+      env["CHAT_AI_MEMORY_WRITER_USERS"],
+      [this.loginChannel]
     );
     this.chatAiSearchEnabled = parseEnabledFlag(
       env["CHAT_AI_SEARCH_ENABLED"] ?? "0"

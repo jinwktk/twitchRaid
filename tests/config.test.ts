@@ -253,6 +253,7 @@ CHAT_AI_MEMORY_ENABLED=true
 CHAT_AI_MEMORY_PATH=data/custom-chat-ai-memory.json
 CHAT_AI_MEMORY_MAX_ITEMS=12
 CHAT_AI_MEMORY_MAX_CHARS=900
+CHAT_AI_MEMORY_WRITER_USERS=＠Rukalun,nyme_ia
 CHAT_AI_MEMORY_HUB_ENABLED=true
 CHAT_AI_MEMORY_HUB_URL=http://127.0.0.1:3218
 CHAT_AI_MEMORY_HUB_NAMESPACE=rukalun
@@ -293,6 +294,7 @@ CHAT_REPLY_EMOTES= rukkaHi, @rukkaGG, ＠rukkaHi, RukkaNice
     );
     expect(config.chatAiMemoryMaxItems).toBe(12);
     expect(config.chatAiMemoryMaxChars).toBe(900);
+    expect(config.chatAiMemoryWriterUsers).toEqual(["rukalun", "nyme_ia"]);
     expect(config).not.toHaveProperty("chatAiMemoryHubEnabled");
     expect(config).not.toHaveProperty("chatAiMemoryHubUrl");
     expect(config).not.toHaveProperty("chatAiMemoryHubNamespace");
@@ -350,6 +352,7 @@ OLLAMA_MODEL=qwen2.5:7b
     );
     expect(config.chatAiMemoryMaxItems).toBe(8);
     expect(config.chatAiMemoryMaxChars).toBe(600);
+    expect(config.chatAiMemoryWriterUsers).toEqual(["rukalun"]);
     expect(config).not.toHaveProperty("chatAiMemoryHubEnabled");
     expect(config).not.toHaveProperty("chatAiMemoryHubUrl");
     expect(config).not.toHaveProperty("chatAiMemoryHubNamespace");

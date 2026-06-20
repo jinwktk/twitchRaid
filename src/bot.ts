@@ -63,8 +63,10 @@ import {
   generateMentionChatReply,
 } from "./commands/mention-chat";
 import {
+  analyzeMentionChatMemoryRequest,
   loadMentionChatMemory,
   saveMentionChatAutoLearnMemory,
+  type AnalyzeMentionChatMemoryRequestResult,
 } from "./commands/mention-chat-memory";
 import {
   fetchMentionChatSearchContext,
@@ -110,6 +112,17 @@ const YOUTUBE_CHANNEL_URL = "https://is.gd/rukalunyt";
 const HELP_MESSAGE =
   "!使えるコマンド: 基本 !help / !age / !goods / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
 const MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE = "[memory-request]";
+const MENTION_CHAT_MEMORY_KEYWORD_PATTERN =
+  /(?:覚えて(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|記憶して(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|メモして(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|忘れないで(?!いる|いた|います|た|しょ))/u;
+const MENTION_CHAT_MEMORY_SAVED_REPLY = "覚えたD！";
+const MENTION_CHAT_MEMORY_USAGE_REPLY =
+  "覚える形式は「覚えて: キー=内容」でお願いD！";
+const MENTION_CHAT_MEMORY_UNSAFE_REPLY =
+  "その内容は安全のため覚えられないD！";
+const MENTION_CHAT_MEMORY_DISABLED_REPLY = "記憶保存は今は無効D！";
+const MENTION_CHAT_MEMORY_FORBIDDEN_REPLY =
+  "メモ保存は管理者だけできるD！";
+const MENTION_CHAT_MEMORY_WRITE_FAILED_REPLY = "メモ保存に失敗したD！";
 
 function formatSkippedMentionPrompt(prompt: string): string {
   const singleLine = prompt.replace(/\s+/g, " ").trim() || "内容なし";
@@ -129,7 +142,35 @@ function sleep(ms: number): Promise<void> {
 }
 
 function isMentionChatMemoryRequest(prompt: string): boolean {
-  return /(?:覚えて|記憶して|メモして|忘れないで)/u.test(prompt);
+  return MENTION_CHAT_MEMORY_KEYWORD_PATTERN.test(prompt);
+}
+
+export function formatCommandDetectionLogText(text: string): string {
+  return isMentionChatMemoryRequest(text)
+    ? MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE
+    : text;
+}
+
+function normalizeMentionChatUserName(userName: string): string {
+  return userName.trim().replace(/^[@＠]+/, "").toLowerCase();
+}
+
+function isMentionChatMemoryWriter(
+  userName: string,
+  writerUsers: string[]
+): boolean {
+  const normalizedUserName = normalizeMentionChatUserName(userName);
+  return writerUsers
+    .map((writer) => normalizeMentionChatUserName(writer))
+    .includes(normalizedUserName);
+}
+
+function memoryRequestReplyForReason(reason: string): string {
+  if (reason === "unsafe") return MENTION_CHAT_MEMORY_UNSAFE_REPLY;
+  if (reason === "write_failed" || reason === "invalid_file") {
+    return MENTION_CHAT_MEMORY_WRITE_FAILED_REPLY;
+  }
+  return MENTION_CHAT_MEMORY_USAGE_REPLY;
 }
 
 interface MentionChatRequest {
@@ -380,7 +421,7 @@ export class Bot {
 
       const isCommand = isCommandMessage(text, this.config.commandPrefix);
       if (isCommand) {
-        logger.info(`🤖 コマンド検出: ${text}`);
+        logger.info(`🤖 コマンド検出: ${formatCommandDetectionLogText(text)}`);
         await this._handleCommand(channel, user, text, msg);
       } else {
         await this._handleRegularMessage(channel, user, text);
@@ -485,6 +526,12 @@ export class Bot {
       prompt,
     };
 
+    const memoryRequest = this._analyzeMentionChatMemoryRequest(request.prompt);
+    if (memoryRequest.isMemoryRequest) {
+      await this._processMentionChatMemoryRequest(request, memoryRequest);
+      return;
+    }
+
     const cooldownRemainingSeconds =
       this._getMentionChatCooldownRemainingSeconds(now);
     if (
@@ -514,6 +561,86 @@ export class Bot {
     void this._drainMentionChatQueue();
   }
 
+  private _analyzeMentionChatMemoryRequest(
+    prompt: string
+  ): AnalyzeMentionChatMemoryRequestResult {
+    return analyzeMentionChatMemoryRequest(prompt, {
+      maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
+      maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
+    });
+  }
+
+  private async _processMentionChatMemoryRequest(
+    request: MentionChatRequest,
+    memoryRequest: AnalyzeMentionChatMemoryRequestResult
+  ): Promise<void> {
+    try {
+      const autoLearnEnabled = this.config.chatAiAutoLearnEnabled ?? false;
+      if (!autoLearnEnabled) {
+        logger.info("AIメンション会話メモ保存をスキップ: reason=disabled");
+        await this.chatClient.say(
+          request.channel,
+          MENTION_CHAT_MEMORY_DISABLED_REPLY
+        );
+        return;
+      }
+
+      if (
+        !isMentionChatMemoryWriter(
+          request.userName,
+          this.config.chatAiMemoryWriterUsers ?? []
+        )
+      ) {
+        logger.info(
+          `AIメンション会話メモ保存を拒否: reason=forbidden, user=${request.userName}`
+        );
+        await this.chatClient.say(
+          request.channel,
+          MENTION_CHAT_MEMORY_FORBIDDEN_REPLY
+        );
+        return;
+      }
+
+      if (memoryRequest.reason !== "valid") {
+        logger.info(
+          `AIメンション会話メモ保存をスキップ: reason=${memoryRequest.reason}`
+        );
+        await this.chatClient.say(
+          request.channel,
+          memoryRequestReplyForReason(memoryRequest.reason)
+        );
+        return;
+      }
+
+      const learnResult = saveMentionChatAutoLearnMemory({
+        enabled: autoLearnEnabled,
+        filePath: this.config.chatAiMemoryPath ?? "",
+        promptText: request.prompt,
+        maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
+        maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
+        maxItems: this.config.chatAiAutoLearnMaxItems ?? 50,
+        sourceUser: request.userName,
+      });
+      if (learnResult.saved) {
+        logger.info("AIメンション会話メモを保存: result=saved");
+        await this.chatClient.say(
+          request.channel,
+          MENTION_CHAT_MEMORY_SAVED_REPLY
+        );
+      } else {
+        logger.info(
+          `AIメンション会話メモ保存をスキップ: reason=${learnResult.reason}`
+        );
+        await this.chatClient.say(
+          request.channel,
+          memoryRequestReplyForReason(learnResult.reason)
+        );
+      }
+    } catch (e) {
+      logger.error(`❌ AIメンション会話メモ保存応答に失敗しました: ${e}`);
+    }
+  }
+
   private async _processMentionChatRequest(
     request: MentionChatRequest,
     now: number,
@@ -538,29 +665,12 @@ export class Bot {
     this.mentionChatInFlight = true;
     try {
       const streamImageBase64: string | null = null;
-      const learnResult = saveMentionChatAutoLearnMemory({
-        enabled: this.config.chatAiAutoLearnEnabled ?? false,
-        filePath: this.config.chatAiMemoryPath ?? "",
-        promptText: request.prompt,
-        maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
-        maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
-        maxItems: this.config.chatAiAutoLearnMaxItems ?? 50,
-      });
-      if (learnResult.saved) {
-        logger.info("AIメンション会話メモを保存: result=saved");
-      } else if (
-        (this.config.chatAiAutoLearnEnabled ?? false) &&
-        learnResult.reason !== "not_memory_request"
-      ) {
-        logger.info(
-          `AIメンション会話メモ保存をスキップ: reason=${learnResult.reason}`
-        );
-      }
       const memory = loadMentionChatMemory({
         enabled: this.config.chatAiMemoryEnabled ?? false,
         filePath: this.config.chatAiMemoryPath ?? "",
         maxItems: this.config.chatAiMemoryMaxItems ?? 8,
         maxChars: this.config.chatAiMemoryMaxChars ?? 600,
+        queryText: request.prompt,
       });
       if (memory.text) {
         logger.info(
