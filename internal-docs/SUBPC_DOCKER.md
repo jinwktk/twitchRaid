@@ -50,6 +50,19 @@
 
 結論として、Ollama Docker化でGPUが見えなくなったわけではない。SUB AI Servicesが同じ8GB GPUを共有し、Whisper/SBVITS2/OllamaがGPUを使える状態でVRAMがほぼ埋まっているため、`qwen3.5:9b` のcold load時に一部CPU offloadとロード待ちが発生し、Bot側の `CHAT_AI_TIMEOUT_MS=45000` に到達しやすい。
 
+### GPU利用プロセス対応
+
+2026-06-20 22:17 JST時点の `nvidia-smi` では、GPU使用量は約 `7576MiB / 8192MiB`、プロセス一覧には `/python3.10` が2本、`/llama-server`、`/Xwayland` が見えた。WSL2 + NVIDIA環境ではプロセス別GPU Memoryが `N/A` になり、PIDもコンテナ内PID寄りに表示されるため、Dockerの `docker top` とコンテナ内 `ps` で対応付けた。
+
+| GPU表示 | Docker service | 実体 | 備考 |
+| --- | --- | --- | --- |
+| `/llama-server` PID 1707 | `sub-ai_ollama` | `llama-server ... qwen3.5:9b ...` | `ollama ps` では `qwen3.5:9b` が `20%/80% CPU/GPU`、`size_vram=4978324273` |
+| `/python3.10` PID 1 | `sub-ai_whisper-api` | `python3 /app/server.py` | CTranslate2が `cuda_device_count=1` を返す |
+| `/python3.10` PID 1 | `sub-ai_sbvits2` | `python3 server_fastapi.py` | PyTorchが `torch.cuda.is_available=True` を返し、ログでもcudaへモデルロード済み |
+| `/Xwayland` PID 35 | Docker外 | WSLg/表示系 | SUB AI Servicesではない |
+
+OllamaのVRAMは `ollama ps` / `/api/ps` の `size_vram` から約4.98GBと分かる。一方、WSL2の `nvidia-smi --query-compute-apps=used_memory` は `N/A` のため、Whisper/SBVITS2/Xwayland/ランタイムの厳密なMiB内訳は非停止では取れない。正確な差分を出す場合は、配信影響を確認したうえでSUB AI Servicesを一つずつ停止し、停止前後の総VRAM差分を見る。
+
 ## Botサービス
 - Service: `twitch-raid-apcz9n`
 - Image: `localhost:5050/twitch-raid-apcz9n:local`

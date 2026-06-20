@@ -316,6 +316,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-20**: サブPCで「何がGPUを使っているか」を追加確認。GPU利用中として見えているのは、Ollama `sub-ai_ollama` の `llama-server`、Whisper `sub-ai_whisper-api` の `python3 /app/server.py`、SBVITS2 `sub-ai_sbvits2` の `python3 server_fastapi.py`、およびWSLg表示系の `Xwayland`。WSL2の `nvidia-smi` ではプロセス別GPU Memoryが `N/A` になるため、非停止で厳密なMiB内訳は取れない。Ollamaは `ollama ps` / APIで `qwen3.5:9b` の `size_vram` が約4.98GBと分かり、残り約2.6GBをWhisper/SBVITS2/Xwayland/ランタイム等が使っている推定
 - **2026-06-20**: Ollama Docker化がAI timeout原因かを追加調査。サブPC WSL2 Dockerは `default-runtime=nvidia`、SUB AI Servicesの `sub-ai_ollama` / `sub-ai_whisper-api` / `sub-ai_sbvits2` はいずれも `Runtime=nvidia` と `NVIDIA_VISIBLE_DEVICES=all` で起動し、各コンテナ内の `nvidia-smi` がRTX 2070 SUPERを認識した。Ollamaは `qwen3.5:9b` を `20%/80% CPU/GPU` で実行し、ロード済み短文生成は約1.5秒。WhisperはCTranslate2で `cuda_device_count=1`、SBVITS2はPyTorchで `torch.cuda.is_available=True`。結論としてGPU未認識ではなく、3サービスが8GB GPUを共有してVRAMが約7.6GBまで埋まり、`qwen3.5:9b` が一部CPU offload/cold load長時間化することがネック
 - **2026-06-20**: サブPCDokployで `!chat こんにちは` が約43秒後にtimeout fallbackになる件を調査。BotコンテナからOllama `/api/tags` は92msで200のためネットワーク疎通は正常。一方で `qwen3.5:9b` の短文生成はロード込みで約106秒、Ollamaログ上の `llama-server started` は約72秒で、`CHAT_AI_TIMEOUT_MS=45000` を超える。`ollama ps` は空で、Ollamaログに `predicted to exceed available memory, evicting` も出ており、根本原因はBotコードではなくモデルロード/VRAM常駐不足と判断した
 - **2026-06-20**: Clip全期間バックフィルで、起動ごとに `now` まで伸びる末尾窓が大きくなり、初回だけ `Premature close` になってから分割後に成功する問題を修正。通常の30日窓は維持しつつ、末尾の移動窓だけ既定3日単位へ事前分割し、初回fetchから短い範囲で同期するようにした
