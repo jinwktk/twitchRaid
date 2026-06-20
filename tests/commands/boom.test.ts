@@ -24,6 +24,14 @@ function iterableVideos(videos: FakeVideo[]): AsyncIterable<FakeVideo> {
   };
 }
 
+function failingVideoIterable(error: Error): AsyncIterable<FakeVideo> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      throw error;
+    },
+  };
+}
+
 describe("parseGameChapters", () => {
   it("extracts game names and durations from Twitch GraphQL moments", () => {
     const chapters = parseGameChapters(
@@ -375,6 +383,66 @@ describe("buildBoomSummary", () => {
       type: "archive",
     });
     expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries transient Helix archive video body failures", async () => {
+    const getVideosByUserPaginated = vi
+      .fn()
+      .mockReturnValueOnce(
+        failingVideoIterable(
+          new Error(
+            "Invalid response body while trying to fetch https://api.twitch.tv/helix/videos: Premature close"
+          )
+        )
+      )
+      .mockReturnValueOnce(
+        iterableVideos([
+          {
+            id: "v1",
+            durationInSeconds: 3_600,
+            creationDate: new Date("2026-05-31T12:00:00.000Z"),
+          },
+        ])
+      );
+    const fetchFn = vi.fn(async (_input, init) => {
+      const body = JSON.parse(init.body) as { operationName: string };
+      if (body.operationName === "VideoMetadata") {
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              video: {
+                game: { displayName: "Game A" },
+                lengthSeconds: 3_600,
+              },
+            },
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({
+          data: { video: { moments: { edges: [] } } },
+        }),
+      };
+    });
+
+    const summary = await buildBoomSummary(
+      { videos: { getVideosByUserPaginated } },
+      {
+        broadcasterId: "broadcaster-id",
+        gqlClientId: "gql-client",
+        fetchFn,
+        archiveVideoRetryDelayMs: 0,
+        now: () => new Date("2026-05-31T12:00:00.000Z"),
+      }
+    );
+
+    expect(summary.games).toEqual([
+      { gameName: "Game A", totalSeconds: 3_600 },
+    ]);
+    expect(getVideosByUserPaginated).toHaveBeenCalledTimes(2);
   });
 
   it("fetches multiple videos concurrently to reduce first response time", async () => {

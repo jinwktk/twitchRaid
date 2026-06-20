@@ -241,7 +241,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - ゲーム別合計が1時間未満のものは表示対象外
 - 表示は合計時間の長い順で最大6件まで
 - 返却文言は棒読みの長文読み上げを避けるため、先頭に `!` を付けて読み上げスキップ対象にする
-- VOD単位のGraphQL取得は最大4本並列で実行し、結果は日数別に5分間メモリキャッシュする
+- アーカイブ配信一覧のHelix取得は `Premature close` などの一時的な通信切断だけ再試行し、VOD単位のGraphQL取得は最大4本並列で実行する。結果は日数別に5分間メモリキャッシュする
 
 ## プロジェクト構成
 
@@ -316,6 +316,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-21**: `!boom` のアーカイブ配信一覧取得でTwitch Helix videos APIが `Premature close` を返すと集計全体が失敗していたため、`src/commands/boom.ts` のTwurple paginator取得を一時通信エラー時だけ再試行するようにした。認証エラーなど恒久系は従来通り失敗扱い。`tests/commands/boom.test.ts` にHelix archive video body failureの回帰テストを追加し、`npm test -- --run tests/commands/boom.test.ts` で14件通過
 - **2026-06-21**: AIメンション会話の画像質問機能を廃止。`src/bot.ts` は画面質問でもTwitchプレビュー画像を取得せず、`src/commands/mention-chat.ts` は `streamImageBase64` が渡されてもOllama payloadへ `images` を入れず、Vision system/promptも使わない。`CHAT_AI_STREAM_IMAGE_ENABLED` / `CHAT_AI_VISION_MODEL` は環境に残っていても互換用の無効値として扱い、勝敗質問の低情報返答は `画面は見えてないから断定できないけど、まだいけそうD！` へフォールバックする。対象テストは `npm test -- --run tests/commands/mention-chat.test.ts tests/bot-mention-chat.test.ts` で50件通過。サブPCDokploy本番は revision `ec8dcae6d98f668d66137381e7fb64892b7c2196` のimageへ更新し、`CHAT_AI_STREAM_IMAGE_ENABLED=false` の永続envと実コンテナ上の `images` 未送信を確認済み
 - **2026-06-21**: AIメンション外部検索でSearXNGを自前ホストしてGoogle engineを使えるよう、サブPCDokploy/Swarmの `dokploy-network` 上でSearXNGを検証し、BotのDokploy環境変数を `CHAT_AI_SEARCH_PROVIDER=searxng` / `CHAT_AI_SEARCH_ENDPOINT=http://searxng:8080/search` / `CHAT_AI_SEARCH_ENGINES=google` へ切り替えた。SearXNG JSON `results[]` を参考情報へ整形し、`るっかるんについて調べて` は `るっかるん rukalun` のように検索語を正規化・alias補完する。最新image `0cadf16` をDokployへ再デプロイし、実行中Bot containerのrevision labelと実コンテナ内 `fetchMentionChatSearchContext("るっかるんについて調べて")` が検索結果3件を返すことを確認した
 - **2026-06-21**: SearXNGを独立stackではなく既存SUB AI Services stackの中へ移した。Dokploy Compose `sub-ai-services` の `sub-ai` stackへ `searxng` serviceを追加し、旧standalone `twitchraid-searxng` のComposeレコードは削除済み。SUB AI ServicesのDescriptionは `Ollama, Whisper, SBVITS2, and internal SearXNG for twitchRaid AI mention search` に更新した。Swarm上は `sub-ai_ollama` / `sub-ai_whisper-api` / `sub-ai_sbvits2` / `sub-ai_searxng` の4サービス構成で、Botから `http://searxng:8080/search?language=all&safesearch=0&q=...&format=json&engines=google` へHTTP 200で到達する。実行中Botの `fetchMentionChatSearchContext("OpenAIについて調べて")` はSearXNG経由で `resultCount=3` を返す。運用雛形は `ops/sub-ai-services/docker-compose.yml`、SearXNG設定雛形は `ops/searxng/settings.yml`

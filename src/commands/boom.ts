@@ -48,6 +48,8 @@ interface BuildBoomSummaryOptions {
   minGameSeconds?: number;
   maxGames?: number;
   maxConcurrentVideos?: number;
+  archiveVideoRetryAttempts?: number;
+  archiveVideoRetryDelayMs?: number;
   now?: () => Date;
 }
 
@@ -70,6 +72,8 @@ export const BOOM_COMMAND_USAGE = `⚠️ 使い方: !boom [日数]（1〜${MAX_
 const DEFAULT_MIN_GAME_SECONDS = 60 * 60;
 const DEFAULT_MAX_GAMES = 6;
 const DEFAULT_MAX_CONCURRENT_VIDEOS = 4;
+const DEFAULT_ARCHIVE_VIDEO_RETRY_ATTEMPTS = 2;
+const DEFAULT_ARCHIVE_VIDEO_RETRY_DELAY_MS = 500;
 const VIDEO_METADATA_HASH =
   "45111672eea2e507f8ba44d101a61862f9c56b11dee09a15634cb75cb9b9084d";
 const VIDEO_CHAPTER_HASH =
@@ -85,6 +89,29 @@ function numberValue(value: unknown): number | null {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function delay(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function errorText(error: unknown): string {
+  if (error instanceof Error) {
+    const cause =
+      "cause" in error && error.cause !== undefined
+        ? ` ${String(error.cause)}`
+        : "";
+    return `${error.name} ${error.message}${cause}`;
+  }
+
+  return String(error);
+}
+
+function isTransientArchiveVideoError(error: unknown): boolean {
+  return /premature close|econnreset|etimedout|socket hang up|fetch failed|body terminated|aborted|terminated/i.test(
+    errorText(error)
+  );
 }
 
 export function parseBoomCommandLookbackDays(input: string): number | null {
@@ -193,25 +220,41 @@ async function fetchRecentArchiveVideos(
     lookbackDays: number;
     maxVideos: number | null;
     now: Date;
+    retryAttempts: number;
+    retryDelayMs: number;
   }
 ): Promise<BoomVideo[]> {
-  const paginator = apiClient.videos.getVideosByUserPaginated(broadcasterId, {
-    type: "archive",
-  });
-  const videos: BoomVideo[] = [];
   const cutoffTime =
     options.now.getTime() - options.lookbackDays * 24 * 60 * 60 * 1000;
+  const maxAttempts = Math.max(1, options.retryAttempts + 1);
 
-  for await (const video of paginator) {
-    if (video.creationDate.getTime() < cutoffTime) break;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const paginator = apiClient.videos.getVideosByUserPaginated(broadcasterId, {
+      type: "archive",
+    });
+    const videos: BoomVideo[] = [];
 
-    videos.push(video);
-    if (options.maxVideos !== null && videos.length >= options.maxVideos) {
-      break;
+    try {
+      for await (const video of paginator) {
+        if (video.creationDate.getTime() < cutoffTime) break;
+
+        videos.push(video);
+        if (options.maxVideos !== null && videos.length >= options.maxVideos) {
+          break;
+        }
+      }
+
+      return videos;
+    } catch (e) {
+      if (attempt >= maxAttempts || !isTransientArchiveVideoError(e)) {
+        throw e;
+      }
+
+      await delay(options.retryDelayMs);
     }
   }
 
-  return videos;
+  throw new Error("Twitch archive video pagination did not complete");
 }
 
 async function fetchVideoChapters(
@@ -384,13 +427,29 @@ export async function buildBoomSummary(
     1,
     options.maxConcurrentVideos ?? DEFAULT_MAX_CONCURRENT_VIDEOS
   );
+  const archiveVideoRetryAttempts = Math.max(
+    0,
+    Math.floor(
+      options.archiveVideoRetryAttempts ?? DEFAULT_ARCHIVE_VIDEO_RETRY_ATTEMPTS
+    )
+  );
+  const archiveVideoRetryDelayMs = Math.max(
+    0,
+    options.archiveVideoRetryDelayMs ?? DEFAULT_ARCHIVE_VIDEO_RETRY_DELAY_MS
+  );
   const now = options.now?.() ?? new Date();
   const fetchFn = options.fetchFn ?? fetch;
   const totals = new Map<string, number>();
   const videos = await fetchRecentArchiveVideos(
     apiClient,
     options.broadcasterId,
-    { lookbackDays, maxVideos, now }
+    {
+      lookbackDays,
+      maxVideos,
+      now,
+      retryAttempts: archiveVideoRetryAttempts,
+      retryDelayMs: archiveVideoRetryDelayMs,
+    }
   );
   const totalStreamSeconds = videos.reduce(
     (sum, video) => sum + video.durationInSeconds,
