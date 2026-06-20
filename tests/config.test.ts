@@ -194,6 +194,7 @@ CHAT_AI_ENABLED=true
 CHAT_AI_BASE_URL=http://127.0.0.1:11435
 CHAT_AI_MODEL=qwen2.5:7b
 CHAT_AI_TIMEOUT_MS=4500
+CHAT_AI_TIMEOUT_FALLBACK_REPLY=AIが混み合ってるD！
 CHAT_AI_KEEP_ALIVE=10m
 CHAT_AI_MAX_RESPONSE_CHARS=120
 CHAT_AI_BOT_ALIASES=＠RukalunBot,@Rukalun
@@ -229,6 +230,7 @@ CHAT_REPLY_EMOTES= rukkaHi, @rukkaGG, ＠rukkaHi, RukkaNice
     expect(config.chatAiBaseUrl).toBe("http://127.0.0.1:11435");
     expect(config.chatAiModel).toBe("qwen2.5:7b");
     expect(config.chatAiTimeoutMs).toBe(4500);
+    expect(config.chatAiTimeoutFallbackReply).toBe("AIが混み合ってるD！");
     expect(config.chatAiKeepAlive).toBe("10m");
     expect(config.chatAiMaxResponseChars).toBe(120);
     expect(config.chatAiBotAliases).toEqual(["rukalunbot", "rukalun"]);
@@ -281,6 +283,9 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiBaseUrl).toBe("http://127.0.0.1:11434");
     expect(config.chatAiModel).toBe("qwen2.5:7b");
     expect(config.chatAiTimeoutMs).toBe(8000);
+    expect(config.chatAiTimeoutFallbackReply).toBe(
+      "今ちょっとAIが混み合ってるD！"
+    );
     expect(config.chatAiKeepAlive).toBe("30m");
     expect(config.chatAiMaxResponseChars).toBe(200);
     expect(config.chatAiBotAliases).toEqual(["にめいやボットくん", "nyme_ia2"]);

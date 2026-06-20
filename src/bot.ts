@@ -615,6 +615,7 @@ export class Bot {
         baseUrl: this.config.chatAiBaseUrl ?? this.config.ollamaBaseUrl,
         model,
         timeoutMs: this.config.chatAiTimeoutMs ?? 8_000,
+        timeoutFallbackReply: this.config.chatAiTimeoutFallbackReply,
         keepAlive: this.config.chatAiKeepAlive ?? "30m",
         maxResponseChars: this.config.chatAiMaxResponseChars ?? 200,
         channel: request.channel,

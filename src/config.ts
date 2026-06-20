@@ -13,6 +13,8 @@ const DEFAULT_CLIP_SEARCH_PUBLISH_REPO_DIR = path.resolve(
   "RukalunPage"
 );
 const DEFAULT_CHAT_AI_TIMEOUT_MS = 8_000;
+const DEFAULT_CHAT_AI_TIMEOUT_FALLBACK_REPLY =
+  "今ちょっとAIが混み合ってるD！";
 const DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS = 200;
 const DEFAULT_CHAT_AI_COOLDOWN_SECONDS = 5;
 const DEFAULT_CHAT_AI_BOT_ALIASES = ["にめいやボットくん", "nyme_ia2"];
@@ -93,6 +95,7 @@ export class Config {
   readonly chatAiBaseUrl: string;
   readonly chatAiModel: string;
   readonly chatAiTimeoutMs: number;
+  readonly chatAiTimeoutFallbackReply: string;
   readonly chatAiKeepAlive: string;
   readonly chatAiMaxResponseChars: number;
   readonly chatAiBotAliases: string[];
@@ -219,6 +222,10 @@ export class Config {
       env["CHAT_AI_TIMEOUT_MS"],
       DEFAULT_CHAT_AI_TIMEOUT_MS
     );
+    this.chatAiTimeoutFallbackReply =
+      env["CHAT_AI_TIMEOUT_FALLBACK_REPLY"] === undefined
+        ? DEFAULT_CHAT_AI_TIMEOUT_FALLBACK_REPLY
+        : env["CHAT_AI_TIMEOUT_FALLBACK_REPLY"].trim();
     this.chatAiKeepAlive = env["CHAT_AI_KEEP_ALIVE"]?.trim() || "30m";
     this.chatAiMaxResponseChars = parsePositiveInt(
       env["CHAT_AI_MAX_RESPONSE_CHARS"],

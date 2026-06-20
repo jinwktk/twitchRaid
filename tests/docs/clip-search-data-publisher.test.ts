@@ -242,6 +242,85 @@ describe("ClipSearchDataPublisher", () => {
     );
   });
 
+  it("skips with an actionable warning when GitHub HTTPS push has no credentials", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => logger);
+    const { calls, runCommand: baseRunCommand } = makePublishingCommandRunner();
+    const runCommand: RunCommand = vi.fn(async (file, args, options) => {
+      const result = await baseRunCommand(file, args, options);
+      if (file === "git" && args[0] === "push") {
+        throw new Error(
+          [
+            "Command failed: git push --force-with-lease origin HEAD:main",
+            "fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+          ].join("\n")
+        );
+      }
+      return result;
+    });
+    const publisher = makePublisher({ runCommand });
+
+    try {
+      const result = await publisher.publishAfterRecentSync({
+        syncedAt: "2026-06-20T10:45:44.317Z",
+        saved: 0,
+        unavailable: 0,
+      });
+
+      expect(result).toEqual({
+        status: "skipped",
+        reason: "github-auth-missing",
+      });
+      expect(calls.some((call) => call.file === "git" && call.args[0] === "push")).toBe(
+        true
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("CLIP_SEARCH_PUBLISH_GITHUB_TOKEN")
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("throttles repeated zero-save publishes after GitHub auth is missing", async () => {
+    let now = 1_000;
+    const { calls, runCommand: baseRunCommand } = makePublishingCommandRunner();
+    const runCommand: RunCommand = vi.fn(async (file, args, options) => {
+      const result = await baseRunCommand(file, args, options);
+      if (file === "git" && args[0] === "push") {
+        throw new Error(
+          "fatal: could not read Username for 'https://github.com': terminal prompts disabled"
+        );
+      }
+      return result;
+    });
+    const publisher = makePublisher({
+      minIntervalMs: 10_000,
+      nowMs: () => now,
+      runCommand,
+    });
+
+    const first = await publisher.publishAfterRecentSync({
+      syncedAt: "2026-06-20T10:45:44.317Z",
+      saved: 0,
+      unavailable: 0,
+    });
+    now += 1_000;
+    const second = await publisher.publishAfterRecentSync({
+      syncedAt: "2026-06-20T10:45:45.317Z",
+      saved: 0,
+      unavailable: 0,
+    });
+
+    expect(first).toEqual({
+      status: "skipped",
+      reason: "github-auth-missing",
+    });
+    expect(second).toEqual({ status: "skipped", reason: "min-interval" });
+    expect(calls.filter((call) => call.file === "git" && call.args[0] === "push")).toHaveLength(
+      1
+    );
+  });
+
   it("creates a new commit for a zero-save sync after a development commit", async () => {
     const { calls, runCommand } = makePublishingCommandRunner({
       latestCommitSubject: "Clip検索ページの表示を改善\n",

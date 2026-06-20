@@ -189,6 +189,26 @@ function createGitNetworkEnv(
   };
 }
 
+function commandErrorText(error: unknown): string {
+  const parts = [error instanceof Error ? error.message : String(error)];
+  const commandError = error as { stdout?: unknown; stderr?: unknown };
+  if (typeof commandError.stdout === "string" && commandError.stdout.trim()) {
+    parts.push(commandError.stdout);
+  }
+  if (typeof commandError.stderr === "string" && commandError.stderr.trim()) {
+    parts.push(commandError.stderr);
+  }
+  return parts.join("\n");
+}
+
+function isMissingGithubHttpsCredentials(error: unknown): boolean {
+  const text = commandErrorText(error);
+  return (
+    /could not read Username for 'https:\/\/github\.com'/iu.test(text) ||
+    (/github\.com/iu.test(text) && /terminal prompts disabled/iu.test(text))
+  );
+}
+
 export class ClipSearchDataPublisher {
   private readonly enabled: boolean;
   private readonly repoDir: string;
@@ -254,7 +274,11 @@ export class ClipSearchDataPublisher {
     this.running = true;
     try {
       const result = await this.publishNow(request);
-      if (result.status === "published" || result.status === "unchanged") {
+      if (
+        result.status === "published" ||
+        result.status === "unchanged" ||
+        result.reason === "github-auth-missing"
+      ) {
         this.lastPublishedMs = now;
       }
       return result;
@@ -299,22 +323,18 @@ export class ClipSearchDataPublisher {
     const shouldAmend = await this.shouldAmendPreviousSyncTimeCommit(request);
     if (shouldAmend) {
       await this.commitPublishJson(["--amend", "--no-edit"]);
-      await this.runCommand(
-        "git",
-        ["push", "--force-with-lease", this.remote, `HEAD:${this.branch}`],
-        {
-          cwd: this.publishRepoDir,
-          env: this.gitNetworkEnv,
-          timeoutMs: 120_000,
-        }
+      const pushResult = await this.pushPublishJson(
+        ["push", "--force-with-lease", this.remote, `HEAD:${this.branch}`]
       );
+      if (pushResult) return pushResult;
     } else {
       await this.commitPublishJson(["-m", SYNC_TIME_COMMIT_MESSAGE]);
-      await this.runCommand("git", ["push", this.remote, `HEAD:${this.branch}`], {
-        cwd: this.publishRepoDir,
-        env: this.gitNetworkEnv,
-        timeoutMs: 120_000,
-      });
+      const pushResult = await this.pushPublishJson([
+        "push",
+        this.remote,
+        `HEAD:${this.branch}`,
+      ]);
+      if (pushResult) return pushResult;
     }
 
     logger.info(
@@ -329,6 +349,27 @@ export class ClipSearchDataPublisher {
       timeoutMs: 30_000,
       env: PUBLISH_GIT_IDENTITY_ENV,
     });
+  }
+
+  private async pushPublishJson(
+    args: string[]
+  ): Promise<ClipSearchPublishResult | null> {
+    try {
+      await this.runCommand("git", args, {
+        cwd: this.publishRepoDir,
+        env: this.gitNetworkEnv,
+        timeoutMs: 120_000,
+      });
+      return null;
+    } catch (error) {
+      if (!isMissingGithubHttpsCredentials(error)) {
+        throw error;
+      }
+      logger.warn(
+        "🎬 Clip検索公開JSON更新をスキップ: GitHub HTTPS push用の認証情報がありません。Dokploy環境変数 CLIP_SEARCH_PUBLISH_GITHUB_TOKEN（または GITHUB_TOKEN / GH_TOKEN）を設定してください"
+      );
+      return { status: "skipped", reason: "github-auth-missing" };
+    }
   }
 
   private async canDropLocalCommit(

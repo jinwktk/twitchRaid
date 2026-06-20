@@ -622,4 +622,37 @@ describe("generateMentionChatReply", () => {
     );
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('raw=""'));
   });
+
+  it("returns a fallback reply and logs diagnostics when Ollama times out", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => logger);
+    const timeoutError = new DOMException(
+      "The operation was aborted due to timeout",
+      "TimeoutError"
+    );
+
+    try {
+      const reply = await generateMentionChatReply({
+        enabled: true,
+        baseUrl: "http://127.0.0.1:11434",
+        model: "qwen3.5:9b",
+        timeoutMs: 3000,
+        keepAlive: "30m",
+        maxResponseChars: 200,
+        channel: "#rukalun",
+        userName: "viewer",
+        promptText: "こんにちは",
+        timeoutFallbackReply: "今ちょっとAIが混み合ってるD！",
+        fetchImpl: vi.fn().mockRejectedValue(timeoutError),
+      });
+
+      expect(reply).toBe("今ちょっとAIが混み合ってるD！");
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          '⚠️ AIメンション会話生成失敗: reason=timeout, model="qwen3.5:9b", image=false, prompt="こんにちは", timeoutMs=3000'
+        )
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
 });

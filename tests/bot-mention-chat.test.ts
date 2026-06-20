@@ -80,6 +80,7 @@ function makeConfig(
     chatAiBaseUrl: "http://127.0.0.1:11434",
     chatAiModel: "qwen2.5:7b",
     chatAiTimeoutMs: 3000,
+    chatAiTimeoutFallbackReply: "今ちょっとAIが混み合ってるD！",
     chatAiKeepAlive: "30m",
     chatAiMaxResponseChars: 200,
     chatAiBotAliases: ["rukalun"],
@@ -323,6 +324,23 @@ describe("Bot mention chat", () => {
     );
     expect(infoSpy).toHaveBeenCalledWith(
       expect.stringContaining('prompt="こんにちは"')
+    );
+  });
+
+  it("sends the configured fallback when chat AI generation times out", async () => {
+    const { bot, say } = makeBot({
+      chatAiTimeoutFallbackReply: "AIが混み合ってるD！",
+    });
+    const warnSpy = vi.spyOn(logger, "warn");
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new DOMException("The operation was aborted due to timeout", "TimeoutError")
+    );
+
+    await bot._handleCommand("#rukalun", "viewer", "!chat こんにちは", {});
+
+    expect(say).toHaveBeenCalledWith("#rukalun", "AIが混み合ってるD！");
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("reason=timeout")
     );
   });
 

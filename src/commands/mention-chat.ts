@@ -10,6 +10,7 @@ export interface GenerateMentionChatReplyOptions {
   baseUrl: string;
   model: string;
   timeoutMs: number;
+  timeoutFallbackReply?: string | null;
   keepAlive?: string;
   maxResponseChars: number;
   channel: string;
@@ -29,6 +30,7 @@ interface OllamaGenerateResponse {
 
 const DEFAULT_OLLAMA_TEMPERATURE = 0.4;
 const DEFAULT_OLLAMA_NUM_PREDICT = 80;
+const DEFAULT_TIMEOUT_FALLBACK_REPLY = "今ちょっとAIが混み合ってるD！";
 const PROMPT_TEXT_LIMIT = 500;
 const LOG_TEXT_LIMIT = 160;
 const HTTP_ERROR_DETAIL_MAX_BYTES = 4096;
@@ -164,6 +166,23 @@ function parseHttpErrorDetail(text: string): string | null {
   }
 
   return redactDiagnosticText(normalized);
+}
+
+function isTimeoutError(error: unknown): boolean {
+  const namedError = error as { name?: unknown; message?: unknown };
+  const name = typeof namedError.name === "string" ? namedError.name : "";
+  const message =
+    typeof namedError.message === "string"
+      ? namedError.message
+      : error instanceof Error
+        ? error.message
+        : String(error);
+  return (
+    name === "TimeoutError" ||
+    /aborted due to timeout|operation was aborted due to timeout|timeout/iu.test(
+      message
+    )
+  );
 }
 
 async function readHttpErrorDetail(response: Response): Promise<string> {
@@ -368,6 +387,7 @@ export async function generateMentionChatReply({
   baseUrl,
   model,
   timeoutMs,
+  timeoutFallbackReply,
   keepAlive,
   maxResponseChars,
   channel,
@@ -393,9 +413,9 @@ export async function generateMentionChatReply({
   const isVisionQuestion =
     Boolean(trimmedImageBase64) &&
     isMentionChatStreamImageQuestion(promptText);
+  const startedAt = Date.now();
 
   try {
-    const startedAt = Date.now();
     const builtPrompt = buildMentionChatPrompt({
       enabled,
       baseUrl,
@@ -496,6 +516,16 @@ export async function generateMentionChatReply({
     return reply;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
+    if (isTimeoutError(e)) {
+      const elapsedMs = Math.max(0, Date.now() - startedAt);
+      logger.warn(
+        `⚠️ AIメンション会話生成失敗: reason=timeout, model=${formatMentionChatLogValue(trimmedModel)}, image=${Boolean(trimmedImageBase64)}, prompt=${formatMentionChatLogValue(logPromptText)}, timeoutMs=${timeoutMs}, elapsedMs=${elapsedMs}, error=${formatMentionChatLogValue(message)}`
+      );
+      return formatGeneratedMentionChatReply(
+        timeoutFallbackReply ?? DEFAULT_TIMEOUT_FALLBACK_REPLY,
+        maxResponseChars
+      );
+    }
     logger.warn(`⚠️ AIメンション会話生成失敗: reason=exception, error=${message}`);
     return null;
   }
