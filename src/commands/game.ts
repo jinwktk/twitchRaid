@@ -2,12 +2,16 @@ import {
   buildBoomSummary,
   type BoomApiClient,
   type FetchLike,
+  type HelixFetchLike,
 } from "./boom";
 
 export interface StreamedGameCandidateOptions {
   broadcasterId: string;
   gqlClientId: string;
   fetchFn?: FetchLike;
+  helixClientId?: string;
+  helixAccessToken?: string;
+  helixFetchFn?: HelixFetchLike;
   lookbackDays?: number;
   maxVideos?: number;
   maxGames?: number;
@@ -45,6 +49,9 @@ export async function buildStreamedGameCandidates(
     broadcasterId: options.broadcasterId,
     gqlClientId: options.gqlClientId,
     fetchFn: options.fetchFn,
+    helixClientId: options.helixClientId,
+    helixAccessToken: options.helixAccessToken,
+    helixFetchFn: options.helixFetchFn,
     lookbackDays: options.lookbackDays ?? DEFAULT_LOOKBACK_DAYS,
     maxVideos: options.maxVideos ?? DEFAULT_MAX_VIDEOS,
     minGameSeconds: 1,

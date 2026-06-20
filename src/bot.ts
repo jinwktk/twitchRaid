@@ -837,6 +837,8 @@ export class Bot {
         buildBoomSummary(this.apiClient, {
           broadcasterId: this.config.twitchBroadcasterId,
           gqlClientId: this.config.twitchGqlClientId,
+          helixClientId: this.config.twitchClientId,
+          helixAccessToken: this.config.twitchAccessToken,
           lookbackDays,
         })
       );
@@ -856,6 +858,8 @@ export class Bot {
         buildStreamedGameCandidates(this.apiClient, {
           broadcasterId: this.config.twitchBroadcasterId,
           gqlClientId: this.config.twitchGqlClientId,
+          helixClientId: this.config.twitchClientId,
+          helixAccessToken: this.config.twitchAccessToken,
         })
       );
       const game = selectRandomStreamedGame(candidates);

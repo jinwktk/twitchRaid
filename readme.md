@@ -241,7 +241,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - ゲーム別合計が1時間未満のものは表示対象外
 - 表示は合計時間の長い順で最大6件まで
 - 返却文言は棒読みの長文読み上げを避けるため、先頭に `!` を付けて読み上げスキップ対象にする
-- アーカイブ配信一覧のHelix取得は、Twurpleの既定100件paginatorではなく `getVideosByUser` の20件ページを手動でcursor取得する。各ページは `Premature close` などの一時的な通信切断だけ再試行し、VOD単位のGraphQL取得は最大4本並列で実行する。結果は日数別に5分間メモリキャッシュする
+- アーカイブ配信一覧のHelix取得は、Twurpleの既定100件paginatorを使わず、`Accept-Encoding: identity` を付けたHelix videos直取得で20件ページをcursor取得する。各ページは `Premature close` などの一時的な通信切断だけ再試行し、VOD単位のGraphQL取得は最大4本並列で実行する。結果は日数別に5分間メモリキャッシュする
 
 ## プロジェクト構成
 
@@ -316,6 +316,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-21**: `!boom` の追加検証で、Twurple `getVideosByUser` の20件ページでも本番コンテナ上では `node-fetch` の `Gunzip` が `ERR_STREAM_PREMATURE_CLOSE` を返すことを確認。同じHelix videos endpointは `Accept-Encoding: identity` を付けた直HTTPS取得ではHTTP 200で読めたため、`src/commands/boom.ts` はTwitch client id/access tokenがある実運用ではHelix videosだけidentity指定の直fetchへ切り替えた。`!game` も同じ経路を使う。`tests/commands/boom.test.ts` にidentity header付き直fetchの回帰テストを追加し、`tests/bot-help.test.ts` には `help/age/goods/site/x/youtube/game/weight/height/mood/menu/chat/clip/myclip/clipsearch/speed/commentcount/boom/manga/mangaon/mangaoff/shoutout/streamnotify` のBot経由スモーク範囲を追加した
 - **2026-06-21**: `!boom` の `Premature close` 対策後も03:08 JSTに同じ失敗が再発したため、稼働中コンテナのdistを確認した。再試行コード自体は入っていたが、Twurple paginatorが毎回 `first=100` の大きいHelix videosレスポンスを取得しており、再試行後も途中切断が残る構成だった。`src/commands/boom.ts` は実環境で `getVideosByUser` が使える場合、既定20件ページをcursorで手動取得し、ページ単位で一時通信エラーを再試行するよう変更。paginatorはテスト/互換用fallbackに残した。`tests/commands/boom.test.ts` に100件paginatorを使わない回帰テストを追加し、未実装状態で失敗確認後、対象15件通過
 - **2026-06-21**: `!boom` のアーカイブ配信一覧取得でTwitch Helix videos APIが `Premature close` を返すと集計全体が失敗していたため、`src/commands/boom.ts` のTwurple paginator取得を一時通信エラー時だけ再試行するようにした。認証エラーなど恒久系は従来通り失敗扱い。`tests/commands/boom.test.ts` にHelix archive video body failureの回帰テストを追加し、`npm test -- --run tests/commands/boom.test.ts` で14件通過。サブPCDokploy本番は実装commit `9cd5d5c093a899523a6a2a8c10032d3885896044` のimageへ更新し、実コンテナ上で `Premature close` 1回後に再試行成功することを確認済み
 - **2026-06-21**: AIメンション会話の画像質問機能を廃止。`src/bot.ts` は画面質問でもTwitchプレビュー画像を取得せず、`src/commands/mention-chat.ts` は `streamImageBase64` が渡されてもOllama payloadへ `images` を入れず、Vision system/promptも使わない。`CHAT_AI_STREAM_IMAGE_ENABLED` / `CHAT_AI_VISION_MODEL` は環境に残っていても互換用の無効値として扱い、勝敗質問の低情報返答は `画面は見えてないから断定できないけど、まだいけそうD！` へフォールバックする。対象テストは `npm test -- --run tests/commands/mention-chat.test.ts tests/bot-mention-chat.test.ts` で50件通過。サブPCDokploy本番は revision `ec8dcae6d98f668d66137381e7fb64892b7c2196` のimageへ更新し、`CHAT_AI_STREAM_IMAGE_ENABLED=false` の永続envと実コンテナ上の `images` 未送信を確認済み

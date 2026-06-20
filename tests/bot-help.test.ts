@@ -10,11 +10,20 @@ let tmpDir: string | null = null;
 type HelpTestBot = Bot & {
   chatClient: { say: ReturnType<typeof vi.fn> };
   apiClient: {
-    videos: {
-      getVideosByUserPaginated: ReturnType<typeof vi.fn>;
+    videos?: {
+      getVideosByUserPaginated?: ReturnType<typeof vi.fn>;
+    };
+    users?: {
+      getUserByName?: ReturnType<typeof vi.fn>;
+    };
+    streams?: {
+      getStreamByUserName?: ReturnType<typeof vi.fn>;
     };
   };
-  clipCacheStore: { close: () => void };
+  clipCacheStore: {
+    saveClips: (clips: unknown[]) => number;
+    close: () => void;
+  };
   _handleCommand: (
     channel: string,
     user: string,
@@ -212,6 +221,109 @@ describe("Bot help command", () => {
     expect(message).toMatch(/^[\x20-\x7E]+$/);
   });
 
+  it("handles static, random, and count commands through the bot dispatcher", async () => {
+    const { bot, say } = makeBot();
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+
+    try {
+      for (const command of [
+        "!age",
+        "!goods",
+        "!weight",
+        "!height",
+        "!mood",
+        "!menu",
+        "!commentcount",
+      ]) {
+        await bot._handleCommand("#rukalun", "viewer", command, {});
+      }
+    } finally {
+      randomSpy.mockRestore();
+    }
+
+    expect(say.mock.calls.map((call) => call[1])).toEqual([
+      expect.stringMatching(/^\d+$/),
+      "https://rukalun.booth.pm",
+      "15kg",
+      "120cm",
+      "今日の気分：絶好調！",
+      "今日のおすすめ：ラーメン",
+      "配信全体のコメント数: 0件",
+    ]);
+  });
+
+  it("handles clip and myclip commands from the SQLite cache", async () => {
+    const { bot, say } = makeBot();
+    bot.apiClient = {
+      users: { getUserByName: vi.fn().mockResolvedValue({ id: "creator-1" }) },
+    };
+    bot.clipCacheStore.saveClips([
+      {
+        id: "clip-1",
+        url: "https://clips.twitch.tv/clip-1",
+        title: "通常clip",
+        creatorId: "creator-1",
+        creatorDisplayName: "Viewer",
+        createdAt: "2026-05-25T10:00:00.000Z",
+        views: 10,
+      },
+    ]);
+
+    await bot._handleCommand("#rukalun", "viewer", "!clip", {});
+    await bot._handleCommand("#rukalun", "viewer", "!myclip", {});
+
+    expect(say.mock.calls.map((call) => call[1])).toEqual([
+      "https://clips.twitch.tv/clip-1",
+      "https://clips.twitch.tv/clip-1",
+    ]);
+  });
+
+  it("handles admin-gated commands with safe responses", async () => {
+    const { bot, say } = makeBot();
+    bot.apiClient = {
+      streams: { getStreamByUserName: vi.fn().mockResolvedValue(null) },
+    };
+    const viewerMessage = {
+      userInfo: { isMod: false, isBroadcaster: false },
+    };
+    const broadcasterMessage = {
+      userInfo: { isMod: false, isBroadcaster: true },
+    };
+
+    await bot._handleCommand("#rukalun", "viewer", "!manga", viewerMessage);
+    await bot._handleCommand("#rukalun", "viewer", "!mangaon", viewerMessage);
+    await bot._handleCommand("#rukalun", "rukalun", "!mangaoff", broadcasterMessage);
+    await bot._handleCommand("#rukalun", "viewer", "!shoutout", viewerMessage);
+    await bot._handleCommand(
+      "#rukalun",
+      "rukalun",
+      "!shoutout",
+      broadcasterMessage
+    );
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!streamnotify",
+      viewerMessage
+    );
+    await bot._handleCommand(
+      "#rukalun",
+      "rukalun",
+      "!streamnotify",
+      broadcasterMessage
+    );
+
+    expect(say.mock.calls.map((call) => call[1])).toEqual([
+      "⚠️ `manga` コマンドは現在OFFです。",
+      "⚠️ `mangaon` は管理者のみ実行できます。",
+      "ℹ️ `manga` コマンドはすでにOFFです。",
+      "⚠️ `shoutout` は管理者のみ実行できます。",
+      "⚠️ 使い方: !shoutout <ユーザー名>",
+      "⚠️ `streamnotify` は管理者のみ実行できます。",
+      "⚠️ 現在配信中ではないため、配信通知は送信しませんでした。",
+    ]);
+  });
+
   it("sends a random game suggestion from streamed VOD games", async () => {
     const { bot, say } = makeBot();
     const getVideosByUserPaginated = vi.fn(() =>
@@ -223,20 +335,41 @@ describe("Bot help command", () => {
         },
       ])
     );
-    const fetchSpy = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            video: {
-              game: { displayName: "Fallback Game" },
-              lengthSeconds: 5_400,
+    const fetchSpy = vi.fn(async (_input, init) => {
+      if (init.method === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              data: [
+                {
+                  id: "v1",
+                  created_at: "2026-06-01T00:00:00.000Z",
+                  duration: "1h30m0s",
+                },
+              ],
+              pagination: {},
+            }),
+        };
+      }
+
+      const body = JSON.parse(init.body) as { operationName: string };
+      if (body.operationName === "VideoMetadata") {
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              video: {
+                game: { displayName: "Fallback Game" },
+                lengthSeconds: 5_400,
+              },
             },
-          },
-        }),
-      })
-      .mockResolvedValueOnce({
+          }),
+        };
+      }
+
+      return {
         ok: true,
         json: async () => ({
           data: {
@@ -262,7 +395,8 @@ describe("Bot help command", () => {
             },
           },
         }),
-      });
+      };
+    });
     bot.apiClient = {
       videos: { getVideosByUserPaginated },
     };
@@ -278,9 +412,15 @@ describe("Bot help command", () => {
 
     expect(say).toHaveBeenCalledTimes(1);
     expect(say).toHaveBeenCalledWith("#rukalun", "ゲーム候補：Game B");
-    expect(getVideosByUserPaginated).toHaveBeenCalledWith("broadcaster-id", {
-      type: "archive",
-    });
+    expect(getVideosByUserPaginated).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://api.twitch.tv/helix/videos?user_id=broadcaster-id&type=archive&first=20",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "Accept-Encoding": "identity",
+        }),
+      })
+    );
   });
 
   it("uses an optional day count for boom without reusing the default cache", async () => {
@@ -301,6 +441,33 @@ describe("Bot help command", () => {
       ])
     );
     const fetchSpy = vi.fn(async (_input, init) => {
+      if (init.method === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              data: [
+                {
+                  id: "recent",
+                  created_at: new Date(
+                    now - 2 * 24 * 60 * 60 * 1000
+                  ).toISOString(),
+                  duration: "1h0m0s",
+                },
+                {
+                  id: "older",
+                  created_at: new Date(
+                    now - 20 * 24 * 60 * 60 * 1000
+                  ).toISOString(),
+                  duration: "1h0m0s",
+                },
+              ],
+              pagination: {},
+            }),
+        };
+      }
+
       const body = JSON.parse(init.body) as { operationName: string };
       if (body.operationName === "VideoMetadata") {
         return {

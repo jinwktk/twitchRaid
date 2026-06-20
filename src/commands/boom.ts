@@ -37,6 +37,14 @@ export type FetchLike = (
   }
 ) => Promise<{ ok: boolean; status?: number; json(): Promise<unknown> }>;
 
+export type HelixFetchLike = (
+  input: string,
+  init: {
+    method: "GET";
+    headers: Record<string, string>;
+  }
+) => Promise<{ ok: boolean; status?: number; text(): Promise<string> }>;
+
 export interface GameChapter {
   gameName: string;
   durationSeconds: number;
@@ -58,6 +66,9 @@ interface BuildBoomSummaryOptions {
   broadcasterId: string;
   gqlClientId: string;
   fetchFn?: FetchLike;
+  helixClientId?: string;
+  helixAccessToken?: string;
+  helixFetchFn?: HelixFetchLike;
   lookbackDays?: number;
   maxVideos?: number;
   minGameSeconds?: number;
@@ -129,6 +140,51 @@ function isTransientArchiveVideoError(error: unknown): boolean {
   return /premature close|econnreset|etimedout|socket hang up|fetch failed|body terminated|aborted|terminated/i.test(
     errorText(error)
   );
+}
+
+function parseTwitchVideoDurationSeconds(duration: string): number | null {
+  const match = duration.trim().match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/);
+  if (!match || match[0] === "") return null;
+
+  const hours = Number(match[1] ?? 0);
+  const minutes = Number(match[2] ?? 0);
+  const seconds = Number(match[3] ?? 0);
+  const totalSeconds = hours * 60 * 60 + minutes * 60 + seconds;
+  return Number.isFinite(totalSeconds) ? totalSeconds : null;
+}
+
+function parseHelixVideoPage(response: unknown): BoomVideoPage {
+  if (!isRecord(response)) return { data: [] };
+  const data = response["data"];
+  const pagination = response["pagination"];
+
+  return {
+    data: Array.isArray(data)
+      ? data.flatMap((item) => {
+          if (!isRecord(item)) return [];
+
+          const id = stringValue(item["id"]);
+          const createdAt = stringValue(item["created_at"]);
+          const duration = stringValue(item["duration"]);
+          if (!id || !createdAt || !duration) return [];
+
+          const creationDate = new Date(createdAt);
+          const durationInSeconds =
+            parseTwitchVideoDurationSeconds(duration) ?? null;
+          if (
+            Number.isNaN(creationDate.getTime()) ||
+            durationInSeconds === null
+          ) {
+            return [];
+          }
+
+          return [{ id, creationDate, durationInSeconds }];
+        })
+      : [],
+    cursor: isRecord(pagination)
+      ? stringValue(pagination["cursor"]) ?? undefined
+      : undefined,
+  };
 }
 
 export function parseBoomCommandLookbackDays(input: string): number | null {
@@ -238,12 +294,33 @@ async function fetchRecentArchiveVideos(
     maxVideos: number | null;
     now: Date;
     pageSize: number;
+    helixClientId?: string;
+    helixAccessToken?: string;
+    helixFetchFn: HelixFetchLike;
     retryAttempts: number;
     retryDelayMs: number;
   }
 ): Promise<BoomVideo[]> {
   const cutoffTime =
     options.now.getTime() - options.lookbackDays * 24 * 60 * 60 * 1000;
+
+  if (options.helixClientId && options.helixAccessToken) {
+    return fetchRecentArchiveVideosByHelixIdentity(
+      broadcasterId,
+      {
+        cutoffTime,
+        maxVideos: options.maxVideos,
+        pageSize: options.pageSize,
+        retryAttempts: options.retryAttempts,
+        retryDelayMs: options.retryDelayMs,
+      },
+      {
+        clientId: options.helixClientId,
+        accessToken: options.helixAccessToken,
+        fetchFn: options.helixFetchFn,
+      }
+    );
+  }
 
   if (typeof apiClient.videos.getVideosByUser === "function") {
     return fetchRecentArchiveVideosByPage(apiClient, broadcasterId, {
@@ -284,6 +361,131 @@ async function fetchRecentArchiveVideos(
   }
 
   throw new Error("Twitch archive video pagination did not complete");
+}
+
+async function fetchRecentArchiveVideosByHelixIdentity(
+  broadcasterId: string,
+  options: {
+    cutoffTime: number;
+    maxVideos: number | null;
+    pageSize: number;
+    retryAttempts: number;
+    retryDelayMs: number;
+  },
+  helix: {
+    clientId: string;
+    accessToken: string;
+    fetchFn: HelixFetchLike;
+  }
+): Promise<BoomVideo[]> {
+  const videos: BoomVideo[] = [];
+  let after: string | undefined;
+
+  while (true) {
+    const page = await fetchArchiveVideoIdentityPageWithRetry(
+      broadcasterId,
+      {
+        pageSize: options.pageSize,
+        after,
+      },
+      helix,
+      {
+        retryAttempts: options.retryAttempts,
+        retryDelayMs: options.retryDelayMs,
+      }
+    );
+
+    if (!page.data.length) return videos;
+
+    for (const video of page.data) {
+      if (video.creationDate.getTime() < options.cutoffTime) return videos;
+
+      videos.push(video);
+      if (options.maxVideos !== null && videos.length >= options.maxVideos) {
+        return videos;
+      }
+    }
+
+    if (!page.cursor || page.cursor === after) return videos;
+    after = page.cursor;
+  }
+}
+
+async function fetchArchiveVideoIdentityPageWithRetry(
+  broadcasterId: string,
+  pageOptions: {
+    pageSize: number;
+    after?: string;
+  },
+  helix: {
+    clientId: string;
+    accessToken: string;
+    fetchFn: HelixFetchLike;
+  },
+  retry: {
+    retryAttempts: number;
+    retryDelayMs: number;
+  }
+): Promise<BoomVideoPage> {
+  const maxAttempts = Math.max(1, retry.retryAttempts + 1);
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fetchArchiveVideoIdentityPage(
+        broadcasterId,
+        pageOptions,
+        helix
+      );
+    } catch (e) {
+      if (attempt >= maxAttempts || !isTransientArchiveVideoError(e)) {
+        throw e;
+      }
+
+      await delay(retry.retryDelayMs);
+    }
+  }
+
+  throw new Error("Twitch archive video identity page fetch did not complete");
+}
+
+async function fetchArchiveVideoIdentityPage(
+  broadcasterId: string,
+  pageOptions: {
+    pageSize: number;
+    after?: string;
+  },
+  helix: {
+    clientId: string;
+    accessToken: string;
+    fetchFn: HelixFetchLike;
+  }
+): Promise<BoomVideoPage> {
+  const url = new URL("https://api.twitch.tv/helix/videos");
+  url.searchParams.set("user_id", broadcasterId);
+  url.searchParams.set("type", "archive");
+  url.searchParams.set("first", String(pageOptions.pageSize));
+  if (pageOptions.after) {
+    url.searchParams.set("after", pageOptions.after);
+  }
+
+  const response = await helix.fetchFn(url.toString(), {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      "Accept-Encoding": "identity",
+      Authorization: `Bearer ${helix.accessToken}`,
+      "Client-ID": helix.clientId,
+    },
+  });
+
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Twitch Helix videos request failed: status=${response.status ?? "unknown"}`
+    );
+  }
+
+  return parseHelixVideoPage(JSON.parse(body));
 }
 
 async function fetchRecentArchiveVideosByPage(
@@ -543,6 +745,7 @@ export async function buildBoomSummary(
   );
   const now = options.now?.() ?? new Date();
   const fetchFn = options.fetchFn ?? fetch;
+  const helixFetchFn = options.helixFetchFn ?? fetch;
   const totals = new Map<string, number>();
   const videos = await fetchRecentArchiveVideos(
     apiClient,
@@ -552,6 +755,9 @@ export async function buildBoomSummary(
       maxVideos,
       now,
       pageSize: archiveVideoPageSize,
+      helixClientId: options.helixClientId,
+      helixAccessToken: options.helixAccessToken,
+      helixFetchFn,
       retryAttempts: archiveVideoRetryAttempts,
       retryDelayMs: archiveVideoRetryDelayMs,
     }

@@ -457,6 +457,81 @@ describe("buildBoomSummary", () => {
     });
   });
 
+  it("fetches Helix video pages with identity encoding when credentials are provided", async () => {
+    const getVideosByUser = vi.fn(() => {
+      throw new Error("Twurple video fetch should not be used");
+    });
+    const getVideosByUserPaginated = vi.fn(() => {
+      throw new Error("100-item paginator should not be used");
+    });
+    const helixFetchFn = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          data: [
+            {
+              id: "v1",
+              created_at: "2026-05-31T12:00:00.000Z",
+              duration: "1h0m0s",
+            },
+          ],
+          pagination: {},
+        }),
+    }));
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {
+          video: {
+            game: { displayName: "Game A" },
+            lengthSeconds: 3_600,
+            moments: {
+              edges: [
+                {
+                  node: {
+                    positionMilliseconds: 0,
+                    durationMilliseconds: 3_600_000,
+                    details: { game: { displayName: "Game A" } },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      }),
+    });
+
+    const summary = await buildBoomSummary(
+      { videos: { getVideosByUser, getVideosByUserPaginated } },
+      {
+        broadcasterId: "broadcaster-id",
+        gqlClientId: "gql-client",
+        fetchFn,
+        helixClientId: "client-id",
+        helixAccessToken: "access-token",
+        helixFetchFn,
+        now: () => new Date("2026-05-31T12:00:00.000Z"),
+      }
+    );
+
+    expect(summary.analyzedVideos).toBe(1);
+    expect(getVideosByUser).not.toHaveBeenCalled();
+    expect(getVideosByUserPaginated).not.toHaveBeenCalled();
+    expect(helixFetchFn).toHaveBeenCalledWith(
+      "https://api.twitch.tv/helix/videos?user_id=broadcaster-id&type=archive&first=20",
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "Accept-Encoding": "identity",
+          Authorization: "Bearer access-token",
+          "Client-ID": "client-id",
+        },
+      }
+    );
+  });
+
   it("retries transient Helix archive video body failures", async () => {
     const getVideosByUserPaginated = vi
       .fn()
