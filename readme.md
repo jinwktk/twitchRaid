@@ -29,6 +29,7 @@ npm run pm2:logs    # ログ確認
 - DokployコンテナのようにGitのglobal `user.name` / `user.email` が未設定の環境でも公開JSONをcommitできるよう、Clip検索JSON publisherはcommit/amend時だけ `twitchRaid Bot <twitchraid-bot@users.noreply.github.com>` をauthor/committerとして明示する
 - DokployコンテナからRukalunPageへpushするには、Dokploy環境変数に `CLIP_SEARCH_PUBLISH_GITHUB_TOKEN` を設定する。`GITHUB_TOKEN` / `GH_TOKEN` もfallbackとして読める。必要に応じて `CLIP_SEARCH_PUBLISH_GITHUB_USERNAME` も設定でき、未指定時は `x-access-token` を使う。トークンはGitコマンド引数へ入れず、fetch/push時のGit環境変数として渡す。GitHub HTTPS pushでtokenが無い場合は、同期後処理全体を例外にせず `github-auth-missing` として公開をスキップし、0件同期の再試行は公開最小間隔で間引く。同一プロセス内では初回だけWARN、2回目以降はINFOにする
 - サブPC同等Dockerでテストする場合の基準情報は `internal-docs/SUBPC_DOCKER.md` を参照する。確認時点のBotコンテナは WSL2 `Ubuntu-Backup` 上の Docker Engine 29.6.0 / Swarm / Dokploy v0.29.8 で、`node:24-bookworm-slim`、Node.js v24.17.0、`/app/data` と `/mnt/e/GitHub/RukalunPage` のbind mountを使う
+- Dokploy向けimageはリポジトリ直下の `Dockerfile` を正本にする。旧生成相当の `CMD ["npm", "run", "start"]` は停止時に `npm error signal SIGTERM` を出すため、最終起動は `CMD ["node", "dist/index.js"]` でnpmを介さない
 - SQLiteキャッシュ系の調査では、サブPC側の `data/clips.sqlite` の作成状況と更新時刻も確認する
 
 ### 技術設計書
@@ -313,6 +314,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-20**: Dokploy再デプロイ時に旧コンテナ停止ログとして `npm error signal SIGTERM` が出るため、Dokploy用 `Dockerfile` をリポジトリに追加し、最終起動を `CMD ["node", "dist/index.js"]` に固定した。`.dockerignore` で `.env` / `node_modules` / `dist` / `logs` などをbuild contextから除外し、`tests/dockerfile.test.ts` でDockerfileの起動コマンドと除外設定を検証する
 - **2026-06-20**: Twitch APIの一時切断で `clip全期間バックフィル失敗: ... Premature close` が出た場合に、全期間バックフィル全体を即中断せず、失敗した期間窓だけ再試行するようにした。再試行後も失敗する大きい窓は二分割して小さい窓で再取得し、全小窓が成功した場合は親窓も完了扱いにする。分割後も失敗する最小窓は `clip_scan_windows` 完了扱いにせず、次回以降のバックフィル/再走査で再取得できるようにした
 - **2026-06-20**: Dokploy環境変数のTwitch access tokenが古いままでも、refresh後のtokenを永続マウント側 `data/runtime.env` へ保存して次回起動で優先利用するようにした。`Premature close` の再試行中ログはINFOへ下げ、最終未完了だけWARNにした
 - **2026-06-20**: `CLIP_SEARCH_PUBLISH_GITHUB_TOKEN` 未設定時のClip検索JSON公開スキップは、初回だけWARN、同一プロセス内の2回目以降はINFOにして、機密token未投入の状態でもWARNが増え続けないようにした

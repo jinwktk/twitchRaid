@@ -1,0 +1,17 @@
+.git
+.github
+.omc
+.omx
+.pytest_cache
+__pycache__
+coverage
+dist
+logs
+node_modules
+data
+venv
+.env
+.env.*
+*.log
+*.sqlite
+*.sqlite-*

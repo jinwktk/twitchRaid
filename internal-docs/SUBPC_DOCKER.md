@@ -92,14 +92,17 @@ Dokploy UIのDeploymentでは、対象アプリ `tZTEPPXj2qfOwAAPpdCmD` が `loc
 - `stream-summary-state.json.bak-stale-thread-20260606052029`
 - `stream-summary-state.json.bak-unarchive-20260608`
 
-## Dokploy生成Dockerfile相当
+## Dokploy用Dockerfile
 
-確認時点のコンテナ内 `/app/Dockerfile` は次の内容。サブPCのGit作業ツリーには `Dockerfile` は存在せず、Dokployビルド時の生成物としてイメージに含まれている。
+2026-06-20 21:12 JST以降は、リポジトリ直下の `Dockerfile` をDokploy/サブPC向け本番imageの正本にする。以前のDokploy生成相当では `CMD ["npm", "run", "start"]` だったため、Swarm更新時に停止される旧コンテナが正常なSIGTERMを `npm error signal SIGTERM` として出していた。追跡Dockerfileでは最終起動を `node dist/index.js` へ変更し、npmを介さない。
 
 ```dockerfile
 FROM node:24-bookworm-slim
 
 WORKDIR /app
+
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.revision=$VCS_REF
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates git \
@@ -114,8 +117,12 @@ COPY . .
 RUN npm run build \
   && npm prune --omit=dev
 
-CMD ["npm", "run", "start"]
+ENV NODE_ENV=production
+
+CMD ["node", "dist/index.js"]
 ```
+
+`.dockerignore` では `.env`、`node_modules`、`dist`、`logs`、`data` などをbuild contextから除外し、ローカル実行物や秘密値をimageへ混ぜない。
 
 ## 非秘密の主要環境変数
 
