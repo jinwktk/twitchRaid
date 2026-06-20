@@ -122,6 +122,8 @@ export class Config {
   readonly clipSearchPublishMinIntervalMs: number;
   readonly clipSearchPublishRemote: string;
   readonly clipSearchPublishBranch: string;
+  readonly clipSearchPublishGithubToken: string;
+  readonly clipSearchPublishGithubUsername: string;
   readonly maxSummaryClipPosts: number;
   readonly ollamaShoutoutEnabled: boolean;
   readonly ollamaBaseUrl: string;
@@ -316,6 +318,13 @@ export class Config {
       env["CLIP_SEARCH_PUBLISH_REMOTE"]?.trim() || "origin";
     this.clipSearchPublishBranch =
       env["CLIP_SEARCH_PUBLISH_BRANCH"]?.trim() || "main";
+    this.clipSearchPublishGithubToken =
+      env["CLIP_SEARCH_PUBLISH_GITHUB_TOKEN"]?.trim() ||
+      env["GITHUB_TOKEN"]?.trim() ||
+      env["GH_TOKEN"]?.trim() ||
+      "";
+    this.clipSearchPublishGithubUsername =
+      env["CLIP_SEARCH_PUBLISH_GITHUB_USERNAME"]?.trim() || "x-access-token";
     this.maxSummaryClipPosts =
       parseInt(env["STREAM_SUMMARY_MAX_CLIPS"] ?? "10", 10) || 10;
     this.ollamaShoutoutEnabled = parseEnabledFlag(

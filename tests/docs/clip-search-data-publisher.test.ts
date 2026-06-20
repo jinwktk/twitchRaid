@@ -19,6 +19,8 @@ function makePublisher(options: {
   outPath?: string;
   remote?: string;
   branch?: string;
+  githubToken?: string;
+  githubUsername?: string;
 }) {
   return new ClipSearchDataPublisher({
     enabled: options.enabled ?? true,
@@ -31,6 +33,8 @@ function makePublisher(options: {
     runCommand: options.runCommand ?? vi.fn().mockResolvedValue({ stdout: "", stderr: "" }),
     remote: options.remote,
     branch: options.branch,
+    githubToken: options.githubToken,
+    githubUsername: options.githubUsername,
   });
 }
 
@@ -189,6 +193,52 @@ describe("ClipSearchDataPublisher", () => {
     expect(commitCalls).toHaveLength(1);
     expect(commitCalls[0].env).toEqual(
       expect.objectContaining(publishGitIdentityEnv)
+    );
+  });
+
+  it("passes a GitHub token to network Git commands without putting it in arguments", async () => {
+    const { calls, runCommand } = makePublishingCommandRunner();
+    const publisher = makePublisher({
+      runCommand,
+      githubToken: "token-123",
+      githubUsername: "clip-bot",
+    });
+
+    const result = await publisher.publishAfterRecentSync({
+      syncedAt: "2026-06-20T06:40:00.000Z",
+      saved: 0,
+      unavailable: 0,
+    });
+
+    expect(result).toEqual({ status: "published" });
+    const fetchCall = calls.find(
+      (call) => call.file === "git" && call.args[0] === "fetch"
+    );
+    const pushCall = calls.find(
+      (call) => call.file === "git" && call.args[0] === "push"
+    );
+    const expectedHeader = `AUTHORIZATION: basic ${Buffer.from(
+      "clip-bot:token-123",
+      "utf8"
+    ).toString("base64")}`;
+
+    expect(fetchCall?.args).not.toContain("token-123");
+    expect(pushCall?.args).not.toContain("token-123");
+    expect(fetchCall?.env).toEqual(
+      expect.objectContaining({
+        GIT_TERMINAL_PROMPT: "0",
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+        GIT_CONFIG_VALUE_0: expectedHeader,
+      })
+    );
+    expect(pushCall?.env).toEqual(
+      expect.objectContaining({
+        GIT_TERMINAL_PROMPT: "0",
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+        GIT_CONFIG_VALUE_0: expectedHeader,
+      })
     );
   });
 

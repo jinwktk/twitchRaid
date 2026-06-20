@@ -107,6 +107,8 @@ CLIP_SEARCH_PUBLISH_REPO_DIR=../RukalunPage
 CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS=120000
 CLIP_SEARCH_PUBLISH_REMOTE=origin
 CLIP_SEARCH_PUBLISH_BRANCH=main
+CLIP_SEARCH_PUBLISH_GITHUB_TOKEN=token-123
+CLIP_SEARCH_PUBLISH_GITHUB_USERNAME=clip-bot
 TWITCH_CLIP_RECENT_WINDOW_MINUTES=720
 `);
 
@@ -122,6 +124,8 @@ TWITCH_CLIP_RECENT_WINDOW_MINUTES=720
     expect(config.clipSearchPublishMinIntervalMs).toBe(120_000);
     expect(config.clipSearchPublishRemote).toBe("origin");
     expect(config.clipSearchPublishBranch).toBe("main");
+    expect(config.clipSearchPublishGithubToken).toBe("token-123");
+    expect(config.clipSearchPublishGithubUsername).toBe("clip-bot");
     expect(config.clipRecentWindowMinutes).toBe(720);
   });
 

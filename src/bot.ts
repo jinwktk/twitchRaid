@@ -232,6 +232,8 @@ export class Bot {
           minIntervalMs: config.clipSearchPublishMinIntervalMs,
           remote: config.clipSearchPublishRemote,
           branch: config.clipSearchPublishBranch,
+          githubToken: config.clipSearchPublishGithubToken,
+          githubUsername: config.clipSearchPublishGithubUsername,
         })
       : null;
     this.streamSummaryStateStore = new StreamSummaryStateStore(

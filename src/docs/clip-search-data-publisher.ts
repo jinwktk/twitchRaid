@@ -58,6 +58,8 @@ interface ClipSearchDataPublisherOptions {
   publishRepoDir?: string;
   remote?: string;
   branch?: string;
+  githubToken?: string;
+  githubUsername?: string;
   minIntervalMs?: number;
   runCommand?: RunCommand;
   nowMs?: () => number;
@@ -165,6 +167,28 @@ function statusHasOnlyTrackedModifications(stdout: string): boolean {
   );
 }
 
+function createGitNetworkEnv(
+  githubToken: string | undefined,
+  githubUsername: string | undefined
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    GIT_TERMINAL_PROMPT: "0",
+  };
+  const token = githubToken?.trim();
+  if (!token) {
+    return env;
+  }
+
+  const username = githubUsername?.trim() || "x-access-token";
+  const auth = Buffer.from(`${username}:${token}`, "utf8").toString("base64");
+  return {
+    ...env,
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+    GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${auth}`,
+  };
+}
+
 export class ClipSearchDataPublisher {
   private readonly enabled: boolean;
   private readonly repoDir: string;
@@ -177,6 +201,7 @@ export class ClipSearchDataPublisher {
   private readonly minIntervalMs: number;
   private readonly runCommand: RunCommand;
   private readonly nowMs: () => number;
+  private readonly gitNetworkEnv: NodeJS.ProcessEnv;
   private running = false;
   private lastPublishedMs = 0;
 
@@ -196,6 +221,10 @@ export class ClipSearchDataPublisher {
     this.minIntervalMs = options.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS;
     this.runCommand = options.runCommand ?? defaultRunCommand;
     this.nowMs = options.nowMs ?? Date.now;
+    this.gitNetworkEnv = createGitNetworkEnv(
+      options.githubToken,
+      options.githubUsername
+    );
     this.lastPublishedMs =
       options.initialLastPublishedMs ?? readGeneratedAtMs(this.outPath);
   }
@@ -275,6 +304,7 @@ export class ClipSearchDataPublisher {
         ["push", "--force-with-lease", this.remote, `HEAD:${this.branch}`],
         {
           cwd: this.publishRepoDir,
+          env: this.gitNetworkEnv,
           timeoutMs: 120_000,
         }
       );
@@ -282,6 +312,7 @@ export class ClipSearchDataPublisher {
       await this.commitPublishJson(["-m", SYNC_TIME_COMMIT_MESSAGE]);
       await this.runCommand("git", ["push", this.remote, `HEAD:${this.branch}`], {
         cwd: this.publishRepoDir,
+        env: this.gitNetworkEnv,
         timeoutMs: 120_000,
       });
     }
@@ -326,6 +357,7 @@ export class ClipSearchDataPublisher {
 
     await this.runCommand("git", ["fetch", this.remote, this.branch], {
       cwd: this.publishRepoDir,
+      env: this.gitNetworkEnv,
       timeoutMs: 120_000,
     });
 

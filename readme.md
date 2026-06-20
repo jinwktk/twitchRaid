@@ -24,6 +24,7 @@ npm run pm2:logs    # ログ確認
 - Dokploy運用では `GIT_AUTO_UPDATE_ENABLED=false` を設定し、コンテナ内の自己 `git pull` / 定期再起動監視を止める。更新はDokployのデプロイで反映する
 - Dokployコンテナから `/mnt/e/GitHub/RukalunPage` を見る場合、Windows側checkoutのCRLF差分だけで公開repoがdirtyに見えることがある。公開JSON publisherは追跡済みファイルの空白・改行だけの差分ならremote同期で破棄し、実内容の未コミット変更や未追跡ファイルは引き続き保護してスキップする
 - DokployコンテナのようにGitのglobal `user.name` / `user.email` が未設定の環境でも公開JSONをcommitできるよう、Clip検索JSON publisherはcommit/amend時だけ `twitchRaid Bot <twitchraid-bot@users.noreply.github.com>` をauthor/committerとして明示する
+- DokployコンテナからRukalunPageへpushするには、Dokploy環境変数に `CLIP_SEARCH_PUBLISH_GITHUB_TOKEN` を設定する。必要に応じて `CLIP_SEARCH_PUBLISH_GITHUB_USERNAME` も設定でき、未指定時は `x-access-token` を使う。トークンはGitコマンド引数へ入れず、fetch/push時のGit環境変数として渡す
 - SQLiteキャッシュ系の調査では、サブPC側の `data/clips.sqlite` の作成状況と更新時刻も確認する
 
 ### 技術設計書
@@ -307,6 +308,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-20**: Dokployコンテナ内で公開JSONのcommitは成功したが、`git push --force-with-lease origin HEAD:main` が `could not read Username for 'https://github.com'` で失敗することを確認。`CLIP_SEARCH_PUBLISH_GITHUB_TOKEN` / `CLIP_SEARCH_PUBLISH_GITHUB_USERNAME` を追加し、GitHub tokenをGitコマンド引数ではなくHTTP extraHeader環境変数としてfetch/pushへ渡せるようにした
 - **2026-06-20**: CRLF差分対応をデプロイ後、Dokployコンテナ内で `git commit --amend` が `Committer identity unknown` により失敗することを確認。Clip検索JSON publisherのcommit/amend時だけ固定のauthor/committer環境変数を渡し、global Git設定がないコンテナでも公開JSONをcommitできるようにした
 - **2026-06-20**: サブPCDokploy/Swarmログで `Clip検索公開JSON更新をスキップ: 公開repoに未コミット変更があります` が毎分出ていることを確認。コンテナから `/mnt/e/GitHub/RukalunPage` を見ると、公開JSON以外の追跡済みファイルがCRLF差分だけでdirtyになっていたため、publisherは空白・改行だけのdirtyを検出した場合のみremote同期で破棄して公開処理を続行するようにした
 - **2026-06-20**: Dokploy管理に合わせて `GIT_AUTO_UPDATE_ENABLED=false` を追加。無効時は起動時の `git pull`、GitHub更新監視、旧PM2前提の定期再起動監視を開始せず、Dokployのデプロイ管理に一本化する
