@@ -8,6 +8,12 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_REPO_DIR = path.resolve(__dirname, "..", "..");
 const DEFAULT_MIN_INTERVAL_MS = 5 * 60 * 1000;
 const SYNC_TIME_COMMIT_MESSAGE = "Clip検索JSONを同期時刻更新";
+const PUBLISH_GIT_IDENTITY_ENV = Object.freeze({
+  GIT_AUTHOR_NAME: "twitchRaid Bot",
+  GIT_AUTHOR_EMAIL: "twitchraid-bot@users.noreply.github.com",
+  GIT_COMMITTER_NAME: "twitchRaid Bot",
+  GIT_COMMITTER_EMAIL: "twitchraid-bot@users.noreply.github.com",
+});
 
 export interface ClipSearchPublishRequest {
   syncedAt: string;
@@ -23,6 +29,7 @@ export interface CommandResult {
 export interface RunCommandOptions {
   cwd: string;
   timeoutMs: number;
+  env?: NodeJS.ProcessEnv;
 }
 
 export type RunCommand = (
@@ -65,6 +72,7 @@ async function defaultRunCommand(
   const result = await execFileAsync(file, args, {
     cwd: options.cwd,
     encoding: "utf8",
+    env: options.env ? { ...process.env, ...options.env } : process.env,
     maxBuffer: 20 * 1024 * 1024,
     timeout: options.timeoutMs,
   });
@@ -261,10 +269,7 @@ export class ClipSearchDataPublisher {
     });
     const shouldAmend = await this.shouldAmendPreviousSyncTimeCommit(request);
     if (shouldAmend) {
-      await this.runCommand("git", ["commit", "--amend", "--no-edit"], {
-        cwd: this.publishRepoDir,
-        timeoutMs: 30_000,
-      });
+      await this.commitPublishJson(["--amend", "--no-edit"]);
       await this.runCommand(
         "git",
         ["push", "--force-with-lease", this.remote, `HEAD:${this.branch}`],
@@ -274,11 +279,7 @@ export class ClipSearchDataPublisher {
         }
       );
     } else {
-      await this.runCommand(
-        "git",
-        ["commit", "-m", SYNC_TIME_COMMIT_MESSAGE],
-        { cwd: this.publishRepoDir, timeoutMs: 30_000 }
-      );
+      await this.commitPublishJson(["-m", SYNC_TIME_COMMIT_MESSAGE]);
       await this.runCommand("git", ["push", this.remote, `HEAD:${this.branch}`], {
         cwd: this.publishRepoDir,
         timeoutMs: 120_000,
@@ -289,6 +290,14 @@ export class ClipSearchDataPublisher {
       `🎬 Clip検索公開JSONを${this.remote}/${this.branch}へpushしました`
     );
     return { status: "published" };
+  }
+
+  private async commitPublishJson(args: string[]): Promise<void> {
+    await this.runCommand("git", ["commit", ...args], {
+      cwd: this.publishRepoDir,
+      timeoutMs: 30_000,
+      env: PUBLISH_GIT_IDENTITY_ENV,
+    });
   }
 
   private async canDropLocalCommit(

@@ -43,7 +43,12 @@ function makePublishingCommandRunner(options?: {
   changedFilesByCommit?: Record<string, string>;
   whitespaceOnlyDirty?: boolean;
 }) {
-  const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
+  const calls: Array<{
+    file: string;
+    args: string[];
+    cwd: string;
+    env?: Record<string, string | undefined>;
+  }> = [];
   const latestCommitSubject =
     options?.latestCommitSubject ?? "Clip検索JSONを同期時刻更新\n";
   const headSha = options?.headSha ?? "same-sha\n";
@@ -53,7 +58,12 @@ function makePublishingCommandRunner(options?: {
   const changedFilesByCommit = options?.changedFilesByCommit ?? {};
   const whitespaceOnlyDirty = options?.whitespaceOnlyDirty ?? false;
   const runCommand: RunCommand = vi.fn(async (file, args, options) => {
-    calls.push({ file, args, cwd: options.cwd });
+    calls.push({
+      file,
+      args,
+      cwd: options.cwd,
+      env: options.env,
+    });
     if (file === "git" && args[0] === "status" && args.includes("--")) {
       return { stdout: " M docs/clip-search-data.json\n", stderr: "" };
     }
@@ -90,6 +100,13 @@ function makePublishingCommandRunner(options?: {
   });
   return { calls, runCommand };
 }
+
+const publishGitIdentityEnv = {
+  GIT_AUTHOR_NAME: "twitchRaid Bot",
+  GIT_AUTHOR_EMAIL: "twitchraid-bot@users.noreply.github.com",
+  GIT_COMMITTER_NAME: "twitchRaid Bot",
+  GIT_COMMITTER_EMAIL: "twitchraid-bot@users.noreply.github.com",
+};
 
 function runGit(cwd: string, args: string[]): string {
   return execFileSync("git", args, {
@@ -153,6 +170,26 @@ describe("ClipSearchDataPublisher", () => {
       ["git", "commit", "--amend", "--no-edit"],
       ["git", "push", "--force-with-lease", "origin", "HEAD:main"],
     ]);
+  });
+
+  it("sets a noninteractive Git identity for publish commits", async () => {
+    const { calls, runCommand } = makePublishingCommandRunner();
+    const publisher = makePublisher({ runCommand });
+
+    const result = await publisher.publishAfterRecentSync({
+      syncedAt: "2026-06-20T06:30:00.000Z",
+      saved: 0,
+      unavailable: 0,
+    });
+
+    expect(result).toEqual({ status: "published" });
+    const commitCalls = calls.filter(
+      (call) => call.file === "git" && call.args[0] === "commit"
+    );
+    expect(commitCalls).toHaveLength(1);
+    expect(commitCalls[0].env).toEqual(
+      expect.objectContaining(publishGitIdentityEnv)
+    );
   });
 
   it("creates a new commit for a zero-save sync after a development commit", async () => {
