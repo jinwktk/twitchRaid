@@ -171,6 +171,9 @@ function selectContextualEmote(
     if (raidEmote) return raidEmote;
   }
 
+  const uncertainReplyEmote = selectUncertainReplyEmote(reply, availableEmotes);
+  if (uncertainReplyEmote) return uncertainReplyEmote;
+
   const text = `${context.promptText ?? ""} ${reply}`;
   for (const category of CONTEXTUAL_EMOTE_CATEGORIES) {
     if (!category.pattern.test(text)) continue;
@@ -182,6 +185,24 @@ function selectContextualEmote(
     selectFirstAvailable(["rukkaNikoniko"], availableEmotes) ??
     emotes[0] ??
     null
+  );
+}
+
+function selectUncertainReplyEmote(
+  reply: string,
+  availableEmotes: ReadonlySet<string>
+): string | null {
+  if (
+    !/(?:ごめん|すま|申し訳|わからな|分からな|知らな|不明|検索結果(?:が)?(?:なく|なし)|結果(?:が)?(?:なく|なし)|見つから|確認でき|断定でき|情報(?:が)?(?:足り|ない)|答えられ|できない)/u.test(
+      reply
+    )
+  ) {
+    return null;
+  }
+
+  return selectFirstAvailable(
+    ["rukkaShobobo", "rukkaKanasii", "rukkaPoroporo", "rukkaMagao"],
+    availableEmotes
   );
 }
 

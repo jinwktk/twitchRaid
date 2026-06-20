@@ -23,9 +23,20 @@ interface SearchResult {
 type SearchRecord = Record<string, unknown>;
 
 const SEARCH_PROMPT_PATTERN =
-  /検索|調べ|調べて|ググ|最新|ニュース|とは|誰|だれ|いつ|どこ|何年|価格|値段|天気|wiki|wikipedia|what|who|when|where|latest|news|search/iu;
+  /検索|調べ|調べて|ググ|最新|ニュース|とは|価格|値段|天気|wiki|wikipedia|what|who|when|where|latest|news|search/iu;
 const ABOUT_PROMPT_PATTERN =
   /について(?:教えて|知りたい|知ってる|知っています|わかる|分かる|$|[？?])/u;
+const NATURAL_INFO_REQUEST_PATTERN =
+  /教えて|知りたい|知ってる|知っています|わからない|分からない|わかる|分かる|知らない/u;
+const QUESTION_WORD_PROMPT_PATTERN =
+  /(?:(?:誰|だれ)(?!でも|か|も)|いつ(?!も|か)|どこ(?!でも|か)|何年)(?:$|.{0,30}(?:[？?]|(?:です|だ|なの)?(?:か|かな|でしょう|だろう|だっけ)$))/u;
+const QUESTION_WORD_EXTERNAL_CONTEXT_PATTERN =
+  /[A-Za-z][A-Za-z0-9_.-]{2,}|イベント|大会|配信|番組|ツール|サービス|会社|企業|作品|会場|公式|主催|運営|開発|作者|作成者|出演|出場|発売|リリース|開催|日程/iu;
+const CASUAL_QUESTION_WORD_PATTERN =
+  /(?:(?:誰|だれ).{0,12}好き|いつ.{0,12}(?:寝る|起きる|遊ぶ)|どこ.{0,12}(?:行きたい|行く|遊ぶ|住む))/u;
+const QUESTION_MARK_PATTERN = /[？?]/u;
+const EXTERNAL_FACT_PROMPT_PATTERN =
+  /日程|開催|主催|運営|開発|作者|作成者|発売元|開始日|開始時期|活動開始|リリース|発売|公開|発表|価格|値段|天気|ニュース|最新|公式|会場|場所|期限|いつから|いつまで|何年|wiki|wikipedia|バージョン|モデル|由来|意味/iu;
 const MEMORY_REQUEST_PATTERN = /(?:^|\s)(?:覚えて|メモして|忘れないで)/u;
 const URL_PATTERN = /(?:https?:\/\/|www\.)/iu;
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu;
@@ -63,11 +74,38 @@ function isRecord(value: unknown): value is SearchRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function hasExplicitSearchIntent(query: string): boolean {
+  return SEARCH_PROMPT_PATTERN.test(query);
+}
+
+function hasAboutInformationRequest(query: string): boolean {
+  return ABOUT_PROMPT_PATTERN.test(query);
+}
+
+function hasQuestionWordRequest(query: string): boolean {
+  return (
+    QUESTION_WORD_PROMPT_PATTERN.test(query) &&
+    QUESTION_WORD_EXTERNAL_CONTEXT_PATTERN.test(query) &&
+    !CASUAL_QUESTION_WORD_PATTERN.test(query)
+  );
+}
+
+function hasExternalFactQuestion(query: string): boolean {
+  return (
+    (NATURAL_INFO_REQUEST_PATTERN.test(query) ||
+      QUESTION_MARK_PATTERN.test(query)) &&
+    EXTERNAL_FACT_PROMPT_PATTERN.test(query)
+  );
+}
+
 export function shouldSearchMentionChat(value: string): boolean {
   const query = singleLine(value);
   return (
     !MEMORY_REQUEST_PATTERN.test(query) &&
-    (SEARCH_PROMPT_PATTERN.test(query) || ABOUT_PROMPT_PATTERN.test(query))
+    (hasExplicitSearchIntent(query) ||
+      hasAboutInformationRequest(query) ||
+      hasQuestionWordRequest(query) ||
+      hasExternalFactQuestion(query))
   );
 }
 

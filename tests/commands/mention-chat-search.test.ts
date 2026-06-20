@@ -25,10 +25,29 @@ describe("mention chat external search", () => {
     expect(shouldSearchMentionChat("TwitchConの日程教えて")).toBe(true);
     expect(shouldSearchMentionChat("qwen3.5のリリース日がわからない")).toBe(true);
     expect(shouldSearchMentionChat("このイベントはいつから開催？")).toBe(true);
+    expect(shouldSearchMentionChat("TwitchConは誰が主催？")).toBe(true);
+    expect(shouldSearchMentionChat("このツールは誰が開発した？")).toBe(true);
+    expect(shouldSearchMentionChat("TwitchConは誰が出る？")).toBe(true);
+    expect(shouldSearchMentionChat("次はいつ配信？")).toBe(true);
+    expect(shouldSearchMentionChat("イベントはどこでやる？")).toBe(true);
     expect(shouldSearchMentionChat("覚えて: 最新情報=配信中")).toBe(false);
     expect(shouldSearchMentionChat("こんにちは")).toBe(false);
     expect(shouldSearchMentionChat("好きな食べ物教えて")).toBe(false);
     expect(shouldSearchMentionChat("今日なにしてるかわからない？")).toBe(false);
+    expect(shouldSearchMentionChat("開催おめでとう")).toBe(false);
+    expect(shouldSearchMentionChat("次の配信日程ありがとう")).toBe(false);
+    expect(shouldSearchMentionChat("いつもありがとう")).toBe(false);
+    expect(shouldSearchMentionChat("どこでも大丈夫")).toBe(false);
+    expect(shouldSearchMentionChat("いつか遊ぼう？")).toBe(false);
+    expect(shouldSearchMentionChat("誰でもいい？")).toBe(false);
+    expect(shouldSearchMentionChat("どこでも大丈夫？")).toBe(false);
+    expect(shouldSearchMentionChat("誰が好き？")).toBe(false);
+    expect(shouldSearchMentionChat("いつ寝る？")).toBe(false);
+    expect(shouldSearchMentionChat("どこ行きたい？")).toBe(false);
+    expect(shouldSearchMentionChat("TwitchConは誰が好き？")).toBe(false);
+    expect(shouldSearchMentionChat("次の配信いつ寝る？")).toBe(false);
+    expect(shouldSearchMentionChat("イベントどこ行きたい？")).toBe(false);
+    expect(shouldSearchMentionChat("イベント楽しかった？知らない")).toBe(false);
   });
 
   it("formats DuckDuckGo-compatible results as untrusted context", async () => {
