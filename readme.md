@@ -215,6 +215,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - `!clipsearch` がClip件数増加で遅くなった場合は、SQLite FTS5 または検索専用テーブルへの移行を検討する。初回実装では単純部分一致に留める
 - 直近に表示したクリップIDはSQLite内の `clip_history` に保存し、`!clip` 全体と `!myclip:<ユーザー>` ごとに重複を避ける。全候補を出し切った場合のみ履歴内のクリップも再候補に戻す
 - `!clipsearch` の表示履歴は `clipsearch:<検索語>` ごとに保存する
+- Clip全期間バックフィルは通常30日単位で完了済み期間をスキップするが、`now` で終わる末尾の移動窓だけは既定3日単位に事前分割する。起動ごとに `end_at` が変わる末尾窓を大きいままTwitch APIへ投げず、初回の `Premature close` を避けるための運用。
 
 ## GitHub Pages Clip検索
 - 公開Clip検索画面の正本は別リポジトリ `C:\Users\mlove\Documents\GitHub\RukalunPage`。GitHub Pages URLは `https://jinwktk.github.io/RukalunPage/`
@@ -314,6 +315,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-20**: Clip全期間バックフィルで、起動ごとに `now` まで伸びる末尾窓が大きくなり、初回だけ `Premature close` になってから分割後に成功する問題を修正。通常の30日窓は維持しつつ、末尾の移動窓だけ既定3日単位へ事前分割し、初回fetchから短い範囲で同期するようにした
 - **2026-06-20**: Dokploy再デプロイ時に旧コンテナ停止ログとして `npm error signal SIGTERM` が出るため、Dokploy用 `Dockerfile` をリポジトリに追加し、最終起動を `CMD ["node", "dist/index.js"]` に固定した。`.dockerignore` で `.env` / `node_modules` / `dist` / `logs` などをbuild contextから除外し、`tests/dockerfile.test.ts` でDockerfileの起動コマンドと除外設定を検証する
 - **2026-06-20**: Twitch APIの一時切断で `clip全期間バックフィル失敗: ... Premature close` が出た場合に、全期間バックフィル全体を即中断せず、失敗した期間窓だけ再試行するようにした。再試行後も失敗する大きい窓は二分割して小さい窓で再取得し、全小窓が成功した場合は親窓も完了扱いにする。分割後も失敗する最小窓は `clip_scan_windows` 完了扱いにせず、次回以降のバックフィル/再走査で再取得できるようにした
 - **2026-06-20**: Dokploy環境変数のTwitch access tokenが古いままでも、refresh後のtokenを永続マウント側 `data/runtime.env` へ保存して次回起動で優先利用するようにした。`Premature close` の再試行中ログはINFOへ下げ、最終未完了だけWARNにした

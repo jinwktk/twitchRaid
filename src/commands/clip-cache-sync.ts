@@ -28,6 +28,7 @@ interface ClipCacheSyncOptions {
   store: ClipCacheStore;
   oldestClipDate?: Date;
   fullWindowDays?: number;
+  fullTailWindowDays?: number;
   fullWindowRetryAttempts?: number;
   fullWindowRetryDelayMs?: number;
   splitThreshold?: number;
@@ -55,6 +56,7 @@ interface FullBackfillOptions {
 
 const DEFAULT_OLDEST_CLIP_DATE = new Date("2016-05-01T00:00:00.000Z");
 const DEFAULT_FULL_WINDOW_DAYS = 30;
+const DEFAULT_FULL_TAIL_WINDOW_DAYS = 3;
 const DEFAULT_FULL_WINDOW_RETRY_ATTEMPTS = 2;
 const DEFAULT_FULL_WINDOW_RETRY_DELAY_MS = 1000;
 const DEFAULT_SPLIT_THRESHOLD = 950;
@@ -98,15 +100,34 @@ function splitWindow(window: ClipDateWindow): [ClipDateWindow, ClipDateWindow] {
 export function buildClipDateWindows(
   oldest: Date,
   now: Date,
-  windowDays = DEFAULT_FULL_WINDOW_DAYS
+  windowDays = DEFAULT_FULL_WINDOW_DAYS,
+  tailWindowDays = windowDays
 ): ClipDateWindow[] {
   const windows: ClipDateWindow[] = [];
-  const windowMs = Math.max(1, windowDays) * ONE_DAY_MS;
+  const normalizedWindowDays = Math.max(1, windowDays);
+  const normalizedTailWindowDays = Math.max(
+    1,
+    Math.min(normalizedWindowDays, tailWindowDays)
+  );
+  const windowMs = normalizedWindowDays * ONE_DAY_MS;
+  const tailWindowMs = normalizedTailWindowDays * ONE_DAY_MS;
   let startMs = oldest.getTime();
   const nowMs = now.getTime();
 
   while (startMs < nowMs) {
     const endMs = Math.min(startMs + windowMs, nowMs);
+    if (endMs === nowMs && tailWindowMs < windowMs) {
+      while (startMs < nowMs) {
+        const tailEndMs = Math.min(startMs + tailWindowMs, nowMs);
+        windows.push({
+          start: new Date(startMs),
+          end: new Date(tailEndMs),
+        });
+        startMs = tailEndMs;
+      }
+      break;
+    }
+
     windows.push({ start: new Date(startMs), end: new Date(endMs) });
     startMs = endMs;
   }
@@ -165,6 +186,7 @@ export async function clipsToCachedClips(
 export class ClipCacheSynchronizer {
   private readonly oldestClipDate: Date;
   private readonly fullWindowDays: number;
+  private readonly fullTailWindowDays: number;
   private readonly fullWindowRetryAttempts: number;
   private readonly fullWindowRetryDelayMs: number;
   private readonly splitThreshold: number;
@@ -187,6 +209,11 @@ export class ClipCacheSynchronizer {
   constructor(private readonly options: ClipCacheSyncOptions) {
     this.oldestClipDate = options.oldestClipDate ?? DEFAULT_OLDEST_CLIP_DATE;
     this.fullWindowDays = options.fullWindowDays ?? DEFAULT_FULL_WINDOW_DAYS;
+    this.fullTailWindowDays = Math.max(
+      1,
+      options.fullTailWindowDays ??
+        Math.min(DEFAULT_FULL_TAIL_WINDOW_DAYS, this.fullWindowDays)
+    );
     this.fullWindowRetryAttempts = Math.max(
       0,
       Math.floor(
@@ -307,7 +334,8 @@ export class ClipCacheSynchronizer {
       const windows = buildClipDateWindows(
         this.oldestClipDate,
         now,
-        this.fullWindowDays
+        this.fullWindowDays,
+        this.fullTailWindowDays
       );
       const scanLabel = options.reconcileMissing
         ? "clip全期間再走査"

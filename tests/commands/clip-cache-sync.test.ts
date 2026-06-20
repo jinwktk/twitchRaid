@@ -44,6 +44,8 @@ function failingIterable(error: Error): AsyncIterable<HelixClip> {
   };
 }
 
+const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+
 describe("clip cache sync helpers", () => {
   it("builds fixed date windows for full backfill", () => {
     const windows = buildClipDateWindows(
@@ -56,6 +58,24 @@ describe("clip cache sync helpers", () => {
       .toEqual([
         ["2026-01-01T00:00:00.000Z", "2026-01-03T00:00:00.000Z"],
         ["2026-01-03T00:00:00.000Z", "2026-01-05T00:00:00.000Z"],
+      ]);
+  });
+
+  it("splits the moving full-backfill tail into short stable windows", () => {
+    const windows = buildClipDateWindows(
+      new Date("2026-06-08T00:00:00.000Z"),
+      new Date("2026-06-20T12:15:56.291Z"),
+      30,
+      3
+    );
+
+    expect(windows.map((w) => [w.start.toISOString(), w.end.toISOString()]))
+      .toEqual([
+        ["2026-06-08T00:00:00.000Z", "2026-06-11T00:00:00.000Z"],
+        ["2026-06-11T00:00:00.000Z", "2026-06-14T00:00:00.000Z"],
+        ["2026-06-14T00:00:00.000Z", "2026-06-17T00:00:00.000Z"],
+        ["2026-06-17T00:00:00.000Z", "2026-06-20T00:00:00.000Z"],
+        ["2026-06-20T00:00:00.000Z", "2026-06-20T12:15:56.291Z"],
       ]);
   });
 
@@ -481,6 +501,60 @@ describe("ClipCacheSynchronizer", () => {
     expect(
       warnSpy.mock.calls.some(([message]) =>
         String(message).includes("期間同期をスキップ")
+      )
+    ).toBe(false);
+  });
+
+  it("fetches a long moving tail as short windows before any retry failure", async () => {
+    const requestedWindows: Array<[string, string]> = [];
+    const infoSpy = vi.spyOn(logger, "info");
+    const getClipsForBroadcasterPaginated = vi.fn(
+      (
+        _broadcasterId: string,
+        filter?: { startDate?: string; endDate?: string }
+      ) => {
+        const startDate = filter?.startDate ?? "";
+        const endDate = filter?.endDate ?? "";
+        requestedWindows.push([startDate, endDate]);
+
+        if (Date.parse(endDate) - Date.parse(startDate) > THREE_DAYS_MS) {
+          return failingIterable(new Error("window too wide"));
+        }
+        return iterableClips([]);
+      }
+    );
+    const sync = new ClipCacheSynchronizer({
+      apiClient: { clips: { getClipsForBroadcasterPaginated } },
+      broadcasterId: "broadcaster-id",
+      store,
+      oldestClipDate: new Date("2026-06-08T00:00:00.000Z"),
+      fullWindowDays: 30,
+      fullTailWindowDays: 3,
+      fullWindowRetryAttempts: 0,
+      fullWindowRetryDelayMs: 0,
+    });
+
+    const completed = await sync.runFullBackfill(
+      new Date("2026-06-20T12:15:56.291Z")
+    );
+
+    expect(completed).toBe(true);
+    expect(requestedWindows).toEqual([
+      ["2026-06-08T00:00:00.000Z", "2026-06-11T00:00:00.000Z"],
+      ["2026-06-11T00:00:00.000Z", "2026-06-14T00:00:00.000Z"],
+      ["2026-06-14T00:00:00.000Z", "2026-06-17T00:00:00.000Z"],
+      ["2026-06-17T00:00:00.000Z", "2026-06-20T00:00:00.000Z"],
+      ["2026-06-20T00:00:00.000Z", "2026-06-20T12:15:56.291Z"],
+    ]);
+    expect(
+      requestedWindows.every(
+        ([startDate, endDate]) =>
+          Date.parse(endDate) - Date.parse(startDate) <= THREE_DAYS_MS
+      )
+    ).toBe(true);
+    expect(
+      infoSpy.mock.calls.some(([message]) =>
+        String(message).includes("期間同期失敗")
       )
     ).toBe(false);
   });
