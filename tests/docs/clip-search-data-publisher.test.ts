@@ -41,6 +41,7 @@ function makePublishingCommandRunner(options?: {
   cherryOutput?: string;
   dirtyStatus?: string;
   changedFilesByCommit?: Record<string, string>;
+  whitespaceOnlyDirty?: boolean;
 }) {
   const calls: Array<{ file: string; args: string[]; cwd: string }> = [];
   const latestCommitSubject =
@@ -50,6 +51,7 @@ function makePublishingCommandRunner(options?: {
   const cherryOutput = options?.cherryOutput ?? "";
   const dirtyStatus = options?.dirtyStatus ?? "";
   const changedFilesByCommit = options?.changedFilesByCommit ?? {};
+  const whitespaceOnlyDirty = options?.whitespaceOnlyDirty ?? false;
   const runCommand: RunCommand = vi.fn(async (file, args, options) => {
     calls.push({ file, args, cwd: options.cwd });
     if (file === "git" && args[0] === "status" && args.includes("--")) {
@@ -74,6 +76,12 @@ function makePublishingCommandRunner(options?: {
           changedFilesByCommit[commitHash] ?? "docs/clip-search-data.json\n",
         stderr: "",
       };
+    }
+    if (file === "git" && args[0] === "diff" && args.includes("--quiet")) {
+      if (whitespaceOnlyDirty) {
+        return { stdout: "", stderr: "" };
+      }
+      throw new Error("significant dirty diff");
     }
     if (file === "git" && args[0] === "log" && args[1] === "-1") {
       return { stdout: latestCommitSubject, stderr: "" };
@@ -485,7 +493,66 @@ describe("ClipSearchDataPublisher", () => {
       ["git", "rev-parse", "HEAD"],
       ["git", "rev-parse", "origin/main"],
       ["git", "status", "--porcelain"],
+      ["git", "diff", "--ignore-all-space", "--quiet"],
     ]);
+  });
+
+  it("resets stale bot sync commits when dirty files only differ by whitespace", async () => {
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    const { calls, runCommand } = makePublishingCommandRunner({
+      headSha: "local-bot-sync\n",
+      remoteSha: "remote-sync\n",
+      cherryOutput: "+ abc1234 Clip検索JSONを同期時刻更新\n",
+      dirtyStatus: " M README.md\n M index.html\n",
+      changedFilesByCommit: {
+        abc1234: "clip-search-data.json\n",
+      },
+      whitespaceOnlyDirty: true,
+    });
+    const publisher = makePublisher({
+      publishRepoDir: "C:\\repo\\RukalunPage",
+      outPath: "C:\\repo\\RukalunPage\\clip-search-data.json",
+      runCommand,
+    });
+
+    try {
+      const result = await publisher.publishAfterRecentSync({
+        syncedAt: "2026-06-20T06:10:36.000Z",
+        saved: 0,
+        unavailable: 0,
+      });
+
+      expect(result).toEqual({ status: "published" });
+      expect(calls.map((call) => [path.basename(call.file), ...call.args])).toEqual([
+        ["git", "fetch", "origin", "main"],
+        ["git", "rev-parse", "HEAD"],
+        ["git", "rev-parse", "origin/main"],
+        ["git", "status", "--porcelain"],
+        ["git", "diff", "--ignore-all-space", "--quiet"],
+        ["git", "diff", "--cached", "--ignore-all-space", "--quiet"],
+        ["git", "cherry", "-v", "origin/main", "HEAD"],
+        ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", "abc1234"],
+        ["git", "reset", "--hard", "origin/main"],
+        [
+          path.basename(process.execPath),
+          "C:\\repo\\twitchRaid\\scripts\\export-clip-search-data.mjs",
+          "--db",
+          "C:\\repo\\twitchRaid\\data\\clips.sqlite",
+          "--out",
+          "C:\\repo\\RukalunPage\\clip-search-data.json",
+        ],
+        ["git", "status", "--porcelain", "--", "clip-search-data.json"],
+        ["git", "add", "--", "clip-search-data.json"],
+        ["git", "log", "-1", "--pretty=%s"],
+        ["git", "commit", "--amend", "--no-edit"],
+        ["git", "push", "--force-with-lease", "origin", "HEAD:main"],
+      ]);
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining("空白または改行だけ")
+      );
+    } finally {
+      infoSpy.mockRestore();
+    }
   });
 
   it("verifies git cherry markers for patch-equivalent and unique local commits", () => {

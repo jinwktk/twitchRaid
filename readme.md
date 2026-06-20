@@ -22,6 +22,7 @@ npm run pm2:logs    # ログ確認
 - BotはサブPCで動かす運用のため、問題確認時はローカル作業PCのログだけでなく、必ずサブPC側のDokploy/Swarmログと `logs/bot_YYYY-MM-DD.log` を確認する
 - 2026-06-20以降のサブPC本番はPM2ではなくDokploy管理。コンテナでは `.env` ファイルが無い場合があるため、DokployのEnvironment Variablesから渡る `process.env` も設定値として読む
 - Dokploy運用では `GIT_AUTO_UPDATE_ENABLED=false` を設定し、コンテナ内の自己 `git pull` / 定期再起動監視を止める。更新はDokployのデプロイで反映する
+- Dokployコンテナから `/mnt/e/GitHub/RukalunPage` を見る場合、Windows側checkoutのCRLF差分だけで公開repoがdirtyに見えることがある。公開JSON publisherは追跡済みファイルの空白・改行だけの差分ならremote同期で破棄し、実内容の未コミット変更や未追跡ファイルは引き続き保護してスキップする
 - SQLiteキャッシュ系の調査では、サブPC側の `data/clips.sqlite` の作成状況と更新時刻も確認する
 
 ### 技術設計書
@@ -305,6 +306,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-20**: サブPCDokploy/Swarmログで `Clip検索公開JSON更新をスキップ: 公開repoに未コミット変更があります` が毎分出ていることを確認。コンテナから `/mnt/e/GitHub/RukalunPage` を見ると、公開JSON以外の追跡済みファイルがCRLF差分だけでdirtyになっていたため、publisherは空白・改行だけのdirtyを検出した場合のみremote同期で破棄して公開処理を続行するようにした
 - **2026-06-20**: Dokploy管理に合わせて `GIT_AUTO_UPDATE_ENABLED=false` を追加。無効時は起動時の `git pull`、GitHub更新監視、旧PM2前提の定期再起動監視を開始せず、Dokployのデプロイ管理に一本化する
 - **2026-06-20**: Dokploy移行後のコンテナ起動で `TWITCH_CLIENT_ID` などが空扱いになり、Twitch token refresh が `missing client id` で失敗していた問題を修正。`Config` は `.env` の parsed 値を優先しつつ、`.env` が無いコンテナでは `process.env` をfallbackとして読む
 - **2026-06-20**: OllamaMemoryHub連携を廃止し、AIメンション会話の記憶保存・参照を `CHAT_AI_MEMORY_PATH` のローカルJSONに一本化した。`CHAT_AI_MEMORY_HUB_*` は読み込まず、`!chat` とBot宛てメンションはHub APIへ接続しない。明示メモ依頼のログ伏せ字は自動学習が無効でも適用する

@@ -142,6 +142,21 @@ function changesOnlyPublishJson(stdout: string, outGitPath: string): boolean {
   );
 }
 
+function statusHasOnlyTrackedModifications(stdout: string): boolean {
+  const lines = stdout
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean);
+
+  return (
+    lines.length > 0 &&
+    lines.every((line) => {
+      const status = line.slice(0, 2);
+      return /^[ M][ M]$/.test(status) && status.includes("M");
+    })
+  );
+}
+
 export class ClipSearchDataPublisher {
   private readonly enabled: boolean;
   private readonly repoDir: string;
@@ -322,10 +337,18 @@ export class ClipSearchDataPublisher {
       timeoutMs: 30_000,
     });
     if (dirty.stdout.trim()) {
-      logger.warn(
-        "🎬 Clip検索公開JSON更新をスキップ: 公開repoに未コミット変更があります"
+      const whitespaceOnly = await this.hasOnlyWhitespaceDirtyChanges(
+        dirty.stdout
       );
-      return { status: "skipped", reason: "dirty-publish-repo" };
+      if (!whitespaceOnly) {
+        logger.warn(
+          "🎬 Clip検索公開JSON更新をスキップ: 公開repoに未コミット変更があります"
+        );
+        return { status: "skipped", reason: "dirty-publish-repo" };
+      }
+      logger.info(
+        "🎬 Clip検索公開repoの未コミット差分は空白または改行だけのためremote同期で破棄します"
+      );
     }
 
     const localCommitsResult = await this.runCommand(
@@ -361,6 +384,32 @@ export class ClipSearchDataPublisher {
       `🎬 Clip検索公開repoを${remoteRef}へ同期しました dropEligibleCommits=${dropEligibleCommitCount}, protectedCommits=0`
     );
     return null;
+  }
+
+  private async hasOnlyWhitespaceDirtyChanges(
+    dirtyStatus: string
+  ): Promise<boolean> {
+    if (!statusHasOnlyTrackedModifications(dirtyStatus)) {
+      return false;
+    }
+
+    try {
+      await this.runCommand("git", ["diff", "--ignore-all-space", "--quiet"], {
+        cwd: this.publishRepoDir,
+        timeoutMs: 30_000,
+      });
+      await this.runCommand(
+        "git",
+        ["diff", "--cached", "--ignore-all-space", "--quiet"],
+        {
+          cwd: this.publishRepoDir,
+          timeoutMs: 30_000,
+        }
+      );
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async shouldAmendPreviousSyncTimeCommit(
