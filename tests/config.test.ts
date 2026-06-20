@@ -62,6 +62,53 @@ describe("Config", () => {
     }
   });
 
+  it("loads mutable runtime tokens ahead of process.env and writes updates there", () => {
+    const runtimeEnvPath = writeEnvFile(`
+TWITCH_ACCESS_TOKEN=persisted-access
+TWITCH_REFRESH_TOKEN=persisted-refresh
+`);
+    const keys = [
+      "TWITCH_CLIENT_ID",
+      "TWITCH_ACCESS_TOKEN",
+      "TWITCH_REFRESH_TOKEN",
+      "TWITCH_SECRET_TOKEN",
+      "TWITCH_BROADCASTER_ID",
+      "TWITCH_MODERATOR_ID",
+      "TWITCH_RUNTIME_ENV_FILE",
+    ];
+    const previous = new Map(keys.map((key) => [key, process.env[key]]));
+
+    try {
+      process.env.TWITCH_CLIENT_ID = "process-client";
+      process.env.TWITCH_ACCESS_TOKEN = "stale-access";
+      process.env.TWITCH_REFRESH_TOKEN = "stale-refresh";
+      process.env.TWITCH_SECRET_TOKEN = "process-secret";
+      process.env.TWITCH_BROADCASTER_ID = "process-broadcaster";
+      process.env.TWITCH_MODERATOR_ID = "process-moderator";
+      process.env.TWITCH_RUNTIME_ENV_FILE = runtimeEnvPath;
+
+      const missingEnvPath = path.join(path.dirname(runtimeEnvPath), "missing.env");
+      const config = new Config(missingEnvPath);
+
+      expect(config.twitchAccessToken).toBe("persisted-access");
+      expect(config.twitchRefreshToken).toBe("persisted-refresh");
+      expect(config.envFile).toBe(runtimeEnvPath);
+
+      config.updateAccessToken("new-access", "new-refresh");
+      const content = fs.readFileSync(runtimeEnvPath, "utf8");
+      expect(content).toContain("TWITCH_ACCESS_TOKEN=new-access");
+      expect(content).toContain("TWITCH_REFRESH_TOKEN=new-refresh");
+    } finally {
+      for (const [key, value] of previous) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+  });
+
   it("can disable the internal Git updater for Dokploy deployments", () => {
     const envPath = writeEnvFile(`
 TWITCH_CLIENT_ID=client

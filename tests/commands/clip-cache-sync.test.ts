@@ -383,6 +383,8 @@ describe("ClipCacheSynchronizer", () => {
       .fn()
       .mockReturnValueOnce(failingIterable(new Error("Premature close")))
       .mockReturnValueOnce(iterableClips([makeClip("retried")]));
+    const infoSpy = vi.spyOn(logger, "info");
+    const warnSpy = vi.spyOn(logger, "warn");
     const sync = new ClipCacheSynchronizer({
       apiClient: { clips: { getClipsForBroadcasterPaginated } },
       broadcasterId: "broadcaster-id",
@@ -399,6 +401,16 @@ describe("ClipCacheSynchronizer", () => {
 
     expect(completed).toBe(true);
     expect(getClipsForBroadcasterPaginated).toHaveBeenCalledTimes(2);
+    expect(
+      infoSpy.mock.calls.some(([message]) =>
+        String(message).includes("期間同期失敗、再試行します")
+      )
+    ).toBe(true);
+    expect(
+      warnSpy.mock.calls.some(([message]) =>
+        String(message).includes("期間同期失敗、再試行します")
+      )
+    ).toBe(false);
     expect(store.clipCount()).toBe(1);
     expect(
       store.isWindowCompleted(
@@ -432,6 +444,43 @@ describe("ClipCacheSynchronizer", () => {
       store.isWindowCompleted(
         "2026-01-01T00:00:00.000Z",
         "2026-01-02T00:00:00.000Z"
+      )
+    ).toBe(false);
+  });
+
+  it("splits a failed full-backfill window and completes it when child windows succeed", async () => {
+    const warnSpy = vi.spyOn(logger, "warn");
+    const getClipsForBroadcasterPaginated = vi
+      .fn()
+      .mockReturnValueOnce(failingIterable(new Error("Premature close")))
+      .mockReturnValueOnce(iterableClips([makeClip("first-half")]))
+      .mockReturnValueOnce(iterableClips([makeClip("second-half")]));
+    const sync = new ClipCacheSynchronizer({
+      apiClient: { clips: { getClipsForBroadcasterPaginated } },
+      broadcasterId: "broadcaster-id",
+      store,
+      oldestClipDate: new Date("2026-01-01T00:00:00.000Z"),
+      fullWindowDays: 2,
+      fullWindowRetryAttempts: 0,
+      fullWindowRetryDelayMs: 0,
+    });
+
+    const completed = await sync.runFullBackfill(
+      new Date("2026-01-03T00:00:00.000Z")
+    );
+
+    expect(completed).toBe(true);
+    expect(getClipsForBroadcasterPaginated).toHaveBeenCalledTimes(3);
+    expect(store.clipCount()).toBe(2);
+    expect(
+      store.isWindowCompleted(
+        "2026-01-01T00:00:00.000Z",
+        "2026-01-03T00:00:00.000Z"
+      )
+    ).toBe(true);
+    expect(
+      warnSpy.mock.calls.some(([message]) =>
+        String(message).includes("期間同期をスキップ")
       )
     ).toBe(false);
   });

@@ -1,4 +1,5 @@
 import { config as dotenvConfig } from "dotenv";
+import fs from "fs";
 import path from "path";
 import { updateEnvFile } from "./utils/env-store";
 import { REQUIRED_AUTH_SCOPES } from "./auth/auth-scope-sets";
@@ -7,6 +8,7 @@ import { normalizeChatReplyEmotes } from "./chat/reply-emotes";
 const BASE_DIR = path.resolve(__dirname, "..");
 const DEFAULT_TWITCH_GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 const DEFAULT_CLIP_RECENT_WINDOW_MINUTES = 6 * 60;
+const DEFAULT_RUNTIME_ENV_FILE = path.resolve(BASE_DIR, "data/runtime.env");
 const DEFAULT_CLIP_SEARCH_PUBLISH_REPO_DIR = path.resolve(
   BASE_DIR,
   "..",
@@ -146,12 +148,24 @@ export class Config {
   activeAuthScopes: string[];
 
   constructor(envFile = ".env") {
-    this.envFile = path.resolve(BASE_DIR, envFile);
+    const requestedEnvFile = path.resolve(BASE_DIR, envFile);
+    const runtimeEnvFile = process.env["TWITCH_RUNTIME_ENV_FILE"]?.trim();
+    this.envFile = runtimeEnvFile
+      ? path.resolve(BASE_DIR, runtimeEnvFile)
+      : envFile === ".env" && !fs.existsSync(requestedEnvFile)
+        ? DEFAULT_RUNTIME_ENV_FILE
+        : requestedEnvFile;
+
     const parsedEnv =
-      dotenvConfig({ path: this.envFile, processEnv: {} }).parsed ?? {};
+      dotenvConfig({ path: requestedEnvFile, processEnv: {} }).parsed ?? {};
+    const runtimeEnv =
+      this.envFile === requestedEnvFile
+        ? {}
+        : dotenvConfig({ path: this.envFile, processEnv: {} }).parsed ?? {};
     const env = {
       ...process.env,
       ...parsedEnv,
+      ...runtimeEnv,
     };
 
     // Twitch設定

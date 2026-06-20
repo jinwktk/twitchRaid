@@ -321,6 +321,52 @@ describe("ClipSearchDataPublisher", () => {
     );
   });
 
+  it("logs repeated GitHub auth missing skips as info after the first warning", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => logger);
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    const { runCommand: baseRunCommand } = makePublishingCommandRunner();
+    const runCommand: RunCommand = vi.fn(async (file, args, options) => {
+      const result = await baseRunCommand(file, args, options);
+      if (file === "git" && args[0] === "push") {
+        throw new Error(
+          "fatal: could not read Username for 'https://github.com': terminal prompts disabled"
+        );
+      }
+      return result;
+    });
+    const publisher = makePublisher({
+      minIntervalMs: 0,
+      runCommand,
+    });
+
+    try {
+      await publisher.publishAfterRecentSync({
+        syncedAt: "2026-06-20T10:45:44.317Z",
+        saved: 1,
+        unavailable: 0,
+      });
+      await publisher.publishAfterRecentSync({
+        syncedAt: "2026-06-20T10:46:44.317Z",
+        saved: 1,
+        unavailable: 0,
+      });
+
+      expect(
+        warnSpy.mock.calls.filter(([message]) =>
+          String(message).includes("CLIP_SEARCH_PUBLISH_GITHUB_TOKEN")
+        )
+      ).toHaveLength(1);
+      expect(
+        infoSpy.mock.calls.some(([message]) =>
+          String(message).includes("CLIP_SEARCH_PUBLISH_GITHUB_TOKEN")
+        )
+      ).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+      infoSpy.mockRestore();
+    }
+  });
+
   it("creates a new commit for a zero-save sync after a development commit", async () => {
     const { calls, runCommand } = makePublishingCommandRunner({
       latestCommitSubject: "Clip検索ページの表示を改善\n",

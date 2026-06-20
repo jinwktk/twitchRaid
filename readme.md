@@ -21,12 +21,13 @@ npm run pm2:logs    # ログ確認
 ### ログ確認運用
 - BotはサブPCで動かす運用のため、問題確認時はローカル作業PCのログだけでなく、必ずサブPC側のDokploy/Swarmログと `logs/bot_YYYY-MM-DD.log` を確認する
 - 2026-06-20以降のサブPC本番はPM2ではなくDokploy管理。コンテナでは `.env` ファイルが無い場合があるため、DokployのEnvironment Variablesから渡る `process.env` も設定値として読む
+- Dokployで `.env` が無い場合、Twitch token refresh後の更新値は既定で `/app/data/runtime.env` に保存し、次回起動時はDokploy環境変数より優先して読む。保存先を明示したい場合は `TWITCH_RUNTIME_ENV_FILE=/app/data/runtime.env` のように設定する
 - Dokploy運用では `GIT_AUTO_UPDATE_ENABLED=false` を設定し、コンテナ内の自己 `git pull` / 定期再起動監視を止める。更新はDokployのデプロイで反映する
 - `.github/workflows/deploy.yml` は旧PM2運用向けの手動workflowとして残し、main pushでは起動しない。Dokploy移行後の本番反映はDokploy/Swarmサービス側で確認する
 - サブPCのDokploy用ローカルregistryは `127.0.0.1:5050`。twitchRaidのDokployアプリ `dockerImage` は `localhost:5050/twitch-raid-apcz9n:local` を使う。`127.0.0.1:5000` は現在registryではないため、`localhost:5000/twitch-raid-apcz9n:local` のままだとDokployのpullが `not found` で失敗する
 - Dokployコンテナから `/mnt/e/GitHub/RukalunPage` を見る場合、Windows側checkoutのCRLF差分だけで公開repoがdirtyに見えることがある。公開JSON publisherは追跡済みファイルの空白・改行だけの差分ならremote同期で破棄し、実内容の未コミット変更や未追跡ファイルは引き続き保護してスキップする
 - DokployコンテナのようにGitのglobal `user.name` / `user.email` が未設定の環境でも公開JSONをcommitできるよう、Clip検索JSON publisherはcommit/amend時だけ `twitchRaid Bot <twitchraid-bot@users.noreply.github.com>` をauthor/committerとして明示する
-- DokployコンテナからRukalunPageへpushするには、Dokploy環境変数に `CLIP_SEARCH_PUBLISH_GITHUB_TOKEN` を設定する。`GITHUB_TOKEN` / `GH_TOKEN` もfallbackとして読める。必要に応じて `CLIP_SEARCH_PUBLISH_GITHUB_USERNAME` も設定でき、未指定時は `x-access-token` を使う。トークンはGitコマンド引数へ入れず、fetch/push時のGit環境変数として渡す。GitHub HTTPS pushでtokenが無い場合は、同期後処理全体を例外にせず `github-auth-missing` として公開をスキップし、0件同期の再試行は公開最小間隔で間引く
+- DokployコンテナからRukalunPageへpushするには、Dokploy環境変数に `CLIP_SEARCH_PUBLISH_GITHUB_TOKEN` を設定する。`GITHUB_TOKEN` / `GH_TOKEN` もfallbackとして読める。必要に応じて `CLIP_SEARCH_PUBLISH_GITHUB_USERNAME` も設定でき、未指定時は `x-access-token` を使う。トークンはGitコマンド引数へ入れず、fetch/push時のGit環境変数として渡す。GitHub HTTPS pushでtokenが無い場合は、同期後処理全体を例外にせず `github-auth-missing` として公開をスキップし、0件同期の再試行は公開最小間隔で間引く。同一プロセス内では初回だけWARN、2回目以降はINFOにする
 - サブPC同等Dockerでテストする場合の基準情報は `internal-docs/SUBPC_DOCKER.md` を参照する。確認時点のBotコンテナは WSL2 `Ubuntu-Backup` 上の Docker Engine 29.6.0 / Swarm / Dokploy v0.29.8 で、`node:24-bookworm-slim`、Node.js v24.17.0、`/app/data` と `/mnt/e/GitHub/RukalunPage` のbind mountを使う
 - SQLiteキャッシュ系の調査では、サブPC側の `data/clips.sqlite` の作成状況と更新時刻も確認する
 
@@ -50,6 +51,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 
 ### 環境設定
 - `.env` に Twitch/Discord 認証情報と `LAST_STREAM_TITLE` を設定
+- `.env` が無いDokploy運用では、`TWITCH_RUNTIME_ENV_FILE` を任意で指定できます。未指定かつ通常の `.env` が無い場合は `data/runtime.env` を使い、refresh済み `TWITCH_ACCESS_TOKEN` / `TWITCH_REFRESH_TOKEN` をコンテナ再作成後も再利用します
 - Twitch認証は Bot 動作に必要な最小スコープのみ要求（`chat` / `shoutout` / `chat message delete` 系）。Botが使えるTwitchスタンプ一覧を取得する再認可では追加で `user:read:emotes` を要求します
 - トークン検証時は 401 Unauthorized の場合のみ再取得を実行します
 - 起動時の有効トークン検証と再取得成功時に、付与済みスコープ一覧を `[ECHO]` ログとして出力します
@@ -64,7 +66,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - `CHAT_RECOMMENDATION_ENABLED=false` で配信中の定期おすすめコメントを停止できます（未設定時は有効）。`CHAT_RECOMMENDATION_INTERVAL_MINUTES` で投稿間隔を分単位で変更できます（未設定時は `60`）
 - `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を設定すると、Bot APIで配信開始通知、クリップURL、終了まとめを投稿し、配信開始通知メッセージからDiscordスレッドを作成します。終了まとめとクリップは既存スレッドがある場合だけ投稿し、Bot API投稿が403などで失敗した場合の `DISCORD_WEBHOOK_URL` フォールバックも `thread_id` 付きで同じスレッドへ送ります。スレッドが無い場合は通常Webhookへ外出しせず、pending stateのまま再試行待ちにします
 - `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定すると、Webhookだけで `thread_name` によるスレッド作成を試します。この方式はDiscordのフォーラム/メディアチャンネルWebhook向けです。通常テキストチャンネルWebhookではDiscord側で拒否されるため、自動で通常Webhook投稿へフォールバックします
-- `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定すると、直近Clip同期完了後に公開JSONを再生成し、差分があれば `CLIP_SEARCH_PUBLISH_REPO_DIR` の `main` へcommit/pushします。RukalunPage分離後の既定値は `C:\Users\mlove\Documents\GitHub\RukalunPage` と、その配下の `clip-search-data.json` です。別パスで運用する場合だけ `CLIP_SEARCH_PUBLISH_REPO_DIR` と `CLIP_SEARCH_DATA_PATH` を指定します。公開前には公開repoで `git fetch <remote> <branch>` を行い、`git cherry -v <remote>/<branch> HEAD` でローカルだけのcommitを判定します。公開JSONだけを変更するBotの `Clip検索JSONを同期時刻更新` またはremote側に同等patchがある `-` commitだけなら `<remote>/<branch>` へ戻してから再生成します。ローカル未コミット変更や、`+` の非Bot開発commitがある場合は破壊せず自動公開をスキップし、ログに `protectedCommits` と `dropEligibleCommits` を出します。pushはcheckout branch名に依存しないよう `HEAD:<branch>` へ行います。新規/復活Clipが0件の同期も `CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS` ごとに公開し、新規/復活Clipまたは削除/非公開Clipの無効化があった場合は間隔内でも公開します。保存0件かつ無効化0件で直前HEADが `Clip検索JSONを同期時刻更新` の場合だけ、そのBot同期commitをamendして `--force-with-lease` でpushします。GitHub HTTPS pushで認証情報が無い場合は `github-auth-missing` としてスキップし、`CLIP_SEARCH_PUBLISH_GITHUB_TOKEN` / `GITHUB_TOKEN` / `GH_TOKEN` の設定を促すWARNログを出します。この場合も0件同期は最小公開間隔で再試行を間引きます。直前HEADがCodexなどの開発commitの場合や、Clip追加・復活・削除/非公開化がある同期では通常commit/pushします。未設定時の公開間隔は5分、remote/branchは `origin` / `main` です。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぎます
+- `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定すると、直近Clip同期完了後に公開JSONを再生成し、差分があれば `CLIP_SEARCH_PUBLISH_REPO_DIR` の `main` へcommit/pushします。RukalunPage分離後の既定値は `C:\Users\mlove\Documents\GitHub\RukalunPage` と、その配下の `clip-search-data.json` です。別パスで運用する場合だけ `CLIP_SEARCH_PUBLISH_REPO_DIR` と `CLIP_SEARCH_DATA_PATH` を指定します。公開前には公開repoで `git fetch <remote> <branch>` を行い、`git cherry -v <remote>/<branch> HEAD` でローカルだけのcommitを判定します。公開JSONだけを変更するBotの `Clip検索JSONを同期時刻更新` またはremote側に同等patchがある `-` commitだけなら `<remote>/<branch>` へ戻してから再生成します。ローカル未コミット変更や、`+` の非Bot開発commitがある場合は破壊せず自動公開をスキップし、ログに `protectedCommits` と `dropEligibleCommits` を出します。pushはcheckout branch名に依存しないよう `HEAD:<branch>` へ行います。新規/復活Clipが0件の同期も `CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS` ごとに公開し、新規/復活Clipまたは削除/非公開Clipの無効化があった場合は間隔内でも公開します。保存0件かつ無効化0件で直前HEADが `Clip検索JSONを同期時刻更新` の場合だけ、そのBot同期commitをamendして `--force-with-lease` でpushします。GitHub HTTPS pushで認証情報が無い場合は `github-auth-missing` としてスキップし、`CLIP_SEARCH_PUBLISH_GITHUB_TOKEN` / `GITHUB_TOKEN` / `GH_TOKEN` の設定を促すWARNログを初回だけ出し、同一プロセス内の2回目以降はINFOへ落とします。この場合も0件同期は最小公開間隔で再試行を間引きます。直前HEADがCodexなどの開発commitの場合や、Clip追加・復活・削除/非公開化がある同期では通常commit/pushします。未設定時の公開間隔は5分、remote/branchは `origin` / `main` です。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぎます
 - サブPC運用では `E:\GitHub\RukalunPage` を `https://github.com/jinwktk/RukalunPage.git` のcloneとして用意してください。既存フォルダに `clip-search-data.json` だけがあり `.git` が無い場合、同期後処理で `fatal: not a git repository` になります
 - `OLLAMA_SHOUTOUT_ENABLED=true` と `OLLAMA_SHOUTOUT_MODEL` を設定すると、Raid時にOllama `POST /api/generate` で1通のRaid挨拶文を生成してチャットへ送信します。AI生成文はコード側で250文字以内に丸めます。`OLLAMA_BASE_URL` は未設定時 `http://127.0.0.1:11434`、`OLLAMA_SHOUTOUT_TIMEOUT_MS` は未設定時 `15000`、`OLLAMA_SHOUTOUT_KEEP_ALIVE` は未設定時 `30m` です
 - `CHAT_AI_ENABLED=true` と `CHAT_AI_MODEL`（未設定時は `OLLAMA_MODEL`、さらに `OLLAMA_SHOUTOUT_MODEL`）を設定すると、通常チャットで `@にめいやボットくん` や `@nyme_ia2` のようにBotへメンションされた時だけOllamaで短い返信を生成します。`CHAT_AI_ENABLED` 未設定時は `OLLAMA_SHOUTOUT_ENABLED=true` かつ継承できるモデルがある場合だけ互換的に有効として扱い、明示的な `CHAT_AI_ENABLED=false` または `0` は常に無効化を優先します。`CHAT_AI_BASE_URL` は未設定時 `OLLAMA_BASE_URL` または `http://127.0.0.1:11434`、`CHAT_AI_TIMEOUT_MS` は未設定時 `8000`、`CHAT_AI_TIMEOUT_FALLBACK_REPLY` は未設定時 `今ちょっとAIが混み合ってるD！`、`CHAT_AI_KEEP_ALIVE` は `30m`、`CHAT_AI_MAX_RESPONSE_CHARS` は `200`、`CHAT_AI_COOLDOWN_SECONDS` は `5` です。`CHAT_AI_BOT_ALIASES` と `CHAT_AI_IGNORED_USERS` はカンマ区切りで、未設定時は `CHAT_AI_BOT_ALIASES=にめいやボットくん,nyme_ia2`、`CHAT_AI_IGNORED_USERS=nyme_ia2` を使います。`CHAT_AI_STREAM_IMAGE_ENABLED=true` を設定していても、配信画面・今していること・ゲーム名・試合状況など画面質問の時だけTwitchライブプレビュー画像を取得し、画像取得時だけ `CHAT_AI_VISION_MODEL`（未設定時は `CHAT_AI_MODEL`）を使います。通常の雑談・知識質問・計算質問は `CHAT_AI_MODEL` のテキストモデルで処理します。Ollama timeout時は `reason=timeout` と `timeoutMs` / `elapsedMs` をログへ残し、fallback文が空でなければチャットへ送ります。`CHAT_AI_PROMPT_REPLY_LOG_ENABLED=true` を設定すると、Ollamaへ送る構築済みpromptと生成返信を `プロンプト：...` / `返信：...` 形式でINFOログへ出します
@@ -199,7 +201,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - 一般ユーザーは 30 分のクールダウンが適用
 - クールダウン終了時に Bot がチャットへ「リキャスト復帰」コメントを自動送信
 - `!myclip` は `!clip` とは独立したクールダウン管理
-- 起動後に `data/clips.sqlite` へ全期間クリップをバックグラウンド同期する。Twitch APIの一時的な `Premature close` などで期間窓の取得に失敗した場合は、その期間窓だけ既定2回再試行し、再試行後も失敗した窓は完了扱いにしない
+- 起動後に `data/clips.sqlite` へ全期間クリップをバックグラウンド同期する。Twitch APIの一時的な `Premature close` などで期間窓の取得に失敗した場合は、その期間窓だけ既定2回再試行し、失敗が続く場合は期間窓を二分割して小さい窓で再取得する。分割後の小窓が全て成功した場合は元の大きい窓も完了扱いにし、再試行中はINFOログ、分割後も取れなかった最小窓だけWARNログにする
 - 同期済み期間は `clip_scan_windows` に保存し、再起動後は取得済み期間をスキップ
 - 配信していない時間に1日1回、全期間を再走査してTwitch側で返らなくなったClipを `unavailable_at` 付きで無効化する。直近同期でも、DBに既にあるClipが一覧から消えた場合は `getClipsByIds` で個別確認し、返らないIDだけ削除/非公開として無効化する。ただし作成から2時間以内のClipはTwitch API反映の揺れとして直近削除確認の対象外にし、すでに無効化されていた場合も直近同期時に有効へ戻す
 - 無効化されたClipは `!clip` / `!myclip` と配信まとめクリップ候補から除外され、Twitch APIで再び返った場合は自動で有効化される
@@ -311,7 +313,9 @@ internal-docs/
 ```
 
 ## 更新履歴
-- **2026-06-20**: Twitch APIの一時切断で `clip全期間バックフィル失敗: ... Premature close` が出た場合に、全期間バックフィル全体を即中断せず、失敗した期間窓だけ再試行するようにした。再試行後も失敗する窓は `clip_scan_windows` 完了扱いにせず、次回以降のバックフィル/再走査で再取得できるようにした
+- **2026-06-20**: Twitch APIの一時切断で `clip全期間バックフィル失敗: ... Premature close` が出た場合に、全期間バックフィル全体を即中断せず、失敗した期間窓だけ再試行するようにした。再試行後も失敗する大きい窓は二分割して小さい窓で再取得し、全小窓が成功した場合は親窓も完了扱いにする。分割後も失敗する最小窓は `clip_scan_windows` 完了扱いにせず、次回以降のバックフィル/再走査で再取得できるようにした
+- **2026-06-20**: Dokploy環境変数のTwitch access tokenが古いままでも、refresh後のtokenを永続マウント側 `data/runtime.env` へ保存して次回起動で優先利用するようにした。`Premature close` の再試行中ログはINFOへ下げ、最終未完了だけWARNにした
+- **2026-06-20**: `CLIP_SEARCH_PUBLISH_GITHUB_TOKEN` 未設定時のClip検索JSON公開スキップは、初回だけWARN、同一プロセス内の2回目以降はINFOにして、機密token未投入の状態でもWARNが増え続けないようにした
 - **2026-06-20**: DokployのtwitchRaidアプリが `localhost:5000/twitch-raid-apcz9n:local` をpullして失敗していたため、実registryである `localhost:5050` へ最新imageをpushし、Dokploy DBの対象アプリ `dockerImage` を `localhost:5050/twitch-raid-apcz9n:local` へ修正。Dokploy内部の `deployApplication` で再デプロイし、修正時Deployment `Manual deploy after registry port fix` が `done`、Swarm service imageが `localhost:5050/twitch-raid-apcz9n:local`、実コンテナrevisionが `4da65c0`、起動ログが `全てのチャンネルにログインしました` まで進んだことを確認
 - **2026-06-20**: Dokploy移行後も旧PM2用 `Auto Deploy` workflowがmain pushでqueuedになっていたため、`.github/workflows/deploy.yml` を手動実行専用に変更した。デプロイ確認はGitHub Actionsの旧workflowではなく、Dokploy/Swarmサービスの更新完了、実コンテナrevision、起動ログで確認する
 - **2026-06-20**: `!chat` / Bot宛てAIメンションのOllama timeoutを通常例外と分け、`reason=timeout`、`timeoutMs`、`elapsedMs` をログへ残し、既定では `今ちょっとAIが混み合ってるD！` をチャットへ返すようにした。文面は `CHAT_AI_TIMEOUT_FALLBACK_REPLY` で変更でき、空にするとtimeout時も返信なしにできる

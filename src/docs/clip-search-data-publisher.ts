@@ -224,6 +224,7 @@ export class ClipSearchDataPublisher {
   private readonly gitNetworkEnv: NodeJS.ProcessEnv;
   private running = false;
   private lastPublishedMs = 0;
+  private githubAuthMissingWarned = false;
 
   constructor(options: ClipSearchDataPublisherOptions) {
     this.enabled = options.enabled;
@@ -365,11 +366,20 @@ export class ClipSearchDataPublisher {
       if (!isMissingGithubHttpsCredentials(error)) {
         throw error;
       }
-      logger.warn(
-        "🎬 Clip検索公開JSON更新をスキップ: GitHub HTTPS push用の認証情報がありません。Dokploy環境変数 CLIP_SEARCH_PUBLISH_GITHUB_TOKEN（または GITHUB_TOKEN / GH_TOKEN）を設定してください"
-      );
+      this.logMissingGithubAuth();
       return { status: "skipped", reason: "github-auth-missing" };
     }
+  }
+
+  private logMissingGithubAuth(): void {
+    const message =
+      "🎬 Clip検索公開JSON更新をスキップ: GitHub HTTPS push用の認証情報がありません。Dokploy環境変数 CLIP_SEARCH_PUBLISH_GITHUB_TOKEN（または GITHUB_TOKEN / GH_TOKEN）を設定してください";
+    if (this.githubAuthMissingWarned) {
+      logger.info(message);
+      return;
+    }
+    this.githubAuthMissingWarned = true;
+    logger.warn(message);
   }
 
   private async canDropLocalCommit(

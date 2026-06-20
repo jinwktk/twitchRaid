@@ -81,6 +81,20 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function canSplitWindow(window: ClipDateWindow): boolean {
+  return window.end.getTime() - window.start.getTime() > ONE_DAY_MS;
+}
+
+function splitWindow(window: ClipDateWindow): [ClipDateWindow, ClipDateWindow] {
+  const middle = new Date(
+    Math.floor((window.start.getTime() + window.end.getTime()) / 2)
+  );
+  return [
+    { start: window.start, end: middle },
+    { start: middle, end: window.end },
+  ];
+}
+
 export function buildClipDateWindows(
   oldest: Date,
   now: Date,
@@ -382,18 +396,16 @@ export class ClipCacheSynchronizer {
     }
 
     const clips = await this.fetchWindow(window);
-    const canSplit = window.end.getTime() - window.start.getTime() > ONE_DAY_MS;
+    const canSplit = canSplitWindow(window);
 
     if (clips.length >= this.splitThreshold && canSplit) {
-      const middle = new Date(
-        Math.floor((window.start.getTime() + window.end.getTime()) / 2)
-      );
+      const [firstWindow, secondWindow] = splitWindow(window);
       const first = await this.syncWindow(
-        { start: window.start, end: middle },
+        firstWindow,
         options
       );
       const second = await this.syncWindow(
-        { start: middle, end: window.end },
+        secondWindow,
         options
       );
       return first + second;
@@ -433,20 +445,65 @@ export class ClipCacheSynchronizer {
         return true;
       } catch (e) {
         if (attempt >= maxAttempts) {
+          if (canSplitWindow(window)) {
+            const splitCompleted = await this.syncSplitWindowAfterFailure(
+              window,
+              options,
+              scanLabel
+            );
+            if (splitCompleted) {
+              return true;
+            }
+          }
           logger.warn(
             `⚠️ ${scanLabel}期間同期をスキップ: ${startAt} - ${endAt}, attempts=${attempt}, error=${e}`
           );
           return false;
         }
 
-        logger.warn(
-          `⚠️ ${scanLabel}期間同期失敗、再試行します: ${startAt} - ${endAt}, attempt=${attempt}/${maxAttempts}, error=${e}`
+        logger.info(
+          `🎬 ${scanLabel}期間同期失敗、再試行します: ${startAt} - ${endAt}, attempt=${attempt}/${maxAttempts}, error=${e}`
         );
         await delay(this.fullWindowRetryDelayMs);
       }
     }
 
     return false;
+  }
+
+  private async syncSplitWindowAfterFailure(
+    window: ClipDateWindow,
+    options: SyncWindowOptions,
+    scanLabel: string
+  ): Promise<boolean> {
+    const startAt = window.start.toISOString();
+    const endAt = window.end.toISOString();
+    const [firstWindow, secondWindow] = splitWindow(window);
+    logger.info(
+      `🎬 ${scanLabel}期間同期失敗のため期間窓を分割します: ${startAt} - ${endAt}`
+    );
+
+    const firstCompleted = await this.syncWindowWithRetry(
+      firstWindow,
+      options,
+      scanLabel
+    );
+    if (this.stopped) return false;
+    const secondCompleted = await this.syncWindowWithRetry(
+      secondWindow,
+      options,
+      scanLabel
+    );
+
+    if (!firstCompleted || !secondCompleted) {
+      return false;
+    }
+
+    this.options.store.markWindowCompleted(startAt, endAt, 0);
+    logger.info(
+      `🎬 ${scanLabel}分割期間同期完了: ${startAt} - ${endAt}`
+    );
+    return true;
   }
 
   private async fetchWindow(window: ClipDateWindow): Promise<HelixClip[]> {
