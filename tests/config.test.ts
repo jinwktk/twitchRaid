@@ -21,6 +21,47 @@ describe("Config", () => {
     }
   });
 
+  it("falls back to process.env when an env file is not available", () => {
+    const keys = [
+      "TWITCH_CLIENT_ID",
+      "TWITCH_ACCESS_TOKEN",
+      "TWITCH_REFRESH_TOKEN",
+      "TWITCH_SECRET_TOKEN",
+      "TWITCH_BROADCASTER_ID",
+      "TWITCH_MODERATOR_ID",
+      "OLLAMA_BASE_URL",
+    ];
+    const previous = new Map(keys.map((key) => [key, process.env[key]]));
+
+    try {
+      process.env.TWITCH_CLIENT_ID = "process-client";
+      process.env.TWITCH_ACCESS_TOKEN = "process-access";
+      process.env.TWITCH_REFRESH_TOKEN = "process-refresh";
+      process.env.TWITCH_SECRET_TOKEN = "process-secret";
+      process.env.TWITCH_BROADCASTER_ID = "process-broadcaster";
+      process.env.TWITCH_MODERATOR_ID = "process-moderator";
+      process.env.OLLAMA_BASE_URL = "http://192.168.0.99:11434";
+
+      const config = new Config(path.join(os.tmpdir(), "missing-dokploy.env"));
+
+      expect(config.twitchClientId).toBe("process-client");
+      expect(config.twitchAccessToken).toBe("process-access");
+      expect(config.twitchRefreshToken).toBe("process-refresh");
+      expect(config.twitchSecretToken).toBe("process-secret");
+      expect(config.twitchBroadcasterId).toBe("process-broadcaster");
+      expect(config.twitchModeratorId).toBe("process-moderator");
+      expect(config.ollamaBaseUrl).toBe("http://192.168.0.99:11434");
+    } finally {
+      for (const [key, value] of previous) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+  });
+
   it("loads clip search auto-publish settings for GitHub Pages JSON updates", () => {
     const envPath = writeEnvFile(`
 TWITCH_CLIENT_ID=client

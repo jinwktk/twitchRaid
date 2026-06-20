@@ -141,7 +141,12 @@ export class Config {
 
   constructor(envFile = ".env") {
     this.envFile = path.resolve(BASE_DIR, envFile);
-    const env = dotenvConfig({ path: this.envFile }).parsed ?? {};
+    const parsedEnv =
+      dotenvConfig({ path: this.envFile, processEnv: {} }).parsed ?? {};
+    const env = {
+      ...process.env,
+      ...parsedEnv,
+    };
 
     // Twitch設定
     this.loginChannel = "rukalun";

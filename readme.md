@@ -2,14 +2,14 @@
 
 ## セットアップ
 
-### TypeScript版（v2.0 - PM2管理対応）
+### TypeScript版（v2.0）
 
 ```bash
 npm install
 npm run build
 ```
 
-### PM2で起動
+### PM2で起動（旧運用）
 ```bash
 npm run pm2:start   # 起動
 npm run pm2:stop    # 停止
@@ -19,7 +19,8 @@ npm run pm2:logs    # ログ確認
 - PM2プロセス名は本番運用に合わせて `twitchRaid` に統一しています
 
 ### ログ確認運用
-- BotはサブPCで動かす運用のため、問題確認時はローカル作業PCのログだけでなく、必ずサブPC側のPM2ログと `logs/bot_YYYY-MM-DD.log` を確認する
+- BotはサブPCで動かす運用のため、問題確認時はローカル作業PCのログだけでなく、必ずサブPC側のDokploy/Swarmログと `logs/bot_YYYY-MM-DD.log` を確認する
+- 2026-06-20以降のサブPC本番はPM2ではなくDokploy管理。コンテナでは `.env` ファイルが無い場合があるため、DokployのEnvironment Variablesから渡る `process.env` も設定値として読む
 - SQLiteキャッシュ系の調査では、サブPC側の `data/clips.sqlite` の作成状況と更新時刻も確認する
 
 ### 技術設計書
@@ -303,6 +304,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-20**: Dokploy移行後のコンテナ起動で `TWITCH_CLIENT_ID` などが空扱いになり、Twitch token refresh が `missing client id` で失敗していた問題を修正。`Config` は `.env` の parsed 値を優先しつつ、`.env` が無いコンテナでは `process.env` をfallbackとして読む
 - **2026-06-20**: OllamaMemoryHub連携を廃止し、AIメンション会話の記憶保存・参照を `CHAT_AI_MEMORY_PATH` のローカルJSONに一本化した。`CHAT_AI_MEMORY_HUB_*` は読み込まず、`!chat` とBot宛てメンションはHub APIへ接続しない。明示メモ依頼のログ伏せ字は自動学習が無効でも適用する
 - **2026-06-20**: `CHAT_AI_PROMPT_REPLY_LOG_ENABLED=true` を追加。AIメンション会話の成功時に、Ollamaへ送った構築済みprompt全文と生成返信を `プロンプト：...` / `返信：...` 形式でログへ出せるようにした。既定は無効
 - **2026-06-19**: Twitchチャットで日本語ハンドルURLがリンク化されず、ASCIIエンコードURLも読み上げが長くなるため、`!youtube` の返却URLを作成済み短縮URL `https://is.gd/rukalunyt` へ変更した。短縮URLは指定YouTubeチャンネルへ301リダイレクトすることを確認済み
