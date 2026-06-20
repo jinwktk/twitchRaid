@@ -33,9 +33,22 @@
 - `sub-ai-local-registry`: `registry:2`, `127.0.0.1:5050->5000/tcp`。twitchRaidのDokploy pullで使うローカルregistry
 - `twitch-raid-apcz9n`: `localhost:5050/twitch-raid-apcz9n:local`
 - `yomiage-bot-ex-nwywip`: `localhost:5000/yomiage-bot-ex-nwywip:local`
-- `sub-ai-test_ollama`: `ollama/ollama:latest`, `*:11435->11434/tcp`
-- `sub-ai-test_whisper-api`: `localhost:5000/sub-whisper-api:local`, `*:5002->5001/tcp`
-- `sub-ai-test_sbvits2`: `localhost:5000/sub-sbvits2:local`, 確認時点では `0/1`
+- `sub-ai_ollama`: `ollama/ollama:latest`, `*:11434->11434/tcp`
+- `sub-ai_whisper-api`: `localhost:5050/sub-whisper-api:local`, `*:8888->5001/tcp`
+- `sub-ai_sbvits2`: `localhost:5050/sub-sbvits2:local`, `*:5000->5000/tcp`
+
+## SUB AI Services GPU確認
+
+2026-06-20 22:01 JST時点で、Ollama Docker化後のGPU可視性を確認した。
+
+- Dockerホストは `default-runtime=nvidia`。`/etc/docker/daemon.json` も `nvidia-container-runtime` を既定にしており、NVIDIA Container Toolkit 1.19.1 が入っている。
+- GPUは `NVIDIA GeForce RTX 2070 SUPER`、Driver `591.86`、8GB VRAM。確認時点の使用量は約 `7630MiB / 8192MiB`。
+- `sub-ai_ollama` / `sub-ai_whisper-api` / `sub-ai_sbvits2` は、Swarm serviceの `Resources={}` でGPU予約は無い。ただし実コンテナは `Runtime=nvidia`、`NVIDIA_VISIBLE_DEVICES=all`、`NVIDIA_DRIVER_CAPABILITIES=compute,utility` で起動しており、各コンテナ内の `nvidia-smi` はRTX 2070 SUPERを表示した。
+- `sub-ai_ollama`: `ollama ps` で `qwen3.5:9b` が `20%/80% CPU/GPU`、`size_vram=4978324273`。Docker化後もGPU runnerを使っているが、8GB VRAMでは一部CPU offloadになる。ロード済み状態の短文生成は約1.5秒、`load_duration` は約0.89秒だった。
+- `sub-ai_whisper-api`: `WHISPER_DEVICE=cuda`、`WHISPER_COMPUTE_TYPE=int8`。`torch` は入っていないが、実装が使うCTranslate2で `cuda_device_count=1`、CUDA compute typeは `int8_float16` / `int8_float32` / `float32` / `int8` / `float16` を返した。
+- `sub-ai_sbvits2`: PyTorchで `torch.cuda.is_available=True`、`torch.cuda.device_count=1`、`torch.cuda.device_name=NVIDIA GeForce RTX 2070 SUPER`。ログでも `Model loaded successfully ... to "cuda" device` を確認した。
+
+結論として、Ollama Docker化でGPUが見えなくなったわけではない。SUB AI Servicesが同じ8GB GPUを共有し、Whisper/SBVITS2/OllamaがGPUを使える状態でVRAMがほぼ埋まっているため、`qwen3.5:9b` のcold load時に一部CPU offloadとロード待ちが発生し、Bot側の `CHAT_AI_TIMEOUT_MS=45000` に到達しやすい。
 
 ## Botサービス
 - Service: `twitch-raid-apcz9n`
