@@ -311,7 +311,7 @@ internal-docs/
 ```
 
 ## 更新履歴
-- **2026-06-20**: DokployのtwitchRaidアプリが `localhost:5000/twitch-raid-apcz9n:local` をpullして失敗していたため、実registryである `localhost:5050` へ最新imageをpushし、Dokploy DBの対象アプリ `dockerImage` を `localhost:5050/twitch-raid-apcz9n:local` へ修正。Dokploy内部の `deployApplication` で再デプロイし、最新Deployment `Manual deploy after registry port fix` が `done`、Swarm service imageが `localhost:5050/twitch-raid-apcz9n:local`、実コンテナrevisionが `4da65c0`、起動ログが `全てのチャンネルにログインしました` まで進んだことを確認
+- **2026-06-20**: DokployのtwitchRaidアプリが `localhost:5000/twitch-raid-apcz9n:local` をpullして失敗していたため、実registryである `localhost:5050` へ最新imageをpushし、Dokploy DBの対象アプリ `dockerImage` を `localhost:5050/twitch-raid-apcz9n:local` へ修正。Dokploy内部の `deployApplication` で再デプロイし、修正時Deployment `Manual deploy after registry port fix` が `done`、Swarm service imageが `localhost:5050/twitch-raid-apcz9n:local`、実コンテナrevisionが `4da65c0`、起動ログが `全てのチャンネルにログインしました` まで進んだことを確認
 - **2026-06-20**: Dokploy移行後も旧PM2用 `Auto Deploy` workflowがmain pushでqueuedになっていたため、`.github/workflows/deploy.yml` を手動実行専用に変更した。デプロイ確認はGitHub Actionsの旧workflowではなく、Dokploy/Swarmサービスの更新完了、実コンテナrevision、起動ログで確認する
 - **2026-06-20**: `!chat` / Bot宛てAIメンションのOllama timeoutを通常例外と分け、`reason=timeout`、`timeoutMs`、`elapsedMs` をログへ残し、既定では `今ちょっとAIが混み合ってるD！` をチャットへ返すようにした。文面は `CHAT_AI_TIMEOUT_FALLBACK_REPLY` で変更でき、空にするとtimeout時も返信なしにできる
 - **2026-06-20**: GitHub HTTPS push用tokenが無いDokploy環境で、Clip検索公開JSON publisherが `could not read Username for 'https://github.com'` を上位例外にせず、`github-auth-missing` としてスキップし、`CLIP_SEARCH_PUBLISH_GITHUB_TOKEN` / `GITHUB_TOKEN` / `GH_TOKEN` の設定を促すWARNログを出すようにした。0件同期での同じWARNは公開最小間隔で再試行を間引く
