@@ -23,6 +23,7 @@ npm run pm2:logs    # ログ確認
 - 2026-06-20以降のサブPC本番はPM2ではなくDokploy管理。コンテナでは `.env` ファイルが無い場合があるため、DokployのEnvironment Variablesから渡る `process.env` も設定値として読む
 - Dokploy運用では `GIT_AUTO_UPDATE_ENABLED=false` を設定し、コンテナ内の自己 `git pull` / 定期再起動監視を止める。更新はDokployのデプロイで反映する
 - `.github/workflows/deploy.yml` は旧PM2運用向けの手動workflowとして残し、main pushでは起動しない。Dokploy移行後の本番反映はDokploy/Swarmサービス側で確認する
+- サブPCのDokploy用ローカルregistryは `127.0.0.1:5050`。twitchRaidのDokployアプリ `dockerImage` は `localhost:5050/twitch-raid-apcz9n:local` を使う。`127.0.0.1:5000` は現在registryではないため、`localhost:5000/twitch-raid-apcz9n:local` のままだとDokployのpullが `not found` で失敗する
 - Dokployコンテナから `/mnt/e/GitHub/RukalunPage` を見る場合、Windows側checkoutのCRLF差分だけで公開repoがdirtyに見えることがある。公開JSON publisherは追跡済みファイルの空白・改行だけの差分ならremote同期で破棄し、実内容の未コミット変更や未追跡ファイルは引き続き保護してスキップする
 - DokployコンテナのようにGitのglobal `user.name` / `user.email` が未設定の環境でも公開JSONをcommitできるよう、Clip検索JSON publisherはcommit/amend時だけ `twitchRaid Bot <twitchraid-bot@users.noreply.github.com>` をauthor/committerとして明示する
 - DokployコンテナからRukalunPageへpushするには、Dokploy環境変数に `CLIP_SEARCH_PUBLISH_GITHUB_TOKEN` を設定する。`GITHUB_TOKEN` / `GH_TOKEN` もfallbackとして読める。必要に応じて `CLIP_SEARCH_PUBLISH_GITHUB_USERNAME` も設定でき、未指定時は `x-access-token` を使う。トークンはGitコマンド引数へ入れず、fetch/push時のGit環境変数として渡す。GitHub HTTPS pushでtokenが無い場合は、同期後処理全体を例外にせず `github-auth-missing` として公開をスキップし、0件同期の再試行は公開最小間隔で間引く
@@ -310,6 +311,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-20**: DokployのtwitchRaidアプリが `localhost:5000/twitch-raid-apcz9n:local` をpullして失敗していたため、実registryである `localhost:5050` へ最新imageをpushし、Dokploy DBの対象アプリ `dockerImage` を `localhost:5050/twitch-raid-apcz9n:local` へ修正。Dokploy内部の `deployApplication` で再デプロイし、最新Deployment `Manual deploy after registry port fix` が `done`、Swarm service imageが `localhost:5050/twitch-raid-apcz9n:local`、実コンテナrevisionが `4da65c0`、起動ログが `全てのチャンネルにログインしました` まで進んだことを確認
 - **2026-06-20**: Dokploy移行後も旧PM2用 `Auto Deploy` workflowがmain pushでqueuedになっていたため、`.github/workflows/deploy.yml` を手動実行専用に変更した。デプロイ確認はGitHub Actionsの旧workflowではなく、Dokploy/Swarmサービスの更新完了、実コンテナrevision、起動ログで確認する
 - **2026-06-20**: `!chat` / Bot宛てAIメンションのOllama timeoutを通常例外と分け、`reason=timeout`、`timeoutMs`、`elapsedMs` をログへ残し、既定では `今ちょっとAIが混み合ってるD！` をチャットへ返すようにした。文面は `CHAT_AI_TIMEOUT_FALLBACK_REPLY` で変更でき、空にするとtimeout時も返信なしにできる
 - **2026-06-20**: GitHub HTTPS push用tokenが無いDokploy環境で、Clip検索公開JSON publisherが `could not read Username for 'https://github.com'` を上位例外にせず、`github-auth-missing` としてスキップし、`CLIP_SEARCH_PUBLISH_GITHUB_TOKEN` / `GITHUB_TOKEN` / `GH_TOKEN` の設定を促すWARNログを出すようにした。0件同期での同じWARNは公開最小間隔で再試行を間引く

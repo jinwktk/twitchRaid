@@ -5,6 +5,7 @@
 - 接続経路: `ssh sub` から `wsl.exe -d Ubuntu-Backup`
 - 目的: サブPC本番と同等のDocker条件でビルド・テストするときの基準情報を残す
 - 注意: Twitch/Discord/GitHub token、webhook、client secretなどの秘密値は記録しない
+- 追記: 2026-06-20 20:26 JST時点で、twitchRaidのDokployアプリは `localhost:5050/twitch-raid-apcz9n:local` をpullする設定へ修正済み
 
 ## Dockerホスト
 - WSL distro: `Ubuntu-Backup`
@@ -28,8 +29,9 @@
 - `dokploy-postgres`: `postgres:16`
 - `dokploy-redis`: `redis:7`
 - `dokploy-traefik`: `traefik:v3.6.7`, `80/tcp`, `443/tcp`, `443/udp`
-- `sub-local-registry`: `registry:2`, `127.0.0.1:5000->5000/tcp`
-- `twitch-raid-apcz9n`: `localhost:5000/twitch-raid-apcz9n:local`
+- `sub-local-registry`: `registry:2`, `127.0.0.1:5000->5000/tcp`。ただし確認時点の `127.0.0.1:5000/v2/` はregistry応答ではなくUvicorn 404になるため、twitchRaidのDokploy pullには使わない
+- `sub-ai-local-registry`: `registry:2`, `127.0.0.1:5050->5000/tcp`。twitchRaidのDokploy pullで使うローカルregistry
+- `twitch-raid-apcz9n`: `localhost:5050/twitch-raid-apcz9n:local`
 - `yomiage-bot-ex-nwywip`: `localhost:5000/yomiage-bot-ex-nwywip:local`
 - `sub-ai-test_ollama`: `ollama/ollama:latest`, `*:11435->11434/tcp`
 - `sub-ai-test_whisper-api`: `localhost:5000/sub-whisper-api:local`, `*:5002->5001/tcp`
@@ -37,8 +39,9 @@
 
 ## Botサービス
 - Service: `twitch-raid-apcz9n`
-- Image: `localhost:5000/twitch-raid-apcz9n:local`
-- Image ID: `sha256:477d36ab4496e61670e075ef156db118067af381ca592dd136a86525209d2203`
+- Image: `localhost:5050/twitch-raid-apcz9n:local`
+- Deployment digest: `sha256:415223bb9185b66d331c40746b4b747d667995b09dc0dbfd5f34d47b0dcb7e54`
+- Revision label: `4da65c09ef3eabdcd298d3591b6fa3d97cc3a2f6`
 - Entrypoint: `docker-entrypoint.sh`
 - Command: `npm run start`
 - Working dir: `/app`
@@ -53,6 +56,28 @@
 - Restart policy: Swarm service側は `Condition=any`, `Delay=5s`
 - Update policy: `start-first`, `FailureAction=rollback`
 - Placement: `node.role==manager`
+
+## 2026-06-20 Dokploy registry修正
+
+Dokploy UIのDeploymentでは、対象アプリ `tZTEPPXj2qfOwAAPpdCmD` が `localhost:5000/twitch-raid-apcz9n:local` をpullしようとして `not found` で失敗していた。サブPC上で確認すると、`127.0.0.1:5000/v2/` はDocker registryではなくUvicorn 404を返し、実際にpullできるローカルregistryは `127.0.0.1:5050` だった。
+
+対応内容:
+
+- Dokploy Postgresの対象application行を `/tmp/twitchraid-dokploy-application-before-20260620T112344Z.json` にバックアップ
+- 最新imageを `localhost:5050/twitch-raid-apcz9n:local` と `localhost:5050/twitch-raid-apcz9n:4da65c0` にpush
+- Dokploy DBの対象application `dockerImage` を `localhost:5050/twitch-raid-apcz9n:local` に更新
+- Dokployコンテナ内の `@dokploy/server` から `deployApplication` を呼び出して再デプロイ
+- 誤更新時はバックアップJSONの対象行を確認し、復元対象のapplication IDと変更対象カラムを限定してから戻す。秘密値を含み得るため、バックアップJSONの中身はチャットや公開repoへ貼らない
+
+成功確認:
+
+- Dokploy deployment `BJsyVlP-dSEQqALOGNwGK`: `Manual deploy after registry port fix`、status `done`
+- Deployment log: `Pulling localhost:5050/twitch-raid-apcz9n:local`、`✅ Pulling image completed.`
+- Swarm service `twitch-raid-apcz9n`: image `localhost:5050/twitch-raid-apcz9n:local`、update completed
+- 実行中container: image `localhost:5050/twitch-raid-apcz9n:local`、revision `4da65c09ef3eabdcd298d3591b6fa3d97cc3a2f6`
+- Botログ: `=== TwitchRaid Bot Starting (TypeScript) ===`、`内部Git自動更新は無効です。Dokployのデプロイ管理を使用します。`、`全てのチャンネルにログインしました`
+
+今後Dokploy UIから再デプロイするときも、twitchRaidアプリのimageは `localhost:5050/twitch-raid-apcz9n:local` のままにする。`localhost:5000/twitch-raid-apcz9n:local` へ戻すと同じpull失敗になる。
 
 ## Botサービスのbind mount
 - `/mnt/e/GitHub/twitchRaid/data` -> `/app/data`
@@ -145,4 +170,4 @@ docker run --rm \
     && npm run build"
 ```
 
-ランタイム起動まで再現する場合は上記Dockerfile相当でイメージを作り、`/app/data` と `/mnt/e/GitHub/RukalunPage` をbind mountし、Dokployと同じ環境変数を渡す。ただし本番secretをローカルテストへ流用しない。
+ランタイム起動まで再現する場合は上記Dockerfile相当でイメージを作り、`/app/data` と `/mnt/e/GitHub/RukalunPage` をbind mountし、Dokployと同じ環境変数を渡す。ただし本番secretをローカルテストへ流用しない。サブPCDokployへ手動でimageを供給する場合は `localhost:5050/twitch-raid-apcz9n:local` へpushする。
