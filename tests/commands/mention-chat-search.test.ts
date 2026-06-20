@@ -88,7 +88,7 @@ describe("mention chat external search", () => {
   it("formats SearXNG results and can restrict the request to Google", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({
-        query: "るっかるん",
+        query: "るっかるん rukalun",
         results: [
           {
             title: "るっかるん - Twitch",
@@ -121,7 +121,7 @@ describe("mention chat external search", () => {
 
     const url = new URL(String(fetchImpl.mock.calls[0][0]));
     expect(url.pathname).toBe("/search");
-    expect(url.searchParams.get("q")).toBe("るっかるん");
+    expect(url.searchParams.get("q")).toBe("るっかるん rukalun");
     expect(url.searchParams.get("format")).toBe("json");
     expect(url.searchParams.get("engines")).toBe("google");
     expect(result?.resultCount).toBe(2);

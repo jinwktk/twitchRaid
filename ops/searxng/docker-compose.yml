@@ -1,15 +1,25 @@
 services:
   searxng:
     image: searxng/searxng:latest
-    restart: unless-stopped
     environment:
       SEARXNG_BASE_URL: http://searxng:8080/
     volumes:
-      - ./settings.yml:/etc/searxng/settings.yml:ro
-    ports:
-      - "8899:8080"
+      - /home/mlove/dokploy/searxng/settings.yml:/etc/searxng/settings.yml:ro
     networks:
-      - dokploy-network
+      dokploy-network:
+        aliases:
+          - searxng
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      placement:
+        constraints:
+          - node.role == manager
+      update_config:
+        order: start-first
+        failure_action: rollback
 
 networks:
   dokploy-network:

@@ -12,8 +12,13 @@ describe("SearXNG self-hosting config", () => {
     );
 
     expect(compose).toContain("searxng/searxng:latest");
-    expect(compose).toContain("8899:8080");
-    expect(compose).toContain("./settings.yml:/etc/searxng/settings.yml:ro");
+    expect(compose).toContain(
+      "/home/mlove/dokploy/searxng/settings.yml:/etc/searxng/settings.yml:ro"
+    );
+    expect(compose).toContain("aliases:");
+    expect(compose).toContain("- searxng");
+    expect(compose).toContain("restart_policy:");
+    expect(compose).not.toContain("ports:");
   });
 
   it("enables JSON output and keeps Google as the only default engine", () => {

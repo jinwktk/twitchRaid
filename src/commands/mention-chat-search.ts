@@ -155,6 +155,14 @@ function normalizeSearchQuery(value: string): string {
     query = singleLine(query.replace(/[、。！？!?]+$/gu, ""));
   }
 
+  return applyKnownSearchAliases(query);
+}
+
+function applyKnownSearchAliases(query: string): string {
+  if (/るっかるん/u.test(query) && !/\brukalun\b/iu.test(query)) {
+    return singleLine(`${query} rukalun`);
+  }
+
   return query;
 }
 
