@@ -25,6 +25,7 @@ npm run pm2:logs    # ログ確認
 - Dokployコンテナから `/mnt/e/GitHub/RukalunPage` を見る場合、Windows側checkoutのCRLF差分だけで公開repoがdirtyに見えることがある。公開JSON publisherは追跡済みファイルの空白・改行だけの差分ならremote同期で破棄し、実内容の未コミット変更や未追跡ファイルは引き続き保護してスキップする
 - DokployコンテナのようにGitのglobal `user.name` / `user.email` が未設定の環境でも公開JSONをcommitできるよう、Clip検索JSON publisherはcommit/amend時だけ `twitchRaid Bot <twitchraid-bot@users.noreply.github.com>` をauthor/committerとして明示する
 - DokployコンテナからRukalunPageへpushするには、Dokploy環境変数に `CLIP_SEARCH_PUBLISH_GITHUB_TOKEN` を設定する。必要に応じて `CLIP_SEARCH_PUBLISH_GITHUB_USERNAME` も設定でき、未指定時は `x-access-token` を使う。トークンはGitコマンド引数へ入れず、fetch/push時のGit環境変数として渡す
+- サブPC同等Dockerでテストする場合の基準情報は `internal-docs/SUBPC_DOCKER.md` を参照する。確認時点のBotコンテナは WSL2 `Ubuntu-Backup` 上の Docker Engine 29.6.0 / Swarm / Dokploy v0.29.8 で、`node:24-bookworm-slim`、Node.js v24.17.0、`/app/data` と `/mnt/e/GitHub/RukalunPage` のbind mountを使う
 - SQLiteキャッシュ系の調査では、サブPC側の `data/clips.sqlite` の作成状況と更新時刻も確認する
 
 ### 技術設計書
@@ -34,7 +35,7 @@ npm run pm2:logs    # ログ確認
 - Clip検索画面は公開URLで使うため、画面上には仕様書、内部運用、JSON生成手順への導線を出しません
 - twitchRaid側の `docs/index.html` / `docs/clip-search.html` / `docs/typescript-bot-spec.html` は `https://jinwktk.github.io/RukalunPage/` へ案内するだけの旧URL互換ページです
 - RukalunPageの `main` ブランチ更新時にRukalunPage側の `.github/workflows/pages.yml` がGitHub Pagesへ公開します
-- Markdown設計資料は `internal-docs/ARCHITECTURE.md` / `internal-docs/COMMANDS.md` / `internal-docs/DESIGN_PATTERNS.md` / `internal-docs/TECH_STACK.md` に補助資料として残しています
+- Markdown設計資料は `internal-docs/ARCHITECTURE.md` / `internal-docs/COMMANDS.md` / `internal-docs/DESIGN_PATTERNS.md` / `internal-docs/TECH_STACK.md` / `internal-docs/SUBPC_DOCKER.md` に補助資料として残しています
 
 ### 直接起動
 ```bash
