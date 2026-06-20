@@ -454,7 +454,7 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "二回目だよD！");
   });
 
-  it("passes the current stream preview image to the vision model when enabled", async () => {
+  it("does not fetch or pass stream images even when the deprecated image setting is enabled", async () => {
     const { bot, say } = makeBot({
       chatAiStreamImageEnabled: true,
       chatAiVisionModel: "qwen2.5vl:7b",
@@ -469,23 +469,10 @@ describe("Bot mention chat", () => {
         }),
       },
     };
-    const imageBytes = new Uint8Array([1, 2, 3]);
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockImplementation(async (input) => {
-        const url = String(input);
-        if (url.startsWith("https://static-cdn.jtvnw.net/")) {
-          return {
-            ok: true,
-            arrayBuffer: async () => imageBytes.buffer,
-          } as Response;
-        }
-
-        return {
-          ok: true,
-          json: async () => ({ response: "画面も見たよD！" }),
-        } as Response;
-      });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "画面は見ずに答えるD！" }),
+    } as Response);
 
     await bot._handleRegularMessage(
       "#rukalun",
@@ -497,14 +484,14 @@ describe("Bot mention chat", () => {
     const ollamaCall = fetchSpy.mock.calls.find(([input]) =>
       String(input).endsWith("/api/generate")
     );
-    expect(bot.apiClient.streams.getStreamByUserName).toHaveBeenCalledWith(
-      "rukalun"
-    );
+    expect(bot.apiClient.streams.getStreamByUserName).not.toHaveBeenCalled();
     expect(ollamaCall).toBeDefined();
     const body = JSON.parse(ollamaCall?.[1]?.body as string);
-    expect(body.model).toBe("qwen2.5vl:7b");
-    expect(body.images).toEqual(["AQID"]);
-    expect(say).toHaveBeenCalledWith("#rukalun", "画面も見たよD！");
+    expect(body.model).toBe("qwen2.5:7b");
+    expect(body.images).toBeUndefined();
+    expect(body.system).not.toContain("画像から分かる内容");
+    expect(body.prompt).toContain("配信画面画像: 添付なし");
+    expect(say).toHaveBeenCalledWith("#rukalun", "画面は見ずに答えるD！");
   });
 
   it("uses the text model and skips stream image fetches for non-visual chat", async () => {

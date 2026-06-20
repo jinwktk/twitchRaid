@@ -61,7 +61,6 @@ import {
   extractMentionChatPrompt,
   formatMentionChatLogValue,
   generateMentionChatReply,
-  isMentionChatStreamImageQuestion,
 } from "./commands/mention-chat";
 import {
   loadMentionChatMemory,
@@ -106,9 +105,6 @@ import { restartProcess } from "./utils/process-restart";
 const MANGA_DELETE_DELAY_SECONDS = 10;
 const DEFAULT_MENTION_CHAT_COOLDOWN_SECONDS = 5;
 const MENTION_CHAT_SKIP_PROMPT_LIMIT = 80;
-const MENTION_CHAT_STREAM_IMAGE_WIDTH = 640;
-const MENTION_CHAT_STREAM_IMAGE_HEIGHT = 360;
-const MENTION_CHAT_STREAM_IMAGE_TIMEOUT_MS = 5_000;
 const CHAT_AI_COMMAND_USAGE = "⚠️ 使い方: !chat <メッセージ>";
 const YOUTUBE_CHANNEL_URL = "https://is.gd/rukalunyt";
 const HELP_MESSAGE =
@@ -149,11 +145,6 @@ interface MentionChatInput {
   alias: string;
   prompt: string;
   now: number;
-}
-
-interface StreamThumbnailSource {
-  getThumbnailUrl?: (width: number, height: number) => string;
-  thumbnailUrl?: string | null;
 }
 
 export class Bot {
@@ -546,10 +537,7 @@ export class Bot {
     this.lastMentionChatAttemptAt = now;
     this.mentionChatInFlight = true;
     try {
-      const shouldUseStreamImage = isMentionChatStreamImageQuestion(request.prompt);
-      const streamImageBase64 = shouldUseStreamImage
-        ? await this._fetchMentionChatStreamImageBase64()
-        : null;
+      const streamImageBase64: string | null = null;
       const learnResult = saveMentionChatAutoLearnMemory({
         enabled: this.config.chatAiAutoLearnEnabled ?? false,
         filePath: this.config.chatAiMemoryPath ?? "",
@@ -605,10 +593,7 @@ export class Bot {
           }`
         );
       }
-      const model =
-        shouldUseStreamImage && streamImageBase64 && this.config.chatAiVisionModel
-          ? this.config.chatAiVisionModel
-          : this.config.chatAiModel ?? "";
+      const model = this.config.chatAiModel ?? "";
       const promptLogValue = isMentionChatMemoryRequest(request.prompt)
         ? MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE
         : request.prompt;
@@ -668,67 +653,6 @@ export class Bot {
       0,
       Math.ceil(cooldownSeconds - (now - this.lastMentionChatAttemptAt))
     );
-  }
-
-  private async _fetchMentionChatStreamImageBase64(): Promise<string | null> {
-    if (!(this.config.chatAiStreamImageEnabled ?? false)) return null;
-    if (!this.apiClient) return null;
-
-    try {
-      const stream = await this.apiClient.streams.getStreamByUserName(
-        this.config.loginChannel
-      );
-      if (!stream) return null;
-
-      const thumbnailUrl = this._resolveMentionChatStreamThumbnailUrl(stream);
-      if (!thumbnailUrl) return null;
-
-      const response = await fetch(thumbnailUrl, {
-        signal: AbortSignal.timeout(
-          Math.min(
-            this.config.chatAiTimeoutMs ?? MENTION_CHAT_STREAM_IMAGE_TIMEOUT_MS,
-            MENTION_CHAT_STREAM_IMAGE_TIMEOUT_MS
-          )
-        ),
-      });
-      if (!response.ok) {
-        logger.warn(
-          `⚠️ AIメンション会話の配信画像取得失敗: status=${response.status}`
-        );
-        return null;
-      }
-
-      const bytes = Buffer.from(await response.arrayBuffer());
-      if (bytes.length === 0) return null;
-
-      logger.info(
-        `AIメンション会話へ配信画像を添付: bytes=${bytes.length}`
-      );
-      return bytes.toString("base64");
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      logger.warn(
-        `⚠️ AIメンション会話の配信画像取得失敗: reason=exception, error=${message}`
-      );
-      return null;
-    }
-  }
-
-  private _resolveMentionChatStreamThumbnailUrl(
-    stream: StreamThumbnailSource
-  ): string | null {
-    if (typeof stream.getThumbnailUrl === "function") {
-      return stream.getThumbnailUrl(
-        MENTION_CHAT_STREAM_IMAGE_WIDTH,
-        MENTION_CHAT_STREAM_IMAGE_HEIGHT
-      );
-    }
-
-    const thumbnailUrl = stream.thumbnailUrl?.trim();
-    if (!thumbnailUrl) return null;
-    return thumbnailUrl
-      .replace("{width}", String(MENTION_CHAT_STREAM_IMAGE_WIDTH))
-      .replace("{height}", String(MENTION_CHAT_STREAM_IMAGE_HEIGHT));
   }
 
   private async _drainMentionChatQueue(): Promise<void> {

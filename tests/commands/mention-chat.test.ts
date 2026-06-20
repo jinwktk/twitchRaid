@@ -283,16 +283,16 @@ describe("generateMentionChatReply", () => {
     );
   });
 
-  it("passes a stream image to Ollama when provided", async () => {
+  it("ignores stream image input and never sends images to Ollama", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ response: "画面にはゲーム画面が見えるよD！" }),
+      json: async () => ({ response: "画面は見ずに答えるD！" }),
     });
 
     const reply = await generateMentionChatReply({
       enabled: true,
       baseUrl: "http://127.0.0.1:11434",
-      model: "qwen2.5vl:7b",
+      model: "qwen2.5:7b",
       timeoutMs: 3000,
       keepAlive: "30m",
       maxResponseChars: 200,
@@ -304,20 +304,15 @@ describe("generateMentionChatReply", () => {
     });
 
     const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
-    expect(body.model).toBe("qwen2.5vl:7b");
-    expect(body.images).toEqual(["AQID"]);
-    expect(body.system).toContain("画像から分かる内容");
-    expect(body.prompt).toContain("ユーザーの質問に画像から分かる範囲");
-    expect(body.prompt).toContain("ゲーム名");
-    expect(body.prompt).toContain("勝敗や今後の展開は断定しない");
-    expect(body.prompt).toContain("ゲーム名やタイトルを聞かれた場合は正式名称だけでもよい");
-    expect(body.prompt).toContain("聞き返し");
-    expect(body.prompt).toContain("「え？」だけ");
-    expect(body.prompt).toContain("単語だけや数字だけ");
-    expect(reply).toBe("画面にはゲーム画面が見えるよD！");
+    expect(body.model).toBe("qwen2.5:7b");
+    expect(body.images).toBeUndefined();
+    expect(body.system).not.toContain("画像から分かる内容");
+    expect(body.prompt).toContain("配信画面画像: 添付なし");
+    expect(body.prompt).toContain("画面を見えているふりをしないでください");
+    expect(reply).toBe("画面は見ずに答えるD！");
   });
 
-  it("allows English game titles for stream image game-name questions", async () => {
+  it("treats screen game-name questions as normal text chat without image input", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ response: "Apex Legends" }),
@@ -333,10 +328,12 @@ describe("generateMentionChatReply", () => {
       channel: "#rukalun",
       userName: "viewer",
       promptText: "この画面のゲームは何ですか？",
-      streamImageBase64: "AQID",
       fetchImpl,
     });
 
+    const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
+    expect(body.images).toBeUndefined();
+    expect(body.prompt).toContain("配信画面画像: 添付なし");
     expect(reply).toBe("Apex Legends");
   });
 
@@ -383,7 +380,7 @@ describe("generateMentionChatReply", () => {
       fetchImpl,
     });
 
-    expect(reply).toBe("画面だけだと断定できないけど、まだいけそうD！");
+    expect(reply).toBe("画面は見えてないから断定できないけど、まだいけそうD！");
   });
 
   it("uses a safe fallback when a match outcome reply only identifies the game", async () => {
@@ -406,7 +403,7 @@ describe("generateMentionChatReply", () => {
       fetchImpl,
     });
 
-    expect(reply).toBe("画面だけだと断定できないけど、まだいけそうD！");
+    expect(reply).toBe("画面は見えてないから断定できないけど、まだいけそうD！");
   });
 
   it("refuses command execution requests without calling Ollama", async () => {
@@ -599,7 +596,7 @@ describe("generateMentionChatReply", () => {
     );
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining(
-        '⚠️ AIメンション会話生成失敗: reason=http_error, status=503, model="qwen2.5:7b", image=true, prompt="この画面のゲームは何ですか？", elapsedMs='
+        '⚠️ AIメンション会話生成失敗: reason=http_error, status=503, model="qwen2.5:7b", image=false, prompt="この画面のゲームは何ですか？", elapsedMs='
       )
     );
     expect(warnSpy).toHaveBeenCalledWith(
