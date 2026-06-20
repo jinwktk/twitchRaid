@@ -36,6 +36,7 @@
 - `sub-ai_ollama`: `ollama/ollama:latest`, `*:11434->11434/tcp`
 - `sub-ai_whisper-api`: `localhost:5050/sub-whisper-api:local`, `*:8888->5001/tcp`
 - `sub-ai_sbvits2`: `localhost:5050/sub-sbvits2:local`, `*:5000->5000/tcp`
+- `sub-ai_searxng`: `searxng/searxng:latest`, 公開portなし。`dokploy-network` の内部DNS alias `searxng` でtwitchRaid Botから接続する
 
 ## SUB AI Services GPU確認
 
@@ -63,11 +64,11 @@
 
 OllamaのVRAMは `ollama ps` / `/api/ps` の `size_vram` から約4.98GBと分かる。一方、WSL2の `nvidia-smi --query-compute-apps=used_memory` は `N/A` のため、Whisper/SBVITS2/Xwayland/ランタイムの厳密なMiB内訳は非停止では取れない。正確な差分を出す場合は、配信影響を確認したうえでSUB AI Servicesを一つずつ停止し、停止前後の総VRAM差分を見る。
 
-### SUB AI Services分割方針
+### SUB AI Services内SearXNG
 
-2026-06-21時点のSUB AI Servicesは、`sub-ai` Compose stack内に `ollama` / `whisper-api` / `sbvits2` がまとまっている。Dokploy上で3つを個別Compose/Applicationへ分割することは可能だが、分割だけでは単一RTX 2070 SUPER 8GBのVRAM競合は解消しない。
+2026-06-21 01:18 JST時点で、SearXNGは独立stackではなくSUB AI Services内へ移した。Dokploy Compose `sub-ai-services` の `sub-ai` stackに `searxng` serviceを追加し、旧standalone `twitchraid-searxng` は `idle` に停止済み。Swarm上は `sub-ai_ollama` / `sub-ai_whisper-api` / `sub-ai_sbvits2` / `sub-ai_searxng` の4サービス構成。
 
-分割する場合は、既存volume、公開port、内部DNS名、Bot側 `OLLAMA_BASE_URL`、GPU runtime/env、Swarm service名変更の影響を確認する。作業順はOllamaを先に単独化して `http://192.168.0.99:11434` とBot疎通を維持し、その後Whisper API、SBVITS2の順に切り出すのが安全。各段階で `docker service ls`、対象コンテナ内 `nvidia-smi`、ヘルスチェック/API疎通、Botログを確認してから次へ進める。
+SearXNGは `/home/mlove/dokploy/searxng/settings.yml` を `/etc/searxng/settings.yml:ro` にbind mountし、JSON出力とGoogle engineだけを有効化する。公開portは持たせず、Botは `CHAT_AI_SEARCH_ENDPOINT=http://searxng:8080/search` で接続する。Botコンテナから `http://searxng:8080/search?q=...&format=json&engines=google` と実関数 `fetchMentionChatSearchContext("るっかるんについて調べて")` が成功し、検索結果3件を返すことを確認済み。
 
 ## Botサービス
 - Service: `twitch-raid-apcz9n`
@@ -181,7 +182,9 @@ CHAT_AI_MEMORY_PATH=data/chat-ai-memory.json
 CHAT_AI_MEMORY_MAX_ITEMS=8
 CHAT_AI_MEMORY_MAX_CHARS=600
 CHAT_AI_SEARCH_ENABLED=true
-CHAT_AI_SEARCH_ENDPOINT=https://api.duckduckgo.com/
+CHAT_AI_SEARCH_PROVIDER=searxng
+CHAT_AI_SEARCH_ENDPOINT=http://searxng:8080/search
+CHAT_AI_SEARCH_ENGINES=google
 CHAT_AI_SEARCH_TIMEOUT_MS=4000
 CHAT_AI_SEARCH_MAX_RESULTS=3
 CHAT_AI_PROMPT_REPLY_LOG_ENABLED=true

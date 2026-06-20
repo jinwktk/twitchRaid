@@ -1,0 +1,91 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      TZ: Asia/Tokyo
+    volumes:
+      - /mnt/c/Users/mlove/.ollama:/root/.ollama
+    ports:
+      - target: 11434
+        published: 11434
+        protocol: tcp
+        mode: ingress
+    networks:
+      - dokploy-network
+    deploy:
+      restart_policy:
+        condition: any
+
+  whisper-api:
+    image: localhost:5050/sub-whisper-api:local
+    environment:
+      WHISPER_MODEL: kotoba-tech/kotoba-whisper-v2.0-faster
+      WHISPER_DEVICE: cuda
+      WHISPER_COMPUTE_TYPE: int8
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      TZ: Asia/Tokyo
+    volumes:
+      - /mnt/c/Users/mlove/.cache/huggingface:/root/.cache/huggingface
+    ports:
+      - target: 5001
+        published: 8888
+        protocol: tcp
+        mode: ingress
+    networks:
+      - dokploy-network
+    deploy:
+      restart_policy:
+        condition: any
+
+  sbvits2:
+    image: localhost:5050/sub-sbvits2:local
+    working_dir: /app
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+      TZ: Asia/Tokyo
+    volumes:
+      - /opt/sub-ai/sbvits2:/app
+      - /mnt/c/Users/mlove/.cache/huggingface:/root/.cache/huggingface
+    ports:
+      - target: 5000
+        published: 5000
+        protocol: tcp
+        mode: ingress
+    networks:
+      - dokploy-network
+    deploy:
+      restart_policy:
+        condition: any
+
+  searxng:
+    image: searxng/searxng:latest
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+    volumes:
+      - /home/mlove/dokploy/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    networks:
+      dokploy-network:
+        aliases:
+          - searxng
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      placement:
+        constraints:
+          - node.role == manager
+      update_config:
+        order: start-first
+        failure_action: rollback
+
+networks:
+  dokploy-network:
+    external: true

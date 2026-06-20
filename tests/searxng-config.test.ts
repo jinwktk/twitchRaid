@@ -5,12 +5,15 @@ import { describe, expect, it } from "vitest";
 const repoRoot = path.resolve(__dirname, "..");
 
 describe("SearXNG self-hosting config", () => {
-  it("keeps a Docker Compose service for the local SearXNG instance", () => {
+  it("keeps SearXNG inside the SUB AI Services Docker Compose stack", () => {
     const compose = fs.readFileSync(
-      path.join(repoRoot, "ops/searxng/docker-compose.yml"),
+      path.join(repoRoot, "ops/sub-ai-services/docker-compose.yml"),
       "utf8"
     );
 
+    expect(compose).toContain("ollama/ollama:latest");
+    expect(compose).toContain("localhost:5050/sub-whisper-api:local");
+    expect(compose).toContain("localhost:5050/sub-sbvits2:local");
     expect(compose).toContain("searxng/searxng:latest");
     expect(compose).toContain(
       "/home/mlove/dokploy/searxng/settings.yml:/etc/searxng/settings.yml:ro"
@@ -18,7 +21,13 @@ describe("SearXNG self-hosting config", () => {
     expect(compose).toContain("aliases:");
     expect(compose).toContain("- searxng");
     expect(compose).toContain("restart_policy:");
-    expect(compose).not.toContain("ports:");
+    expect(compose).not.toContain("published: 8080");
+  });
+
+  it("does not keep a standalone SearXNG compose stack", () => {
+    expect(
+      fs.existsSync(path.join(repoRoot, "ops/searxng/docker-compose.yml"))
+    ).toBe(false);
   });
 
   it("enables JSON output and keeps Google as the only default engine", () => {
