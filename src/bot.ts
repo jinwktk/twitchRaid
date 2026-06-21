@@ -61,7 +61,7 @@ import {
   extractMentionChatPrompt,
   formatMentionChatLogValue,
   generateMentionChatReply,
-  resolveKnownPersonalQuestionReply,
+  resolveMentionChatImmediateReply,
 } from "./commands/mention-chat";
 import {
   analyzeMentionChatMemoryRequest,
@@ -776,12 +776,15 @@ export class Bot {
     this.mentionChatInFlight = true;
     try {
       const streamImageBase64: string | null = null;
-      const knownPersonalReply = resolveKnownPersonalQuestionReply(
-        request.prompt
-      );
-      if (knownPersonalReply) {
+      const immediateReply = resolveMentionChatImmediateReply(request.prompt);
+      if (immediateReply) {
+        if (immediateReply.reason === "command_execution") {
+          logger.warn(
+            `⚠️ AIメンション会話はコマンド実行依頼を拒否: prompt=${formatMentionChatLogValue(request.prompt)}, reply=${formatMentionChatLogValue(immediateReply.reply)}`
+          );
+        }
         const replyWithEmote = appendContextualChatReplyEmote(
-          knownPersonalReply,
+          immediateReply.reply,
           this.config.chatReplyEmotes,
           {
             source: "mention",

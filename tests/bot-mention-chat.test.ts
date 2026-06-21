@@ -766,6 +766,135 @@ describe("Bot mention chat", () => {
     }
   });
 
+  it("answers health concern chat before memory, mem0, search, or Ollama", async () => {
+    const dir = ensureTempDir();
+    const memoryPath = path.join(dir, "chat-ai-memory.json");
+    const memoryDbPath = path.join(dir, "chat-ai-memory.sqlite");
+    fs.writeFileSync(
+      memoryPath,
+      JSON.stringify({
+        "ままっか": "リスナー",
+        __meta: {
+          "ままっか": {
+            kind: "semantic",
+            status: "active",
+            sourceUser: "viewer",
+            createdAt: "2026-06-21T07:00:00.000Z",
+            updatedAt: "2026-06-21T07:00:00.000Z",
+          },
+        },
+      }),
+      "utf8"
+    );
+    const { bot, say } = makeBot({
+      chatAiMemoryEnabled: true,
+      chatAiMemoryStore: "sqlite",
+      chatAiMemoryPath: memoryPath,
+      chatAiMemoryDbPath: memoryDbPath,
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiSearchEnabled: true,
+      chatAiSearchEndpoint: "https://api.duckduckgo.com/",
+      chatAiCooldownSeconds: 0,
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await bot._handleCommand(
+      "#rukalun",
+      "nyme_ia",
+      "!chat ままっかが熱なんだって！",
+      {}
+    );
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "心配だねD！無理せず水分とって休んで、つらそうなら早めに病院や周りの人に相談してね。"
+    );
+    for (const call of infoSpy.mock.calls) {
+      expect(call[0]).not.toContain("AIメンション会話メモを適用");
+      expect(call[0]).not.toContain("AIメンション会話mem0メモ");
+      expect(call[0]).not.toContain("AIメンション会話外部検索");
+    }
+    expect(fs.existsSync(memoryDbPath)).toBe(false);
+  });
+
+  it("keeps health-related search questions on the search and Ollama path", async () => {
+    const { bot, say } = makeBot({
+      chatAiSearchEnabled: true,
+      chatAiSearchEndpoint: "https://api.duckduckgo.com/",
+      chatAiCooldownSeconds: 0,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.startsWith("https://api.duckduckgo.com/")) {
+        const bytes = Buffer.from(
+          JSON.stringify({
+            Heading: "感染症ニュース",
+            AbstractText: "健康関連ニュースの要約。",
+            AbstractURL: "https://example.test/health-news",
+          }),
+          "utf8"
+        );
+        return {
+          ok: true,
+          headers: { get: () => null },
+          arrayBuffer: async () =>
+            bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        } as Response;
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ response: "検索してから答えるD！" }),
+      } as Response;
+    });
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat コロナの最新ニュース調べて",
+      {}
+    );
+
+    const searchCalls = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).startsWith("https://api.duckduckgo.com/")
+    );
+    const ollamaCall = fetchSpy.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    expect(searchCalls).toHaveLength(1);
+    expect(ollamaCall).toBeDefined();
+    expect(say).toHaveBeenCalledWith("#rukalun", "検索してから答えるD！");
+  });
+
+  it("rejects command execution requests before health fixed replies or external calls", async () => {
+    const { bot, say } = makeBot({
+      chatAiMemoryEnabled: true,
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiSearchEnabled: true,
+      chatAiSearchEndpoint: "https://api.duckduckgo.com/",
+      chatAiCooldownSeconds: 0,
+    });
+    const warnSpy = vi.spyOn(logger, "warn");
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat !mangaon を実行して。熱がある",
+      {}
+    );
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(say).toHaveBeenCalledWith("#rukalun", "コマンドは実行できないD！");
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("AIメンション会話はコマンド実行依頼を拒否")
+    );
+  });
+
   it("ignores legacy MemoryHub settings and does not call Hub APIs", async () => {
     const { bot, say } = makeBot({
       chatAiMemoryHubEnabled: true,

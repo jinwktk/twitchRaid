@@ -277,6 +277,58 @@ describe("generateMentionChatReply", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("answers health concern reports with a local supportive reply without calling Ollama", async () => {
+    const fetchImpl = vi.fn();
+
+    const reply = await generateMentionChatReply({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen3.5:9b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "ままっかが熱なんだって！",
+      memoryText: "ままっか: リスナー",
+      fetchImpl,
+    });
+
+    expect(reply).toBe(
+      "心配だねD！無理せず水分とって休んで、つらそうなら早めに病院や周りの人に相談してね。"
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not intercept health-related search or non-health heated prompts", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "検索系は通常生成へ渡すD！" }),
+    });
+
+    for (const promptText of [
+      "コロナの最新ニュース調べて",
+      "風邪について教えて",
+      "この試合熱だね",
+    ]) {
+      const reply = await generateMentionChatReply({
+        enabled: true,
+        baseUrl: "http://127.0.0.1:11434",
+        model: "qwen3.5:9b",
+        timeoutMs: 3000,
+        keepAlive: "30m",
+        maxResponseChars: 200,
+        channel: "#rukalun",
+        userName: "viewer",
+        promptText,
+        fetchImpl,
+      });
+
+      expect(reply).toBe("検索系は通常生成へ渡すD！");
+    }
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
   it("logs the built prompt and final reply when prompt/reply diagnostics are enabled", async () => {
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
     const fetchImpl = vi.fn().mockResolvedValue({

@@ -25,6 +25,11 @@ export interface GenerateMentionChatReplyOptions {
   fetchImpl?: typeof fetch;
 }
 
+export interface MentionChatImmediateReply {
+  reason: "command_execution" | "fixed";
+  reply: string;
+}
+
 interface OllamaGenerateResponse {
   response?: unknown;
 }
@@ -41,6 +46,9 @@ const MATCH_OUTCOME_FALLBACK_REPLY =
 const COMMAND_EXECUTION_REFUSAL_REPLY = "コマンドは実行できないD！";
 const RUKALUN_RESIDENCE_REFUSAL_REPLY =
   "住んでる場所は個人情報だから答えられないD！";
+const HEALTH_CONCERN_SUPPORT_REPLY =
+  "心配だねD！無理せず水分とって休んで、つらそうなら早めに病院や周りの人に相談してね。";
+const HEALTH_CONCERN_REPORT_MAX_CHARS = 80;
 
 const MENTION_CHAT_SYSTEM_PROMPT = [
   "あなたはTwitchチャットで自然な1〜2文で返事する、るっかるん本人として振る舞う日本語アシスタントです。",
@@ -128,12 +136,42 @@ function isResidenceQuestion(value: string): boolean {
   );
 }
 
+function isHealthConcernReport(value: string): boolean {
+  if (value.length > HEALTH_CONCERN_REPORT_MAX_CHARS) return false;
+  if (/[?？]|調べて|調べる|検索|ニュース|最新|とは|について|教えて|情報|試合|ゲーム|ラウンド|勝負/u.test(value)) {
+    return false;
+  }
+  if (/熱い試合|熱量|情熱|熱中|熱帯|熱戦/u.test(value)) return false;
+  return /(?:熱(?:が|出|で|ある|あり|なん|だ|らしい|っぽ|高)|発熱|高熱|微熱|風邪|かぜ|インフル|コロナ|具合(?:が)?悪|体調(?:が)?悪|寝込|しんど|つらそう|病気)/u.test(
+    value
+  );
+}
+
 export function resolveKnownPersonalQuestionReply(promptText: string): string | null {
   const prompt = singleLine(promptText);
   if (!isKnownRukalunSubject(prompt)) return null;
   if (isResidenceQuestion(prompt)) return RUKALUN_RESIDENCE_REFUSAL_REPLY;
   if (isAgeQuestion(prompt)) return `${calculateAge()}歳だよD！`;
   return null;
+}
+
+export function resolveMentionChatFixedReply(promptText: string): string | null {
+  const prompt = singleLine(promptText);
+  return (
+    resolveKnownPersonalQuestionReply(prompt) ??
+    (isHealthConcernReport(prompt) ? HEALTH_CONCERN_SUPPORT_REPLY : null)
+  );
+}
+
+export function resolveMentionChatImmediateReply(
+  promptText: string
+): MentionChatImmediateReply | null {
+  const prompt = singleLine(promptText);
+  if (isCommandExecutionRequest(prompt)) {
+    return { reason: "command_execution", reply: COMMAND_EXECUTION_REFUSAL_REPLY };
+  }
+  const fixedReply = resolveMentionChatFixedReply(prompt);
+  return fixedReply ? { reason: "fixed", reply: fixedReply } : null;
 }
 
 function isGenericMatchOutcomeReply(value: string): boolean {
@@ -379,14 +417,14 @@ export async function generateMentionChatReply({
   const trimmedModel = model.trim();
   if (!enabled || !trimmedModel) return null;
   const logPromptText = redactedPromptText ?? promptText;
-  if (isCommandExecutionRequest(promptText)) {
+  const immediateReply = resolveMentionChatImmediateReply(promptText);
+  if (immediateReply?.reason === "command_execution") {
     logger.warn(
-      `⚠️ AIメンション会話はコマンド実行依頼を拒否: prompt=${formatMentionChatLogValue(logPromptText)}, reply=${formatMentionChatLogValue(COMMAND_EXECUTION_REFUSAL_REPLY)}`
+      `⚠️ AIメンション会話はコマンド実行依頼を拒否: prompt=${formatMentionChatLogValue(logPromptText)}, reply=${formatMentionChatLogValue(immediateReply.reply)}`
     );
-    return COMMAND_EXECUTION_REFUSAL_REPLY;
+    return immediateReply.reply;
   }
-  const knownPersonalReply = resolveKnownPersonalQuestionReply(promptText);
-  if (knownPersonalReply) return knownPersonalReply;
+  if (immediateReply) return immediateReply.reply;
   const startedAt = Date.now();
 
   try {
