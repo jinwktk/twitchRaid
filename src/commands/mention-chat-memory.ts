@@ -35,12 +35,11 @@ export interface MentionChatMemoryEntry {
 export interface ExtractMentionChatMemoryEntryOptions {
   maxKeyChars: number;
   maxValueChars: number;
+  sourceUser?: string;
 }
 
 export interface ExtractImplicitMentionChatMemoryEntryOptions
-  extends ExtractMentionChatMemoryEntryOptions {
-  sourceUser?: string;
-}
+  extends ExtractMentionChatMemoryEntryOptions {}
 
 export interface SaveMentionChatAutoLearnMemoryOptions
   extends ExtractMentionChatMemoryEntryOptions {
@@ -285,6 +284,13 @@ function stripTrailingSentenceNoise(value: string): string {
     .trim();
 }
 
+function stripTrailingMemoryRequestNoise(value: string): string {
+  const withoutQuoteMarker = stripTrailingSentenceNoise(value)
+    .replace(/(?:って|と)$/u, "")
+    .trim();
+  return stripTrailingSentenceNoise(withoutQuoteMarker);
+}
+
 function isUnsafeMemoryText(value: string): boolean {
   return (
     URL_PATTERN.test(value) ||
@@ -439,7 +445,7 @@ function legacyGlobalItemsToMemoryLines(items: unknown[], startIndex: number): M
     .filter((line): line is MemoryLine => Boolean(line));
 }
 
-function splitMemoryKeyValue(body: string): MentionChatMemoryEntry | null {
+function splitDelimitedMemoryKeyValue(body: string): MentionChatMemoryEntry | null {
   for (const separator of ["=", "：", ":"]) {
     const index = body.indexOf(separator);
     if (index <= 0) continue;
@@ -449,6 +455,13 @@ function splitMemoryKeyValue(body: string): MentionChatMemoryEntry | null {
     };
   }
 
+  return null;
+}
+
+function splitMemoryKeyValue(body: string): MentionChatMemoryEntry | null {
+  const delimited = splitDelimitedMemoryKeyValue(body);
+  if (delimited) return delimited;
+
   const match = body.match(/^(.+?)は(.+)$/u);
   if (!match) return null;
   return { key: match[1], value: match[2] };
@@ -456,18 +469,19 @@ function splitMemoryKeyValue(body: string): MentionChatMemoryEntry | null {
 
 export function extractMentionChatMemoryEntry(
   promptText: string,
-  { maxKeyChars, maxValueChars }: ExtractMentionChatMemoryEntryOptions
+  { maxKeyChars, maxValueChars, sourceUser }: ExtractMentionChatMemoryEntryOptions
 ): MentionChatMemoryEntry | null {
   const result = analyzeMentionChatMemoryRequest(promptText, {
     maxKeyChars,
     maxValueChars,
+    sourceUser,
   });
   return result.reason === "valid" ? result.entry ?? null : null;
 }
 
 export function analyzeMentionChatMemoryRequest(
   promptText: string,
-  { maxKeyChars, maxValueChars }: ExtractMentionChatMemoryEntryOptions
+  { maxKeyChars, maxValueChars, sourceUser }: ExtractMentionChatMemoryEntryOptions
 ): AnalyzeMentionChatMemoryRequestResult {
   if (maxKeyChars <= 0 || maxValueChars <= 0) {
     return { isMemoryRequest: false, reason: "not_memory_request" };
@@ -485,7 +499,15 @@ export function analyzeMentionChatMemoryRequest(
       : { isMemoryRequest: false, reason: "not_memory_request" };
   }
 
-  const parsed = splitMemoryKeyValue(requestBody);
+  const rawRequestBody = singleLine(requestBody);
+  const normalizedRequestBody = stripTrailingMemoryRequestNoise(rawRequestBody);
+  const parsed =
+    splitDelimitedMemoryKeyValue(rawRequestBody) ??
+    extractImplicitMentionChatMemoryEntry(normalizedRequestBody, {
+      maxKeyChars,
+      maxValueChars,
+      sourceUser,
+    }) ?? splitMemoryKeyValue(normalizedRequestBody);
   if (!parsed) {
     return { isMemoryRequest: true, reason: "invalid_format" };
   }
@@ -1035,6 +1057,7 @@ export function saveMentionChatAutoLearnMemory({
   const analysis = analyzeMentionChatMemoryRequest(promptText, {
     maxKeyChars,
     maxValueChars,
+    sourceUser,
   });
   if (analysis.reason !== "valid" || !analysis.entry) {
     const reason: SaveMentionChatAutoLearnMemoryFailureReason =
@@ -1085,6 +1108,7 @@ export function saveMentionChatAutoLearnMemoryStore({
   const analysis = analyzeMentionChatMemoryRequest(promptText, {
     maxKeyChars,
     maxValueChars,
+    sourceUser,
   });
   if (analysis.reason !== "valid" || !analysis.entry) {
     const reason: SaveMentionChatAutoLearnMemoryFailureReason =

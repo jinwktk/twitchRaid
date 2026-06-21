@@ -294,6 +294,36 @@ describe("auto-learn mention chat memory", () => {
     });
   });
 
+  it("extracts natural explicit memory requests", () => {
+    const options = {
+      maxKeyChars: 40,
+      maxValueChars: 120,
+      sourceUser: "viewer",
+    };
+
+    expect(
+      extractMentionChatMemoryEntry("私はカレーが好きって覚えて", options)
+    ).toEqual({
+      key: "viewerの好きなもの",
+      value: "カレー",
+    });
+    expect(
+      extractMentionChatMemoryEntry("覚えて: 私はカレーが好き", options)
+    ).toEqual({
+      key: "viewerの好きなもの",
+      value: "カレー",
+    });
+    expect(
+      extractMentionChatMemoryEntry(
+        "るっかの好きなゲームはVALORANTって覚えて",
+        options
+      )
+    ).toEqual({
+      key: "るっかの好きなゲーム",
+      value: "VALORANT",
+    });
+  });
+
   it("rejects unsafe, reserved, or oversized memory entries", () => {
     const options = { maxKeyChars: 4, maxValueChars: 8 };
 

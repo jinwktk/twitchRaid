@@ -538,7 +538,10 @@ export class Bot {
       prompt,
     };
 
-    const memoryRequest = this._analyzeMentionChatMemoryRequest(request.prompt);
+    const memoryRequest = this._analyzeMentionChatMemoryRequest(
+      request.prompt,
+      request.userName
+    );
     if (memoryRequest.isMemoryRequest) {
       await this._processMentionChatMemoryRequest(request, memoryRequest);
       return;
@@ -574,11 +577,13 @@ export class Bot {
   }
 
   private _analyzeMentionChatMemoryRequest(
-    prompt: string
+    prompt: string,
+    sourceUser: string
   ): AnalyzeMentionChatMemoryRequestResult {
     return analyzeMentionChatMemoryRequest(prompt, {
       maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
       maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
+      sourceUser,
     });
   }
 

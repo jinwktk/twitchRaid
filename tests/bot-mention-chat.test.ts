@@ -1235,6 +1235,30 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "覚えたD！");
   });
 
+  it("saves natural memory requests without calling Ollama", async () => {
+    const memoryPath = path.join(ensureTempDir(), "chat-ai-memory.json");
+    const { bot, say } = makeBot({
+      chatAiAutoLearnEnabled: true,
+      chatAiMemoryEnabled: true,
+      chatAiMemoryPath: memoryPath,
+      chatAiMemoryWriterUsers: ["viewer"],
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 私はカレーが好きって覚えて",
+      100
+    );
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(JSON.parse(fs.readFileSync(memoryPath, "utf8"))).toMatchObject({
+      viewerの好きなもの: "カレー",
+    });
+    expect(say).toHaveBeenCalledWith("#rukalun", "覚えたD！");
+  });
+
   it("rejects invalid memory requests without calling Ollama", async () => {
     const memoryPath = path.join(ensureTempDir(), "chat-ai-memory.json");
     const { bot, say } = makeBot({
