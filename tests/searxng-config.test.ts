@@ -15,13 +15,29 @@ describe("SearXNG self-hosting config", () => {
     expect(compose).toContain("localhost:5050/sub-whisper-api:local");
     expect(compose).toContain("localhost:5050/sub-sbvits2:local");
     expect(compose).toContain("searxng/searxng:latest");
+    expect(compose).toContain("qdrant/qdrant:v1.15.4");
+    expect(compose).toContain("localhost:5050/twitchraid-mem0-oss:local");
     expect(compose).toContain(
       "/home/mlove/dokploy/searxng/settings.yml:/etc/searxng/settings.yml:ro"
     );
+    expect(compose).toContain(
+      "/home/mlove/dokploy/mem0/qdrant:/qdrant/storage"
+    );
+    expect(compose).toContain(
+      "/home/mlove/dokploy/mem0/history:/app/history"
+    );
+    expect(compose).toContain("QDRANT__TELEMETRY_DISABLED: \"true\"");
+    expect(compose).toContain("MEM0_OLLAMA_BASE_URL: http://sub-ai_ollama:11434");
+    expect(compose).toContain("MEM0_EMBEDDER_MODEL: nomic-embed-text:latest");
+    expect(compose).toContain("MEM0_INFER_DEFAULT: \"false\"");
     expect(compose).toContain("aliases:");
     expect(compose).toContain("- searxng");
+    expect(compose).toContain("- mem0");
+    expect(compose).toContain("- qdrant");
     expect(compose).toContain("restart_policy:");
     expect(compose).not.toContain("published: 8080");
+    expect(compose).not.toContain("target: 8888");
+    expect(compose).not.toContain("target: 6333");
   });
 
   it("does not keep a standalone SearXNG compose stack", () => {

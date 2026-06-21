@@ -23,6 +23,9 @@ const DEFAULT_CHAT_AI_BOT_ALIASES = ["にめいやボットくん", "nyme_ia2"];
 const DEFAULT_CHAT_AI_IGNORED_USERS = ["nyme_ia2"];
 const DEFAULT_CHAT_AI_MEMORY_MAX_ITEMS = 8;
 const DEFAULT_CHAT_AI_MEMORY_MAX_CHARS = 600;
+const DEFAULT_CHAT_AI_MEM0_TIMEOUT_MS = 1_200;
+const DEFAULT_CHAT_AI_MEM0_MAX_RESULTS = 3;
+const DEFAULT_CHAT_AI_MEM0_MAX_CHARS = 600;
 const DEFAULT_CHAT_AI_SEARCH_ENDPOINT = "https://api.duckduckgo.com/";
 const DEFAULT_CHAT_AI_SEARCH_PROVIDER = "duckduckgo";
 const DEFAULT_CHAT_AI_SEARCH_TIMEOUT_MS = 2_500;
@@ -131,6 +134,15 @@ export class Config {
   readonly chatAiMemoryMaxChars: number;
   readonly chatAiMemoryWriterUsers: string[];
   readonly chatAiImplicitMemoryEnabled: boolean;
+  readonly chatAiMem0Enabled: boolean;
+  readonly chatAiMem0Endpoint: string;
+  readonly chatAiMem0ApiKey: string;
+  readonly chatAiMem0UserId: string;
+  readonly chatAiMem0AgentId: string;
+  readonly chatAiMem0AppId: string;
+  readonly chatAiMem0TimeoutMs: number;
+  readonly chatAiMem0MaxResults: number;
+  readonly chatAiMem0MaxChars: number;
   readonly chatAiSearchEnabled: boolean;
   readonly chatAiSearchProvider: ChatAiSearchProvider;
   readonly chatAiSearchEndpoint: string;
@@ -340,6 +352,30 @@ export class Config {
     );
     this.chatAiImplicitMemoryEnabled = parseEnabledFlag(
       env["CHAT_AI_IMPLICIT_MEMORY_ENABLED"] ?? "0"
+    );
+    this.chatAiMem0Enabled = parseEnabledFlag(
+      env["CHAT_AI_MEM0_ENABLED"] ?? "0"
+    );
+    this.chatAiMem0Endpoint = env["CHAT_AI_MEM0_ENDPOINT"]?.trim() || "";
+    this.chatAiMem0ApiKey =
+      env["CHAT_AI_MEM0_API_KEY"]?.trim() || env["MEM0_API_KEY"]?.trim() || "";
+    this.chatAiMem0UserId =
+      env["CHAT_AI_MEM0_USER_ID"]?.trim() || this.loginChannel;
+    this.chatAiMem0AgentId =
+      env["CHAT_AI_MEM0_AGENT_ID"]?.trim() || "twitchRaid";
+    this.chatAiMem0AppId =
+      env["CHAT_AI_MEM0_APP_ID"]?.trim() || "twitchRaid";
+    this.chatAiMem0TimeoutMs = parsePositiveInt(
+      env["CHAT_AI_MEM0_TIMEOUT_MS"],
+      DEFAULT_CHAT_AI_MEM0_TIMEOUT_MS
+    );
+    this.chatAiMem0MaxResults = parsePositiveInt(
+      env["CHAT_AI_MEM0_MAX_RESULTS"],
+      DEFAULT_CHAT_AI_MEM0_MAX_RESULTS
+    );
+    this.chatAiMem0MaxChars = parsePositiveInt(
+      env["CHAT_AI_MEM0_MAX_CHARS"],
+      DEFAULT_CHAT_AI_MEM0_MAX_CHARS
     );
     this.chatAiAutoLearnEnabled = parseEnabledFlag(
       env["CHAT_AI_AUTO_LEARN_ENABLED"] ?? "0"

@@ -257,6 +257,15 @@ CHAT_AI_MEMORY_MAX_ITEMS=12
 CHAT_AI_MEMORY_MAX_CHARS=900
 CHAT_AI_MEMORY_WRITER_USERS=＠Rukalun,nyme_ia
 CHAT_AI_IMPLICIT_MEMORY_ENABLED=true
+CHAT_AI_MEM0_ENABLED=true
+CHAT_AI_MEM0_ENDPOINT=http://mem0:8888
+CHAT_AI_MEM0_API_KEY=mem0-key
+CHAT_AI_MEM0_USER_ID=rukalun
+CHAT_AI_MEM0_AGENT_ID=twitchRaid
+CHAT_AI_MEM0_APP_ID=chat
+CHAT_AI_MEM0_TIMEOUT_MS=1700
+CHAT_AI_MEM0_MAX_RESULTS=4
+CHAT_AI_MEM0_MAX_CHARS=700
 CHAT_AI_MEMORY_HUB_ENABLED=true
 CHAT_AI_MEMORY_HUB_URL=http://127.0.0.1:3218
 CHAT_AI_MEMORY_HUB_NAMESPACE=rukalun
@@ -303,6 +312,15 @@ CHAT_REPLY_EMOTES= rukkaHi, @rukkaGG, ＠rukkaHi, RukkaNice
     expect(config.chatAiMemoryMaxChars).toBe(900);
     expect(config.chatAiMemoryWriterUsers).toEqual(["rukalun", "nyme_ia"]);
     expect(config.chatAiImplicitMemoryEnabled).toBe(true);
+    expect(config.chatAiMem0Enabled).toBe(true);
+    expect(config.chatAiMem0Endpoint).toBe("http://mem0:8888");
+    expect(config.chatAiMem0ApiKey).toBe("mem0-key");
+    expect(config.chatAiMem0UserId).toBe("rukalun");
+    expect(config.chatAiMem0AgentId).toBe("twitchRaid");
+    expect(config.chatAiMem0AppId).toBe("chat");
+    expect(config.chatAiMem0TimeoutMs).toBe(1700);
+    expect(config.chatAiMem0MaxResults).toBe(4);
+    expect(config.chatAiMem0MaxChars).toBe(700);
     expect(config).not.toHaveProperty("chatAiMemoryHubEnabled");
     expect(config).not.toHaveProperty("chatAiMemoryHubUrl");
     expect(config).not.toHaveProperty("chatAiMemoryHubNamespace");
@@ -366,6 +384,15 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiMemoryMaxChars).toBe(600);
     expect(config.chatAiMemoryWriterUsers).toEqual(["rukalun"]);
     expect(config.chatAiImplicitMemoryEnabled).toBe(false);
+    expect(config.chatAiMem0Enabled).toBe(false);
+    expect(config.chatAiMem0Endpoint).toBe("");
+    expect(config.chatAiMem0ApiKey).toBe("");
+    expect(config.chatAiMem0UserId).toBe("rukalun");
+    expect(config.chatAiMem0AgentId).toBe("twitchRaid");
+    expect(config.chatAiMem0AppId).toBe("twitchRaid");
+    expect(config.chatAiMem0TimeoutMs).toBe(1200);
+    expect(config.chatAiMem0MaxResults).toBe(3);
+    expect(config.chatAiMem0MaxChars).toBe(600);
     expect(config).not.toHaveProperty("chatAiMemoryHubEnabled");
     expect(config).not.toHaveProperty("chatAiMemoryHubUrl");
     expect(config).not.toHaveProperty("chatAiMemoryHubNamespace");

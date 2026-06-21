@@ -17,13 +17,14 @@
 | `!height` | ランダム身長を表示 | 120から220cm |
 | `!mood` | 今日の気分を表示 | ランダム |
 | `!menu` | おすすめメニューを表示 | ランダム |
-| `!chat <メッセージ>` | Bot宛てメンションなしでAI返信 | AIメンション会話と同じクールダウン、キュー、ローカル記憶メモ、外部検索、スタンプ付与を使用 |
+| `!chat <メッセージ>` | Bot宛てメンションなしでAI返信 | AIメンション会話と同じクールダウン、キュー、ローカル記憶メモ、任意mem0補助記憶、外部検索、スタンプ付与を使用 |
 
 ## AIメンション会話メモ
 
 - `CHAT_AI_MEMORY_ENABLED=true` の時だけ、ローカル記憶ストアをOllamaプロンプトへ参考メモとして渡す。
 - 既定は `CHAT_AI_MEMORY_STORE=json` で、`CHAT_AI_MEMORY_PATH` のルート直下 `key: value` を共通semantic memoryとして扱い、`__meta` に `kind/status/sourceUser/createdAt/updatedAt` を持つ。`CHAT_AI_MEMORY_STORE=sqlite` では `CHAT_AI_MEMORY_DB_PATH` のSQLite DBを正本にし、JSONはDBが空の初回だけ移行元として読む。SQLite保存時にJSONバックアップは再生成しない。
 - `status=inactive` は注入しない。全件を毎回入れず、質問文へのキー一致、語句一致、`updatedAt` の新しさ、DB/ファイル順で並べてから `CHAT_AI_MEMORY_MAX_ITEMS` / `CHAT_AI_MEMORY_MAX_CHARS` を適用する。
+- `CHAT_AI_MEM0_ENABLED=true` と `CHAT_AI_MEM0_ENDPOINT=http://mem0:8888` がある時だけ、SUB AI Services内のself-host Mem0 OSS REST APIを補助記憶として使う。費用を絶対に発生させないためMem0 Platformのhosted endpointは拒否し、`CHAT_AI_MEM0_API_KEY` / `MEM0_API_KEY` はself-hostサーバの `X-API-Key` 用に限定する。通常会話ではmem0 search結果をローカルメモと結合して参考メモへ入れ、明示/暗黙メモ保存成功時は抽出済み `key: value` を `infer:false` でmem0へも保存する。未設定、timeout、API失敗はfail-openにし、ログは件数/文字数/reasonだけにする。
 - `CHAT_AI_AUTO_LEARN_ENABLED=true` かつ発言者が `CHAT_AI_MEMORY_WRITER_USERS` に含まれる時だけ、`覚えて: key=value` などの明示依頼を保存する。未設定時のwriterは `rukalun`。`CHAT_AI_MEMORY_WRITER_USERS=all` は全ユーザー許可として扱う。
 - `CHAT_AI_IMPLICIT_MEMORY_ENABLED=true` の時だけ、通常AI返信送信後に安全な短文事実・嗜好を `kind=implicit` として保存する。追加のOllama呼び出しや追加prompt生成は行わず、`CHAT_AI_AUTO_LEARN_ENABLED` と `CHAT_AI_MEMORY_WRITER_USERS` を同じgateにする。
 - 記憶保存リクエストはOllamaへ送らず、保存成功/形式不正/安全拒否/権限拒否/無効を固定返信で返す。固定返信は通常AI会話のクールダウンを消費しない。

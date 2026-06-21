@@ -65,11 +65,17 @@ import {
 } from "./commands/mention-chat";
 import {
   analyzeMentionChatMemoryRequest,
+  extractImplicitMentionChatMemoryEntry,
   loadMentionChatMemoryStore,
   saveMentionChatAutoLearnMemoryStore,
   saveMentionChatImplicitMemoryStore,
+  type MentionChatMemoryEntry,
   type AnalyzeMentionChatMemoryRequestResult,
 } from "./commands/mention-chat-memory";
+import {
+  loadMentionChatMem0Memory,
+  saveMentionChatMem0Memory,
+} from "./commands/mention-chat-mem0";
 import {
   fetchMentionChatSearchContext,
   shouldSearchMentionChat,
@@ -576,6 +582,42 @@ export class Bot {
     });
   }
 
+  private _isMentionChatMem0Enabled(): boolean {
+    return this.config.chatAiMem0Enabled ?? false;
+  }
+
+  private async _saveMentionChatMem0Memory({
+    entry,
+    kind,
+    sourceUser,
+  }: {
+    entry: MentionChatMemoryEntry;
+    kind: "semantic" | "implicit";
+    sourceUser: string;
+  }): Promise<void> {
+    if (!this._isMentionChatMem0Enabled()) return;
+
+    const result = await saveMentionChatMem0Memory({
+      enabled: true,
+      apiKey: this.config.chatAiMem0ApiKey ?? "",
+      endpoint: this.config.chatAiMem0Endpoint ?? "",
+      userId: this.config.chatAiMem0UserId ?? this.config.loginChannel,
+      agentId: this.config.chatAiMem0AgentId ?? "twitchRaid",
+      appId: this.config.chatAiMem0AppId ?? "twitchRaid",
+      timeoutMs: this.config.chatAiMem0TimeoutMs ?? 1_200,
+      entry,
+      kind,
+      sourceUser,
+    });
+    if (result.saved) {
+      logger.info("AIメンション会話mem0メモを保存: result=saved");
+    } else {
+      logger.info(
+        `AIメンション会話mem0メモ保存をスキップ: reason=${result.reason}`
+      );
+    }
+  }
+
   private async _processMentionChatMemoryRequest(
     request: MentionChatRequest,
     memoryRequest: AnalyzeMentionChatMemoryRequestResult
@@ -631,6 +673,13 @@ export class Bot {
       });
       if (learnResult.saved) {
         logger.info("AIメンション会話メモを保存: result=saved");
+        if (memoryRequest.entry) {
+          await this._saveMentionChatMem0Memory({
+            entry: memoryRequest.entry,
+            kind: "semantic",
+            sourceUser: request.userName,
+          });
+        }
         await this.chatClient.say(
           request.channel,
           MENTION_CHAT_MEMORY_SAVED_REPLY
@@ -664,28 +713,42 @@ export class Bot {
     }
 
     setTimeout(() => {
-      try {
-        const result = saveMentionChatImplicitMemoryStore({
-          enabled: true,
-          store: this.config.chatAiMemoryStore ?? "json",
-          jsonPath: this.config.chatAiMemoryPath ?? "",
-          sqlitePath: this.config.chatAiMemoryDbPath ?? "",
-          promptText: request.prompt,
-          maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
-          maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
-          maxItems: this.config.chatAiAutoLearnMaxItems ?? 50,
-          sourceUser: request.userName,
-        });
-        if (result.saved) {
-          logger.info("AIメンション会話暗黙メモを保存: result=saved");
-        } else if (result.reason !== "not_memory_request") {
-          logger.info(
-            `AIメンション会話暗黙メモ保存をスキップ: reason=${result.reason}`
-          );
+      void (async () => {
+        try {
+          const result = saveMentionChatImplicitMemoryStore({
+            enabled: true,
+            store: this.config.chatAiMemoryStore ?? "json",
+            jsonPath: this.config.chatAiMemoryPath ?? "",
+            sqlitePath: this.config.chatAiMemoryDbPath ?? "",
+            promptText: request.prompt,
+            maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
+            maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
+            maxItems: this.config.chatAiAutoLearnMaxItems ?? 50,
+            sourceUser: request.userName,
+          });
+          if (result.saved) {
+            logger.info("AIメンション会話暗黙メモを保存: result=saved");
+            const entry = extractImplicitMentionChatMemoryEntry(request.prompt, {
+              maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
+              maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
+              sourceUser: request.userName,
+            });
+            if (entry) {
+              await this._saveMentionChatMem0Memory({
+                entry,
+                kind: "implicit",
+                sourceUser: request.userName,
+              });
+            }
+          } else if (result.reason !== "not_memory_request") {
+            logger.info(
+              `AIメンション会話暗黙メモ保存をスキップ: reason=${result.reason}`
+            );
+          }
+        } catch (e) {
+          logger.error(`❌ AIメンション会話暗黙メモ保存に失敗しました: ${e}`);
         }
-      } catch (e) {
-        logger.error(`❌ AIメンション会話暗黙メモ保存に失敗しました: ${e}`);
-      }
+      })();
     }, 0);
   }
 
@@ -749,7 +812,37 @@ export class Bot {
           `AIメンション会話メモを適用: store=${this.config.chatAiMemoryStore ?? "json"}, items=${memory.itemCount}, chars=${memory.charCount}`
         );
       }
-      const combinedMemoryText = memory.text || null;
+      const mem0Memory = await loadMentionChatMem0Memory({
+        enabled:
+          (this.config.chatAiMemoryEnabled ?? false) &&
+          this._isMentionChatMem0Enabled(),
+        apiKey: this.config.chatAiMem0ApiKey ?? "",
+        endpoint: this.config.chatAiMem0Endpoint ?? "",
+        queryText: request.prompt,
+        userId: this.config.chatAiMem0UserId ?? this.config.loginChannel,
+        agentId: this.config.chatAiMem0AgentId ?? "twitchRaid",
+        appId: this.config.chatAiMem0AppId ?? "twitchRaid",
+        timeoutMs: this.config.chatAiMem0TimeoutMs ?? 1_200,
+        maxItems: this.config.chatAiMem0MaxResults ?? 3,
+        maxChars: this.config.chatAiMem0MaxChars ?? 600,
+      });
+      if (mem0Memory.text) {
+        logger.info(
+          `AIメンション会話mem0メモを適用: items=${mem0Memory.itemCount}, chars=${mem0Memory.charCount}`
+        );
+      } else if (
+        this._isMentionChatMem0Enabled() &&
+        mem0Memory.reason !== "disabled" &&
+        mem0Memory.reason !== "empty"
+      ) {
+        logger.info(
+          `AIメンション会話mem0メモは未適用: reason=${mem0Memory.reason}`
+        );
+      }
+      const combinedMemoryText =
+        [memory.text, mem0Memory.text ? `mem0メモ:\n${mem0Memory.text}` : null]
+          .filter((text): text is string => Boolean(text))
+          .join("\n") || null;
       const searchEnabled = this.config.chatAiSearchEnabled ?? false;
       const searchCandidate = shouldSearchMentionChat(request.prompt);
       const searchContext = await fetchMentionChatSearchContext({

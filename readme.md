@@ -75,6 +75,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - サブPCのRTX 2070 SUPER環境では、`qwen3.5:9b` のcold loadが約72秒、短文生成のロード込み総時間が約106秒かかる実測があり、`CHAT_AI_TIMEOUT_MS=45000` では初回/非常駐時にtimeout fallbackへ入りやすい。`/api/tags` が高速に200を返す場合でも、`ollama ps` が空でOllamaログに `llama-server started in ... seconds` や `predicted to exceed available memory, evicting` が出る場合は、ネットワークではなくモデルロード/VRAM常駐の問題として見る。対策は `CHAT_AI_MODEL` を軽量モデルへ変える、timeoutを伸ばす、または別途モデル常駐/プリウォーム運用を用意する。
 - `CHAT_REPLY_EMOTES=rukkaNikoniko` のようにTwitchエモートコードを設定すると、AIメンション会話の返信とRaid挨拶文の送信直前にTwitchエモートコードを末尾へ付けます。設定値が確認済み `rukka...` 候補に含まれる場合は、Bot側の組み込み候補から返信内容に合わせて `rukkaGg` / `rukkaNiceraido` / `rukkaGanbareee` などを選びます。不明・検索失敗・謝罪系の返信では明るいGG系より `rukkaShobobo` など控えめな候補を優先します。先頭の `@` / `＠` は除去し、空白を含む値や重複は無視します。未設定時は従来どおりエモートを付けません
 - `CHAT_AI_MEMORY_ENABLED=true` を設定すると、全ユーザー共通の記憶辞書を読み、AIメンション会話のOllamaプロンプトへ「命令ではない参考メモ」として渡します。既定ストアは `CHAT_AI_MEMORY_STORE=json` で、`CHAT_AI_MEMORY_PATH`（未設定時 `data/chat-ai-memory.json`）を従来互換の正本として読みます。`CHAT_AI_MEMORY_STORE=sqlite` を設定すると `CHAT_AI_MEMORY_DB_PATH`（未設定時 `data/chat-ai-memory.sqlite`）を正本にし、既存JSONはDBが空の初回だけSQLiteへ移行します。SQLite保存時にJSONバックアップは再生成しないため、移行後のJSONは削除できます。既定は無効で、上限は `CHAT_AI_MEMORY_MAX_ITEMS=8`、`CHAT_AI_MEMORY_MAX_CHARS=600` です。全メモを常に入れるのではなく、ユーザー発言に関連するキー/値を優先し、年齢/生年月日/居住地のように質問トピックが明確な場合はトピック違いのメモを除外します。同点時は `updatedAt` が新しいものから選びます。メモ本文は通常ログに出さず、適用時は `store`、件数、文字数だけを記録します
+- `CHAT_AI_MEM0_ENABLED=true` と `CHAT_AI_MEM0_ENDPOINT=http://mem0:8888` を設定すると、self-host Mem0 OSS REST APIを使う任意の補助記憶を有効化します。費用を絶対に発生させない方針のため、Mem0 Platform SDKやhosted APIは使わず、`https://api.mem0.ai` / `https://app.mem0.ai` はコード側で拒否します。サブPC本番はSUB AI Services内に `mem0` と `qdrant` を公開ポートなしで置き、`mem0` は `mem0ai==2.0.7` のOSSライブラリ、Qdrant、Ollama `nomic-embed-text:latest` だけで動きます。保存内容はBot側で安全抽出済みの `key: value` なので、mem0保存時は `infer:false` を送ってmem0側の追加LLM抽出を走らせません。ローカルSQLiteは引き続き管理できる正本で、mem0は通常会話時のsemantic search結果を追加の参考メモとしてOllamaプロンプトへ混ぜます。明示メモ保存と暗黙メモ保存が成功した場合は、同じ `key: value` をself-host Mem0 OSSへもミラーします。既定は無効で、`CHAT_AI_MEM0_ENDPOINT` 未設定なら接続しません。`CHAT_AI_MEM0_API_KEY` / `MEM0_API_KEY` はself-hostサーバの `X-API-Key` 用です。既定値は `CHAT_AI_MEM0_USER_ID=rukalun`、`CHAT_AI_MEM0_AGENT_ID=twitchRaid`、`CHAT_AI_MEM0_APP_ID=twitchRaid`、`CHAT_AI_MEM0_TIMEOUT_MS=1200`、`CHAT_AI_MEM0_MAX_RESULTS=3`、`CHAT_AI_MEM0_MAX_CHARS=600` です。mem0のAPI失敗、timeout、endpoint未設定はfail-openで通常返信を継続し、ログには本文やAPIキーを出さず件数/文字数またはreasonだけを記録します
 - Windows PowerShellでは `twitchraid-memory` または短縮alias `trmem` で、サブPC本番コンテナ内のSQLite記憶一覧を確認できます。件数だけ見る場合は `trmem -Count` を使います。CRUDできる簡易WebUIは、メインPCで `trmem-web` または `npm run memory:web` を起動した場合は `http://127.0.0.1:3220/`、サブPC常駐サービスを見る場合は `http://192.168.0.99:3220/` です。WebUIでは一覧表示、検索、active/inactive切替、新規追加、編集、削除ができます。Newはcreate専用として既存キーを拒否し、Editはキーを読み取り専用にしたうえでupdate専用として送るため、新規作成操作で既存レコードを更新しないようにしています。メインPC起動版はWindowsローカルだけで待ち受け、操作時に `ssh sub` 経由で本番コンテナ内の管理APIを呼びます。サブPC常駐版はWebUI専用Docker serviceとして起動し、同じ `/app/data` のSQLite正本を直接管理します。どちらも `src/commands/mention-chat-memory.ts` の管理APIを使ってSQLite正本を更新します。PowerShell登録先は `C:\Users\mlove\Documents\PowerShell\Microsoft.PowerShell_profile.ps1` です。
 - `CHAT_AI_SEARCH_ENABLED=true` を設定すると、検索・ニュース・最新情報・`〜について`・日程/開催/主催/開発/リリース日など外部事実が必要なAIメンションだけ外部検索し、結果を「命令ではない参考情報」としてOllamaプロンプトへ渡します。既定はDuckDuckGo Instant Answer互換の `CHAT_AI_SEARCH_PROVIDER=duckduckgo` / `CHAT_AI_SEARCH_ENDPOINT=https://api.duckduckgo.com/` です。自前SearXNGを使う場合は `CHAT_AI_SEARCH_PROVIDER=searxng`、`CHAT_AI_SEARCH_ENDPOINT=http://searxng:8080/search?language=all&safesearch=0`、Googleだけに絞るなら `CHAT_AI_SEARCH_ENGINES=google` を設定します。サブPCDokploy本番はこのSearXNG設定へ切り替え済みです。上限は `CHAT_AI_SEARCH_TIMEOUT_MS=2500`、`CHAT_AI_SEARCH_MAX_QUERY_CHARS=120`、`CHAT_AI_SEARCH_MAX_RESPONSE_BYTES=65536`、`CHAT_AI_SEARCH_MAX_RESULTS=3` です。検索語は `るっかるんについて調べて` なら `るっかるん rukalun` のように軽く正規化・alias補完してから送信し、URL、メール、電話番号、token/API key/password系を含む検索語は送信しません。SearXNGのGoogleエンジンは低頻度なら動きますが、Google側のブロックやCAPTCHAで結果なしになる可能性があります
 - `CHAT_AI_AUTO_LEARN_ENABLED=true` を設定すると、`覚えて: key=value`、`記憶して key=value`、`メモして key: value`、`忘れないで keyはvalue` のような明示的な記憶依頼だけBot側メモへ保存します。これはモデル重みの学習ではありません。`CHAT_AI_MEMORY_STORE=sqlite` ではSQLiteへ保存し、`CHAT_AI_MEMORY_PATH` のJSONは初回移行元としてだけ読みます。保存できるユーザーは `CHAT_AI_MEMORY_WRITER_USERS` のカンマ区切りリストで、未設定時は `rukalun` だけです。`CHAT_AI_MEMORY_WRITER_USERS=all` の場合は全ユーザーが保存できます。保存リクエストはOllamaへ送らず、成功時は固定で `覚えたD！` と返し、通常AI会話のクールダウンも消費しません。`!chat 覚えて: ...` のコマンド検出ログは `[memory-request]` に伏せます。保存は `CHAT_AI_MEMORY_ENABLED=false` でも行えますが、Ollamaプロンプトへ注入されるのは `CHAT_AI_MEMORY_ENABLED=true` の場合だけです。既定上限は `CHAT_AI_AUTO_LEARN_MAX_KEY_CHARS=40`、`CHAT_AI_AUTO_LEARN_MAX_VALUE_CHARS=120`、`CHAT_AI_AUTO_LEARN_MAX_ITEMS=50` で、保存時はURL、メール、電話番号、token/API key/password系、本名/住所/誕生日などの個人情報キー、予約キー `global` / `users` / `__meta`、プロンプト注入系の文面を拒否します
@@ -104,7 +105,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!height` | ランダムな身長を表示（120〜220cm） | ネタ枠 |
 | `!mood` | 今日の気分をランダム表示 | 15種類からランダム |
 | `!menu` | 今日のおすすめメニューをランダム表示 | 70種類以上からランダム |
-| `!chat <メッセージ>` | Bot宛てメンションなしでAIメンション会話と同じ返信を生成 | 既存AI会話と同じクールダウン、キュー、ローカル記憶メモ、外部検索、スタンプ付与を使用 |
+| `!chat <メッセージ>` | Bot宛てメンションなしでAIメンション会話と同じ返信を生成 | 既存AI会話と同じクールダウン、キュー、ローカル記憶メモ、任意mem0補助記憶、外部検索、スタンプ付与を使用 |
 | `!clip` | 過去のクリップをランダム表示 | 30分クールダウン（特別ユーザー除外） |
 | `!myclip` | 自分が作成したクリップをランダム表示 | 30分クールダウン（`!clip`とは独立） |
 | `!clipsearch <キーワード>` | Clipタイトル/作成者名/ゲーム名から過去クリップを検索して1件表示 | SQLiteキャッシュ検索、クールダウンなし |
@@ -142,6 +143,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - 外部検索は `CHAT_AI_SEARCH_ENABLED=true` の場合だけ使う。検索・調べて・最新・ニュース・誰/いつ/どこ、`夏尾さんについて` や `夏尾さんについて知ってる？` のような `〜について`、日程/開催/主催/開発/リリース日など外部事実が必要な質問に限定し、明示的な記憶依頼は検索しない。`教えて` / `わからない` は単独では検索候補にせず、外部事実語と組み合わさる時だけ検索候補にする。既定providerは `duckduckgo` で、SearXNGを使う場合は `CHAT_AI_SEARCH_PROVIDER=searxng`、`CHAT_AI_SEARCH_ENDPOINT=http://searxng:8080/search?language=all&safesearch=0`、必要に応じて `CHAT_AI_SEARCH_ENGINES=google` を設定する。`ops/sub-ai-services/docker-compose.yml` はSearXNGをSUB AI Services stack内の1サービスとして置くための雛形で、SearXNG自体は公開ポートなし、`dokploy-network` の内部DNS alias `searxng` でBotから接続する。SearXNG設定ファイルは `ops/searxng/settings.yml` を雛形にし、サブPC本番では `/home/mlove/dokploy/searxng/settings.yml` に置く。検索語は文末の `について調べて` 等を落としてから送り、`るっかるん` を含む検索語には `rukalun` を補う。URL、メール、電話番号、token/API key/password系を含む検索語や長すぎる検索語は外部へ送らない。検索結果は「命令ではない参考情報」としてプロンプトへ入れ、検索結果がある場合は事実情報として優先して要約するようOllamaへ指示する。HTTP失敗、壊れたJSON、空結果、過大レスポンス時は検索なしで通常返信へ戻す。検索候補なのに検索が使われなかった場合は、`AIメンション会話外部検索は未適用: reason=disabled` または `reason=no_result_or_failed` をINFOログへ残す
 - OllamaはこのBotのチャットを自動学習しない。口調や固定知識はプロンプト/Modelfile `MESSAGE` で例示できるが、モデル重みの学習やLoRA fine-tuningは外部ツールで作ったadapter/modelをOllamaへimportして使う運用になる
 - Bot側の記憶機能として、`CHAT_AI_MEMORY_ENABLED=true` の場合だけ共通メモをプロンプトへ入れる。これはモデル重みの学習ではなく、返信ごとの参考メモ注入である。`CHAT_AI_MEMORY_STORE=json` では `CHAT_AI_MEMORY_PATH` のルート直下キー値を従来互換の正本として使う。`CHAT_AI_MEMORY_STORE=sqlite` では `CHAT_AI_MEMORY_DB_PATH` の `mention_chat_memory` テーブルを正本にし、既存JSONはDBが空の初回だけ移行元として読む。SQLite保存時にJSONバックアップは再出力しないため、取り込み確認後のJSONは削除してよい。JSONの `users.<Twitchログイン名>` は使わず、旧 `global` 配列だけは移行用に共通メモとして読める。読み込み時は `status=active` のメモだけを候補にし、質問文に関連するキー一致、キー/値の語句一致、更新日時の順で上限内へ絞る。年齢質問には年齢/生年月日メモを許可するが、居住地質問に生年月日メモを入れるようなトピック違いは除外する。`CHAT_AI_AUTO_LEARN_ENABLED=true` の場合は明示的な「覚えて/記憶して/メモして/忘れないで」依頼だけを抽出し、`CHAT_AI_MEMORY_WRITER_USERS` に含まれるユーザーだけが保存できる。`CHAT_AI_IMPLICIT_MEMORY_ENABLED=true` の場合は、通常AI返信送信後に追加Ollama呼び出しなしで短い安定事実・嗜好だけを暗黙保存する。`CHAT_AI_MEMORY_WRITER_USERS=all` は全ユーザー許可として扱う。保存リクエストはOllamaへ送らず、保存成功/形式不正/安全拒否/権限拒否/無効を固定文で返し、通常AI会話のクールダウンは消費しない。保存ログやAI応答ログにはメモ本文を出さず、コマンド検出ログでもメモ依頼本文を `[memory-request]` に伏せる。秘密情報、トークン、個人情報、プロンプト注入文はメモに書かない。手動編集や旧形式に混入した危険メモも読み込み時に除外する
+- mem0連携は `CHAT_AI_MEM0_ENABLED=true` と `CHAT_AI_MEM0_ENDPOINT` がある場合だけ使う任意の補助記憶である。費用を絶対に発生させないため、接続先はSUB AI Services内のself-host Mem0 OSS REST APIだけにし、Mem0 Platformのhosted endpointは拒否する。`ops/mem0-oss-server/` は `mem0ai` Python OSSライブラリをFastAPIで薄く包む内部REST wrapperで、`/memories` / `/search` / `/healthz` を提供する。Qdrantは公開ポートなし、`QDRANT__TELEMETRY_DISABLED=true`、mem0はOllama `nomic-embed-text:latest` を使う。通常会話ではmem0 semantic searchの結果をローカルメモと結合し、明示メモ・暗黙メモの保存成功時は同じ抽出済み内容を `infer:false` でmem0へも保存する。scopeは `CHAT_AI_MEM0_USER_ID` / `CHAT_AI_MEM0_AGENT_ID` / `CHAT_AI_MEM0_APP_ID` で固定する。mem0障害時は会話とローカル保存を止めず、ログは `AIメンション会話mem0メモを適用: items=...` または `reason=...` に限定する
 - 外部のOllamaMemoryHub連携は廃止済み。`CHAT_AI_MEMORY_HUB_*` が `.env` に残っていてもBotは読み込まず、`/v1/ingest` や `/v1/context` へは接続しない。記憶を使う場合はBot内のローカルJSON/SQLiteストアだけを使う
 
 SQLiteストアへ初回移行できるJSON例:
@@ -289,6 +291,9 @@ src/
 │   ├── game.ts                    # !game VOD由来ゲーム候補
 │   ├── manga.ts                   # !manga / 管理者判定
 │   ├── mention-chat.ts            # @メンションAI会話
+│   ├── mention-chat-memory.ts     # AIメンション用ローカルJSON/SQLite記憶
+│   ├── mention-chat-mem0.ts       # 任意mem0補助記憶の検索/保存
+│   ├── mention-chat-search.ts     # AIメンション用外部検索
 │   ├── raid-info.ts               # Raid元配信情報文言
 │   ├── random-commands.ts         # !weight / !height / !mood / !menu
 │   ├── shoutout-introduction.ts   # OllamaによるRaid挨拶文生成
@@ -313,6 +318,15 @@ src/
     └── restart-state-store.ts
 scripts/
 └── export-clip-search-data.mjs    # RukalunPage向けClip検索JSON生成
+ops/
+├── mem0-oss-server/               # SUB AI Services用self-host Mem0 OSS REST wrapper
+│   ├── Dockerfile
+│   ├── app.py                     # FastAPI /memories /search /healthz
+│   └── requirements.txt           # mem0ai OSS, Qdrant client, FastAPI
+├── sub-ai-services/
+│   └── docker-compose.yml         # Ollama/Whisper/SBVITS2/SearXNG/Mem0/Qdrant stack雛形
+└── searxng/
+    └── settings.yml               # SearXNG JSON/Google設定
 docs/
 ├── clip-search.html               # RukalunPageへの旧URL互換リダイレクト
 ├── index.html                     # RukalunPageへの公開ルートリダイレクト
@@ -333,6 +347,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-21**: SUB AI Servicesへself-host Mem0 OSS補助記憶を導入した。`ops/mem0-oss-server/` は `mem0ai==2.0.7` のOSSライブラリをFastAPIで包む内部REST wrapperで、`/healthz` / `/memories` / `/search` を提供する。`ops/sub-ai-services/docker-compose.yml` は `mem0` と `qdrant` を公開ポートなしで追加し、Qdrant永続先は `/home/mlove/dokploy/mem0/qdrant`、mem0履歴DBは `/home/mlove/dokploy/mem0/history`、Qdrant telemetryは `QDRANT__TELEMETRY_DISABLED=true` で無効化する。サブPC本番では `nomic-embed-text:latest` をOllamaへpullし、Botコンテナから `http://mem0:8888/healthz`、APIキー付き `/memories` 保存、`/search` 検索がHTTP 200で通ることを確認した。費用を絶対に発生させない方針に合わせ、Mem0 Platform hosted APIは使わず、Bot側は `https://api.mem0.ai` / `https://app.mem0.ai` を拒否し、保存時は `infer:false` でmem0側の追加LLM抽出を走らせない
 - **2026-06-21**: SQLite正本の記憶ストアでは、既存JSONをDBが空の初回だけ移行元として読み、保存/暗黙保存/WebUI CRUD後のJSONバックアップ再生成を廃止した。取り込み済みの `/app/data/chat-ai-memory.json` は削除してよく、以後は `/app/data/chat-ai-memory.sqlite` の `mention_chat_memory` を正本にする。AIメンション会話のsystem/promptには、Botが `るっかるん` 本人として一人称で自然に返す自認を追加した。対象テストは `npm test -- --run tests/commands/mention-chat.test.ts tests/commands/mention-chat-memory.test.ts tests/bot-mention-chat.test.ts tests/scripts/memory-web.test.ts` で87件通過。サブPC本番はcommit `0288757d2073595634de1a7769c47f303fd7ad78` のimageへ更新し、Bot/WebUIの `/app/data/chat-ai-memory.json` を削除済み。SQLiteは3件activeで、WebUI保存後もJSONが再生成されないことを確認した
 - **2026-06-21**: 記憶管理WebUIでNew作成時に既存の先頭レコードが更新される事故を防ぐため、`scripts/memory-web.mjs` のUI状態をNew=create、Edit=updateに分離した。Newはフォームをresetしてキー入力を空にし、Create APIは同名キーが既にある場合 `already_exists` で拒否する。Editではキーを読み取り専用にし、既存キーの更新だけを行う。`tests/scripts/memory-web.test.ts` にcreate重複拒否、edit更新、HTML上のNew/Edit分離を追加し、`node --check scripts/memory-web.mjs` も通過済み
 - **2026-06-21**: `!chat るっかるんって何歳？` と `!chat るっかるんってどこにすんでるの` の誤答に対応。年齢質問はOllamaに計算させず `calculateAge()` で固定返信し、居住地質問は個人情報として固定拒否する。これらはBot側でメモ読込/外部検索/Ollamaより前に処理する。記憶メモ関連度も年齢/生年月日/居住地のトピックを見て、居住地質問に生年月日メモを注入しないようにした。対象テストは `npm test -- --run tests/scripts/memory-web.test.ts tests/commands/mention-chat-memory.test.ts tests/commands/mention-chat.test.ts tests/bot-mention-chat.test.ts` で87件通過

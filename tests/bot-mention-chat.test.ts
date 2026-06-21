@@ -96,6 +96,15 @@ function makeConfig(
     chatAiMemoryMaxChars: 600,
     chatAiMemoryWriterUsers: ["rukalun"],
     chatAiImplicitMemoryEnabled: false,
+    chatAiMem0Enabled: false,
+    chatAiMem0Endpoint: "",
+    chatAiMem0ApiKey: "",
+    chatAiMem0UserId: "rukalun",
+    chatAiMem0AgentId: "twitchRaid",
+    chatAiMem0AppId: "twitchRaid",
+    chatAiMem0TimeoutMs: 1200,
+    chatAiMem0MaxResults: 3,
+    chatAiMem0MaxChars: 600,
     chatAiSearchEnabled: false,
     chatAiSearchEndpoint: "https://api.duckduckgo.com/",
     chatAiSearchTimeoutMs: 2500,
@@ -634,6 +643,66 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "カレーだねD！");
   });
 
+  it("passes mem0 memories to Ollama when mem0 is enabled", async () => {
+    const { bot, say } = makeBot({
+      chatAiMemoryEnabled: true,
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiMem0UserId: "rukalun",
+      chatAiMem0AgentId: "twitchRaid",
+      chatAiMem0AppId: "chat",
+      chatAiMem0TimeoutMs: 1000,
+      chatAiMem0MaxResults: 2,
+      chatAiMem0MaxChars: 200,
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input) => {
+        const url = String(input);
+        if (url === "http://mem0:8888/search") {
+          return {
+            ok: true,
+            json: async () => ({ results: [{ memory: "mem0好物: カレー" }] }),
+          } as Response;
+        }
+        return {
+          ok: true,
+          json: async () => ({ response: "カレーだねD！" }),
+        } as Response;
+      }
+    );
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 好きな食べ物なんだっけ？",
+      Date.now() / 1000
+    );
+
+    const mem0Call = fetchSpy.mock.calls.find(([input]) =>
+      String(input).startsWith("http://mem0:8888/")
+    );
+    expect(mem0Call).toBeDefined();
+    expect(mem0Call?.[0]).toBe("http://mem0:8888/search");
+    expect(JSON.parse(mem0Call?.[1]?.body as string)).toMatchObject({
+      query: "好きな食べ物なんだっけ？",
+      filters: {
+        user_id: "rukalun",
+        agent_id: "twitchRaid",
+      },
+      top_k: 2,
+    });
+    const ollamaCall = fetchSpy.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    const body = JSON.parse(ollamaCall?.[1]?.body as string);
+    expect(body.prompt).toContain("mem0好物: カレー");
+    expect(infoSpy).toHaveBeenCalledWith(
+      "AIメンション会話mem0メモを適用: items=1, chars=11"
+    );
+    expect(say).toHaveBeenCalledWith("#rukalun", "カレーだねD！");
+  });
+
   it("answers known Rukalun personal questions before memory injection or external calls", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 5, 21, 12, 0, 0));
@@ -959,6 +1028,56 @@ describe("Bot mention chat", () => {
     for (const call of infoSpy.mock.calls) {
       expect(call[0]).not.toContain("短くD");
     }
+    expect(say).toHaveBeenCalledWith("#rukalun", "覚えたD！");
+  });
+
+  it("mirrors explicit learned memory to mem0 when mem0 is enabled", async () => {
+    const { bot, say } = makeBot({
+      chatAiAutoLearnEnabled: true,
+      chatAiMemoryWriterUsers: ["all"],
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiMem0UserId: "rukalun",
+      chatAiMem0AgentId: "twitchRaid",
+      chatAiMem0AppId: "chat",
+      chatAiMem0TimeoutMs: 1000,
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ results: [{ id: "mem0-1" }] }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 覚えて: 好物=カレー",
+      Date.now() / 1000
+    );
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://mem0:8888/memories",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(JSON.parse(fetchSpy.mock.calls[0][1].body as string)).toMatchObject({
+      messages: [{ role: "user", content: "好物: カレー" }],
+      infer: false,
+      user_id: "rukalun",
+      agent_id: "twitchRaid",
+      metadata: {
+        key: "好物",
+        kind: "semantic",
+        sourceUser: "viewer",
+        source: "twitchRaid",
+        app_id: "chat",
+      },
+    });
+    expect(infoSpy).toHaveBeenCalledWith(
+      "AIメンション会話mem0メモを保存: result=saved"
+    );
+    expect(
+      fetchSpy.mock.calls.some(([input]) => String(input).endsWith("/api/generate"))
+    ).toBe(false);
     expect(say).toHaveBeenCalledWith("#rukalun", "覚えたD！");
   });
 

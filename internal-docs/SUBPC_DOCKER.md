@@ -37,6 +37,8 @@
 - `sub-ai_whisper-api`: `localhost:5050/sub-whisper-api:local`, `*:8888->5001/tcp`
 - `sub-ai_sbvits2`: `localhost:5050/sub-sbvits2:local`, `*:5000->5000/tcp`
 - `sub-ai_searxng`: `searxng/searxng:latest`, 公開portなし。`dokploy-network` の内部DNS alias `searxng` でtwitchRaid Botから接続する
+- `sub-ai_qdrant`: `qdrant/qdrant:v1.15.4`, 公開portなし。`/home/mlove/dokploy/mem0/qdrant` を `/qdrant/storage` にbind mountし、`QDRANT__TELEMETRY_DISABLED=true`
+- `sub-ai_mem0`: `localhost:5050/twitchraid-mem0-oss:local`, 公開portなし。`/home/mlove/dokploy/mem0/history` を `/app/history` にbind mountし、内部DNS alias `mem0` でBotから `http://mem0:8888` へ接続する
 
 ## SUB AI Services GPU確認
 
@@ -69,6 +71,16 @@ OllamaのVRAMは `ollama ps` / `/api/ps` の `size_vram` から約4.98GBと分�
 2026-06-21 01:18 JST時点で、SearXNGは独立stackではなくSUB AI Services内へ移した。Dokploy Compose `sub-ai-services` の `sub-ai` stackに `searxng` serviceを追加し、旧standalone `twitchraid-searxng` は `idle` に停止済み。Swarm上は `sub-ai_ollama` / `sub-ai_whisper-api` / `sub-ai_sbvits2` / `sub-ai_searxng` の4サービス構成。
 
 SearXNGは `/home/mlove/dokploy/searxng/settings.yml` を `/etc/searxng/settings.yml:ro` にbind mountし、JSON出力とGoogle engineだけを有効化する。公開portは持たせず、Botは `CHAT_AI_SEARCH_ENDPOINT=http://searxng:8080/search?language=all&safesearch=0` で接続する。Botコンテナ内DNSでは `searxng` と `sub-ai_searxng` が同じIPへ解決される。実行中Botの `fetchMentionChatSearchContext("OpenAIについて調べて")` はSearXNG/Google経由で検索結果3件を返すことを確認済み。
+
+### SUB AI Services内Mem0 OSS/Qdrant
+
+2026-06-21 17:21 JST時点で、Mem0 OSSは独立stackではなくSUB AI Services内へ追加した。Swarm上は `sub-ai_ollama` / `sub-ai_whisper-api` / `sub-ai_sbvits2` / `sub-ai_searxng` / `sub-ai_qdrant` / `sub-ai_mem0` の6サービス構成。
+
+Mem0 server imageは `ops/mem0-oss-server/` を元に `localhost:5050/twitchraid-mem0-oss:local` としてビルド・pushする。実体は `mem0ai==2.0.7` のOSSライブラリをFastAPIで包む内部REST wrapperで、`/healthz`、`/memories`、`/search` だけを使う。`mem0` は `MEM0_OLLAMA_BASE_URL=http://sub-ai_ollama:11434`、`MEM0_EMBEDDER_MODEL=nomic-embed-text:latest`、`MEM0_QDRANT_HOST=qdrant` で動き、OpenAI等の有料providerは使わない。`nomic-embed-text:latest` はサブPCOllamaへpull済み。Botからの保存は既にBot側で抽出した `key: value` を `infer:false` で送るため、mem0側の追加LLM抽出は走らない。
+
+Qdrantは `/home/mlove/dokploy/mem0/qdrant` を永続化し、公開portは持たせない。Qdrantの利用統計は `QDRANT__TELEMETRY_DISABLED=true` で無効化し、ログで `Telemetry reporting disabled` を確認済み。mem0 RESTのAPIキーは `/home/mlove/dokploy/mem0/admin_api_key` に保存し、Dokploy composeとBot環境変数へ入れるが、READMEやログには値を残さない。検証時に一度出力してしまった初期キーはローテーション済み。
+
+動作確認はBot本番コンテナから内部DNS `http://mem0:8888` へ実施し、`/healthz` がHTTP 200、APIキー付き `/memories` 保存がHTTP 200、`/search` が保存した検証メモを返すことを確認した。検証用user_idは `probe` / `probe-rotated` で、本番 `CHAT_AI_MEM0_USER_ID=rukalun` の検索対象には混ざらない。
 
 ## Botサービス
 - Service: `twitch-raid-apcz9n`
