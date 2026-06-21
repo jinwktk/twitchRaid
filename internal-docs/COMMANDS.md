@@ -41,7 +41,7 @@
 
 - 特別ユーザーは `.env` の `CLIP_SPECIAL_USERS` で管理する。既定値は `nyme_ia,rukalun`。
 - 通常は `data/clips.sqlite` のキャッシュから選ぶ。
-- キャッシュ未準備時のみTwitch APIへフォールバックする。実運用のコマンド経路では最大200件、低レベル関数の既定値は最大1000件。
+- キャッシュ未準備時のみTwitch APIへフォールバックする。実運用のコマンド経路では最大200件、低レベル関数の既定値は最大1000件。実運用ではTwitch client id/access tokenを渡し、Helix clips APIを `Accept-Encoding: identity` 付きで直fetchする。`Premature close` などの一時通信エラーだけ再試行し、Twurple paginatorは認証情報がない場合の互換fallbackに限定する。
 - 表示履歴は `clip_history` に保存し、`!clip` と `!myclip:<ユーザー>` ごとに重複を避ける。
 - `!clipsearch` はSQLiteキャッシュのみを検索し、Twitch API全件検索へはフォールバックしない。
 - `!clipsearch` の検索対象はClipタイトル、作成者表示名、ゲーム名。空白入り検索語を保持し、`%` / `_` は通常文字として扱う。

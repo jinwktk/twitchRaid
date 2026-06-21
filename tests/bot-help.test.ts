@@ -10,6 +10,9 @@ let tmpDir: string | null = null;
 type HelpTestBot = Bot & {
   chatClient: { say: ReturnType<typeof vi.fn> };
   apiClient: {
+    clips?: {
+      getClipsForBroadcasterPaginated?: ReturnType<typeof vi.fn>;
+    };
     videos?: {
       getVideosByUserPaginated?: ReturnType<typeof vi.fn>;
     };
@@ -276,6 +279,55 @@ describe("Bot help command", () => {
       "https://clips.twitch.tv/clip-1",
       "https://clips.twitch.tv/clip-1",
     ]);
+  });
+
+  it("uses Helix identity fetch for the clip API fallback", async () => {
+    const { bot, say } = makeBot();
+    const getClipsForBroadcasterPaginated = vi.fn(() => {
+      throw new Error("Twurple clip fetch should not be used");
+    });
+    const fetchSpy = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          data: [
+            {
+              id: "direct-clip",
+              url: "https://clips.twitch.tv/direct-clip",
+              title: "direct clip",
+              creator_id: "creator-1",
+              creator_name: "Viewer",
+            },
+          ],
+          pagination: {},
+        }),
+    }));
+    bot.apiClient = {
+      clips: { getClipsForBroadcasterPaginated },
+      users: {},
+    };
+    vi.stubGlobal("fetch", fetchSpy);
+
+    try {
+      await bot._handleCommand("#rukalun", "viewer", "!clip", {});
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "https://clips.twitch.tv/direct-clip"
+    );
+    expect(getClipsForBroadcasterPaginated).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://api.twitch.tv/helix/clips?broadcaster_id=broadcaster-id&first=100",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "Accept-Encoding": "identity",
+        }),
+      })
+    );
   });
 
   it("handles admin-gated commands with safe responses", async () => {

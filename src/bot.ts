@@ -1094,6 +1094,8 @@ export class Bot {
         {
           recentClipIds: this.clipCacheStore.getRecentIds(historyKey),
           maxFetch: 200,
+          helixClientId: this.config.twitchClientId,
+          helixAccessToken: this.config.twitchAccessToken,
         }
       );
     }

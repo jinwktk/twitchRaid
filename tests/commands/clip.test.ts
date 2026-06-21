@@ -123,6 +123,115 @@ describe("selectCachedClipSearch", () => {
 });
 
 describe("selectClip", () => {
+  it("fetches Helix clip pages with identity encoding when credentials are provided", async () => {
+    const getClipsForBroadcasterPaginated = vi.fn(() => {
+      throw new Error("Twurple clip fetch should not be used");
+    });
+    const helixFetchFn = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          data: [
+            {
+              id: "direct",
+              url: "https://clips.twitch.tv/direct",
+              title: "direct clip",
+              creator_id: "creator-1",
+              creator_name: "Viewer",
+            },
+          ],
+          pagination: {},
+        }),
+    }));
+
+    const selected = await selectClip(
+      {
+        clips: {
+          getClipsForBroadcasterPaginated,
+        },
+        users: {},
+      },
+      "broadcaster-id",
+      undefined,
+      undefined,
+      {
+        maxFetch: 2,
+        helixClientId: "client-id",
+        helixAccessToken: "access-token",
+        helixFetchFn,
+      }
+    );
+
+    expect(selected?.id).toBe("direct");
+    expect(getClipsForBroadcasterPaginated).not.toHaveBeenCalled();
+    expect(helixFetchFn).toHaveBeenCalledWith(
+      "https://api.twitch.tv/helix/clips?broadcaster_id=broadcaster-id&first=2",
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "Accept-Encoding": "identity",
+          Authorization: "Bearer access-token",
+          "Client-ID": "client-id",
+        },
+      }
+    );
+  });
+
+  it("retries transient Helix clip body failures", async () => {
+    const getClipsForBroadcasterPaginated = vi.fn(() => {
+      throw new Error("Twurple clip fetch should not be used");
+    });
+    const helixFetchFn = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Error(
+          "Invalid response body while trying to fetch https://api.twitch.tv/helix/clips: Premature close"
+        )
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            data: [
+              {
+                id: "retried",
+                url: "https://clips.twitch.tv/retried",
+                title: "retried clip",
+                creator_id: "creator-me",
+                creator_name: "Viewer",
+              },
+            ],
+            pagination: {},
+          }),
+      });
+
+    const selected = await selectClip(
+      {
+        clips: {
+          getClipsForBroadcasterPaginated,
+        },
+        users: {
+          getUserByName: vi.fn().mockResolvedValue({ id: "creator-me" }),
+        },
+      },
+      "broadcaster-id",
+      undefined,
+      "viewer",
+      {
+        helixClientId: "client-id",
+        helixAccessToken: "access-token",
+        helixFetchFn,
+        clipRetryDelayMs: 0,
+      }
+    );
+
+    expect(selected?.id).toBe("retried");
+    expect(helixFetchFn).toHaveBeenCalledTimes(2);
+  });
+
   it("uses paginated fetching and avoids the old first-100 API path", async () => {
     const getClipsForBroadcasterPaginated = vi.fn(() =>
       iterableClips([makeClip("seen"), makeClip("fresh")])
