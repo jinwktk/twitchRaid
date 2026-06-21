@@ -20,6 +20,9 @@ npm run pm2:logs    # ログ確認
 
 ### ログ確認運用
 - BotはサブPCで動かす運用のため、問題確認時はローカル作業PCのログだけでなく、必ずサブPC側のDokploy/Swarmログと `logs/bot_YYYY-MM-DD.log` を確認する
+- 2026-06-22の本番確認では、主要Swarmサービス（Bot、Memory WebUI、mem0、qdrant、Ollama、SearXNG）はRunningで、Memory WebUI/mem0/qdrant/SQLite整合性も正常。Bot serviceは一時的な確認コマンド投入ミスにより `rollback_completed` になっていたため、本番コンテナ内確認は `docker service update --args` ではなく `docker exec <container> ...` を使う
+- `docker service inspect --pretty` はDokploy環境変数の秘密値を表示するため、ログ調査では使わない。必要な項目だけ `docker inspect --format` などで抽出し、APIキー、Token、Webhook、メモ本文、チャット本文を記録しない
+- mem0検索はfail-open運用。2026-06-22時点では `CHAT_AI_MEM0_TIMEOUT_MS=2000` に対し、Ollama `nomic-embed-text` のcold loadが約3秒かかると `reason=failed` になることがある。会話本体は継続するが、頻発する場合はtimeout延長またはembeddingモデルのプリウォーム/常駐を検討する
 - 2026-06-20以降のサブPC本番はPM2ではなくDokploy管理。コンテナでは `.env` ファイルが無い場合があるため、DokployのEnvironment Variablesから渡る `process.env` も設定値として読む
 - Dokployで `.env` が無い場合、Twitch token refresh後の更新値は既定で `/app/data/runtime.env` に保存し、次回起動時はDokploy環境変数より優先して読む。保存先を明示したい場合は `TWITCH_RUNTIME_ENV_FILE=/app/data/runtime.env` のように設定する
 - Dokploy運用では `GIT_AUTO_UPDATE_ENABLED=false` を設定し、コンテナ内の自己 `git pull` / 定期再起動監視を止める。更新はDokployのデプロイで反映する
