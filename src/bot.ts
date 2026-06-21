@@ -64,9 +64,9 @@ import {
 } from "./commands/mention-chat";
 import {
   analyzeMentionChatMemoryRequest,
-  loadMentionChatMemory,
-  saveMentionChatAutoLearnMemory,
-  saveMentionChatImplicitMemory,
+  loadMentionChatMemoryStore,
+  saveMentionChatAutoLearnMemoryStore,
+  saveMentionChatImplicitMemoryStore,
   type AnalyzeMentionChatMemoryRequestResult,
 } from "./commands/mention-chat-memory";
 import {
@@ -617,9 +617,11 @@ export class Bot {
         return;
       }
 
-      const learnResult = saveMentionChatAutoLearnMemory({
+      const learnResult = saveMentionChatAutoLearnMemoryStore({
         enabled: autoLearnEnabled,
-        filePath: this.config.chatAiMemoryPath ?? "",
+        store: this.config.chatAiMemoryStore ?? "json",
+        jsonPath: this.config.chatAiMemoryPath ?? "",
+        sqlitePath: this.config.chatAiMemoryDbPath ?? "",
         promptText: request.prompt,
         maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
         maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
@@ -662,9 +664,11 @@ export class Bot {
 
     setTimeout(() => {
       try {
-        const result = saveMentionChatImplicitMemory({
+        const result = saveMentionChatImplicitMemoryStore({
           enabled: true,
-          filePath: this.config.chatAiMemoryPath ?? "",
+          store: this.config.chatAiMemoryStore ?? "json",
+          jsonPath: this.config.chatAiMemoryPath ?? "",
+          sqlitePath: this.config.chatAiMemoryDbPath ?? "",
           promptText: request.prompt,
           maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
           maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
@@ -708,16 +712,18 @@ export class Bot {
     this.mentionChatInFlight = true;
     try {
       const streamImageBase64: string | null = null;
-      const memory = loadMentionChatMemory({
+      const memory = loadMentionChatMemoryStore({
         enabled: this.config.chatAiMemoryEnabled ?? false,
-        filePath: this.config.chatAiMemoryPath ?? "",
+        store: this.config.chatAiMemoryStore ?? "json",
+        jsonPath: this.config.chatAiMemoryPath ?? "",
+        sqlitePath: this.config.chatAiMemoryDbPath ?? "",
         maxItems: this.config.chatAiMemoryMaxItems ?? 8,
         maxChars: this.config.chatAiMemoryMaxChars ?? 600,
         queryText: request.prompt,
       });
       if (memory.text) {
         logger.info(
-          `AIメンション会話メモを適用: items=${memory.itemCount}, chars=${memory.charCount}`
+          `AIメンション会話メモを適用: store=${this.config.chatAiMemoryStore ?? "json"}, items=${memory.itemCount}, chars=${memory.charCount}`
         );
       }
       const combinedMemoryText = memory.text || null;

@@ -89,7 +89,9 @@ function makeConfig(
     chatAiStreamImageEnabled: false,
     chatAiVisionModel: "qwen2.5vl:7b",
     chatAiMemoryEnabled: false,
+    chatAiMemoryStore: "json",
     chatAiMemoryPath: path.join(dir, "chat-ai-memory.json"),
+    chatAiMemoryDbPath: path.join(dir, "chat-ai-memory.sqlite"),
     chatAiMemoryMaxItems: 8,
     chatAiMemoryMaxChars: 600,
     chatAiMemoryWriterUsers: ["rukalun"],
@@ -570,13 +572,66 @@ describe("Bot mention chat", () => {
     expect(body.prompt).toContain("口調: 語尾はDを自然に使う");
     expect(body.prompt).not.toContain("好物: カレー");
     expect(infoSpy).toHaveBeenCalledWith(
-      expect.stringContaining("AIメンション会話メモを適用: items=1")
+      expect.stringContaining("AIメンション会話メモを適用: store=json, items=1")
     );
     for (const call of infoSpy.mock.calls) {
       expect(call[0]).not.toContain("好物: カレー");
       expect(call[0]).not.toContain("語尾はDを自然に使う");
     }
     expect(say).toHaveBeenCalledWith("#rukalun", "カレーの話だねD！");
+  });
+
+  it("uses sqlite mention memory as the primary store for Ollama context", async () => {
+    const dir = ensureTempDir();
+    const memoryPath = path.join(dir, "chat-ai-memory.json");
+    const memoryDbPath = path.join(dir, "chat-ai-memory.sqlite");
+    fs.writeFileSync(
+      memoryPath,
+      JSON.stringify({
+        るっか: "43歳",
+        __meta: {
+          るっか: {
+            kind: "semantic",
+            status: "active",
+            sourceUser: "rukalun",
+            createdAt: "2026-06-21T06:00:00.000Z",
+            updatedAt: "2026-06-21T06:00:00.000Z",
+          },
+        },
+      }),
+      "utf8"
+    );
+    const { bot, say } = makeBot({
+      chatAiMemoryEnabled: true,
+      chatAiMemoryStore: "sqlite",
+      chatAiMemoryPath: memoryPath,
+      chatAiMemoryDbPath: memoryDbPath,
+      chatAiMemoryMaxItems: 8,
+      chatAiMemoryMaxChars: 600,
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "43歳だねD！" }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun るっかって何歳？",
+      100
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect(body.prompt).toContain("るっか: 43歳");
+    expect(fs.existsSync(memoryDbPath)).toBe(true);
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining("AIメンション会話メモを適用: store=sqlite, items=1")
+    );
+    for (const call of infoSpy.mock.calls) {
+      expect(call[0]).not.toContain("るっか: 43歳");
+    }
+    expect(say).toHaveBeenCalledWith("#rukalun", "43歳だねD！");
   });
 
   it("ignores legacy MemoryHub settings and does not call Hub APIs", async () => {

@@ -250,7 +250,9 @@ CHAT_AI_IGNORED_USERS=＠RukalunBot,nightbot
 CHAT_AI_STREAM_IMAGE_ENABLED=true
 CHAT_AI_VISION_MODEL=qwen2.5vl:7b
 CHAT_AI_MEMORY_ENABLED=true
+CHAT_AI_MEMORY_STORE=sqlite
 CHAT_AI_MEMORY_PATH=data/custom-chat-ai-memory.json
+CHAT_AI_MEMORY_DB_PATH=data/custom-chat-ai-memory.sqlite
 CHAT_AI_MEMORY_MAX_ITEMS=12
 CHAT_AI_MEMORY_MAX_CHARS=900
 CHAT_AI_MEMORY_WRITER_USERS=＠Rukalun,nyme_ia
@@ -290,8 +292,12 @@ CHAT_REPLY_EMOTES= rukkaHi, @rukkaGG, ＠rukkaHi, RukkaNice
     expect(config.chatAiStreamImageEnabled).toBe(true);
     expect(config.chatAiVisionModel).toBe("qwen2.5vl:7b");
     expect(config.chatAiMemoryEnabled).toBe(true);
+    expect(config.chatAiMemoryStore).toBe("sqlite");
     expect(config.chatAiMemoryPath).toBe(
       path.resolve("data/custom-chat-ai-memory.json")
+    );
+    expect(config.chatAiMemoryDbPath).toBe(
+      path.resolve("data/custom-chat-ai-memory.sqlite")
     );
     expect(config.chatAiMemoryMaxItems).toBe(12);
     expect(config.chatAiMemoryMaxChars).toBe(900);
@@ -349,8 +355,12 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiStreamImageEnabled).toBe(false);
     expect(config.chatAiVisionModel).toBe("qwen2.5:7b");
     expect(config.chatAiMemoryEnabled).toBe(false);
+    expect(config.chatAiMemoryStore).toBe("json");
     expect(config.chatAiMemoryPath).toBe(
       path.resolve("data/chat-ai-memory.json")
+    );
+    expect(config.chatAiMemoryDbPath).toBe(
+      path.resolve("data/chat-ai-memory.sqlite")
     );
     expect(config.chatAiMemoryMaxItems).toBe(8);
     expect(config.chatAiMemoryMaxChars).toBe(600);

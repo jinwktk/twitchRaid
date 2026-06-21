@@ -34,6 +34,7 @@ const DEFAULT_CHAT_AI_AUTO_LEARN_MAX_VALUE_CHARS = 120;
 const DEFAULT_CHAT_AI_AUTO_LEARN_MAX_ITEMS = 50;
 
 type ChatAiSearchProvider = "duckduckgo" | "searxng";
+type ChatAiMemoryStore = "json" | "sqlite";
 
 function parseEnabledFlag(raw: string): boolean {
   const normalized = raw.trim().toLowerCase();
@@ -69,6 +70,11 @@ function parseChatAiSearchProvider(
   return normalized === "searxng"
     ? "searxng"
     : DEFAULT_CHAT_AI_SEARCH_PROVIDER;
+}
+
+function parseChatAiMemoryStore(raw: string | undefined): ChatAiMemoryStore {
+  const normalized = raw?.trim().toLowerCase();
+  return normalized === "sqlite" ? "sqlite" : "json";
 }
 
 export class Config {
@@ -118,7 +124,9 @@ export class Config {
   readonly chatAiStreamImageEnabled: boolean;
   readonly chatAiVisionModel: string;
   readonly chatAiMemoryEnabled: boolean;
+  readonly chatAiMemoryStore: ChatAiMemoryStore;
   readonly chatAiMemoryPath: string;
+  readonly chatAiMemoryDbPath: string;
   readonly chatAiMemoryMaxItems: number;
   readonly chatAiMemoryMaxChars: number;
   readonly chatAiMemoryWriterUsers: string[];
@@ -281,9 +289,16 @@ export class Config {
     this.chatAiMemoryEnabled = parseEnabledFlag(
       env["CHAT_AI_MEMORY_ENABLED"] ?? "0"
     );
+    this.chatAiMemoryStore = parseChatAiMemoryStore(
+      env["CHAT_AI_MEMORY_STORE"]
+    );
     this.chatAiMemoryPath = path.resolve(
       BASE_DIR,
       env["CHAT_AI_MEMORY_PATH"] ?? "data/chat-ai-memory.json"
+    );
+    this.chatAiMemoryDbPath = path.resolve(
+      BASE_DIR,
+      env["CHAT_AI_MEMORY_DB_PATH"] ?? "data/chat-ai-memory.sqlite"
     );
     this.chatAiMemoryMaxItems = parsePositiveInt(
       env["CHAT_AI_MEMORY_MAX_ITEMS"],

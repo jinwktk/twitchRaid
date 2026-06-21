@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { DatabaseSync } from "node:sqlite";
 
 export interface MentionChatMemoryResult {
   text: string | null;
@@ -13,6 +14,15 @@ export interface LoadMentionChatMemoryOptions {
   maxItems: number;
   maxChars: number;
   queryText?: string;
+}
+
+export type MentionChatMemoryStoreKind = "json" | "sqlite";
+
+export interface LoadMentionChatMemoryStoreOptions
+  extends Omit<LoadMentionChatMemoryOptions, "filePath"> {
+  store: MentionChatMemoryStoreKind;
+  jsonPath: string;
+  sqlitePath: string;
 }
 
 type MemoryRecord = Record<string, unknown>;
@@ -44,6 +54,20 @@ export interface SaveMentionChatAutoLearnMemoryOptions
 
 export interface SaveMentionChatImplicitMemoryOptions
   extends SaveMentionChatAutoLearnMemoryOptions {}
+
+export interface SaveMentionChatAutoLearnMemoryStoreOptions
+  extends Omit<SaveMentionChatAutoLearnMemoryOptions, "filePath"> {
+  store: MentionChatMemoryStoreKind;
+  jsonPath: string;
+  sqlitePath: string;
+}
+
+export interface SaveMentionChatImplicitMemoryStoreOptions
+  extends Omit<SaveMentionChatImplicitMemoryOptions, "filePath"> {
+  store: MentionChatMemoryStoreKind;
+  jsonPath: string;
+  sqlitePath: string;
+}
 
 export interface SaveMentionChatAutoLearnMemoryResult {
   saved: boolean;
@@ -83,6 +107,20 @@ interface MemoryMetadata {
   sourceUser?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+interface SqliteMemoryRow {
+  key: string;
+  value: string;
+  kind: string;
+  status: string;
+  source_user: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface CountRow {
+  count: number;
 }
 
 interface MemoryLine {
@@ -492,6 +530,350 @@ function writeMemoryRecordAtomically(filePath: string, record: MemoryRecord): vo
   }
 }
 
+function normalizeMemoryKind(value: string | undefined): "semantic" | "implicit" {
+  return value === "implicit" ? "implicit" : "semantic";
+}
+
+function normalizeMemoryStatus(value: string | undefined): "active" | "inactive" {
+  return value === "inactive" ? "inactive" : "active";
+}
+
+function openMemoryDatabase(sqlitePath: string): DatabaseSync | null {
+  if (!sqlitePath.trim()) return null;
+  fs.mkdirSync(path.dirname(sqlitePath), { recursive: true });
+  const db = new DatabaseSync(sqlitePath);
+  migrateMemoryDatabase(db);
+  return db;
+}
+
+function migrateMemoryDatabase(db: DatabaseSync): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mention_chat_memory (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'semantic',
+      status TEXT NOT NULL DEFAULT 'active',
+      source_user TEXT NOT NULL DEFAULT 'unknown',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mention_chat_memory_status_updated
+      ON mention_chat_memory (status, updated_at DESC);
+  `);
+}
+
+function countSqliteMemoryRows(db: DatabaseSync): number {
+  const row = db
+    .prepare("SELECT COUNT(*) AS count FROM mention_chat_memory")
+    .get() as unknown as CountRow;
+  return row.count;
+}
+
+function insertSqliteMemoryRow(
+  db: DatabaseSync,
+  row: {
+    key: string;
+    value: string;
+    kind: "semantic" | "implicit";
+    status: "active" | "inactive";
+    sourceUser: string;
+    createdAt: string;
+    updatedAt: string;
+  }
+): void {
+  db
+    .prepare(
+      `
+      INSERT INTO mention_chat_memory (
+        key,
+        value,
+        kind,
+        status,
+        source_user,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET
+        value = excluded.value,
+        kind = excluded.kind,
+        status = excluded.status,
+        source_user = excluded.source_user,
+        updated_at = excluded.updated_at
+    `
+    )
+    .run(
+      row.key,
+      row.value,
+      row.kind,
+      row.status,
+      row.sourceUser,
+      row.createdAt,
+      row.updatedAt
+    );
+}
+
+function importJsonMemoryIntoSqliteIfEmpty(
+  db: DatabaseSync,
+  jsonPath: string,
+  now: () => string
+): void {
+  if (countSqliteMemoryRows(db) > 0 || !jsonPath.trim() || !fs.existsSync(jsonPath)) {
+    return;
+  }
+
+  const record = loadWritableMemoryRecord(jsonPath);
+  if (!record) return;
+
+  const timestamp = now();
+  const meta = metadataRecord(record);
+  const rows: Array<Parameters<typeof insertSqliteMemoryRow>[1]> = [];
+
+  for (const [key, value] of Object.entries(record)) {
+    const normalizedKey = singleLine(key);
+    if (!normalizedKey || RESERVED_MEMORY_KEYS.has(normalizedKey)) continue;
+
+    const text = dictionaryValueToText(value);
+    if (!text || isUnsafeMemoryKey(normalizedKey) || isUnsafeMemoryText(text)) {
+      continue;
+    }
+
+    const entryMeta = meta[normalizedKey];
+    rows.push({
+      key: normalizedKey,
+      value: text,
+      kind: normalizeMemoryKind(entryMeta?.kind),
+      status: normalizeMemoryStatus(entryMeta?.status),
+      sourceUser: singleLine(entryMeta?.sourceUser ?? "") || "json-backup",
+      createdAt: entryMeta?.createdAt || timestamp,
+      updatedAt: entryMeta?.updatedAt || entryMeta?.createdAt || timestamp,
+    });
+  }
+
+  const legacyRows = legacyGlobalItemsToMemoryLines(
+    asArray(record["global"]),
+    rows.length
+  );
+  legacyRows.forEach((line, index) => {
+    rows.push({
+      key: line.key || `legacy-${index + 1}`,
+      value: line.value,
+      kind: "semantic",
+      status: "active",
+      sourceUser: "json-backup",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+  });
+
+  if (rows.length === 0) return;
+
+  db.exec("BEGIN");
+  try {
+    for (const row of rows) {
+      insertSqliteMemoryRow(db, row);
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+function sqliteRowsToMemoryLines(rows: SqliteMemoryRow[]): MemoryLine[] {
+  return rows
+    .map((row, index): MemoryLine | null => {
+      const key = singleLine(row.key);
+      const value = singleLine(row.value);
+      if (!key || !value || RESERVED_MEMORY_KEYS.has(key)) return null;
+      if (row.status !== "active") return null;
+      if (isUnsafeMemoryKey(key) || isUnsafeMemoryText(value)) return null;
+
+      return {
+        key,
+        value,
+        line: `${key}: ${value}`,
+        index,
+        updatedAt: parseTime(row.updated_at),
+      };
+    })
+    .filter((line): line is MemoryLine => Boolean(line));
+}
+
+function loadMentionChatMemorySqlite({
+  enabled,
+  sqlitePath,
+  jsonPath,
+  maxItems,
+  maxChars,
+  queryText,
+}: Omit<LoadMentionChatMemoryStoreOptions, "store">): MentionChatMemoryResult {
+  if (!enabled || !sqlitePath.trim() || maxItems <= 0 || maxChars <= 0) {
+    return { ...EMPTY_MEMORY };
+  }
+
+  let db: DatabaseSync | null = null;
+  try {
+    db = openMemoryDatabase(sqlitePath);
+    if (!db) return { ...EMPTY_MEMORY };
+
+    importJsonMemoryIntoSqliteIfEmpty(db, jsonPath, () =>
+      new Date().toISOString()
+    );
+    const rows = db
+      .prepare(
+        `
+        SELECT key, value, kind, status, source_user, created_at, updated_at
+        FROM mention_chat_memory
+        WHERE status = 'active'
+        ORDER BY rowid ASC
+      `
+      )
+      .all() as unknown as SqliteMemoryRow[];
+    const ranked = rankMemoryLines(sqliteRowsToMemoryLines(rows), queryText);
+    const capped = capLines(
+      ranked.map((line) => line.line),
+      maxItems,
+      maxChars
+    );
+    const text = capped.join("\n");
+
+    return {
+      text: text || null,
+      itemCount: capped.length,
+      charCount: text.length,
+    };
+  } catch {
+    return { ...EMPTY_MEMORY };
+  } finally {
+    db?.close();
+  }
+}
+
+function capSqliteMemoryRows(
+  db: DatabaseSync,
+  maxItems: number,
+  keepKey: string
+): void {
+  if (maxItems <= 0) return;
+
+  let keys = db
+    .prepare(
+      `
+      SELECT key
+      FROM mention_chat_memory
+      ORDER BY updated_at ASC, key ASC
+    `
+    )
+    .all()
+    .map((row) => (row as { key: string }).key);
+
+  const deleteStatement = db.prepare(
+    "DELETE FROM mention_chat_memory WHERE key = ?"
+  );
+  while (keys.length > maxItems) {
+    const deleteKey = keys.find((key) => key !== keepKey) ?? keys[0];
+    deleteStatement.run(deleteKey);
+    keys = keys.filter((key) => key !== deleteKey);
+  }
+}
+
+function exportSqliteMemoryToJsonBackup(
+  db: DatabaseSync,
+  jsonPath: string
+): void {
+  if (!jsonPath.trim()) return;
+
+  const rows = db
+    .prepare(
+      `
+      SELECT key, value, kind, status, source_user, created_at, updated_at
+      FROM mention_chat_memory
+      ORDER BY rowid ASC
+    `
+    )
+    .all() as unknown as SqliteMemoryRow[];
+  const record: MemoryRecord = {};
+  const meta: Record<string, MemoryMetadata> = {};
+
+  for (const row of rows) {
+    const key = singleLine(row.key);
+    const value = singleLine(row.value);
+    if (!key || !value || RESERVED_MEMORY_KEYS.has(key)) continue;
+    if (isUnsafeMemoryKey(key) || isUnsafeMemoryText(value)) continue;
+
+    record[key] = value;
+    meta[key] = {
+      kind: normalizeMemoryKind(row.kind),
+      status: normalizeMemoryStatus(row.status),
+      sourceUser: singleLine(row.source_user) || "unknown",
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  if (Object.keys(meta).length > 0) {
+    record[MEMORY_META_KEY] = meta;
+  }
+  writeMemoryRecordAtomically(jsonPath, record);
+}
+
+function saveMemoryEntrySqlite({
+  sqlitePath,
+  jsonPath,
+  entry,
+  maxItems,
+  sourceUser,
+  kind,
+  now,
+}: {
+  sqlitePath: string;
+  jsonPath: string;
+  entry: MentionChatMemoryEntry;
+  maxItems: number;
+  sourceUser?: string;
+  kind: "semantic" | "implicit";
+  now: () => string;
+}): SaveMentionChatAutoLearnMemoryResult {
+  let db: DatabaseSync | null = null;
+  try {
+    db = openMemoryDatabase(sqlitePath);
+    if (!db) return { saved: false, reason: "invalid_file" };
+
+    importJsonMemoryIntoSqliteIfEmpty(db, jsonPath, now);
+    const timestamp = now();
+    const existing = db
+      .prepare(
+        "SELECT created_at FROM mention_chat_memory WHERE key = ? LIMIT 1"
+      )
+      .get(entry.key) as { created_at: string } | undefined;
+    db.exec("BEGIN");
+    try {
+      insertSqliteMemoryRow(db, {
+        key: entry.key,
+        value: entry.value,
+        kind,
+        status: "active",
+        sourceUser: singleLine(sourceUser ?? "") || "unknown",
+        createdAt: existing?.created_at || timestamp,
+        updatedAt: timestamp,
+      });
+      capSqliteMemoryRows(db, maxItems, entry.key);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    exportSqliteMemoryToJsonBackup(db, jsonPath);
+    return { saved: true, reason: "saved", key: entry.key };
+  } catch {
+    return { saved: false, reason: "write_failed" };
+  } finally {
+    db?.close();
+  }
+}
+
 function saveMemoryEntry({
   filePath,
   entry,
@@ -563,6 +945,53 @@ export function saveMentionChatAutoLearnMemory({
   }
 }
 
+export function saveMentionChatAutoLearnMemoryStore({
+  store,
+  jsonPath,
+  sqlitePath,
+  enabled,
+  promptText,
+  maxKeyChars,
+  maxValueChars,
+  maxItems,
+  sourceUser,
+  now = () => new Date().toISOString(),
+}: SaveMentionChatAutoLearnMemoryStoreOptions): SaveMentionChatAutoLearnMemoryResult {
+  if (store === "json") {
+    return saveMentionChatAutoLearnMemory({
+      enabled,
+      filePath: jsonPath,
+      promptText,
+      maxKeyChars,
+      maxValueChars,
+      maxItems,
+      sourceUser,
+      now,
+    });
+  }
+  if (!enabled || !sqlitePath.trim()) return { saved: false, reason: "disabled" };
+
+  const analysis = analyzeMentionChatMemoryRequest(promptText, {
+    maxKeyChars,
+    maxValueChars,
+  });
+  if (analysis.reason !== "valid" || !analysis.entry) {
+    const reason: SaveMentionChatAutoLearnMemoryFailureReason =
+      analysis.reason === "valid" ? "invalid_format" : analysis.reason;
+    return { saved: false, reason };
+  }
+
+  return saveMemoryEntrySqlite({
+    sqlitePath,
+    jsonPath,
+    entry: analysis.entry,
+    maxItems,
+    sourceUser,
+    kind: "semantic",
+    now,
+  });
+}
+
 export function saveMentionChatImplicitMemory({
   enabled,
   filePath,
@@ -594,6 +1023,50 @@ export function saveMentionChatImplicitMemory({
   } catch {
     return { saved: false, reason: "write_failed" };
   }
+}
+
+export function saveMentionChatImplicitMemoryStore({
+  store,
+  jsonPath,
+  sqlitePath,
+  enabled,
+  promptText,
+  maxKeyChars,
+  maxValueChars,
+  maxItems,
+  sourceUser,
+  now = () => new Date().toISOString(),
+}: SaveMentionChatImplicitMemoryStoreOptions): SaveMentionChatAutoLearnMemoryResult {
+  if (store === "json") {
+    return saveMentionChatImplicitMemory({
+      enabled,
+      filePath: jsonPath,
+      promptText,
+      maxKeyChars,
+      maxValueChars,
+      maxItems,
+      sourceUser,
+      now,
+    });
+  }
+  if (!enabled || !sqlitePath.trim()) return { saved: false, reason: "disabled" };
+
+  const entry = extractImplicitMentionChatMemoryEntry(promptText, {
+    maxKeyChars,
+    maxValueChars,
+    sourceUser,
+  });
+  if (!entry) return { saved: false, reason: "not_memory_request" };
+
+  return saveMemoryEntrySqlite({
+    sqlitePath,
+    jsonPath,
+    entry,
+    maxItems,
+    sourceUser,
+    kind: "implicit",
+    now,
+  });
 }
 
 export function loadMentionChatMemory({
@@ -636,6 +1109,35 @@ export function loadMentionChatMemory({
   } catch {
     return { ...EMPTY_MEMORY };
   }
+}
+
+export function loadMentionChatMemoryStore({
+  store,
+  jsonPath,
+  sqlitePath,
+  enabled,
+  maxItems,
+  maxChars,
+  queryText,
+}: LoadMentionChatMemoryStoreOptions): MentionChatMemoryResult {
+  if (store === "json") {
+    return loadMentionChatMemory({
+      enabled,
+      filePath: jsonPath,
+      maxItems,
+      maxChars,
+      queryText,
+    });
+  }
+
+  return loadMentionChatMemorySqlite({
+    enabled,
+    jsonPath,
+    sqlitePath,
+    maxItems,
+    maxChars,
+    queryText,
+  });
 }
 
 function normalizedSearchText(value: string): string {

@@ -7,8 +7,11 @@ import {
   extractMentionChatMemoryEntry,
   extractImplicitMentionChatMemoryEntry,
   loadMentionChatMemory,
+  loadMentionChatMemoryStore,
   saveMentionChatAutoLearnMemory,
+  saveMentionChatAutoLearnMemoryStore,
   saveMentionChatImplicitMemory,
+  saveMentionChatImplicitMemoryStore,
 } from "../../src/commands/mention-chat-memory";
 
 let tempDir: string | null = null;
@@ -560,6 +563,153 @@ describe("auto-learn mention chat memory", () => {
           sourceUser: "viewer",
           createdAt: "2026-06-21T04:50:00.000Z",
           updatedAt: "2026-06-21T04:50:00.000Z",
+        },
+      },
+    });
+  });
+});
+
+describe("mention chat memory store", () => {
+  it("migrates existing JSON into sqlite once and reads sqlite as the primary store", () => {
+    const dir = createTempDir();
+    const jsonPath = path.join(dir, "chat-ai-memory.json");
+    const sqlitePath = path.join(dir, "chat-ai-memory.sqlite");
+    fs.writeFileSync(
+      jsonPath,
+      JSON.stringify({
+        口調: "短くD",
+        るっか: "43歳",
+        __meta: {
+          るっか: {
+            kind: "semantic",
+            status: "active",
+            sourceUser: "rukalun",
+            createdAt: "2026-06-20T00:00:00.000Z",
+            updatedAt: "2026-06-20T00:00:00.000Z",
+          },
+        },
+      }),
+      "utf8"
+    );
+
+    const migrated = loadMentionChatMemoryStore({
+      enabled: true,
+      store: "sqlite",
+      jsonPath,
+      sqlitePath,
+      maxItems: 1,
+      maxChars: 600,
+      queryText: "るっかって何歳？",
+    });
+
+    expect(migrated.text).toBe("るっか: 43歳");
+    expect(fs.existsSync(sqlitePath)).toBe(true);
+
+    fs.writeFileSync(
+      jsonPath,
+      JSON.stringify({ るっか: "JSONだけの古い値" }),
+      "utf8"
+    );
+    const primary = loadMentionChatMemoryStore({
+      enabled: true,
+      store: "sqlite",
+      jsonPath,
+      sqlitePath,
+      maxItems: 1,
+      maxChars: 600,
+      queryText: "るっかって何歳？",
+    });
+
+    expect(primary.text).toBe("るっか: 43歳");
+  });
+
+  it("saves explicit memory into sqlite and exports the JSON file as a backup", () => {
+    const dir = createTempDir();
+    const jsonPath = path.join(dir, "chat-ai-memory.json");
+    const sqlitePath = path.join(dir, "chat-ai-memory.sqlite");
+
+    const result = saveMentionChatAutoLearnMemoryStore({
+      enabled: true,
+      store: "sqlite",
+      jsonPath,
+      sqlitePath,
+      promptText: "覚えて: 口調=短くD",
+      maxKeyChars: 40,
+      maxValueChars: 120,
+      maxItems: 50,
+      sourceUser: "rukalun",
+      now: () => "2026-06-21T06:00:00.000Z",
+    });
+
+    expect(result).toEqual({ saved: true, reason: "saved", key: "口調" });
+    expect(
+      loadMentionChatMemoryStore({
+        enabled: true,
+        store: "sqlite",
+        jsonPath,
+        sqlitePath,
+        maxItems: 8,
+        maxChars: 600,
+        queryText: "口調は？",
+      }).text
+    ).toBe("口調: 短くD");
+    expect(JSON.parse(fs.readFileSync(jsonPath, "utf8"))).toEqual({
+      口調: "短くD",
+      __meta: {
+        口調: {
+          kind: "semantic",
+          status: "active",
+          sourceUser: "rukalun",
+          createdAt: "2026-06-21T06:00:00.000Z",
+          updatedAt: "2026-06-21T06:00:00.000Z",
+        },
+      },
+    });
+  });
+
+  it("saves implicit memory into sqlite with audit metadata and JSON backup", () => {
+    const dir = createTempDir();
+    const jsonPath = path.join(dir, "chat-ai-memory.json");
+    const sqlitePath = path.join(dir, "chat-ai-memory.sqlite");
+
+    const result = saveMentionChatImplicitMemoryStore({
+      enabled: true,
+      store: "sqlite",
+      jsonPath,
+      sqlitePath,
+      promptText: "私はカレーが好き",
+      maxKeyChars: 40,
+      maxValueChars: 120,
+      maxItems: 50,
+      sourceUser: "viewer",
+      now: () => "2026-06-21T06:05:00.000Z",
+    });
+
+    expect(result).toEqual({
+      saved: true,
+      reason: "saved",
+      key: "viewerの好きなもの",
+    });
+    expect(
+      loadMentionChatMemoryStore({
+        enabled: true,
+        store: "sqlite",
+        jsonPath,
+        sqlitePath,
+        maxItems: 8,
+        maxChars: 600,
+        queryText: "viewerの好きなものは？",
+      }).text
+    ).toBe("viewerの好きなもの: カレー");
+    expect(JSON.parse(fs.readFileSync(jsonPath, "utf8"))).toEqual({
+      "viewerの好きなもの": "カレー",
+      __meta: {
+        "viewerの好きなもの": {
+          kind: "implicit",
+          status: "active",
+          sourceUser: "viewer",
+          createdAt: "2026-06-21T06:05:00.000Z",
+          updatedAt: "2026-06-21T06:05:00.000Z",
         },
       },
     });
