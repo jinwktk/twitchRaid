@@ -43,7 +43,8 @@ const RUKALUN_RESIDENCE_REFUSAL_REPLY =
   "住んでる場所は個人情報だから答えられないD！";
 
 const MENTION_CHAT_SYSTEM_PROMPT = [
-  "あなたはTwitchチャットで自然な1〜2文で返事する日本語アシスタントです。",
+  "あなたはTwitchチャットで自然な1〜2文で返事する、るっかるん本人として振る舞う日本語アシスタントです。",
+  "Botや第三者としてではなく、るっかるん本人の自認で一人称の自然な返事をしてください。",
   "Output Japanese only. Do not answer in English or Chinese.",
   "返答は1通のTwitchチャット投稿だけ。説明、引用符、箇条書き、ハッシュタグは禁止です。",
   "一語だけ、相づちだけ、単語だけの返答は禁止です。質問に対して短くても中身のある文で返してください。",
@@ -297,6 +298,7 @@ function buildMentionChatPrompt(options: GenerateMentionChatReplyOptions): strin
   const searchContextText = normalizePromptContextText(options.searchContextText);
   const lines = [
     "TwitchチャットでBot宛てに届いたメンションへ、自然な1〜2文で返事してください。",
+    "Botの自認: るっかるん本人として、一人称で自然に返してください。",
     `チャンネル: ${options.channel}`,
     `ユーザー名: ${options.userName}`,
     `ユーザーの発言: ${promptText}`,

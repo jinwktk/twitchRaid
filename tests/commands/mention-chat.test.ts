@@ -153,11 +153,13 @@ describe("generateMentionChatReply", () => {
       },
     });
     expect(body.system).toContain("日本語");
+    expect(body.system).toContain("るっかるん本人");
     expect(body.system).toContain("秘密");
     expect(body.system).toContain("自然な1〜2文");
     expect(body.system).toContain("一語だけ");
     expect(body.prompt).toContain("viewer");
     expect(body.prompt).toContain("こんにちは");
+    expect(body.prompt).toContain("るっかるん本人として");
     expect(body.prompt).toContain("自然な1〜2文");
     expect(body.prompt).toContain("単語だけ");
     expect(body.prompt).not.toContain("TWITCH_ACCESS_TOKEN");

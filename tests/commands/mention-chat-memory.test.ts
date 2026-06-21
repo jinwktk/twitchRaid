@@ -663,7 +663,7 @@ describe("mention chat memory store", () => {
     expect(primary.text).toBe("るっか: 43歳");
   });
 
-  it("saves explicit memory into sqlite and exports the JSON file as a backup", () => {
+  it("saves explicit memory into sqlite without recreating the JSON file", () => {
     const dir = createTempDir();
     const jsonPath = path.join(dir, "chat-ai-memory.json");
     const sqlitePath = path.join(dir, "chat-ai-memory.sqlite");
@@ -693,21 +693,10 @@ describe("mention chat memory store", () => {
         queryText: "口調は？",
       }).text
     ).toBe("口調: 短くD");
-    expect(JSON.parse(fs.readFileSync(jsonPath, "utf8"))).toEqual({
-      口調: "短くD",
-      __meta: {
-        口調: {
-          kind: "semantic",
-          status: "active",
-          sourceUser: "rukalun",
-          createdAt: "2026-06-21T06:00:00.000Z",
-          updatedAt: "2026-06-21T06:00:00.000Z",
-        },
-      },
-    });
+    expect(fs.existsSync(jsonPath)).toBe(false);
   });
 
-  it("saves implicit memory into sqlite with audit metadata and JSON backup", () => {
+  it("saves implicit memory into sqlite with audit metadata without recreating JSON", () => {
     const dir = createTempDir();
     const jsonPath = path.join(dir, "chat-ai-memory.json");
     const sqlitePath = path.join(dir, "chat-ai-memory.sqlite");
@@ -741,18 +730,7 @@ describe("mention chat memory store", () => {
         queryText: "viewerの好きなものは？",
       }).text
     ).toBe("viewerの好きなもの: カレー");
-    expect(JSON.parse(fs.readFileSync(jsonPath, "utf8"))).toEqual({
-      "viewerの好きなもの": "カレー",
-      __meta: {
-        "viewerの好きなもの": {
-          kind: "implicit",
-          status: "active",
-          sourceUser: "viewer",
-          createdAt: "2026-06-21T06:05:00.000Z",
-          updatedAt: "2026-06-21T06:05:00.000Z",
-        },
-      },
-    });
+    expect(fs.existsSync(jsonPath)).toBe(false);
   });
 
   it("filters topic-mismatched sqlite memory before injecting it into Ollama context", () => {
@@ -789,7 +767,7 @@ describe("mention chat memory store", () => {
     expect(result).toEqual({ text: null, itemCount: 0, charCount: 0 });
   });
 
-  it("supports admin CRUD against sqlite and keeps the JSON backup in sync", () => {
+  it("supports admin CRUD against sqlite without recreating the JSON file", () => {
     const dir = createTempDir();
     const jsonPath = path.join(dir, "chat-ai-memory.json");
     const sqlitePath = path.join(dir, "chat-ai-memory.sqlite");
@@ -855,18 +833,7 @@ describe("mention chat memory store", () => {
         limit: 20,
       }).entries
     ).toEqual([]);
-    expect(JSON.parse(fs.readFileSync(jsonPath, "utf8"))).toEqual({
-      口調: "長めD",
-      __meta: {
-        口調: {
-          kind: "semantic",
-          status: "inactive",
-          sourceUser: "admin2",
-          createdAt: "2026-06-21T07:00:00.000Z",
-          updatedAt: "2026-06-21T07:05:00.000Z",
-        },
-      },
-    });
+    expect(fs.existsSync(jsonPath)).toBe(false);
 
     expect(
       deleteMentionChatMemoryEntryStore({
@@ -887,7 +854,7 @@ describe("mention chat memory store", () => {
         limit: 20,
       }).entries
     ).toEqual([]);
-    expect(JSON.parse(fs.readFileSync(jsonPath, "utf8"))).toEqual({});
+    expect(fs.existsSync(jsonPath)).toBe(false);
   });
 
   it("rejects unsafe admin memory entries", () => {

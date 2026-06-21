@@ -22,14 +22,14 @@
 ## AIメンション会話メモ
 
 - `CHAT_AI_MEMORY_ENABLED=true` の時だけ、ローカル記憶ストアをOllamaプロンプトへ参考メモとして渡す。
-- 既定は `CHAT_AI_MEMORY_STORE=json` で、`CHAT_AI_MEMORY_PATH` のルート直下 `key: value` を共通semantic memoryとして扱い、`__meta` に `kind/status/sourceUser/createdAt/updatedAt` を持つ。`CHAT_AI_MEMORY_STORE=sqlite` では `CHAT_AI_MEMORY_DB_PATH` のSQLite DBを正本にし、JSONは初回移行元と保存時バックアップにする。
+- 既定は `CHAT_AI_MEMORY_STORE=json` で、`CHAT_AI_MEMORY_PATH` のルート直下 `key: value` を共通semantic memoryとして扱い、`__meta` に `kind/status/sourceUser/createdAt/updatedAt` を持つ。`CHAT_AI_MEMORY_STORE=sqlite` では `CHAT_AI_MEMORY_DB_PATH` のSQLite DBを正本にし、JSONはDBが空の初回だけ移行元として読む。SQLite保存時にJSONバックアップは再生成しない。
 - `status=inactive` は注入しない。全件を毎回入れず、質問文へのキー一致、語句一致、`updatedAt` の新しさ、DB/ファイル順で並べてから `CHAT_AI_MEMORY_MAX_ITEMS` / `CHAT_AI_MEMORY_MAX_CHARS` を適用する。
 - `CHAT_AI_AUTO_LEARN_ENABLED=true` かつ発言者が `CHAT_AI_MEMORY_WRITER_USERS` に含まれる時だけ、`覚えて: key=value` などの明示依頼を保存する。未設定時のwriterは `rukalun`。`CHAT_AI_MEMORY_WRITER_USERS=all` は全ユーザー許可として扱う。
 - `CHAT_AI_IMPLICIT_MEMORY_ENABLED=true` の時だけ、通常AI返信送信後に安全な短文事実・嗜好を `kind=implicit` として保存する。追加のOllama呼び出しや追加prompt生成は行わず、`CHAT_AI_AUTO_LEARN_ENABLED` と `CHAT_AI_MEMORY_WRITER_USERS` を同じgateにする。
 - 記憶保存リクエストはOllamaへ送らず、保存成功/形式不正/安全拒否/権限拒否/無効を固定返信で返す。固定返信は通常AI会話のクールダウンを消費しない。
 - `!chat 覚えて: ...` のコマンド検出ログは `[memory-request]` に伏せる。
 - URL、メール、電話番号、token/API key/password系、本名/住所/誕生日などの個人情報キー、予約キー `global/users/__meta`、プロンプト注入文は保存しない。手動編集や旧形式に混入した危険メモも読み込み時に除外する。
-- 管理用に `scripts/memory-web.mjs` を用意している。Windows側の `trmem-web` または `npm run memory:web` でメインPCローカル `http://127.0.0.1:3220/` に起動できる。サブPC常駐版はWebUI専用Docker serviceとして `http://192.168.0.99:3220/` に公開する。どちらもサブPC本番SQLiteメモを一覧/検索/Create/Update/Deleteでき、変更は `src/commands/mention-chat-memory.ts` の管理APIを通すため、安全フィルタとJSONバックアップ同期を維持する。
+- 管理用に `scripts/memory-web.mjs` を用意している。Windows側の `trmem-web` または `npm run memory:web` でメインPCローカル `http://127.0.0.1:3220/` に起動できる。サブPC常駐版はWebUI専用Docker serviceとして `http://192.168.0.99:3220/` に公開する。どちらもサブPC本番SQLiteメモを一覧/検索/Create/Update/Deleteでき、変更は `src/commands/mention-chat-memory.ts` の管理APIを通すため、安全フィルタを維持する。
 
 ## Clipコマンド
 

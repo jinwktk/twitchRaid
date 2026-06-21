@@ -931,46 +931,6 @@ function capSqliteMemoryRows(
   }
 }
 
-function exportSqliteMemoryToJsonBackup(
-  db: DatabaseSync,
-  jsonPath: string
-): void {
-  if (!jsonPath.trim()) return;
-
-  const rows = db
-    .prepare(
-      `
-      SELECT key, value, kind, status, source_user, created_at, updated_at
-      FROM mention_chat_memory
-      ORDER BY rowid ASC
-    `
-    )
-    .all() as unknown as SqliteMemoryRow[];
-  const record: MemoryRecord = {};
-  const meta: Record<string, MemoryMetadata> = {};
-
-  for (const row of rows) {
-    const key = singleLine(row.key);
-    const value = singleLine(row.value);
-    if (!key || !value || RESERVED_MEMORY_KEYS.has(key)) continue;
-    if (isUnsafeMemoryKey(key) || isUnsafeMemoryText(value)) continue;
-
-    record[key] = value;
-    meta[key] = {
-      kind: normalizeMemoryKind(row.kind),
-      status: normalizeMemoryStatus(row.status),
-      sourceUser: singleLine(row.source_user) || "unknown",
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  }
-
-  if (Object.keys(meta).length > 0) {
-    record[MEMORY_META_KEY] = meta;
-  }
-  writeMemoryRecordAtomically(jsonPath, record);
-}
-
 function saveMemoryEntrySqlite({
   sqlitePath,
   jsonPath,
@@ -1017,7 +977,6 @@ function saveMemoryEntrySqlite({
       db.exec("ROLLBACK");
       throw error;
     }
-    exportSqliteMemoryToJsonBackup(db, jsonPath);
     return { saved: true, reason: "saved", key: entry.key };
   } catch {
     return { saved: false, reason: "write_failed" };
@@ -1400,7 +1359,6 @@ function upsertSqliteMemoryAdminEntry({
       db.exec("ROLLBACK");
       throw error;
     }
-    exportSqliteMemoryToJsonBackup(db, jsonPath);
     return { saved: true, reason: "saved", key: entry.key };
   } catch {
     return { saved: false, reason: "write_failed" };
@@ -1508,7 +1466,6 @@ function deleteSqliteMemoryAdminEntry({
       .prepare("DELETE FROM mention_chat_memory WHERE key = ?")
       .run(cleanKey) as unknown as { changes: number };
     if (result.changes <= 0) return { deleted: false, reason: "not_found" };
-    exportSqliteMemoryToJsonBackup(db, jsonPath);
     return { deleted: true, reason: "deleted", key: cleanKey };
   } catch {
     return { deleted: false, reason: "write_failed" };
