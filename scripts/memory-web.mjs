@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 import http from "node:http";
 import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
-import { URL, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3220;
 const DEFAULT_SSH_HOST = "sub";
 const DEFAULT_WSL_DISTRO = "Ubuntu-Backup";
-const DEFAULT_SERVICE_NAME = "twitch-raid-apcz9n";
+const DEFAULT_SERVICE_NAME = "sub-ai_mem0";
 const DEFAULT_TARGET = "ssh-wsl";
-const DEFAULT_JSON_PATH = "/app/data/chat-ai-memory.json";
-const DEFAULT_SQLITE_PATH = "/app/data/chat-ai-memory.sqlite";
-const require = createRequire(import.meta.url);
+const DEFAULT_ENDPOINT = "http://127.0.0.1:8888";
+const DEFAULT_USER_ID = "rukalun";
+const DEFAULT_AGENT_ID = "twitchRaid";
+const DEFAULT_APP_ID = "twitchRaid";
 
 export function parseArgs(argv) {
   const options = {
@@ -22,8 +22,17 @@ export function parseArgs(argv) {
     wslDistro: DEFAULT_WSL_DISTRO,
     serviceName: DEFAULT_SERVICE_NAME,
     target: DEFAULT_TARGET,
-    jsonPath: DEFAULT_JSON_PATH,
-    sqlitePath: DEFAULT_SQLITE_PATH,
+    endpoint: process.env.MEMORY_WEB_ENDPOINT || DEFAULT_ENDPOINT,
+    apiKey:
+      process.env.MEMORY_WEB_API_KEY ||
+      process.env.CHAT_AI_MEM0_API_KEY ||
+      process.env.MEM0_ADMIN_API_KEY ||
+      "",
+    userId: process.env.CHAT_AI_MEM0_USER_ID || DEFAULT_USER_ID,
+    agentId: process.env.CHAT_AI_MEM0_AGENT_ID || DEFAULT_AGENT_ID,
+    runId: process.env.CHAT_AI_MEM0_RUN_ID || "",
+    appId: process.env.CHAT_AI_MEM0_APP_ID || DEFAULT_APP_ID,
+    limit: 100,
     basicUser: process.env.MEMORY_WEB_BASIC_USER || "",
     basicPassword: process.env.MEMORY_WEB_BASIC_PASSWORD || "",
     allowUnsafeNoAuth: false,
@@ -54,11 +63,27 @@ export function parseArgs(argv) {
     } else if (arg === "--target" && next) {
       options.target = next === "direct" ? "direct" : DEFAULT_TARGET;
       index += 1;
-    } else if (arg === "--json-path" && next) {
-      options.jsonPath = next;
+    } else if (arg === "--endpoint" && next) {
+      options.endpoint = next;
       index += 1;
-    } else if (arg === "--sqlite-path" && next) {
-      options.sqlitePath = next;
+    } else if (arg === "--api-key" && next) {
+      options.apiKey = next;
+      index += 1;
+    } else if (arg === "--user-id" && next) {
+      options.userId = next;
+      index += 1;
+    } else if (arg === "--agent-id" && next) {
+      options.agentId = next;
+      index += 1;
+    } else if (arg === "--run-id" && next) {
+      options.runId = next;
+      index += 1;
+    } else if (arg === "--app-id" && next) {
+      options.appId = next;
+      index += 1;
+    } else if (arg === "--limit" && next) {
+      const limit = Number.parseInt(next, 10);
+      if (Number.isFinite(limit) && limit > 0) options.limit = limit;
       index += 1;
     } else if (arg === "--basic-user" && next) {
       options.basicUser = next;
@@ -74,6 +99,15 @@ export function parseArgs(argv) {
   return options;
 }
 
+function singleLine(value) {
+  return String(value ?? "").replace(/\s+/gu, " ").trim();
+}
+
+function optionalText(value) {
+  const text = singleLine(value);
+  return text || "";
+}
+
 function isLoopbackHost(host) {
   return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }
@@ -81,11 +115,6 @@ function isLoopbackHost(host) {
 function timingSafeEqualText(a, b) {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
-  if (left.length !== right.length) return false;
-  return cryptoTimingSafeEqual(left, right);
-}
-
-function cryptoTimingSafeEqual(left, right) {
   let diff = left.length ^ right.length;
   const max = Math.max(left.length, right.length);
   for (let index = 0; index < max; index += 1) {
@@ -123,10 +152,6 @@ function sendUnauthorized(res) {
     "cache-control": "no-store",
   });
   res.end("Unauthorized\n");
-}
-
-function shellQuote(value) {
-  return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
 function sendJson(res, statusCode, payload) {
@@ -174,6 +199,10 @@ function readRequestBody(req) {
   });
 }
 
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
 function extractJsonPayload(stdout) {
   const lines = stdout
     .split(/\r?\n/u)
@@ -186,158 +215,332 @@ function extractJsonPayload(stdout) {
   throw new Error("remote command did not return JSON");
 }
 
-function loadMemoryModule() {
-  return require("../dist/commands/mention-chat-memory.js");
+function nestedRecord(value, key) {
+  if (!value || typeof value !== "object") return null;
+  const nested = value[key];
+  return nested && typeof nested === "object" ? nested : null;
 }
 
-function memoryEntryExists(memory, common, key) {
-  if (!key) return false;
-  const result = memory.listMentionChatMemoryEntriesStore({
-    ...common,
-    status: "all",
-    queryText: "",
-    limit: 500,
-  });
-  return (result.entries || []).some((entry) => entry.key === key);
+function metadataFromRecord(record) {
+  return (
+    nestedRecord(record, "metadata") ||
+    nestedRecord(nestedRecord(record, "payload"), "metadata") ||
+    {}
+  );
 }
 
-export function executeMemoryOperation(memory, common, request) {
+function memoryTextFromRecord(value) {
+  if (!value || typeof value !== "object") return "";
+  for (const field of ["memory", "text", "content"]) {
+    const text = value[field];
+    if (typeof text === "string" && singleLine(text)) return singleLine(text);
+  }
+  const payload = nestedRecord(value, "payload");
+  return payload ? memoryTextFromRecord(payload) : "";
+}
+
+function resultArray(value) {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== "object") return [];
+  for (const field of ["results", "memories", "data"]) {
+    const nested = value[field];
+    if (Array.isArray(nested)) return nested;
+  }
+  return [];
+}
+
+function splitMemoryText(memory, metadataKey) {
+  const key = optionalText(metadataKey);
+  if (!memory) return { key, value: "" };
+  const separatorIndex = memory.indexOf(":");
+  if (separatorIndex > 0) {
+    return {
+      key: key || singleLine(memory.slice(0, separatorIndex)),
+      value: singleLine(memory.slice(separatorIndex + 1)),
+    };
+  }
+  return { key, value: memory };
+}
+
+export function normalizeMemoryEntries(raw) {
+  const entries = resultArray(raw)
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const metadata = metadataFromRecord(item);
+      const id = optionalText(item.id ?? item.memory_id ?? item.uuid);
+      const memory = memoryTextFromRecord(item);
+      if (!id && !memory) return null;
+      const { key, value } = splitMemoryText(memory, metadata.key);
+      return {
+        id,
+        key,
+        value,
+        kind: optionalText(metadata.kind),
+        status: "active",
+        sourceUser: optionalText(metadata.sourceUser ?? metadata.source_user),
+        updatedAt: optionalText(item.updated_at ?? item.updatedAt ?? item.created_at),
+      };
+    })
+    .filter(Boolean);
+
+  return { entries, totalCount: entries.length, activeCount: entries.length };
+}
+
+function scopedParams(scope) {
+  return {
+    userId: optionalText(scope.userId),
+    agentId: optionalText(scope.agentId),
+    runId: optionalText(scope.runId),
+  };
+}
+
+export async function executeMemoryOperation(client, scope, request) {
+  const common = scopedParams(scope);
+  const limit = Number.isFinite(request.limit) && request.limit > 0
+    ? request.limit
+    : scope.limit;
+
   if (request.action === "list") {
-    return memory.listMentionChatMemoryEntriesStore({
-      ...common,
-      status: request.status,
-      queryText: request.queryText,
-      limit: request.limit,
-    });
+    const queryText = singleLine(request.queryText);
+    if (queryText) {
+      return normalizeMemoryEntries(
+        await client.search({ ...common, queryText, limit })
+      );
+    }
+    return normalizeMemoryEntries(await client.list({ ...common, limit }));
   }
 
   if (request.action === "upsert") {
-    const key = String(request.key || "").replace(/\s+/g, " ").trim();
-    if (request.mode === "create" && memoryEntryExists(memory, common, key)) {
-      return { saved: false, reason: "already_exists", key };
+    const key = singleLine(request.key);
+    const value = singleLine(request.value);
+    if (!key || !value) return { saved: false, reason: "invalid_format" };
+    if (request.mode === "update") {
+      const id = singleLine(request.id);
+      if (!id) return { saved: false, reason: "missing_id" };
+      const raw = await client.update({ id, key, value });
+      return { saved: true, reason: "saved", raw };
     }
-
-    return memory.upsertMentionChatMemoryEntryStore({
+    const raw = await client.create({
       ...common,
+      appId: optionalText(scope.appId),
       key,
-      value: request.value,
-      kind: request.kind,
-      status: request.status,
+      value,
+      kind: request.kind === "implicit" ? "implicit" : "semantic",
       sourceUser: "memory-web",
-      maxItems: 50,
     });
+    return { saved: true, reason: "saved", raw };
   }
 
   if (request.action === "delete") {
-    return memory.deleteMentionChatMemoryEntryStore({
-      ...common,
-      key: request.key,
-    });
+    const id = singleLine(request.id);
+    if (!id) return { deleted: false, reason: "missing_id" };
+    const raw = await client.delete({ id });
+    return { deleted: true, reason: "deleted", raw };
   }
 
   throw new Error("unknown_action");
 }
 
-function runDirectMemoryOperation(options, request) {
-  const memory = loadMemoryModule();
-  return executeMemoryOperation(
-    memory,
-    {
-      store: "sqlite",
-      jsonPath: options.jsonPath,
-      sqlitePath: options.sqlitePath,
-    },
-    request
-  );
+function normalizeEndpoint(endpoint) {
+  const cleanEndpoint = optionalText(endpoint);
+  if (!cleanEndpoint) return DEFAULT_ENDPOINT;
+  const url = new URL(cleanEndpoint);
+  url.pathname = url.pathname.replace(/\/+$/u, "");
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/u, "");
 }
 
-function buildRemoteScript({ serviceName, request }) {
-  const requestJson = Buffer.from(JSON.stringify(request), "utf8").toString(
+function createHttpClient(options) {
+  const endpoint = normalizeEndpoint(options.endpoint);
+  const headers = {
+    "Content-Type": "application/json",
+  };
+  if (optionalText(options.apiKey)) headers["X-API-Key"] = optionalText(options.apiKey);
+
+  async function requestJson(method, path, body) {
+    const response = await fetch(`${endpoint}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) throw new Error(`mem0 http ${response.status}`);
+    return response.json();
+  }
+
+  return {
+    list({ userId, agentId, runId, limit }) {
+      const params = new URLSearchParams();
+      if (userId) params.set("user_id", userId);
+      if (agentId) params.set("agent_id", agentId);
+      if (runId) params.set("run_id", runId);
+      if (limit) params.set("limit", String(limit));
+      const query = params.toString();
+      return requestJson("GET", `/memories${query ? `?${query}` : ""}`);
+    },
+    search({ queryText, userId, agentId, runId, limit }) {
+      const filters = {};
+      if (userId) filters.user_id = userId;
+      if (agentId) filters.agent_id = agentId;
+      if (runId) filters.run_id = runId;
+      return requestJson("POST", "/search", {
+        query: queryText,
+        filters,
+        top_k: limit,
+      });
+    },
+    create({ userId, agentId, runId, appId, key, value, kind, sourceUser }) {
+      const body = {
+        messages: [{ role: "user", content: `${key}: ${value}` }],
+        infer: false,
+        metadata: {
+          key,
+          kind,
+          sourceUser,
+          source: "twitchRaid",
+          app_id: appId || undefined,
+        },
+      };
+      if (userId) body.user_id = userId;
+      if (agentId) body.agent_id = agentId;
+      if (runId) body.run_id = runId;
+      return requestJson("POST", "/memories", body);
+    },
+    update({ id, key, value }) {
+      return requestJson("PATCH", `/memories/${encodeURIComponent(id)}`, {
+        memory: `${key}: ${value}`,
+      });
+    },
+    delete({ id }) {
+      return requestJson("DELETE", `/memories/${encodeURIComponent(id)}`);
+    },
+  };
+}
+
+function buildRemoteScript({ serviceName, request, scope }) {
+  const payload = Buffer.from(JSON.stringify({ request, scope }), "utf8").toString(
     "base64url"
   );
   return `set -eu
 SERVICE_NAME=${shellQuote(serviceName)}
-MEMORY_WEB_REQUEST=${shellQuote(requestJson)}
+MEMORY_WEB_REQUEST=${shellQuote(payload)}
 CID=$(docker ps --filter "name=$SERVICE_NAME" --format "{{.ID}}" | head -n 1)
 if [ -z "$CID" ]; then
   printf '%s\\n' '{"ok":false,"error":"container_not_found"}'
   exit 0
 fi
-docker exec -i -w /app -e MEMORY_WEB_REQUEST="$MEMORY_WEB_REQUEST" "$CID" node <<'NODE'
-const request = JSON.parse(Buffer.from(process.env.MEMORY_WEB_REQUEST, "base64url").toString("utf8"));
-const memory = require("./dist/commands/mention-chat-memory.js");
-const common = {
-  store: "sqlite",
-  jsonPath: "/app/data/chat-ai-memory.json",
-  sqlitePath: "/app/data/chat-ai-memory.sqlite",
-};
+docker exec -i -e MEMORY_WEB_REQUEST="$MEMORY_WEB_REQUEST" "$CID" python - <<'PY'
+import base64
+import json
+import os
+import urllib.error
+import urllib.parse
+import urllib.request
 
-function json(payload) {
-  console.log(JSON.stringify(payload));
-}
+raw = os.environ["MEMORY_WEB_REQUEST"]
+raw += "=" * ((4 - len(raw) % 4) % 4)
+payload = json.loads(base64.urlsafe_b64decode(raw.encode()).decode())
+request = payload["request"]
+scope = payload["scope"]
+api_key = os.environ.get("MEM0_ADMIN_API_KEY", "")
+base_url = "http://127.0.0.1:8888"
 
-try {
-  if (request.action === "list") {
-    json({
-      ok: true,
-      result: memory.listMentionChatMemoryEntriesStore({
-        ...common,
-        status: request.status,
-        queryText: request.queryText,
-        limit: request.limit,
-      }),
-    });
-  } else if (request.action === "upsert") {
-    const key = String(request.key || "").replace(/\\s+/g, " ").trim();
-    let alreadyExists = false;
-    if (request.mode === "create" && key) {
-      const existing = memory.listMentionChatMemoryEntriesStore({
-        ...common,
-        status: "all",
-        queryText: "",
-        limit: 500,
-      });
-      alreadyExists = (existing.entries || []).some((entry) => entry.key === key);
-    }
-    if (alreadyExists) {
-      json({ ok: true, result: { saved: false, reason: "already_exists", key } });
-    } else {
-      json({
-        ok: true,
-        result: memory.upsertMentionChatMemoryEntryStore({
-          ...common,
-          key,
-          value: request.value,
-          kind: request.kind,
-          status: request.status,
-          sourceUser: "memory-web",
-          maxItems: 50,
-        }),
-      });
-    }
-  } else if (request.action === "delete") {
-    json({
-      ok: true,
-      result: memory.deleteMentionChatMemoryEntryStore({
-        ...common,
-        key: request.key,
-      }),
-    });
-  } else {
-    json({ ok: false, error: "unknown_action" });
-  }
-} catch (error) {
-  json({
-    ok: false,
-    error: "operation_failed",
-    detail: error instanceof Error ? error.message : String(error),
-  });
-}
-NODE
+def clean(value):
+    return str(value or "").strip()
+
+def call(method, path, body=None):
+    data = None
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["X-API-Key"] = api_key
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(base_url + path, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=8) as res:
+            text = res.read().decode("utf-8")
+            return json.loads(text) if text else {}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"mem0 http {exc.code}: {detail}") from exc
+
+def scoped_query():
+    params = {}
+    for src, dst in (("userId", "user_id"), ("agentId", "agent_id"), ("runId", "run_id")):
+        value = clean(scope.get(src))
+        if value:
+            params[dst] = value
+    limit = request.get("limit") or scope.get("limit")
+    if limit:
+        params["limit"] = str(limit)
+    query = urllib.parse.urlencode(params)
+    return "?" + query if query else ""
+
+def scoped_filters():
+    filters = {}
+    for src, dst in (("userId", "user_id"), ("agentId", "agent_id"), ("runId", "run_id")):
+        value = clean(scope.get(src))
+        if value:
+            filters[dst] = value
+    return filters
+
+try:
+    action = request.get("action")
+    if action == "list":
+        query_text = clean(request.get("queryText"))
+        if query_text:
+            result = call("POST", "/search", {
+                "query": query_text,
+                "filters": scoped_filters(),
+                "top_k": request.get("limit") or scope.get("limit"),
+            })
+        else:
+            result = call("GET", "/memories" + scoped_query())
+    elif action == "upsert":
+        key = clean(request.get("key"))
+        value = clean(request.get("value"))
+        if not key or not value:
+            raise RuntimeError("invalid_format")
+        if request.get("mode") == "update":
+            memory_id = clean(request.get("id"))
+            if not memory_id:
+                raise RuntimeError("missing_id")
+            result = call("PATCH", "/memories/" + urllib.parse.quote(memory_id, safe=""), {
+                "memory": f"{key}: {value}",
+            })
+        else:
+            body = {
+                "messages": [{"role": "user", "content": f"{key}: {value}"}],
+                "infer": False,
+                "metadata": {
+                    "key": key,
+                    "kind": "implicit" if request.get("kind") == "implicit" else "semantic",
+                    "sourceUser": "memory-web",
+                    "source": "twitchRaid",
+                    "app_id": clean(scope.get("appId")) or None,
+                },
+            }
+            for src, dst in (("userId", "user_id"), ("agentId", "agent_id"), ("runId", "run_id")):
+                scoped_value = clean(scope.get(src))
+                if scoped_value:
+                    body[dst] = scoped_value
+            result = call("POST", "/memories", body)
+    elif action == "delete":
+        memory_id = clean(request.get("id"))
+        if not memory_id:
+            raise RuntimeError("missing_id")
+        result = call("DELETE", "/memories/" + urllib.parse.quote(memory_id, safe=""))
+    else:
+        raise RuntimeError("unknown_action")
+    print(json.dumps({"ok": True, "result": result}, ensure_ascii=False))
+except Exception as exc:
+    print(json.dumps({"ok": False, "error": "operation_failed", "detail": str(exc)}, ensure_ascii=False))
+PY
 `;
 }
 
-function runRemoteMemoryOperation(options, request) {
+function runRemoteRawOperation(options, request) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "ssh",
@@ -379,26 +582,44 @@ function runRemoteMemoryOperation(options, request) {
       }
     });
 
-    child.stdin.end(buildRemoteScript({ serviceName: options.serviceName, request }));
+    child.stdin.end(
+      buildRemoteScript({
+        serviceName: options.serviceName,
+        request,
+        scope: options,
+      })
+    );
   });
 }
 
 async function runMemoryOperation(options, request) {
   if (options.target === "direct") {
-    return runDirectMemoryOperation(options, request);
+    return executeMemoryOperation(createHttpClient(options), options, request);
   }
-  return runRemoteMemoryOperation(options, request);
+
+  const raw = await runRemoteRawOperation(options, request);
+  if (request.action === "list") return normalizeMemoryEntries(raw);
+  if (request.action === "upsert") return { saved: true, reason: "saved", raw };
+  if (request.action === "delete") return { deleted: true, reason: "deleted", raw };
+  throw new Error("unknown_action");
+}
+
+export function buildListRequestFromUrl(url, defaultLimit) {
+  const mode = url.searchParams.get("mode") === "search" ? "search" : "list";
+  return {
+    action: "list",
+    queryText: mode === "search" ? url.searchParams.get("q") || "" : "",
+    limit: Number.parseInt(url.searchParams.get("limit") || String(defaultLimit), 10),
+  };
 }
 
 async function handleApiRequest(options, req, res, url) {
   try {
     if (req.method === "GET" && url.pathname === "/api/memory") {
-      const result = await runMemoryOperation(options, {
-        action: "list",
-        status: url.searchParams.get("status") || "active",
-        queryText: url.searchParams.get("q") || "",
-        limit: Number.parseInt(url.searchParams.get("limit") || "200", 10),
-      });
+      const result = await runMemoryOperation(
+        options,
+        buildListRequestFromUrl(url, options.limit)
+      );
       sendJson(res, 200, result);
       return;
     }
@@ -407,22 +628,19 @@ async function handleApiRequest(options, req, res, url) {
       const body = await readRequestBody(req);
       const result = await runMemoryOperation(options, {
         action: "upsert",
-        mode: body.mode === "create" ? "create" : "update",
+        mode: body.mode === "update" ? "update" : "create",
+        id: String(body.id || ""),
         key: String(body.key || ""),
         value: String(body.value || ""),
         kind: body.kind === "implicit" ? "implicit" : "semantic",
-        status: body.status === "inactive" ? "inactive" : "active",
       });
       sendJson(res, result.saved ? 200 : 400, result);
       return;
     }
 
     if (req.method === "DELETE" && url.pathname.startsWith("/api/memory/")) {
-      const key = decodeURIComponent(url.pathname.slice("/api/memory/".length));
-      const result = await runMemoryOperation(options, {
-        action: "delete",
-        key,
-      });
+      const id = decodeURIComponent(url.pathname.slice("/api/memory/".length));
+      const result = await runMemoryOperation(options, { action: "delete", id });
       sendJson(res, result.deleted ? 200 : 404, result);
       return;
     }
@@ -456,11 +674,7 @@ export function renderHtml() {
       --danger: #b42318;
     }
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-    }
+    body { margin: 0; background: var(--bg); color: var(--text); }
     header {
       display: flex;
       align-items: center;
@@ -470,16 +684,11 @@ export function renderHtml() {
       border-bottom: 1px solid var(--line);
       background: var(--panel);
     }
-    h1 {
-      margin: 0;
-      font-size: 20px;
-      font-weight: 650;
-      letter-spacing: 0;
-    }
+    h1 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: 0; }
     main { padding: 18px 22px 28px; }
     .toolbar {
       display: grid;
-      grid-template-columns: minmax(180px, 1fr) 150px auto auto;
+      grid-template-columns: minmax(180px, 1fr) auto auto auto;
       gap: 10px;
       margin-bottom: 14px;
       align-items: center;
@@ -491,48 +700,15 @@ export function renderHtml() {
       background: #fff;
       color: var(--text);
     }
-    input, select, textarea {
-      width: 100%;
-      padding: 8px 10px;
-    }
-    textarea {
-      resize: vertical;
-      min-height: 92px;
-    }
-    button {
-      padding: 8px 12px;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    button.primary {
-      border-color: var(--accent);
-      background: var(--accent);
-      color: #fff;
-    }
-    button.danger {
-      border-color: var(--danger);
-      color: var(--danger);
-    }
-    .meta {
-      color: var(--muted);
-      font-size: 13px;
-    }
-    .status-line {
-      min-height: 20px;
-      margin: 0 0 10px;
-      color: var(--muted);
-      font-size: 13px;
-    }
-    .table-wrap {
-      overflow: auto;
-      border: 1px solid var(--line);
-      background: var(--panel);
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      min-width: 900px;
-    }
+    input, select, textarea { width: 100%; padding: 8px 10px; }
+    textarea { resize: vertical; min-height: 92px; }
+    button { padding: 8px 12px; cursor: pointer; white-space: nowrap; }
+    button.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+    button.danger { border-color: var(--danger); color: var(--danger); }
+    .meta, .status-line { color: var(--muted); font-size: 13px; }
+    .status-line { min-height: 20px; margin: 0 0 10px; }
+    .table-wrap { overflow: auto; border: 1px solid var(--line); background: var(--panel); }
+    table { width: 100%; border-collapse: collapse; min-width: 960px; }
     th, td {
       border-bottom: 1px solid var(--line);
       padding: 9px 10px;
@@ -548,15 +724,9 @@ export function renderHtml() {
       font-size: 12px;
       color: #344054;
     }
-    td.value {
-      max-width: 420px;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-    }
-    td.actions {
-      width: 156px;
-      white-space: nowrap;
-    }
+    td.value { max-width: 480px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    td.id { max-width: 150px; overflow-wrap: anywhere; color: var(--muted); font-size: 12px; }
+    td.actions { width: 156px; white-space: nowrap; }
     .pill {
       display: inline-flex;
       padding: 2px 7px;
@@ -573,16 +743,8 @@ export function renderHtml() {
       padding: 0;
     }
     dialog::backdrop { background: rgb(15 23 42 / 0.35); }
-    .dialog-body {
-      display: grid;
-      gap: 12px;
-      padding: 16px;
-    }
-    .dialog-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
+    .dialog-body { display: grid; gap: 12px; padding: 16px; }
+    .dialog-row { display: grid; grid-template-columns: 1fr; gap: 10px; }
     .dialog-actions {
       display: flex;
       justify-content: flex-end;
@@ -590,12 +752,7 @@ export function renderHtml() {
       border-top: 1px solid var(--line);
       padding: 12px 16px;
     }
-    label {
-      display: grid;
-      gap: 5px;
-      color: var(--muted);
-      font-size: 12px;
-    }
+    label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
     @media (max-width: 760px) {
       header { align-items: flex-start; flex-direction: column; }
       main { padding: 14px; }
@@ -614,13 +771,9 @@ export function renderHtml() {
   </header>
   <main>
     <div class="toolbar">
-      <input id="search" type="search" placeholder="Search">
-      <select id="status">
-        <option value="active">active</option>
-        <option value="inactive">inactive</option>
-        <option value="all">all</option>
-      </select>
-      <button id="refreshButton" type="button">Refresh</button>
+      <input id="search" type="search" placeholder="Semantic query">
+      <button id="searchButton" type="button">Semantic Search</button>
+      <button id="listButton" type="button">List</button>
       <button id="clearButton" type="button">Clear</button>
     </div>
     <p class="status-line" id="message"></p>
@@ -628,6 +781,7 @@ export function renderHtml() {
       <table>
         <thead>
           <tr>
+            <th>id</th>
             <th>key</th>
             <th>value</th>
             <th>kind</th>
@@ -644,16 +798,12 @@ export function renderHtml() {
   <dialog id="editor">
     <form method="dialog" id="memoryForm">
       <div class="dialog-body">
-        <label>key<input id="formKey" name="key" required maxlength="40"></label>
-        <label>value<textarea id="formValue" name="value" required maxlength="120"></textarea></label>
+        <label>key<input id="formKey" name="key" required maxlength="80"></label>
+        <label>value<textarea id="formValue" name="value" required maxlength="400"></textarea></label>
         <div class="dialog-row">
           <label>kind<select id="formKind" name="kind">
             <option value="semantic">semantic</option>
             <option value="implicit">implicit</option>
-          </select></label>
-          <label>status<select id="formStatus" name="status">
-            <option value="active">active</option>
-            <option value="inactive">inactive</option>
           </select></label>
         </div>
       </div>
@@ -664,18 +814,16 @@ export function renderHtml() {
     </form>
   </dialog>
   <script>
-    const state = { rows: [], editingKey: null };
+    const state = { rows: [], editingId: null };
     const rowsEl = document.getElementById("rows");
     const messageEl = document.getElementById("message");
     const summaryEl = document.getElementById("summary");
     const searchEl = document.getElementById("search");
-    const statusEl = document.getElementById("status");
     const editor = document.getElementById("editor");
     const form = document.getElementById("memoryForm");
     const formKey = document.getElementById("formKey");
     const formValue = document.getElementById("formValue");
     const formKind = document.getElementById("formKind");
-    const formStatus = document.getElementById("formStatus");
 
     function setMessage(text, isError = false) {
       messageEl.textContent = text;
@@ -688,24 +836,18 @@ export function renderHtml() {
       rowsEl.replaceChildren();
       for (const row of state.rows) {
         const tr = document.createElement("tr");
-        const cells = [
-          row.key,
-          row.value,
-          row.kind,
-          row.status,
-          row.sourceUser,
-          row.updatedAt,
-        ];
-        for (const value of cells) {
+        const fields = ["id", "key", "value", "kind", "status", "sourceUser", "updatedAt"];
+        for (const field of fields) {
           const td = document.createElement("td");
-          if (value === row.value) td.className = "value";
-          if (value === row.kind || value === row.status) {
+          if (field === "id") td.className = "id";
+          if (field === "value") td.className = "value";
+          if ((field === "kind" || field === "status") && row[field]) {
             const span = document.createElement("span");
             span.className = "pill";
-            span.textContent = value;
+            span.textContent = row[field];
             td.append(span);
           } else {
-            td.textContent = value || "";
+            td.textContent = row[field] || "";
           }
           tr.append(td);
         }
@@ -714,12 +856,14 @@ export function renderHtml() {
         const editButton = document.createElement("button");
         editButton.type = "button";
         editButton.textContent = "Edit";
+        editButton.disabled = !row.id;
         editButton.addEventListener("click", () => openEditor(row));
         const deleteButton = document.createElement("button");
         deleteButton.type = "button";
         deleteButton.className = "danger";
         deleteButton.textContent = "Delete";
-        deleteButton.addEventListener("click", () => deleteRow(row.key));
+        deleteButton.disabled = !row.id;
+        deleteButton.addEventListener("click", () => deleteRow(row.id));
         actions.append(editButton, " ", deleteButton);
         tr.append(actions);
         rowsEl.append(tr);
@@ -727,12 +871,12 @@ export function renderHtml() {
       setMessage(state.rows.length === 0 ? "No rows" : "");
     }
 
-    async function loadRows() {
+    async function loadRows(mode = "list") {
       setMessage("Loading");
       const params = new URLSearchParams({
         q: searchEl.value,
-        status: statusEl.value,
-        limit: "200",
+        mode,
+        limit: "100",
       });
       const response = await fetch("/api/memory?" + params.toString());
       const result = await response.json();
@@ -741,12 +885,11 @@ export function renderHtml() {
     }
 
     function openEditor(row = null) {
-      state.editingKey = row?.key || null;
+      state.editingId = row?.id || null;
       form.reset();
       formKey.value = row?.key || "";
       formValue.value = row?.value || "";
       formKind.value = row?.kind || "semantic";
-      formStatus.value = row?.status || "active";
       formKey.readOnly = Boolean(row);
       editor.showModal();
       formKey.focus();
@@ -758,49 +901,53 @@ export function renderHtml() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          mode: state.editingKey ? "update" : "create",
+          mode: state.editingId ? "update" : "create",
+          id: state.editingId,
           key: formKey.value,
           value: formValue.value,
           kind: formKind.value,
-          status: formStatus.value,
         }),
       });
       const result = await response.json();
       if (!response.ok || !result.saved) {
-        const reason = result.reason === "already_exists" ? "key already exists" : result.reason;
-        throw new Error(reason || result.detail || "save failed");
+        throw new Error(result.reason || result.detail || "save failed");
       }
       editor.close();
-      await loadRows();
+      await loadRows("list");
     }
 
-    async function deleteRow(key) {
-      if (!confirm("Delete " + key + "?")) return;
-      const response = await fetch("/api/memory/" + encodeURIComponent(key), {
+    async function deleteRow(id) {
+      if (!id || !confirm("Delete " + id + "?")) return;
+      const response = await fetch("/api/memory/" + encodeURIComponent(id), {
         method: "DELETE",
       });
       const result = await response.json();
       if (!response.ok || !result.deleted) {
         throw new Error(result.reason || result.detail || "delete failed");
       }
-      await loadRows();
+      await loadRows("list");
     }
 
     document.getElementById("newButton").addEventListener("click", () => openEditor());
-    document.getElementById("refreshButton").addEventListener("click", () => loadRows().catch((e) => setMessage(e.message, true)));
+    document.getElementById("searchButton").addEventListener("click", () => loadRows("search").catch((e) => setMessage(e.message, true)));
+    document.getElementById("listButton").addEventListener("click", () => loadRows("list").catch((e) => setMessage(e.message, true)));
     document.getElementById("clearButton").addEventListener("click", () => {
       searchEl.value = "";
-      loadRows().catch((e) => setMessage(e.message, true));
+      loadRows("list").catch((e) => setMessage(e.message, true));
     });
     document.getElementById("cancelButton").addEventListener("click", () => editor.close());
     editor.addEventListener("close", () => {
-      state.editingKey = null;
+      state.editingId = null;
       formKey.readOnly = false;
     });
     form.addEventListener("submit", (event) => saveForm(event).catch((e) => setMessage(e.message, true)));
-    searchEl.addEventListener("input", () => loadRows().catch((e) => setMessage(e.message, true)));
-    statusEl.addEventListener("change", () => loadRows().catch((e) => setMessage(e.message, true)));
-    loadRows().catch((e) => setMessage(e.message, true));
+    searchEl.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        loadRows("search").catch((e) => setMessage(e.message, true));
+      }
+    });
+    loadRows("list").catch((e) => setMessage(e.message, true));
   </script>
 </body>
 </html>`;
@@ -833,10 +980,15 @@ Options:
   --port <port>          bind port, default ${DEFAULT_PORT}
   --ssh-host <host>      SSH host, default ${DEFAULT_SSH_HOST}
   --wsl-distro <name>    WSL distro on SSH host, default ${DEFAULT_WSL_DISTRO}
-  --service <name>       Docker service/container name, default ${DEFAULT_SERVICE_NAME}
+  --service <name>       mem0 service/container name, default ${DEFAULT_SERVICE_NAME}
   --target <mode>        ssh-wsl or direct, default ${DEFAULT_TARGET}
-  --json-path <path>     memory JSON path for direct mode, default ${DEFAULT_JSON_PATH}
-  --sqlite-path <path>   memory SQLite path for direct mode, default ${DEFAULT_SQLITE_PATH}
+  --endpoint <url>       direct mode mem0 endpoint, default ${DEFAULT_ENDPOINT}
+  --api-key <key>        direct mode X-API-Key
+  --user-id <id>         mem0 user_id scope, default ${DEFAULT_USER_ID}
+  --agent-id <id>        mem0 agent_id scope, default ${DEFAULT_AGENT_ID}
+  --run-id <id>          mem0 run_id scope
+  --app-id <id>          metadata app_id for creates, default ${DEFAULT_APP_ID}
+  --limit <n>            list/search limit, default 100
   --basic-user <user>    Basic auth user, default admin when password is set
   --basic-password <pw>  Basic auth password
   --allow-unsafe-no-auth Allow non-loopback bind without Basic auth

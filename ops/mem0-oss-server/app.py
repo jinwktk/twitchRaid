@@ -121,6 +121,12 @@ class MemoryCreate(BaseModel):
     prompt: str | None = None
 
 
+class MemoryUpdate(BaseModel):
+    memory: str | None = None
+    text: str | None = None
+    data: str | None = None
+
+
 class SearchRequest(BaseModel):
     query: str
     user_id: str | None = None
@@ -229,3 +235,49 @@ def list_memories(
     except Exception as exc:
         logger.exception("mem0 list failed path=%s", request.url.path)
         raise HTTPException(status_code=502, detail="mem0 list failed") from exc
+
+
+@app.patch("/memories/{memory_id}")
+def update_memory(
+    memory_id: str,
+    payload: MemoryUpdate,
+    _auth: None = Depends(require_api_key),
+) -> Any:
+    memory_text = (payload.memory or payload.text or payload.data or "").strip()
+    if not memory_text:
+        raise HTTPException(status_code=400, detail="memory is required")
+
+    memory = get_memory()
+    if not hasattr(memory, "update"):
+        raise HTTPException(status_code=404, detail="update unsupported")
+
+    try:
+        try:
+            return memory.update(memory_id=memory_id, data=memory_text)
+        except TypeError:
+            try:
+                return memory.update(memory_id, data=memory_text)
+            except TypeError:
+                return memory.update(memory_id, memory_text)
+    except Exception as exc:
+        logger.exception("mem0 update failed")
+        raise HTTPException(status_code=502, detail="mem0 update failed") from exc
+
+
+@app.delete("/memories/{memory_id}")
+def delete_memory(
+    memory_id: str,
+    _auth: None = Depends(require_api_key),
+) -> Any:
+    memory = get_memory()
+    if not hasattr(memory, "delete"):
+        raise HTTPException(status_code=404, detail="delete unsupported")
+
+    try:
+        try:
+            return memory.delete(memory_id=memory_id)
+        except TypeError:
+            return memory.delete(memory_id)
+    except Exception as exc:
+        logger.exception("mem0 delete failed")
+        raise HTTPException(status_code=502, detail="mem0 delete failed") from exc
