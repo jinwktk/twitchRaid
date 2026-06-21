@@ -69,6 +69,57 @@ export interface SaveMentionChatImplicitMemoryStoreOptions
   sqlitePath: string;
 }
 
+export type MentionChatMemoryEntryKind = "semantic" | "implicit";
+export type MentionChatMemoryEntryStatus = "active" | "inactive";
+export type MentionChatMemoryListStatus = MentionChatMemoryEntryStatus | "all";
+
+export interface MentionChatMemoryAdminEntry {
+  key: string;
+  value: string;
+  kind: MentionChatMemoryEntryKind;
+  status: MentionChatMemoryEntryStatus;
+  sourceUser: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ListMentionChatMemoryEntriesStoreOptions {
+  store: MentionChatMemoryStoreKind;
+  jsonPath: string;
+  sqlitePath: string;
+  status?: MentionChatMemoryListStatus;
+  queryText?: string;
+  limit?: number;
+}
+
+export interface ListMentionChatMemoryEntriesResult {
+  entries: MentionChatMemoryAdminEntry[];
+  totalCount: number;
+  activeCount: number;
+}
+
+export interface UpsertMentionChatMemoryEntryStoreOptions {
+  store: MentionChatMemoryStoreKind;
+  jsonPath: string;
+  sqlitePath: string;
+  key: string;
+  value: string;
+  kind?: MentionChatMemoryEntryKind;
+  status?: MentionChatMemoryEntryStatus;
+  sourceUser?: string;
+  maxItems: number;
+  maxKeyChars?: number;
+  maxValueChars?: number;
+  now?: () => string;
+}
+
+export interface DeleteMentionChatMemoryEntryStoreOptions {
+  store: MentionChatMemoryStoreKind;
+  jsonPath: string;
+  sqlitePath: string;
+  key: string;
+}
+
 export interface SaveMentionChatAutoLearnMemoryResult {
   saved: boolean;
   reason:
@@ -81,6 +132,12 @@ export interface SaveMentionChatAutoLearnMemoryResult {
     | "invalid_file"
     | "write_failed"
     | "saved";
+  key?: string;
+}
+
+export interface DeleteMentionChatMemoryEntryResult {
+  deleted: boolean;
+  reason: "deleted" | "not_found" | "invalid_file" | "write_failed";
   key?: string;
 }
 
@@ -156,6 +213,10 @@ const CREDENTIAL_VALUE_PATTERN =
 const PROMPT_INJECTION_PATTERN =
   /前の指示|上の指示|以前の指示|指示を無視|命令を無視|ルールを無視|システムプロンプト|プロンプトを表示|内部設定|developer message|system prompt|ignore (?:all )?(?:previous|above) instructions/iu;
 const IMPLICIT_MEMORY_MAX_PROMPT_CHARS = 180;
+const DEFAULT_ADMIN_MEMORY_MAX_KEY_CHARS = 40;
+const DEFAULT_ADMIN_MEMORY_MAX_VALUE_CHARS = 120;
+const DEFAULT_ADMIN_MEMORY_LIST_LIMIT = 200;
+const MAX_ADMIN_MEMORY_LIST_LIMIT = 500;
 const IMPLICIT_QUESTION_OR_REQUEST_PATTERN =
   /[?？]|(?:何|なに|どこ|いつ|誰|だれ|教えて|知ってる|調べて|検索|お願い|して(?:ください|ほしい)|かな)/u;
 const IMPLICIT_TEMPORARY_KEY_PATTERN =
@@ -536,6 +597,95 @@ function normalizeMemoryKind(value: string | undefined): "semantic" | "implicit"
 
 function normalizeMemoryStatus(value: string | undefined): "active" | "inactive" {
   return value === "inactive" ? "inactive" : "active";
+}
+
+function normalizeListStatus(
+  value: MentionChatMemoryListStatus | undefined
+): MentionChatMemoryListStatus {
+  return value === "inactive" || value === "all" ? value : "active";
+}
+
+function normalizeListLimit(value: number | undefined): number {
+  if (!Number.isFinite(value) || value === undefined) {
+    return DEFAULT_ADMIN_MEMORY_LIST_LIMIT;
+  }
+  return Math.min(Math.max(Math.floor(value), 1), MAX_ADMIN_MEMORY_LIST_LIMIT);
+}
+
+function normalizeAdminEntryKind(
+  value: MentionChatMemoryEntryKind | undefined
+): MentionChatMemoryEntryKind {
+  return value === "implicit" ? "implicit" : "semantic";
+}
+
+function normalizeAdminEntryStatus(
+  value: MentionChatMemoryEntryStatus | undefined
+): MentionChatMemoryEntryStatus {
+  return value === "inactive" ? "inactive" : "active";
+}
+
+function rowToAdminEntry(row: SqliteMemoryRow): MentionChatMemoryAdminEntry {
+  return {
+    key: row.key,
+    value: row.value,
+    kind: normalizeMemoryKind(row.kind),
+    status: normalizeMemoryStatus(row.status),
+    sourceUser: singleLine(row.source_user) || "unknown",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function adminEntryMatchesQuery(
+  entry: MentionChatMemoryAdminEntry,
+  queryText: string | undefined
+): boolean {
+  const query = normalizedSearchText(queryText ?? "");
+  if (!query) return true;
+  return [
+    entry.key,
+    entry.value,
+    entry.kind,
+    entry.status,
+    entry.sourceUser,
+  ].some((value) => normalizedSearchText(value).includes(query));
+}
+
+function compareAdminEntries(
+  a: MentionChatMemoryAdminEntry,
+  b: MentionChatMemoryAdminEntry
+): number {
+  const timeDiff = parseTime(b.updatedAt) - parseTime(a.updatedAt);
+  if (timeDiff !== 0) return timeDiff;
+  return a.key.localeCompare(b.key);
+}
+
+function cleanAdminMemoryEntry({
+  key,
+  value,
+  maxKeyChars,
+  maxValueChars,
+}: {
+  key: string;
+  value: string;
+  maxKeyChars?: number;
+  maxValueChars?: number;
+}): { entry: MentionChatMemoryEntry } | { reason: SaveMentionChatAutoLearnMemoryFailureReason } {
+  const cleanKey = stripTrailingSentenceNoise(stripWrappingQuotes(singleLine(key)));
+  const cleanValue = stripTrailingSentenceNoise(stripWrappingQuotes(singleLine(value)));
+  const keyLimit = maxKeyChars ?? DEFAULT_ADMIN_MEMORY_MAX_KEY_CHARS;
+  const valueLimit = maxValueChars ?? DEFAULT_ADMIN_MEMORY_MAX_VALUE_CHARS;
+
+  if (!cleanKey || !cleanValue) return { reason: "invalid_format" };
+  if (RESERVED_MEMORY_KEYS.has(cleanKey)) return { reason: "reserved_key" };
+  if (cleanKey.length > keyLimit || cleanValue.length > valueLimit) {
+    return { reason: "too_long" };
+  }
+  if (isUnsafeMemoryKey(cleanKey) || isUnsafeMemoryText(cleanValue)) {
+    return { reason: "unsafe" };
+  }
+
+  return { entry: { key: cleanKey, value: cleanValue } };
 }
 
 function openMemoryDatabase(sqlitePath: string): DatabaseSync | null {
@@ -1067,6 +1217,314 @@ export function saveMentionChatImplicitMemoryStore({
     kind: "implicit",
     now,
   });
+}
+
+function listJsonMemoryAdminEntries(
+  jsonPath: string
+): MentionChatMemoryAdminEntry[] {
+  const record = loadWritableMemoryRecord(jsonPath);
+  if (!record) return [];
+
+  const meta = metadataRecord(record);
+  const entries: MentionChatMemoryAdminEntry[] = [];
+  for (const [rawKey, rawValue] of Object.entries(record)) {
+    const key = singleLine(rawKey);
+    if (!key || RESERVED_MEMORY_KEYS.has(key)) continue;
+    const value = dictionaryValueToText(rawValue);
+    if (!value || isUnsafeMemoryKey(key) || isUnsafeMemoryText(value)) continue;
+    const entryMeta = meta[key];
+    entries.push({
+      key,
+      value,
+      kind: normalizeMemoryKind(entryMeta?.kind),
+      status: normalizeMemoryStatus(entryMeta?.status),
+      sourceUser: singleLine(entryMeta?.sourceUser ?? "") || "unknown",
+      createdAt: entryMeta?.createdAt ?? "",
+      updatedAt: entryMeta?.updatedAt ?? "",
+    });
+  }
+  return entries.sort(compareAdminEntries);
+}
+
+function listSqliteMemoryAdminEntries({
+  sqlitePath,
+  jsonPath,
+}: {
+  sqlitePath: string;
+  jsonPath: string;
+}): MentionChatMemoryAdminEntry[] {
+  let db: DatabaseSync | null = null;
+  try {
+    db = openMemoryDatabase(sqlitePath);
+    if (!db) return [];
+    importJsonMemoryIntoSqliteIfEmpty(db, jsonPath, () =>
+      new Date().toISOString()
+    );
+    const rows = db
+      .prepare(
+        `
+        SELECT key, value, kind, status, source_user, created_at, updated_at
+        FROM mention_chat_memory
+      `
+      )
+      .all() as unknown as SqliteMemoryRow[];
+    return rows
+      .map(rowToAdminEntry)
+      .filter(
+        (entry) =>
+          !RESERVED_MEMORY_KEYS.has(entry.key) &&
+          !isUnsafeMemoryKey(entry.key) &&
+          !isUnsafeMemoryText(entry.value)
+      )
+      .sort(compareAdminEntries);
+  } catch {
+    return [];
+  } finally {
+    db?.close();
+  }
+}
+
+export function listMentionChatMemoryEntriesStore({
+  store,
+  jsonPath,
+  sqlitePath,
+  status,
+  queryText,
+  limit,
+}: ListMentionChatMemoryEntriesStoreOptions): ListMentionChatMemoryEntriesResult {
+  const listStatus = normalizeListStatus(status);
+  const cappedLimit = normalizeListLimit(limit);
+  const allEntries =
+    store === "json"
+      ? listJsonMemoryAdminEntries(jsonPath)
+      : listSqliteMemoryAdminEntries({ sqlitePath, jsonPath });
+  const entries = allEntries
+    .filter((entry) => listStatus === "all" || entry.status === listStatus)
+    .filter((entry) => adminEntryMatchesQuery(entry, queryText))
+    .slice(0, cappedLimit);
+
+  return {
+    entries,
+    totalCount: allEntries.length,
+    activeCount: allEntries.filter((entry) => entry.status === "active").length,
+  };
+}
+
+function upsertJsonMemoryAdminEntry({
+  jsonPath,
+  entry,
+  kind,
+  status,
+  sourceUser,
+  maxItems,
+  now,
+}: {
+  jsonPath: string;
+  entry: MentionChatMemoryEntry;
+  kind: MentionChatMemoryEntryKind;
+  status: MentionChatMemoryEntryStatus;
+  sourceUser?: string;
+  maxItems: number;
+  now: () => string;
+}): SaveMentionChatAutoLearnMemoryResult {
+  try {
+    const record = loadWritableMemoryRecord(jsonPath);
+    if (!record) return { saved: false, reason: "invalid_file" };
+    const timestamp = now();
+    const meta = metadataRecord(record);
+    const existingMeta = meta[entry.key];
+    record[entry.key] = entry.value;
+    meta[entry.key] = {
+      kind,
+      status,
+      sourceUser: singleLine(sourceUser ?? "") || "admin",
+      createdAt: existingMeta?.createdAt || timestamp,
+      updatedAt: timestamp,
+    };
+    record[MEMORY_META_KEY] = meta;
+    capMemoryRecord(record, maxItems, entry.key);
+    writeMemoryRecordAtomically(jsonPath, record);
+    return { saved: true, reason: "saved", key: entry.key };
+  } catch {
+    return { saved: false, reason: "write_failed" };
+  }
+}
+
+function upsertSqliteMemoryAdminEntry({
+  sqlitePath,
+  jsonPath,
+  entry,
+  kind,
+  status,
+  sourceUser,
+  maxItems,
+  now,
+}: {
+  sqlitePath: string;
+  jsonPath: string;
+  entry: MentionChatMemoryEntry;
+  kind: MentionChatMemoryEntryKind;
+  status: MentionChatMemoryEntryStatus;
+  sourceUser?: string;
+  maxItems: number;
+  now: () => string;
+}): SaveMentionChatAutoLearnMemoryResult {
+  let db: DatabaseSync | null = null;
+  try {
+    db = openMemoryDatabase(sqlitePath);
+    if (!db) return { saved: false, reason: "invalid_file" };
+
+    importJsonMemoryIntoSqliteIfEmpty(db, jsonPath, now);
+    const timestamp = now();
+    const existing = db
+      .prepare(
+        "SELECT created_at FROM mention_chat_memory WHERE key = ? LIMIT 1"
+      )
+      .get(entry.key) as { created_at: string } | undefined;
+    db.exec("BEGIN");
+    try {
+      insertSqliteMemoryRow(db, {
+        key: entry.key,
+        value: entry.value,
+        kind,
+        status,
+        sourceUser: singleLine(sourceUser ?? "") || "admin",
+        createdAt: existing?.created_at || timestamp,
+        updatedAt: timestamp,
+      });
+      capSqliteMemoryRows(db, maxItems, entry.key);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    exportSqliteMemoryToJsonBackup(db, jsonPath);
+    return { saved: true, reason: "saved", key: entry.key };
+  } catch {
+    return { saved: false, reason: "write_failed" };
+  } finally {
+    db?.close();
+  }
+}
+
+export function upsertMentionChatMemoryEntryStore({
+  store,
+  jsonPath,
+  sqlitePath,
+  key,
+  value,
+  kind,
+  status,
+  sourceUser,
+  maxItems,
+  maxKeyChars,
+  maxValueChars,
+  now = () => new Date().toISOString(),
+}: UpsertMentionChatMemoryEntryStoreOptions): SaveMentionChatAutoLearnMemoryResult {
+  const cleaned = cleanAdminMemoryEntry({
+    key,
+    value,
+    maxKeyChars,
+    maxValueChars,
+  });
+  if ("reason" in cleaned) return { saved: false, reason: cleaned.reason };
+
+  const normalizedKind = normalizeAdminEntryKind(kind);
+  const normalizedStatus = normalizeAdminEntryStatus(status);
+  if (store === "json") {
+    return upsertJsonMemoryAdminEntry({
+      jsonPath,
+      entry: cleaned.entry,
+      kind: normalizedKind,
+      status: normalizedStatus,
+      sourceUser,
+      maxItems,
+      now,
+    });
+  }
+
+  return upsertSqliteMemoryAdminEntry({
+    sqlitePath,
+    jsonPath,
+    entry: cleaned.entry,
+    kind: normalizedKind,
+    status: normalizedStatus,
+    sourceUser,
+    maxItems,
+    now,
+  });
+}
+
+function deleteJsonMemoryAdminEntry({
+  jsonPath,
+  key,
+}: {
+  jsonPath: string;
+  key: string;
+}): DeleteMentionChatMemoryEntryResult {
+  try {
+    const record = loadWritableMemoryRecord(jsonPath);
+    if (!record) return { deleted: false, reason: "invalid_file" };
+    const cleanKey = singleLine(key);
+    if (!cleanKey || !Object.prototype.hasOwnProperty.call(record, cleanKey)) {
+      return { deleted: false, reason: "not_found" };
+    }
+    const meta = metadataRecord(record);
+    delete record[cleanKey];
+    delete meta[cleanKey];
+    if (Object.keys(meta).length > 0) {
+      record[MEMORY_META_KEY] = meta;
+    } else {
+      delete record[MEMORY_META_KEY];
+    }
+    writeMemoryRecordAtomically(jsonPath, record);
+    return { deleted: true, reason: "deleted", key: cleanKey };
+  } catch {
+    return { deleted: false, reason: "write_failed" };
+  }
+}
+
+function deleteSqliteMemoryAdminEntry({
+  sqlitePath,
+  jsonPath,
+  key,
+}: {
+  sqlitePath: string;
+  jsonPath: string;
+  key: string;
+}): DeleteMentionChatMemoryEntryResult {
+  let db: DatabaseSync | null = null;
+  try {
+    db = openMemoryDatabase(sqlitePath);
+    if (!db) return { deleted: false, reason: "invalid_file" };
+    importJsonMemoryIntoSqliteIfEmpty(db, jsonPath, () =>
+      new Date().toISOString()
+    );
+    const cleanKey = singleLine(key);
+    if (!cleanKey) return { deleted: false, reason: "not_found" };
+    const result = db
+      .prepare("DELETE FROM mention_chat_memory WHERE key = ?")
+      .run(cleanKey) as unknown as { changes: number };
+    if (result.changes <= 0) return { deleted: false, reason: "not_found" };
+    exportSqliteMemoryToJsonBackup(db, jsonPath);
+    return { deleted: true, reason: "deleted", key: cleanKey };
+  } catch {
+    return { deleted: false, reason: "write_failed" };
+  } finally {
+    db?.close();
+  }
+}
+
+export function deleteMentionChatMemoryEntryStore({
+  store,
+  jsonPath,
+  sqlitePath,
+  key,
+}: DeleteMentionChatMemoryEntryStoreOptions): DeleteMentionChatMemoryEntryResult {
+  if (store === "json") {
+    return deleteJsonMemoryAdminEntry({ jsonPath, key });
+  }
+  return deleteSqliteMemoryAdminEntry({ sqlitePath, jsonPath, key });
 }
 
 export function loadMentionChatMemory({

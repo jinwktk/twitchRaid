@@ -6,12 +6,15 @@ import {
   analyzeMentionChatMemoryRequest,
   extractMentionChatMemoryEntry,
   extractImplicitMentionChatMemoryEntry,
+  deleteMentionChatMemoryEntryStore,
+  listMentionChatMemoryEntriesStore,
   loadMentionChatMemory,
   loadMentionChatMemoryStore,
   saveMentionChatAutoLearnMemory,
   saveMentionChatAutoLearnMemoryStore,
   saveMentionChatImplicitMemory,
   saveMentionChatImplicitMemoryStore,
+  upsertMentionChatMemoryEntryStore,
 } from "../../src/commands/mention-chat-memory";
 
 let tempDir: string | null = null;
@@ -713,5 +716,140 @@ describe("mention chat memory store", () => {
         },
       },
     });
+  });
+
+  it("supports admin CRUD against sqlite and keeps the JSON backup in sync", () => {
+    const dir = createTempDir();
+    const jsonPath = path.join(dir, "chat-ai-memory.json");
+    const sqlitePath = path.join(dir, "chat-ai-memory.sqlite");
+
+    expect(
+      upsertMentionChatMemoryEntryStore({
+        store: "sqlite",
+        jsonPath,
+        sqlitePath,
+        key: "口調",
+        value: "短くD",
+        kind: "semantic",
+        status: "active",
+        sourceUser: "admin",
+        maxItems: 50,
+        now: () => "2026-06-21T07:00:00.000Z",
+      })
+    ).toEqual({ saved: true, reason: "saved", key: "口調" });
+
+    expect(
+      listMentionChatMemoryEntriesStore({
+        store: "sqlite",
+        jsonPath,
+        sqlitePath,
+        status: "all",
+        queryText: "",
+        limit: 20,
+      }).entries
+    ).toEqual([
+      {
+        key: "口調",
+        value: "短くD",
+        kind: "semantic",
+        status: "active",
+        sourceUser: "admin",
+        createdAt: "2026-06-21T07:00:00.000Z",
+        updatedAt: "2026-06-21T07:00:00.000Z",
+      },
+    ]);
+
+    expect(
+      upsertMentionChatMemoryEntryStore({
+        store: "sqlite",
+        jsonPath,
+        sqlitePath,
+        key: "口調",
+        value: "長めD",
+        kind: "semantic",
+        status: "inactive",
+        sourceUser: "admin2",
+        maxItems: 50,
+        now: () => "2026-06-21T07:05:00.000Z",
+      })
+    ).toEqual({ saved: true, reason: "saved", key: "口調" });
+
+    expect(
+      listMentionChatMemoryEntriesStore({
+        store: "sqlite",
+        jsonPath,
+        sqlitePath,
+        status: "active",
+        queryText: "",
+        limit: 20,
+      }).entries
+    ).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(jsonPath, "utf8"))).toEqual({
+      口調: "長めD",
+      __meta: {
+        口調: {
+          kind: "semantic",
+          status: "inactive",
+          sourceUser: "admin2",
+          createdAt: "2026-06-21T07:00:00.000Z",
+          updatedAt: "2026-06-21T07:05:00.000Z",
+        },
+      },
+    });
+
+    expect(
+      deleteMentionChatMemoryEntryStore({
+        store: "sqlite",
+        jsonPath,
+        sqlitePath,
+        key: "口調",
+      })
+    ).toEqual({ deleted: true, reason: "deleted", key: "口調" });
+
+    expect(
+      listMentionChatMemoryEntriesStore({
+        store: "sqlite",
+        jsonPath,
+        sqlitePath,
+        status: "all",
+        queryText: "",
+        limit: 20,
+      }).entries
+    ).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(jsonPath, "utf8"))).toEqual({});
+  });
+
+  it("rejects unsafe admin memory entries", () => {
+    const dir = createTempDir();
+    const jsonPath = path.join(dir, "chat-ai-memory.json");
+    const sqlitePath = path.join(dir, "chat-ai-memory.sqlite");
+
+    expect(
+      upsertMentionChatMemoryEntryStore({
+        store: "sqlite",
+        jsonPath,
+        sqlitePath,
+        key: "api token",
+        value: "secret",
+        kind: "semantic",
+        status: "active",
+        sourceUser: "admin",
+        maxItems: 50,
+      })
+    ).toEqual({ saved: false, reason: "unsafe" });
+
+    expect(
+      upsertMentionChatMemoryEntryStore({
+        store: "sqlite",
+        jsonPath,
+        sqlitePath,
+        key: "__meta",
+        value: "reserved",
+        kind: "semantic",
+        status: "active",
+        sourceUser: "admin",
+        maxItems: 50,
+      })
+    ).toEqual({ saved: false, reason: "reserved_key" });
   });
 });
