@@ -160,9 +160,13 @@ function isMentionChatMemoryWriter(
   writerUsers: string[]
 ): boolean {
   const normalizedUserName = normalizeMentionChatUserName(userName);
-  return writerUsers
-    .map((writer) => normalizeMentionChatUserName(writer))
-    .includes(normalizedUserName);
+  const normalizedWriterUsers = writerUsers.map((writer) =>
+    normalizeMentionChatUserName(writer)
+  );
+  return (
+    normalizedWriterUsers.includes("all") ||
+    normalizedWriterUsers.includes(normalizedUserName)
+  );
 }
 
 function memoryRequestReplyForReason(reason: string): string {

@@ -959,6 +959,25 @@ describe("Bot mention chat", () => {
     );
   });
 
+  it("allows memory writes from any user when writer users is all", async () => {
+    const { bot, say } = makeBot({
+      chatAiAutoLearnEnabled: true,
+      chatAiMemoryEnabled: true,
+      chatAiMemoryWriterUsers: ["all"],
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 覚えて: 口調=短くD",
+      100
+    );
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(say).toHaveBeenCalledWith("#rukalun", "覚えたD！");
+  });
+
   it("does not consume normal AI cooldown for memory fixed replies", async () => {
     const { bot, say } = makeBot({
       chatAiAutoLearnEnabled: true,
