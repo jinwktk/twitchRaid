@@ -1386,6 +1386,69 @@ describe("Bot mention chat", () => {
     });
   });
 
+  it("mirrors implicit memory to mem0 even when the local memory store cannot be written", async () => {
+    vi.useFakeTimers();
+    const unwritableMemoryPath = ensureTempDir();
+    const { bot, say } = makeBot({
+      chatAiAutoLearnEnabled: true,
+      chatAiImplicitMemoryEnabled: true,
+      chatAiMemoryEnabled: false,
+      chatAiMemoryPath: unwritableMemoryPath,
+      chatAiMemoryWriterUsers: ["all"],
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiMem0ApiKey: "mem0-key",
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "そうなんだD！" }),
+    } as Response);
+    const infoSpy = vi.spyOn(logger, "info");
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 私はカレーが好き",
+      100
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith("#rukalun", "そうなんだD！");
+
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      "http://mem0:8888/memories",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": "mem0-key",
+        },
+      })
+    );
+    expect(JSON.parse(fetchSpy.mock.calls[1][1]?.body as string)).toMatchObject({
+      messages: [{ role: "user", content: "viewerの好きなもの: カレー" }],
+      infer: false,
+      user_id: "rukalun",
+      agent_id: "twitchRaid",
+      metadata: {
+        key: "viewerの好きなもの",
+        kind: "implicit",
+        sourceUser: "viewer",
+        source: "twitchRaid",
+        app_id: "twitchRaid",
+      },
+    });
+    expect(infoSpy).toHaveBeenCalledWith(
+      "AIメンション会話暗黙メモ保存をスキップ: reason=write_failed"
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      "AIメンション会話mem0メモを保存: result=saved"
+    );
+  });
+
   it("does not consume normal AI cooldown for memory fixed replies", async () => {
     const { bot, say } = makeBot({
       chatAiAutoLearnEnabled: true,

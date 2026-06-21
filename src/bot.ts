@@ -715,6 +715,13 @@ export class Bot {
     setTimeout(() => {
       void (async () => {
         try {
+          const entry = extractImplicitMentionChatMemoryEntry(request.prompt, {
+            maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
+            maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
+            sourceUser: request.userName,
+          });
+          if (!entry) return;
+
           const result = saveMentionChatImplicitMemoryStore({
             enabled: true,
             store: this.config.chatAiMemoryStore ?? "json",
@@ -728,23 +735,16 @@ export class Bot {
           });
           if (result.saved) {
             logger.info("AIメンション会話暗黙メモを保存: result=saved");
-            const entry = extractImplicitMentionChatMemoryEntry(request.prompt, {
-              maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
-              maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
-              sourceUser: request.userName,
-            });
-            if (entry) {
-              await this._saveMentionChatMem0Memory({
-                entry,
-                kind: "implicit",
-                sourceUser: request.userName,
-              });
-            }
           } else if (result.reason !== "not_memory_request") {
             logger.info(
               `AIメンション会話暗黙メモ保存をスキップ: reason=${result.reason}`
             );
           }
+          await this._saveMentionChatMem0Memory({
+            entry,
+            kind: "implicit",
+            sourceUser: request.userName,
+          });
         } catch (e) {
           logger.error(`❌ AIメンション会話暗黙メモ保存に失敗しました: ${e}`);
         }
