@@ -431,6 +431,25 @@ OLLAMA_SHOUTOUT_MODEL=qwen2.5:7b
     expect(config.chatAiModel).toBe("qwen2.5:7b");
   });
 
+  it("uses the chat AI model for raid shoutout Ollama when no explicit shoutout model is set", () => {
+    const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+OLLAMA_SHOUTOUT_ENABLED=true
+CHAT_AI_MODEL=qwen2.5:7b
+OLLAMA_MODEL=qwen3.5:9b
+`);
+
+    const config = new Config(envPath);
+
+    expect(config.chatAiModel).toBe("qwen2.5:7b");
+    expect(config.ollamaShoutoutModel).toBe("qwen2.5:7b");
+  });
+
   it("keeps chat AI disabled when explicitly disabled even if shoutout Ollama is enabled", () => {
     for (const disabledValue of ["false", "0"]) {
       const envPath = writeEnvFile(`

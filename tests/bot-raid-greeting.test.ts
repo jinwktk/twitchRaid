@@ -61,8 +61,27 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
   } as unknown as Config;
 }
 
+function stubRaidStreamFetch(): ReturnType<typeof vi.fn> {
+  const fetchImpl = vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    text: async () =>
+      JSON.stringify({
+        data: [
+          {
+            title: "たのしい建築配信",
+            game_name: "Minecraft",
+          },
+        ],
+      }),
+  });
+  vi.stubGlobal("fetch", fetchImpl);
+  return fetchImpl;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 
   if (tmpDir) {
     fs.rmSync(tmpDir, {
@@ -78,6 +97,7 @@ afterEach(() => {
 describe("Bot raid greeting", () => {
   it("fetches raid info without sending chat and sends exactly one greeting", async () => {
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    const fetchImpl = stubRaidStreamFetch();
     const bot = new Bot(makeConfig()) as unknown as {
       chatClient: { say: ReturnType<typeof vi.fn> };
       apiClient: {
@@ -95,15 +115,21 @@ describe("Bot raid greeting", () => {
     bot.chatClient = { say: vi.fn().mockResolvedValue(undefined) };
     bot.apiClient = {
       streams: {
-        getStreamByUserName: vi.fn().mockResolvedValue({
-          title: "たのしい建築配信",
-          gameName: "Minecraft",
-        }),
+        getStreamByUserName: vi.fn(),
       },
     };
 
     const info = await bot._fetchRaidSourceInfo("RaidUser");
     expect(bot.chatClient.say).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.twitch.tv/helix/streams?user_login=raiduser",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "Accept-Encoding": "identity",
+        }),
+      })
+    );
+    expect(bot.apiClient.streams.getStreamByUserName).not.toHaveBeenCalled();
 
     await bot._sendRaidGreeting("#rukalun", info, 1);
     expect(bot.chatClient.say).toHaveBeenCalledOnce();
@@ -125,6 +151,7 @@ describe("Bot raid greeting", () => {
 
   it("appends a configured Twitch emote to raid greetings", async () => {
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    stubRaidStreamFetch();
     const bot = new Bot(
       makeConfig({ chatReplyEmotes: ["rukkaHi"] })
     ) as unknown as {
@@ -144,10 +171,7 @@ describe("Bot raid greeting", () => {
     bot.chatClient = { say: vi.fn().mockResolvedValue(undefined) };
     bot.apiClient = {
       streams: {
-        getStreamByUserName: vi.fn().mockResolvedValue({
-          title: "たのしい建築配信",
-          gameName: "Minecraft",
-        }),
+        getStreamByUserName: vi.fn(),
       },
     };
 
@@ -170,6 +194,7 @@ describe("Bot raid greeting", () => {
 
   it("uses a contextual rukka emote for raid greetings", async () => {
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    stubRaidStreamFetch();
     const bot = new Bot(
       makeConfig({ chatReplyEmotes: ["rukkaNikoniko"] })
     ) as unknown as {
@@ -189,10 +214,7 @@ describe("Bot raid greeting", () => {
     bot.chatClient = { say: vi.fn().mockResolvedValue(undefined) };
     bot.apiClient = {
       streams: {
-        getStreamByUserName: vi.fn().mockResolvedValue({
-          title: "たのしい建築配信",
-          gameName: "Minecraft",
-        }),
+        getStreamByUserName: vi.fn(),
       },
     };
 

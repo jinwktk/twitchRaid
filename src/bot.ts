@@ -1526,7 +1526,10 @@ export class Bot {
     };
 
     try {
-      info = await fetchRaidSourceInfo(this.apiClient, username);
+      info = await fetchRaidSourceInfo(this.apiClient, username, {
+        helixClientId: this.config.twitchClientId,
+        helixAccessToken: this.config.twitchAccessToken,
+      });
     } catch (e) {
       logger.error(`❌ Raid元配信情報の取得に失敗しました: ${e}`);
     }

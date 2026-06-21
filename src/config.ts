@@ -432,7 +432,10 @@ export class Config {
     this.ollamaBaseUrl =
       env["OLLAMA_BASE_URL"]?.trim() || "http://127.0.0.1:11434";
     this.ollamaShoutoutModel =
-      env["OLLAMA_SHOUTOUT_MODEL"]?.trim() || env["OLLAMA_MODEL"]?.trim() || "";
+      env["OLLAMA_SHOUTOUT_MODEL"]?.trim() ||
+      env["CHAT_AI_MODEL"]?.trim() ||
+      env["OLLAMA_MODEL"]?.trim() ||
+      "";
     this.ollamaShoutoutTimeoutMs = parsePositiveInt(
       env["OLLAMA_SHOUTOUT_TIMEOUT_MS"],
       15_000
