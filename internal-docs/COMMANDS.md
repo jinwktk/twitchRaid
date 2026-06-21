@@ -29,7 +29,7 @@
 - 記憶保存リクエストはOllamaへ送らず、保存成功/形式不正/安全拒否/権限拒否/無効を固定返信で返す。固定返信は通常AI会話のクールダウンを消費しない。
 - `!chat 覚えて: ...` のコマンド検出ログは `[memory-request]` に伏せる。
 - URL、メール、電話番号、token/API key/password系、本名/住所/誕生日などの個人情報キー、予約キー `global/users/__meta`、プロンプト注入文は保存しない。手動編集や旧形式に混入した危険メモも読み込み時に除外する。
-- 管理用に `scripts/memory-web.mjs` を用意している。Windows側の `trmem-web` または `npm run memory:web` でメインPCローカル `http://127.0.0.1:3220/` に起動できる。サブPC常駐版はWebUI専用Docker serviceとして `http://192.168.0.99:3220/` にBasic認証付きで公開する。どちらもサブPC本番SQLiteメモを一覧/検索/Create/Update/Deleteでき、変更は `src/commands/mention-chat-memory.ts` の管理APIを通すため、安全フィルタとJSONバックアップ同期を維持する。
+- 管理用に `scripts/memory-web.mjs` を用意している。Windows側の `trmem-web` または `npm run memory:web` でメインPCローカル `http://127.0.0.1:3220/` に起動できる。サブPC常駐版はWebUI専用Docker serviceとして `http://192.168.0.99:3220/` に公開する。どちらもサブPC本番SQLiteメモを一覧/検索/Create/Update/Deleteでき、変更は `src/commands/mention-chat-memory.ts` の管理APIを通すため、安全フィルタとJSONバックアップ同期を維持する。
 
 ## Clipコマンド
 

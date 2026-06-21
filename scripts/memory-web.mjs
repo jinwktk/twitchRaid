@@ -26,6 +26,7 @@ function parseArgs(argv) {
     sqlitePath: DEFAULT_SQLITE_PATH,
     basicUser: process.env.MEMORY_WEB_BASIC_USER || "",
     basicPassword: process.env.MEMORY_WEB_BASIC_PASSWORD || "",
+    allowUnsafeNoAuth: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -65,6 +66,8 @@ function parseArgs(argv) {
     } else if (arg === "--basic-password" && next) {
       options.basicPassword = next;
       index += 1;
+    } else if (arg === "--allow-unsafe-no-auth") {
+      options.allowUnsafeNoAuth = true;
     }
   }
 
@@ -795,6 +798,7 @@ Options:
   --sqlite-path <path>   memory SQLite path for direct mode, default ${DEFAULT_SQLITE_PATH}
   --basic-user <user>    Basic auth user, default admin when password is set
   --basic-password <pw>  Basic auth password
+  --allow-unsafe-no-auth Allow non-loopback bind without Basic auth
 `);
 }
 
@@ -804,7 +808,11 @@ function main() {
     printHelp();
     return;
   }
-  if (!isLoopbackHost(options.host) && !options.basicPassword) {
+  if (
+    !isLoopbackHost(options.host) &&
+    !options.basicPassword &&
+    !options.allowUnsafeNoAuth
+  ) {
     console.error(
       "Refusing to bind a non-loopback host without --basic-password."
     );
