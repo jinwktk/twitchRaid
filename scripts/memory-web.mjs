@@ -2,7 +2,7 @@
 import http from "node:http";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { URL } from "node:url";
+import { URL, pathToFileURL } from "node:url";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3220;
@@ -14,7 +14,7 @@ const DEFAULT_JSON_PATH = "/app/data/chat-ai-memory.json";
 const DEFAULT_SQLITE_PATH = "/app/data/chat-ai-memory.sqlite";
 const require = createRequire(import.meta.url);
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const options = {
     host: DEFAULT_HOST,
     port: DEFAULT_PORT,
@@ -190,7 +190,18 @@ function loadMemoryModule() {
   return require("../dist/commands/mention-chat-memory.js");
 }
 
-function executeMemoryOperation(memory, common, request) {
+function memoryEntryExists(memory, common, key) {
+  if (!key) return false;
+  const result = memory.listMentionChatMemoryEntriesStore({
+    ...common,
+    status: "all",
+    queryText: "",
+    limit: 500,
+  });
+  return (result.entries || []).some((entry) => entry.key === key);
+}
+
+export function executeMemoryOperation(memory, common, request) {
   if (request.action === "list") {
     return memory.listMentionChatMemoryEntriesStore({
       ...common,
@@ -201,9 +212,14 @@ function executeMemoryOperation(memory, common, request) {
   }
 
   if (request.action === "upsert") {
+    const key = String(request.key || "").replace(/\s+/g, " ").trim();
+    if (request.mode === "create" && memoryEntryExists(memory, common, key)) {
+      return { saved: false, reason: "already_exists", key };
+    }
+
     return memory.upsertMentionChatMemoryEntryStore({
       ...common,
-      key: request.key,
+      key,
       value: request.value,
       kind: request.kind,
       status: request.status,
@@ -272,18 +288,33 @@ try {
       }),
     });
   } else if (request.action === "upsert") {
-    json({
-      ok: true,
-      result: memory.upsertMentionChatMemoryEntryStore({
+    const key = String(request.key || "").replace(/\\s+/g, " ").trim();
+    let alreadyExists = false;
+    if (request.mode === "create" && key) {
+      const existing = memory.listMentionChatMemoryEntriesStore({
         ...common,
-        key: request.key,
-        value: request.value,
-        kind: request.kind,
-        status: request.status,
-        sourceUser: "memory-web",
-        maxItems: 50,
-      }),
-    });
+        status: "all",
+        queryText: "",
+        limit: 500,
+      });
+      alreadyExists = (existing.entries || []).some((entry) => entry.key === key);
+    }
+    if (alreadyExists) {
+      json({ ok: true, result: { saved: false, reason: "already_exists", key } });
+    } else {
+      json({
+        ok: true,
+        result: memory.upsertMentionChatMemoryEntryStore({
+          ...common,
+          key,
+          value: request.value,
+          kind: request.kind,
+          status: request.status,
+          sourceUser: "memory-web",
+          maxItems: 50,
+        }),
+      });
+    }
   } else if (request.action === "delete") {
     json({
       ok: true,
@@ -376,6 +407,7 @@ async function handleApiRequest(options, req, res, url) {
       const body = await readRequestBody(req);
       const result = await runMemoryOperation(options, {
         action: "upsert",
+        mode: body.mode === "create" ? "create" : "update",
         key: String(body.key || ""),
         value: String(body.value || ""),
         kind: body.kind === "implicit" ? "implicit" : "semantic",
@@ -404,7 +436,7 @@ async function handleApiRequest(options, req, res, url) {
   }
 }
 
-function renderHtml() {
+export function renderHtml() {
   return `<!doctype html>
 <html lang="ja">
 <head>
@@ -632,7 +664,7 @@ function renderHtml() {
     </form>
   </dialog>
   <script>
-    const state = { rows: [] };
+    const state = { rows: [], editingKey: null };
     const rowsEl = document.getElementById("rows");
     const messageEl = document.getElementById("message");
     const summaryEl = document.getElementById("summary");
@@ -709,10 +741,13 @@ function renderHtml() {
     }
 
     function openEditor(row = null) {
+      state.editingKey = row?.key || null;
+      form.reset();
       formKey.value = row?.key || "";
       formValue.value = row?.value || "";
       formKind.value = row?.kind || "semantic";
       formStatus.value = row?.status || "active";
+      formKey.readOnly = Boolean(row);
       editor.showModal();
       formKey.focus();
     }
@@ -723,6 +758,7 @@ function renderHtml() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          mode: state.editingKey ? "update" : "create",
           key: formKey.value,
           value: formValue.value,
           kind: formKind.value,
@@ -731,7 +767,8 @@ function renderHtml() {
       });
       const result = await response.json();
       if (!response.ok || !result.saved) {
-        throw new Error(result.reason || result.detail || "save failed");
+        const reason = result.reason === "already_exists" ? "key already exists" : result.reason;
+        throw new Error(reason || result.detail || "save failed");
       }
       editor.close();
       await loadRows();
@@ -756,6 +793,10 @@ function renderHtml() {
       loadRows().catch((e) => setMessage(e.message, true));
     });
     document.getElementById("cancelButton").addEventListener("click", () => editor.close());
+    editor.addEventListener("close", () => {
+      state.editingKey = null;
+      formKey.readOnly = false;
+    });
     form.addEventListener("submit", (event) => saveForm(event).catch((e) => setMessage(e.message, true)));
     searchEl.addEventListener("input", () => loadRows().catch((e) => setMessage(e.message, true)));
     statusEl.addEventListener("change", () => loadRows().catch((e) => setMessage(e.message, true)));
@@ -765,7 +806,7 @@ function renderHtml() {
 </html>`;
 }
 
-function createServer(options) {
+export function createServer(options) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
     if (!isAuthorized(options, req)) {
@@ -826,4 +867,6 @@ function main() {
   process.on("SIGTERM", () => server.close(() => process.exit(0)));
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}

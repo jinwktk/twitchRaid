@@ -1,4 +1,5 @@
 import logger from "../utils/logger";
+import { calculateAge } from "./age";
 
 export interface MentionChatMatch {
   alias: string;
@@ -38,6 +39,8 @@ const MENTION_NAME_CHAR_CLASS = "\\p{L}\\p{N}_";
 const MATCH_OUTCOME_FALLBACK_REPLY =
   "画面は見えてないから断定できないけど、まだいけそうD！";
 const COMMAND_EXECUTION_REFUSAL_REPLY = "コマンドは実行できないD！";
+const RUKALUN_RESIDENCE_REFUSAL_REPLY =
+  "住んでる場所は個人情報だから答えられないD！";
 
 const MENTION_CHAT_SYSTEM_PROMPT = [
   "あなたはTwitchチャットで自然な1〜2文で返事する日本語アシスタントです。",
@@ -108,6 +111,28 @@ function isCommandExecutionRequest(value: string): boolean {
   return /実行|発言|送信|送って|打って|言って|いって|唱えて|投稿|入力|読み上げ|読んで|読む|かっこの中身|カッコの中身|ってして/u.test(
     normalized
   );
+}
+
+function isKnownRukalunSubject(value: string): boolean {
+  return /(?:るっかるん|るっか|rukalun)/iu.test(value);
+}
+
+function isAgeQuestion(value: string): boolean {
+  return /(?:何歳|何才|年齢|いくつ|歳|才)/u.test(value);
+}
+
+function isResidenceQuestion(value: string): boolean {
+  return /(?:どこ|何県|どちら).{0,12}(?:住|すん|住み|居住|在住)|(?:住んで|すんで|住み|住まい|居住|在住|住所|所在地)/u.test(
+    value
+  );
+}
+
+export function resolveKnownPersonalQuestionReply(promptText: string): string | null {
+  const prompt = singleLine(promptText);
+  if (!isKnownRukalunSubject(prompt)) return null;
+  if (isResidenceQuestion(prompt)) return RUKALUN_RESIDENCE_REFUSAL_REPLY;
+  if (isAgeQuestion(prompt)) return `${calculateAge()}歳だよD！`;
+  return null;
 }
 
 function isGenericMatchOutcomeReply(value: string): boolean {
@@ -358,6 +383,8 @@ export async function generateMentionChatReply({
     );
     return COMMAND_EXECUTION_REFUSAL_REPLY;
   }
+  const knownPersonalReply = resolveKnownPersonalQuestionReply(promptText);
+  if (knownPersonalReply) return knownPersonalReply;
   const startedAt = Date.now();
 
   try {

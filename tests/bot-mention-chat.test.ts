@@ -588,9 +588,9 @@ describe("Bot mention chat", () => {
     fs.writeFileSync(
       memoryPath,
       JSON.stringify({
-        るっか: "43歳",
+        好物: "カレー",
         __meta: {
-          るっか: {
+          好物: {
             kind: "semantic",
             status: "active",
             sourceUser: "rukalun",
@@ -612,26 +612,89 @@ describe("Bot mention chat", () => {
     const infoSpy = vi.spyOn(logger, "info");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
-      json: async () => ({ response: "43歳だねD！" }),
+      json: async () => ({ response: "カレーだねD！" }),
     } as Response);
 
     await bot._handleRegularMessage(
       "#rukalun",
       "viewer",
-      "@rukalun るっかって何歳？",
+      "@rukalun 好きな食べ物なんだっけ？",
       100
     );
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
-    expect(body.prompt).toContain("るっか: 43歳");
+    expect(body.prompt).toContain("好物: カレー");
     expect(fs.existsSync(memoryDbPath)).toBe(true);
     expect(infoSpy).toHaveBeenCalledWith(
       expect.stringContaining("AIメンション会話メモを適用: store=sqlite, items=1")
     );
     for (const call of infoSpy.mock.calls) {
-      expect(call[0]).not.toContain("るっか: 43歳");
+      expect(call[0]).not.toContain("好物: カレー");
     }
-    expect(say).toHaveBeenCalledWith("#rukalun", "43歳だねD！");
+    expect(say).toHaveBeenCalledWith("#rukalun", "カレーだねD！");
+  });
+
+  it("answers known Rukalun personal questions before memory injection or external calls", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 21, 12, 0, 0));
+    const dir = ensureTempDir();
+    const memoryPath = path.join(dir, "chat-ai-memory.json");
+    const memoryDbPath = path.join(dir, "chat-ai-memory.sqlite");
+    fs.writeFileSync(
+      memoryPath,
+      JSON.stringify({
+        るっか: "平成6年8月14日生まれ",
+        __meta: {
+          るっか: {
+            kind: "semantic",
+            status: "active",
+            sourceUser: "viewer",
+            createdAt: "2026-06-21T07:00:00.000Z",
+            updatedAt: "2026-06-21T07:00:00.000Z",
+          },
+        },
+      }),
+      "utf8"
+    );
+    const { bot, say } = makeBot({
+      chatAiMemoryEnabled: true,
+      chatAiMemoryStore: "sqlite",
+      chatAiMemoryPath: memoryPath,
+      chatAiMemoryDbPath: memoryDbPath,
+      chatAiSearchEnabled: true,
+      chatAiSearchEndpoint: "https://api.duckduckgo.com/",
+      chatAiCooldownSeconds: 0,
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    try {
+      await bot._handleCommand(
+        "#rukalun",
+        "viewer",
+        "!chat るっかるんって何歳？",
+        {}
+      );
+      await bot._handleCommand(
+        "#rukalun",
+        "viewer",
+        "!chat るっかるんってどこにすんでるの",
+        {}
+      );
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(say).toHaveBeenCalledWith("#rukalun", "43歳だよD！");
+      expect(say).toHaveBeenCalledWith(
+        "#rukalun",
+        "住んでる場所は個人情報だから答えられないD！"
+      );
+      for (const call of infoSpy.mock.calls) {
+        expect(call[0]).not.toContain("AIメンション会話メモを適用");
+        expect(call[0]).not.toContain("AIメンション会話外部検索");
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("ignores legacy MemoryHub settings and does not call Hub APIs", async () => {

@@ -188,6 +188,8 @@ interface MemoryLine {
   updatedAt: number;
 }
 
+type MemoryTopic = "age" | "birthdate" | "residence";
+
 const EMPTY_MEMORY: MentionChatMemoryResult = {
   text: null,
   itemCount: 0,
@@ -1606,10 +1608,76 @@ function asciiTerms(value: string): string[] {
   return normalizedSearchText(value).match(/[a-z0-9_+-]{2,}/gu) ?? [];
 }
 
+function queryMemoryTopics(queryText: string): Set<MemoryTopic> {
+  const query = normalizedSearchText(queryText);
+  const topics = new Set<MemoryTopic>();
+
+  if (/(?:何歳|何才|年齢|いくつ|歳|才)/u.test(query)) {
+    topics.add("age");
+  }
+  if (/(?:誕生日|生年月日|生まれ|何年生まれ|いつ生まれ)/u.test(query)) {
+    topics.add("birthdate");
+  }
+  if (
+    /(?:どこ|何県|どちら).{0,12}(?:住|すん|居住|在住|出身)|(?:住んで|すんで|住まい|居住|在住|住所|所在地|出身)/u.test(
+      query
+    )
+  ) {
+    topics.add("residence");
+  }
+
+  return topics;
+}
+
+function memoryLineTopics(line: MemoryLine): Set<MemoryTopic> {
+  const text = normalizedSearchText(`${line.key} ${line.value}`);
+  const topics = new Set<MemoryTopic>();
+
+  if (/(?:\d+|[0-9０-９]+)\s*(?:歳|才)/u.test(text)) {
+    topics.add("age");
+  }
+  if (
+    /(?:誕生日|生年月日|生まれ|平成|昭和|令和|西暦|\d{4}年|[0-9０-９]+月[0-9０-９]+日)/u.test(
+      text
+    )
+  ) {
+    topics.add("birthdate");
+  }
+  if (
+    /(?:住んで|すんで|住まい|居住|在住|住所|所在地|出身|都|道|府|県|市|区|町|村)/u.test(
+      text
+    )
+  ) {
+    topics.add("residence");
+  }
+
+  return topics;
+}
+
+function memoryLineMatchesQueryTopics(line: MemoryLine, queryText: string): boolean {
+  const queryTopics = queryMemoryTopics(queryText);
+  if (queryTopics.size === 0) return true;
+
+  const lineTopics = memoryLineTopics(line);
+  if (queryTopics.has("age") && (lineTopics.has("age") || lineTopics.has("birthdate"))) {
+    return true;
+  }
+  if (queryTopics.has("birthdate") && lineTopics.has("birthdate")) {
+    return true;
+  }
+  if (queryTopics.has("residence") && lineTopics.has("residence")) {
+    return true;
+  }
+
+  return false;
+}
+
 function relevanceScore(line: MemoryLine, queryText: string): number {
   const query = normalizedSearchText(queryText);
   const key = normalizedSearchText(line.key);
   const value = normalizedSearchText(line.value);
+  const queryTopics = queryMemoryTopics(queryText);
+  const lineTopics = memoryLineTopics(line);
   let score = 0;
 
   if (key && query.includes(key)) score += 100;
@@ -1620,9 +1688,11 @@ function relevanceScore(line: MemoryLine, queryText: string): number {
     if (value.includes(term)) score += 8;
   }
 
-  if (/(?:何歳|年齢|歳)/u.test(query) && /歳/u.test(value)) {
+  if (queryTopics.has("age") && (lineTopics.has("age") || lineTopics.has("birthdate"))) {
     score += 20;
   }
+  if (queryTopics.has("birthdate") && lineTopics.has("birthdate")) score += 20;
+  if (queryTopics.has("residence") && lineTopics.has("residence")) score += 20;
 
   return score;
 }
@@ -1631,7 +1701,11 @@ function rankMemoryLines(lines: MemoryLine[], queryText: string | undefined): Me
   const query = queryText?.trim();
   if (!query) return lines;
 
-  return [...lines].sort((a, b) => {
+  const candidates = lines.filter((line) =>
+    memoryLineMatchesQueryTopics(line, query)
+  );
+
+  return [...candidates].sort((a, b) => {
     const scoreDiff = relevanceScore(b, query) - relevanceScore(a, query);
     if (scoreDiff !== 0) return scoreDiff;
     const timeDiff = b.updatedAt - a.updatedAt;

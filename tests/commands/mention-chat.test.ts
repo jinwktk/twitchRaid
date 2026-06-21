@@ -227,6 +227,54 @@ describe("generateMentionChatReply", () => {
     expect(reply).toBe("TwitchConの情報だよD！");
   });
 
+  it("answers known Rukalun age questions with the local age command logic without calling Ollama", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 21, 12, 0, 0));
+    const fetchImpl = vi.fn();
+
+    try {
+      const reply = await generateMentionChatReply({
+        enabled: true,
+        baseUrl: "http://127.0.0.1:11434",
+        model: "qwen2.5:7b",
+        timeoutMs: 3000,
+        keepAlive: "30m",
+        maxResponseChars: 200,
+        channel: "#rukalun",
+        userName: "viewer",
+        promptText: "るっかるんって何歳？",
+        memoryText: "るっか: 平成6年8月14日生まれ",
+        fetchImpl,
+      });
+
+      expect(reply).toBe("43歳だよD！");
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses known Rukalun residence questions without calling Ollama", async () => {
+    const fetchImpl = vi.fn();
+
+    const reply = await generateMentionChatReply({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5:7b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "るっかるんってどこにすんでるの",
+      memoryText: "るっか: 平成6年8月14日生まれ",
+      fetchImpl,
+    });
+
+    expect(reply).toBe("住んでる場所は個人情報だから答えられないD！");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("logs the built prompt and final reply when prompt/reply diagnostics are enabled", async () => {
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
     const fetchImpl = vi.fn().mockResolvedValue({

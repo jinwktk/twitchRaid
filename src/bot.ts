@@ -61,6 +61,7 @@ import {
   extractMentionChatPrompt,
   formatMentionChatLogValue,
   generateMentionChatReply,
+  resolveKnownPersonalQuestionReply,
 } from "./commands/mention-chat";
 import {
   analyzeMentionChatMemoryRequest,
@@ -712,6 +713,28 @@ export class Bot {
     this.mentionChatInFlight = true;
     try {
       const streamImageBase64: string | null = null;
+      const knownPersonalReply = resolveKnownPersonalQuestionReply(
+        request.prompt
+      );
+      if (knownPersonalReply) {
+        const replyWithEmote = appendContextualChatReplyEmote(
+          knownPersonalReply,
+          this.config.chatReplyEmotes,
+          {
+            source: "mention",
+            promptText: request.prompt,
+          }
+        );
+        const model = this.config.chatAiModel ?? "";
+        logger.info(
+          `AIメンション会話応答: user=${request.userName}, alias=${request.alias}, model=${model}, image=false, prompt=${formatMentionChatLogValue(request.prompt)}, reply=${formatMentionChatLogValue(replyWithEmote)}`
+        );
+        await this.chatClient.say(request.channel, replyWithEmote);
+        logger.info(
+          `✅ AIメンション会話を送信: user=${request.userName}, alias=${request.alias}`
+        );
+        return;
+      }
       const memory = loadMentionChatMemoryStore({
         enabled: this.config.chatAiMemoryEnabled ?? false,
         store: this.config.chatAiMemoryStore ?? "json",

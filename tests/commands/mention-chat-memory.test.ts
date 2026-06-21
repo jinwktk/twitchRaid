@@ -225,6 +225,43 @@ describe("loadMentionChatMemory", () => {
     expect(result.text).not.toContain("sk-proj");
     expect(result.text).not.toContain("ghp_");
   });
+
+  it("does not inject birthdate memory into residence questions just because the person name matches", () => {
+    const filePath = writeMemoryFile({
+      るっか: "平成6年8月14日生まれ",
+      __meta: {
+        るっか: {
+          kind: "semantic",
+          status: "active",
+          sourceUser: "viewer",
+          createdAt: "2026-06-21T07:00:00.000Z",
+          updatedAt: "2026-06-21T07:00:00.000Z",
+        },
+      },
+    });
+
+    const residenceQuestion = loadMentionChatMemory({
+      enabled: true,
+      filePath,
+      maxItems: 8,
+      maxChars: 600,
+      queryText: "るっかるんってどこにすんでるの",
+    });
+    const ageQuestion = loadMentionChatMemory({
+      enabled: true,
+      filePath,
+      maxItems: 8,
+      maxChars: 600,
+      queryText: "るっかるんって何歳？",
+    });
+
+    expect(residenceQuestion).toEqual({
+      text: null,
+      itemCount: 0,
+      charCount: 0,
+    });
+    expect(ageQuestion.text).toBe("るっか: 平成6年8月14日生まれ");
+  });
 });
 
 describe("auto-learn mention chat memory", () => {
@@ -716,6 +753,40 @@ describe("mention chat memory store", () => {
         },
       },
     });
+  });
+
+  it("filters topic-mismatched sqlite memory before injecting it into Ollama context", () => {
+    const dir = createTempDir();
+    const jsonPath = path.join(dir, "chat-ai-memory.json");
+    const sqlitePath = path.join(dir, "chat-ai-memory.sqlite");
+    fs.writeFileSync(
+      jsonPath,
+      JSON.stringify({
+        るっか: "平成6年8月14日生まれ",
+        __meta: {
+          るっか: {
+            kind: "semantic",
+            status: "active",
+            sourceUser: "viewer",
+            createdAt: "2026-06-21T07:00:00.000Z",
+            updatedAt: "2026-06-21T07:00:00.000Z",
+          },
+        },
+      }),
+      "utf8"
+    );
+
+    const result = loadMentionChatMemoryStore({
+      enabled: true,
+      store: "sqlite",
+      jsonPath,
+      sqlitePath,
+      maxItems: 8,
+      maxChars: 600,
+      queryText: "るっかるんってどこにすんでるの",
+    });
+
+    expect(result).toEqual({ text: null, itemCount: 0, charCount: 0 });
   });
 
   it("supports admin CRUD against sqlite and keeps the JSON backup in sync", () => {
