@@ -66,6 +66,7 @@ import {
   analyzeMentionChatMemoryRequest,
   loadMentionChatMemory,
   saveMentionChatAutoLearnMemory,
+  saveMentionChatImplicitMemory,
   type AnalyzeMentionChatMemoryRequestResult,
 } from "./commands/mention-chat-memory";
 import {
@@ -645,6 +646,44 @@ export class Bot {
     }
   }
 
+  private _scheduleImplicitMentionChatMemorySave(
+    request: MentionChatRequest
+  ): void {
+    if (!(this.config.chatAiImplicitMemoryEnabled ?? false)) return;
+    if (!(this.config.chatAiAutoLearnEnabled ?? false)) return;
+    if (
+      !isMentionChatMemoryWriter(
+        request.userName,
+        this.config.chatAiMemoryWriterUsers ?? []
+      )
+    ) {
+      return;
+    }
+
+    setTimeout(() => {
+      try {
+        const result = saveMentionChatImplicitMemory({
+          enabled: true,
+          filePath: this.config.chatAiMemoryPath ?? "",
+          promptText: request.prompt,
+          maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
+          maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
+          maxItems: this.config.chatAiAutoLearnMaxItems ?? 50,
+          sourceUser: request.userName,
+        });
+        if (result.saved) {
+          logger.info("AIメンション会話暗黙メモを保存: result=saved");
+        } else if (result.reason !== "not_memory_request") {
+          logger.info(
+            `AIメンション会話暗黙メモ保存をスキップ: reason=${result.reason}`
+          );
+        }
+      } catch (e) {
+        logger.error(`❌ AIメンション会話暗黙メモ保存に失敗しました: ${e}`);
+      }
+    }, 0);
+  }
+
   private async _processMentionChatRequest(
     request: MentionChatRequest,
     now: number,
@@ -751,6 +790,7 @@ export class Bot {
       logger.info(
         `✅ AIメンション会話を送信: user=${request.userName}, alias=${request.alias}`
       );
+      this._scheduleImplicitMentionChatMemorySave(request);
     } catch (e) {
       logger.error(`❌ AIメンション会話の送信に失敗しました: ${e}`);
     } finally {

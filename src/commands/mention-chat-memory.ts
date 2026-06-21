@@ -27,6 +27,11 @@ export interface ExtractMentionChatMemoryEntryOptions {
   maxValueChars: number;
 }
 
+export interface ExtractImplicitMentionChatMemoryEntryOptions
+  extends ExtractMentionChatMemoryEntryOptions {
+  sourceUser?: string;
+}
+
 export interface SaveMentionChatAutoLearnMemoryOptions
   extends ExtractMentionChatMemoryEntryOptions {
   enabled: boolean;
@@ -36,6 +41,9 @@ export interface SaveMentionChatAutoLearnMemoryOptions
   sourceUser?: string;
   now?: () => string;
 }
+
+export interface SaveMentionChatImplicitMemoryOptions
+  extends SaveMentionChatAutoLearnMemoryOptions {}
 
 export interface SaveMentionChatAutoLearnMemoryResult {
   saved: boolean;
@@ -109,6 +117,16 @@ const CREDENTIAL_VALUE_PATTERN =
   /\b(?:sk(?:-proj)?-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{8,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b/u;
 const PROMPT_INJECTION_PATTERN =
   /前の指示|上の指示|以前の指示|指示を無視|命令を無視|ルールを無視|システムプロンプト|プロンプトを表示|内部設定|developer message|system prompt|ignore (?:all )?(?:previous|above) instructions/iu;
+const IMPLICIT_MEMORY_MAX_PROMPT_CHARS = 180;
+const IMPLICIT_QUESTION_OR_REQUEST_PATTERN =
+  /[?？]|(?:何|なに|どこ|いつ|誰|だれ|教えて|知ってる|調べて|検索|お願い|して(?:ください|ほしい)|かな)/u;
+const IMPLICIT_TEMPORARY_KEY_PATTERN =
+  /^(?:今日|昨日|明日|今|現在|さっき|今回|この|その|あの|これ|それ|あれ|ここ|そこ|あそこ)$/u;
+const IMPLICIT_UNSTABLE_VALUE_PATTERN =
+  /(?:かも|たぶん|多分|一時的|今だけ|今日だけ|昨日だけ|明日だけ)/u;
+const IMPLICIT_PII_KEY_PATTERN =
+  /本名|氏名|住所|所在地|誕生日|生年月日|マイナンバー|個人番号|電話番号|メールアドレス|メール/iu;
+const FIRST_PERSON_PATTERN = /^(?:私|わたし|僕|ぼく|俺|おれ|うち|自分)$/u;
 
 function isRecord(value: unknown): value is MemoryRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -179,6 +197,46 @@ function isUnsafeMemoryText(value: string): boolean {
 
 function isUnsafeMemoryKey(value: string): boolean {
   return PII_KEY_PATTERN.test(value) || isUnsafeMemoryText(value);
+}
+
+function isUnsafeImplicitMemoryKey(value: string): boolean {
+  return (
+    isUnsafeMemoryKey(value) ||
+    IMPLICIT_PII_KEY_PATTERN.test(value) ||
+    IMPLICIT_TEMPORARY_KEY_PATTERN.test(value)
+  );
+}
+
+function normalizeImplicitSourceUser(sourceUser: string | undefined): string {
+  return singleLine(sourceUser ?? "").replace(/^[@＠]+/, "").toLowerCase();
+}
+
+function cleanImplicitMemoryEntry(
+  entry: MentionChatMemoryEntry,
+  options: ExtractImplicitMentionChatMemoryEntryOptions
+): MentionChatMemoryEntry | null {
+  const rawKey = stripWrappingQuotes(singleLine(entry.key));
+  const rawValue = stripWrappingQuotes(singleLine(entry.value));
+  if (FIRST_PERSON_PATTERN.test(rawKey)) return null;
+  const key = rawKey;
+  const value = stripTrailingSentenceNoise(rawValue);
+  const normalizedKey = key.toLowerCase();
+
+  if (!key || !value) return null;
+  if (key.length > options.maxKeyChars || rawValue.length > options.maxValueChars) {
+    return null;
+  }
+  if (/(?:です|ます)$/u.test(key)) return null;
+  if (RESERVED_MEMORY_KEYS.has(normalizedKey)) return null;
+  if (
+    isUnsafeImplicitMemoryKey(key) ||
+    isUnsafeMemoryText(value) ||
+    IMPLICIT_UNSTABLE_VALUE_PATTERN.test(value)
+  ) {
+    return null;
+  }
+
+  return { key, value };
 }
 
 function capLines(lines: string[], maxItems: number, maxChars: number): string[] {
@@ -351,6 +409,39 @@ export function analyzeMentionChatMemoryRequest(
   return { isMemoryRequest: true, reason: "valid", entry: { key, value } };
 }
 
+export function extractImplicitMentionChatMemoryEntry(
+  promptText: string,
+  options: ExtractImplicitMentionChatMemoryEntryOptions
+): MentionChatMemoryEntry | null {
+  if (options.maxKeyChars <= 0 || options.maxValueChars <= 0) return null;
+
+  const prompt = singleLine(promptText);
+  if (!prompt || prompt.length > IMPLICIT_MEMORY_MAX_PROMPT_CHARS) return null;
+  if (MEMORY_KEYWORD_PATTERN.test(prompt)) return null;
+  if (IMPLICIT_QUESTION_OR_REQUEST_PATTERN.test(prompt)) return null;
+  if (isUnsafeMemoryText(prompt)) return null;
+
+  const favoriteMatch = prompt.match(/^(.+?)は(.+?)が好き(?:です|だ|だよ|だね)?[。.!！\s]*$/u);
+  if (favoriteMatch) {
+    const sourceUser = normalizeImplicitSourceUser(options.sourceUser);
+    const subject = stripWrappingQuotes(singleLine(favoriteMatch[1]));
+    const keySubject = FIRST_PERSON_PATTERN.test(subject)
+      ? sourceUser || "unknown"
+      : subject;
+    return cleanImplicitMemoryEntry(
+      {
+        key: `${keySubject}の好きなもの`,
+        value: favoriteMatch[2],
+      },
+      options
+    );
+  }
+
+  const parsed = splitMemoryKeyValue(prompt);
+  if (!parsed) return null;
+  return cleanImplicitMemoryEntry(parsed, options);
+}
+
 function loadWritableMemoryRecord(filePath: string): MemoryRecord | null {
   if (!fs.existsSync(filePath)) return {};
 
@@ -401,6 +492,41 @@ function writeMemoryRecordAtomically(filePath: string, record: MemoryRecord): vo
   }
 }
 
+function saveMemoryEntry({
+  filePath,
+  entry,
+  maxItems,
+  sourceUser,
+  kind,
+  now,
+}: {
+  filePath: string;
+  entry: MentionChatMemoryEntry;
+  maxItems: number;
+  sourceUser?: string;
+  kind: "semantic" | "implicit";
+  now: () => string;
+}): SaveMentionChatAutoLearnMemoryResult {
+  const record = loadWritableMemoryRecord(filePath);
+  if (!record) return { saved: false, reason: "invalid_file" };
+
+  const timestamp = now();
+  const meta = metadataRecord(record);
+  const existingMeta = meta[entry.key];
+  record[entry.key] = entry.value;
+  meta[entry.key] = {
+    kind,
+    status: "active",
+    sourceUser: singleLine(sourceUser ?? "") || "unknown",
+    createdAt: existingMeta?.createdAt || timestamp,
+    updatedAt: timestamp,
+  };
+  record[MEMORY_META_KEY] = meta;
+  capMemoryRecord(record, maxItems, entry.key);
+  writeMemoryRecordAtomically(filePath, record);
+  return { saved: true, reason: "saved", key: entry.key };
+}
+
 export function saveMentionChatAutoLearnMemory({
   enabled,
   filePath,
@@ -424,25 +550,47 @@ export function saveMentionChatAutoLearnMemory({
   }
 
   try {
-    const record = loadWritableMemoryRecord(filePath);
-    if (!record) return { saved: false, reason: "invalid_file" };
-
-    const entry = analysis.entry;
-    const timestamp = now();
-    const meta = metadataRecord(record);
-    const existingMeta = meta[entry.key];
-    record[entry.key] = entry.value;
-    meta[entry.key] = {
+    return saveMemoryEntry({
+      filePath,
+      entry: analysis.entry,
+      maxItems,
+      sourceUser,
       kind: "semantic",
-      status: "active",
-      sourceUser: singleLine(sourceUser ?? "") || "unknown",
-      createdAt: existingMeta?.createdAt || timestamp,
-      updatedAt: timestamp,
-    };
-    record[MEMORY_META_KEY] = meta;
-    capMemoryRecord(record, maxItems, entry.key);
-    writeMemoryRecordAtomically(filePath, record);
-    return { saved: true, reason: "saved", key: entry.key };
+      now,
+    });
+  } catch {
+    return { saved: false, reason: "write_failed" };
+  }
+}
+
+export function saveMentionChatImplicitMemory({
+  enabled,
+  filePath,
+  promptText,
+  maxKeyChars,
+  maxValueChars,
+  maxItems,
+  sourceUser,
+  now = () => new Date().toISOString(),
+}: SaveMentionChatImplicitMemoryOptions): SaveMentionChatAutoLearnMemoryResult {
+  if (!enabled || !filePath.trim()) return { saved: false, reason: "disabled" };
+
+  const entry = extractImplicitMentionChatMemoryEntry(promptText, {
+    maxKeyChars,
+    maxValueChars,
+    sourceUser,
+  });
+  if (!entry) return { saved: false, reason: "not_memory_request" };
+
+  try {
+    return saveMemoryEntry({
+      filePath,
+      entry,
+      maxItems,
+      sourceUser,
+      kind: "implicit",
+      now,
+    });
   } catch {
     return { saved: false, reason: "write_failed" };
   }

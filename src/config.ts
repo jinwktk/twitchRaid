@@ -122,6 +122,7 @@ export class Config {
   readonly chatAiMemoryMaxItems: number;
   readonly chatAiMemoryMaxChars: number;
   readonly chatAiMemoryWriterUsers: string[];
+  readonly chatAiImplicitMemoryEnabled: boolean;
   readonly chatAiSearchEnabled: boolean;
   readonly chatAiSearchProvider: ChatAiSearchProvider;
   readonly chatAiSearchEndpoint: string;
@@ -321,6 +322,9 @@ export class Config {
     this.chatAiSearchMaxResults = parsePositiveInt(
       env["CHAT_AI_SEARCH_MAX_RESULTS"],
       DEFAULT_CHAT_AI_SEARCH_MAX_RESULTS
+    );
+    this.chatAiImplicitMemoryEnabled = parseEnabledFlag(
+      env["CHAT_AI_IMPLICIT_MEMORY_ENABLED"] ?? "0"
     );
     this.chatAiAutoLearnEnabled = parseEnabledFlag(
       env["CHAT_AI_AUTO_LEARN_ENABLED"] ?? "0"

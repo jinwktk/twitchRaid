@@ -93,6 +93,7 @@ function makeConfig(
     chatAiMemoryMaxItems: 8,
     chatAiMemoryMaxChars: 600,
     chatAiMemoryWriterUsers: ["rukalun"],
+    chatAiImplicitMemoryEnabled: false,
     chatAiSearchEnabled: false,
     chatAiSearchEndpoint: "https://api.duckduckgo.com/",
     chatAiSearchTimeoutMs: 2500,
@@ -976,6 +977,47 @@ describe("Bot mention chat", () => {
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(say).toHaveBeenCalledWith("#rukalun", "覚えたD！");
+  });
+
+  it("saves implicit memory after a successful reply without another Ollama call", async () => {
+    vi.useFakeTimers();
+    const memoryPath = path.join(ensureTempDir(), "implicit-memory.json");
+    const { bot, say } = makeBot({
+      chatAiAutoLearnEnabled: true,
+      chatAiImplicitMemoryEnabled: true,
+      chatAiMemoryEnabled: true,
+      chatAiMemoryPath: memoryPath,
+      chatAiMemoryWriterUsers: ["all"],
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "覚えておくD！" }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 私はカレーが好き",
+      100
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith("#rukalun", "覚えておくD！");
+    expect(fs.existsSync(memoryPath)).toBe(false);
+
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fs.readFileSync(memoryPath, "utf8"))).toMatchObject({
+      "viewerの好きなもの": "カレー",
+      __meta: {
+        "viewerの好きなもの": {
+          kind: "implicit",
+          sourceUser: "viewer",
+          status: "active",
+        },
+      },
+    });
   });
 
   it("does not consume normal AI cooldown for memory fixed replies", async () => {
