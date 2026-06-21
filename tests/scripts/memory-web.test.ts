@@ -152,7 +152,7 @@ describe("memory web operations", () => {
     expect(result).toEqual({ saved: true, reason: "saved", raw: { id: "created" } });
   });
 
-  it("updates existing mem0 memory by id", async () => {
+  it("updates existing mem0 memory key and value by id", async () => {
     const client = {
       list: vi.fn(),
       search: vi.fn(),
@@ -168,7 +168,7 @@ describe("memory web operations", () => {
         action: "upsert",
         mode: "update",
         id: "mem-1",
-        key: "好物",
+        key: "好きな食べ物",
         value: "ラーメン",
         kind: "semantic",
       }
@@ -176,8 +176,11 @@ describe("memory web operations", () => {
 
     expect(client.update).toHaveBeenCalledWith({
       id: "mem-1",
-      key: "好物",
+      key: "好きな食べ物",
       value: "ラーメン",
+      kind: "semantic",
+      sourceUser: "memory-web",
+      appId: "twitchRaid",
     });
     expect(result).toEqual({
       saved: true,
@@ -212,6 +215,7 @@ describe("memory web operations", () => {
     expect(html).toContain("/api/memory");
     expect(html).toContain("Semantic Search");
     expect(html).toContain('mode: state.editingId ? "update" : "create"');
-    expect(html).toContain("formKey.readOnly = Boolean(row);");
+    expect(html).toContain("formKey.readOnly = false;");
+    expect(html).not.toContain("formKey.readOnly = Boolean(row);");
   });
 });

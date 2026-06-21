@@ -125,6 +125,7 @@ class MemoryUpdate(BaseModel):
     memory: str | None = None
     text: str | None = None
     data: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class SearchRequest(BaseModel):
@@ -252,6 +253,16 @@ def update_memory(
         raise HTTPException(status_code=404, detail="update unsupported")
 
     try:
+        metadata = payload.metadata or None
+        if metadata is not None:
+            try:
+                return memory.update(
+                    memory_id=memory_id,
+                    data=memory_text,
+                    metadata=metadata,
+                )
+            except TypeError:
+                pass
         try:
             return memory.update(memory_id=memory_id, data=memory_text)
         except TypeError:

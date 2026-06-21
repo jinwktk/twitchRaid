@@ -317,7 +317,14 @@ export async function executeMemoryOperation(client, scope, request) {
     if (request.mode === "update") {
       const id = singleLine(request.id);
       if (!id) return { saved: false, reason: "missing_id" };
-      const raw = await client.update({ id, key, value });
+      const raw = await client.update({
+        id,
+        key,
+        value,
+        kind: request.kind === "implicit" ? "implicit" : "semantic",
+        sourceUser: "memory-web",
+        appId: optionalText(scope.appId),
+      });
       return { saved: true, reason: "saved", raw };
     }
     const raw = await client.create({
@@ -407,9 +414,16 @@ function createHttpClient(options) {
       if (runId) body.run_id = runId;
       return requestJson("POST", "/memories", body);
     },
-    update({ id, key, value }) {
+    update({ id, key, value, kind, sourceUser, appId }) {
       return requestJson("PATCH", `/memories/${encodeURIComponent(id)}`, {
         memory: `${key}: ${value}`,
+        metadata: {
+          key,
+          kind: kind === "implicit" ? "implicit" : "semantic",
+          sourceUser: sourceUser || "memory-web",
+          source: "twitchRaid",
+          app_id: appId || undefined,
+        },
       });
     },
     delete({ id }) {
@@ -506,8 +520,16 @@ try:
             memory_id = clean(request.get("id"))
             if not memory_id:
                 raise RuntimeError("missing_id")
+            metadata = {
+                "key": key,
+                "kind": "implicit" if request.get("kind") == "implicit" else "semantic",
+                "sourceUser": "memory-web",
+                "source": "twitchRaid",
+                "app_id": clean(scope.get("appId")) or None,
+            }
             result = call("PATCH", "/memories/" + urllib.parse.quote(memory_id, safe=""), {
                 "memory": f"{key}: {value}",
+                "metadata": metadata,
             })
         else:
             body = {
@@ -890,7 +912,7 @@ export function renderHtml() {
       formKey.value = row?.key || "";
       formValue.value = row?.value || "";
       formKind.value = row?.kind || "semantic";
-      formKey.readOnly = Boolean(row);
+      formKey.readOnly = false;
       editor.showModal();
       formKey.focus();
     }

@@ -32,8 +32,8 @@ class FakeMemory:
         self.deleted_ids.append(memory_id)
         return {"deleted": True, "id": memory_id}
 
-    def update(self, memory_id, data):
-        self.updated.append((memory_id, data))
+    def update(self, memory_id, data, metadata=None):
+        self.updated.append((memory_id, data, metadata))
         return {"id": memory_id, "memory": data}
 
 
@@ -78,7 +78,42 @@ def test_update_memory_by_id(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"id": "mem-1", "memory": "好物: ラーメン"}
-    assert fake_memory.updated == [("mem-1", "好物: ラーメン")]
+    assert fake_memory.updated == [("mem-1", "好物: ラーメン", None)]
+
+
+def test_update_memory_by_id_with_metadata(monkeypatch):
+    app_module = load_app_module()
+    fake_memory = FakeMemory()
+    monkeypatch.setattr(app_module, "get_memory", lambda: fake_memory)
+    monkeypatch.setattr(app_module, "_api_key", lambda: "local-key")
+    client = TestClient(app_module.app)
+
+    response = client.patch(
+        "/memories/mem-1",
+        headers={"X-API-Key": "local-key"},
+        json={
+            "memory": "好きな食べ物: ラーメン",
+            "metadata": {
+                "key": "好きな食べ物",
+                "kind": "semantic",
+                "sourceUser": "memory-web",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"id": "mem-1", "memory": "好きな食べ物: ラーメン"}
+    assert fake_memory.updated == [
+        (
+            "mem-1",
+            "好きな食べ物: ラーメン",
+            {
+                "key": "好きな食べ物",
+                "kind": "semantic",
+                "sourceUser": "memory-web",
+            },
+        )
+    ]
 
 
 def test_update_memory_requires_text(monkeypatch):
