@@ -82,13 +82,15 @@ Qdrantは `/home/mlove/dokploy/mem0/qdrant` を永続化し、公開portは持�
 
 動作確認はBot本番コンテナから内部DNS `http://mem0:8888` へ実施し、`/healthz` がHTTP 200、APIキー付き `/memories` 保存がHTTP 200、`/search` が保存した検証メモを返すことを確認した。検証用user_idは `probe` / `probe-rotated` で、本番 `CHAT_AI_MEM0_USER_ID=rukalun` の検索対象には混ざらない。
 
+2026-06-21 17:35 JSTにBot本番もMem0有効化済み。commit `1a496cdfd4dbe5b1979d742fa4bff8e093d4175d` のimageを `localhost:5050/twitch-raid-apcz9n:local` / `:1a496cd` へpushし、Dokploy application envを `/tmp/twitchraid-application-before-mem0-bot-20260621173445.sql` へバックアップ後、`CHAT_AI_MEM0_ENABLED=true`、`CHAT_AI_MEM0_ENDPOINT=http://mem0:8888`、`CHAT_AI_MEM0_USER_ID=rukalun`、`CHAT_AI_MEM0_TIMEOUT_MS=2000` などを永続化した。APIキー値は記録しない。実行中Bot container `9403e3f93884` から `dist/commands/mention-chat-mem0.js` を直接呼び、probe userで `saveReason=saved`、`loadReason=found`、`itemCount=1`、`hasText=true` を確認した。
+
 ## Botサービス
 - Service: `twitch-raid-apcz9n`
 - Image: `localhost:5050/twitch-raid-apcz9n:local`
-- Deployment digest: `sha256:415223bb9185b66d331c40746b4b747d667995b09dc0dbfd5f34d47b0dcb7e54`
-- Revision label: `4da65c09ef3eabdcd298d3591b6fa3d97cc3a2f6`
+- Deployment digest: `sha256:d95e3b9734a1605fed4b723d308b613fb67ce0b286b14f8932aa67f4fec3b513`
+- Revision label: `1a496cdfd4dbe5b1979d742fa4bff8e093d4175d`
 - Entrypoint: `docker-entrypoint.sh`
-- Command: `npm run start`
+- Command: `node dist/index.js`
 - Working dir: `/app`
 - Container OS: `Debian GNU/Linux 12 (bookworm)`
 - Node.js: `v24.17.0`
