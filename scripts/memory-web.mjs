@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import http from "node:http";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { URL } from "node:url";
 
 const DEFAULT_HOST = "127.0.0.1";
@@ -8,6 +9,10 @@ const DEFAULT_PORT = 3220;
 const DEFAULT_SSH_HOST = "sub";
 const DEFAULT_WSL_DISTRO = "Ubuntu-Backup";
 const DEFAULT_SERVICE_NAME = "twitch-raid-apcz9n";
+const DEFAULT_TARGET = "ssh-wsl";
+const DEFAULT_JSON_PATH = "/app/data/chat-ai-memory.json";
+const DEFAULT_SQLITE_PATH = "/app/data/chat-ai-memory.sqlite";
+const require = createRequire(import.meta.url);
 
 function parseArgs(argv) {
   const options = {
@@ -16,6 +21,11 @@ function parseArgs(argv) {
     sshHost: DEFAULT_SSH_HOST,
     wslDistro: DEFAULT_WSL_DISTRO,
     serviceName: DEFAULT_SERVICE_NAME,
+    target: DEFAULT_TARGET,
+    jsonPath: DEFAULT_JSON_PATH,
+    sqlitePath: DEFAULT_SQLITE_PATH,
+    basicUser: process.env.MEMORY_WEB_BASIC_USER || "",
+    basicPassword: process.env.MEMORY_WEB_BASIC_PASSWORD || "",
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -40,10 +50,76 @@ function parseArgs(argv) {
     } else if (arg === "--service" && next) {
       options.serviceName = next;
       index += 1;
+    } else if (arg === "--target" && next) {
+      options.target = next === "direct" ? "direct" : DEFAULT_TARGET;
+      index += 1;
+    } else if (arg === "--json-path" && next) {
+      options.jsonPath = next;
+      index += 1;
+    } else if (arg === "--sqlite-path" && next) {
+      options.sqlitePath = next;
+      index += 1;
+    } else if (arg === "--basic-user" && next) {
+      options.basicUser = next;
+      index += 1;
+    } else if (arg === "--basic-password" && next) {
+      options.basicPassword = next;
+      index += 1;
     }
   }
 
   return options;
+}
+
+function isLoopbackHost(host) {
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
+}
+
+function timingSafeEqualText(a, b) {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  if (left.length !== right.length) return false;
+  return cryptoTimingSafeEqual(left, right);
+}
+
+function cryptoTimingSafeEqual(left, right) {
+  let diff = left.length ^ right.length;
+  const max = Math.max(left.length, right.length);
+  for (let index = 0; index < max; index += 1) {
+    diff |= (left[index] ?? 0) ^ (right[index] ?? 0);
+  }
+  return diff === 0;
+}
+
+function isAuthorized(options, req) {
+  if (!options.basicPassword) return true;
+  const header = req.headers.authorization || "";
+  if (!header.startsWith("Basic ")) return false;
+  let decoded = "";
+  try {
+    decoded = Buffer.from(header.slice("Basic ".length), "base64").toString(
+      "utf8"
+    );
+  } catch {
+    return false;
+  }
+  const separatorIndex = decoded.indexOf(":");
+  if (separatorIndex < 0) return false;
+  const user = decoded.slice(0, separatorIndex);
+  const password = decoded.slice(separatorIndex + 1);
+  return (
+    timingSafeEqualText(user, options.basicUser || "admin") &&
+    timingSafeEqualText(password, options.basicPassword)
+  );
+}
+
+function sendUnauthorized(res) {
+  res.writeHead(401, {
+    "www-authenticate": 'Basic realm="twitchRaid Memory"',
+    "content-type": "text/plain; charset=utf-8",
+    "cache-control": "no-store",
+  });
+  res.end("Unauthorized\n");
 }
 
 function shellQuote(value) {
@@ -105,6 +181,55 @@ function extractJsonPayload(stdout) {
     return JSON.parse(lines[index]);
   }
   throw new Error("remote command did not return JSON");
+}
+
+function loadMemoryModule() {
+  return require("../dist/commands/mention-chat-memory.js");
+}
+
+function executeMemoryOperation(memory, common, request) {
+  if (request.action === "list") {
+    return memory.listMentionChatMemoryEntriesStore({
+      ...common,
+      status: request.status,
+      queryText: request.queryText,
+      limit: request.limit,
+    });
+  }
+
+  if (request.action === "upsert") {
+    return memory.upsertMentionChatMemoryEntryStore({
+      ...common,
+      key: request.key,
+      value: request.value,
+      kind: request.kind,
+      status: request.status,
+      sourceUser: "memory-web",
+      maxItems: 50,
+    });
+  }
+
+  if (request.action === "delete") {
+    return memory.deleteMentionChatMemoryEntryStore({
+      ...common,
+      key: request.key,
+    });
+  }
+
+  throw new Error("unknown_action");
+}
+
+function runDirectMemoryOperation(options, request) {
+  const memory = loadMemoryModule();
+  return executeMemoryOperation(
+    memory,
+    {
+      store: "sqlite",
+      jsonPath: options.jsonPath,
+      sqlitePath: options.sqlitePath,
+    },
+    request
+  );
 }
 
 function buildRemoteScript({ serviceName, request }) {
@@ -224,10 +349,17 @@ function runRemoteMemoryOperation(options, request) {
   });
 }
 
+async function runMemoryOperation(options, request) {
+  if (options.target === "direct") {
+    return runDirectMemoryOperation(options, request);
+  }
+  return runRemoteMemoryOperation(options, request);
+}
+
 async function handleApiRequest(options, req, res, url) {
   try {
     if (req.method === "GET" && url.pathname === "/api/memory") {
-      const result = await runRemoteMemoryOperation(options, {
+      const result = await runMemoryOperation(options, {
         action: "list",
         status: url.searchParams.get("status") || "active",
         queryText: url.searchParams.get("q") || "",
@@ -239,7 +371,7 @@ async function handleApiRequest(options, req, res, url) {
 
     if (req.method === "POST" && url.pathname === "/api/memory") {
       const body = await readRequestBody(req);
-      const result = await runRemoteMemoryOperation(options, {
+      const result = await runMemoryOperation(options, {
         action: "upsert",
         key: String(body.key || ""),
         value: String(body.value || ""),
@@ -252,7 +384,7 @@ async function handleApiRequest(options, req, res, url) {
 
     if (req.method === "DELETE" && url.pathname.startsWith("/api/memory/")) {
       const key = decodeURIComponent(url.pathname.slice("/api/memory/".length));
-      const result = await runRemoteMemoryOperation(options, {
+      const result = await runMemoryOperation(options, {
         action: "delete",
         key,
       });
@@ -633,6 +765,10 @@ function renderHtml() {
 function createServer(options) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+    if (!isAuthorized(options, req)) {
+      sendUnauthorized(res);
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/") {
       sendHtml(res, renderHtml());
       return;
@@ -654,6 +790,11 @@ Options:
   --ssh-host <host>      SSH host, default ${DEFAULT_SSH_HOST}
   --wsl-distro <name>    WSL distro on SSH host, default ${DEFAULT_WSL_DISTRO}
   --service <name>       Docker service/container name, default ${DEFAULT_SERVICE_NAME}
+  --target <mode>        ssh-wsl or direct, default ${DEFAULT_TARGET}
+  --json-path <path>     memory JSON path for direct mode, default ${DEFAULT_JSON_PATH}
+  --sqlite-path <path>   memory SQLite path for direct mode, default ${DEFAULT_SQLITE_PATH}
+  --basic-user <user>    Basic auth user, default admin when password is set
+  --basic-password <pw>  Basic auth password
 `);
 }
 
@@ -662,6 +803,12 @@ function main() {
   if (options.help) {
     printHelp();
     return;
+  }
+  if (!isLoopbackHost(options.host) && !options.basicPassword) {
+    console.error(
+      "Refusing to bind a non-loopback host without --basic-password."
+    );
+    process.exit(1);
   }
   const server = createServer(options);
   server.listen(options.port, options.host, () => {

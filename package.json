@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "docs:export-clips": "node scripts/export-clip-search-data.mjs",
     "memory:web": "node scripts/memory-web.mjs",
+    "memory:web:direct": "node scripts/memory-web.mjs --target direct",
     "pm2:start": "pm2 start ecosystem.config.js",
     "pm2:stop": "pm2 stop twitchRaid",
     "pm2:restart": "pm2 restart twitchRaid",
