@@ -75,6 +75,11 @@ interface HelixClipSyncPage {
   cursor: string | null;
 }
 
+interface HelixGameSyncItem {
+  id: string;
+  name: string;
+}
+
 const DEFAULT_OLDEST_CLIP_DATE = new Date("2016-05-01T00:00:00.000Z");
 const DEFAULT_FULL_WINDOW_DAYS = 30;
 const DEFAULT_FULL_TAIL_WINDOW_DAYS = 3;
@@ -221,6 +226,25 @@ function parseHelixClipSyncPage(raw: unknown): HelixClipSyncPage {
     data: clips,
     cursor: cursor || null,
   };
+}
+
+function parseHelixGameSyncItems(raw: unknown): HelixGameSyncItem[] {
+  const root = asRecord(raw);
+  const rawData = Array.isArray(root?.["data"]) ? root["data"] : [];
+  const games: HelixGameSyncItem[] = [];
+
+  for (const item of rawData) {
+    const game = asRecord(item);
+    if (!game) continue;
+
+    const id = readString(game, "id");
+    const name = readString(game, "name");
+    if (id && name) {
+      games.push({ id, name });
+    }
+  }
+
+  return games;
 }
 
 export function clipToCachedClip(clip: HelixClip): CachedClip {
@@ -394,7 +418,7 @@ export class ClipCacheSynchronizer {
       const clips = await this.fetchWindow({ start, end: now });
       const cachedClips = await clipsToCachedClips(
         clips,
-        this.options.apiClient.games
+        this.gameApiForCache()
       );
       let saved = this.options.store.saveClips(cachedClips);
       saved += this.restoreUnavailableClipsInRecentGrace(now);
@@ -560,7 +584,7 @@ export class ClipCacheSynchronizer {
 
     const cachedClips = await clipsToCachedClips(
       clips,
-      this.options.apiClient.games
+      this.gameApiForCache()
     );
     const saved = this.options.store.saveClips(cachedClips);
     const unavailable = options.reconcileMissing
@@ -698,6 +722,29 @@ export class ClipCacheSynchronizer {
     }
   }
 
+  private gameApiForCache(): ClipSyncGameApi | undefined {
+    if (!this.helixClientId) return this.options.apiClient.games;
+
+    return {
+      getGamesByIds: async (ids) => {
+        const accessToken = this.helixAccessTokenProvider().trim();
+        if (!accessToken) {
+          return this.options.apiClient.games?.getGamesByIds(ids) ?? [];
+        }
+        return this.fetchGamesByHelixIdentity(ids, accessToken);
+      },
+    };
+  }
+
+  private buildHelixHeaders(accessToken: string): Record<string, string> {
+    return {
+      Accept: "application/json",
+      "Accept-Encoding": "identity",
+      Authorization: `Bearer ${accessToken}`,
+      "Client-Id": this.helixClientId,
+    };
+  }
+
   private async fetchHelixClipIdentityPage(
     window: ClipDateWindow,
     accessToken: string,
@@ -713,12 +760,7 @@ export class ClipCacheSynchronizer {
     }
 
     const response = await this.helixFetchFn(url.toString(), {
-      headers: {
-        Accept: "application/json",
-        "Accept-Encoding": "identity",
-        Authorization: `Bearer ${accessToken}`,
-        "Client-Id": this.helixClientId,
-      },
+      headers: this.buildHelixHeaders(accessToken),
     });
     if (!response.ok) {
       throw new Error(
@@ -727,6 +769,29 @@ export class ClipCacheSynchronizer {
     }
 
     return parseHelixClipSyncPage(JSON.parse(await response.text()));
+  }
+
+  private async fetchGamesByHelixIdentity(
+    ids: string[],
+    accessToken: string
+  ): Promise<HelixGameSyncItem[]> {
+    if (ids.length === 0) return [];
+
+    const url = new URL("https://api.twitch.tv/helix/games");
+    for (const id of ids) {
+      url.searchParams.append("id", id);
+    }
+
+    const response = await this.helixFetchFn(url.toString(), {
+      headers: this.buildHelixHeaders(accessToken),
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Twitch Helix games request failed: status=${response.status ?? "unknown"}`
+      );
+    }
+
+    return parseHelixGameSyncItems(JSON.parse(await response.text()));
   }
 
   private async markUnavailableRecentMissingClips(

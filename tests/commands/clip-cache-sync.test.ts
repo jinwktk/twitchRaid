@@ -234,6 +234,17 @@ describe("ClipCacheSynchronizer", () => {
             ],
             pagination: {},
           }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            data: [
+              { id: "24241", name: "FINAL FANTASY XIV ONLINE" },
+              { id: "509658", name: "Just Chatting" },
+            ],
+          }),
       });
     const sync = new ClipCacheSynchronizer({
       apiClient: { clips: { getClipsForBroadcasterPaginated } },
@@ -250,7 +261,7 @@ describe("ClipCacheSynchronizer", () => {
     });
 
     expect(getClipsForBroadcasterPaginated).not.toHaveBeenCalled();
-    expect(helixFetchFn).toHaveBeenCalledTimes(2);
+    expect(helixFetchFn).toHaveBeenCalledTimes(3);
     const firstUrl = new URL(helixFetchFn.mock.calls[0][0]);
     expect(firstUrl.searchParams.get("broadcaster_id")).toBe("broadcaster-id");
     expect(firstUrl.searchParams.get("started_at")).toBe(
@@ -275,6 +286,82 @@ describe("ClipCacheSynchronizer", () => {
         )
         .map((clip) => clip.id)
     ).toEqual(["api-1", "api-2"]);
+  });
+
+  it("resolves clip game names through Helix identity requests when credentials are available", async () => {
+    const getClipsForBroadcasterPaginated = vi.fn(() =>
+      iterableClips([makeClip("twurple")])
+    );
+    const getGamesByIds = vi.fn(async () => [
+      { id: "24241", name: "Twurple Game" },
+    ]);
+    const helixFetchFn = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            data: [
+              {
+                id: "api-game",
+                url: "https://clips.twitch.tv/api-game",
+                title: "api clip with game",
+                creator_id: "creator-1",
+                creator_name: "Viewer",
+                game_id: "24241",
+                thumbnail_url:
+                  "https://clips-media-assets2.twitch.tv/api-game-preview-480x272.jpg",
+                created_at: "2026-05-25T10:00:00.000Z",
+                view_count: 9,
+              },
+            ],
+            pagination: {},
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            data: [{ id: "24241", name: "FINAL FANTASY XIV ONLINE" }],
+          }),
+      });
+    const sync = new ClipCacheSynchronizer({
+      apiClient: {
+        clips: { getClipsForBroadcasterPaginated },
+        games: { getGamesByIds },
+      },
+      broadcasterId: "broadcaster-id",
+      store,
+      helixClientId: "client-id",
+      helixAccessTokenProvider: () => "access-token",
+      helixFetchFn,
+    });
+
+    await sync.syncWindow({
+      start: new Date("2026-05-25T10:00:00.000Z"),
+      end: new Date("2026-05-25T11:00:00.000Z"),
+    });
+
+    expect(getClipsForBroadcasterPaginated).not.toHaveBeenCalled();
+    expect(getGamesByIds).not.toHaveBeenCalled();
+    expect(helixFetchFn).toHaveBeenCalledTimes(2);
+    const gamesUrl = new URL(helixFetchFn.mock.calls[1][0]);
+    expect(gamesUrl.pathname).toBe("/helix/games");
+    expect(gamesUrl.searchParams.getAll("id")).toEqual(["24241"]);
+    expect(helixFetchFn.mock.calls[1][1].headers).toMatchObject({
+      "Accept-Encoding": "identity",
+      Authorization: "Bearer access-token",
+      "Client-Id": "client-id",
+    });
+    expect(
+      store.searchRandomClip({
+        historyKey: "clip-search",
+        query: "FINAL FANTASY",
+        random: () => 0,
+      })?.id
+    ).toBe("api-game");
   });
 
   it("marks recently deleted cached clips unavailable after id verification", async () => {
