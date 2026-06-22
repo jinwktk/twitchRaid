@@ -185,6 +185,98 @@ describe("ClipCacheSynchronizer", () => {
     });
   });
 
+  it("fetches clip sync windows through Helix identity requests when credentials are available", async () => {
+    const getClipsForBroadcasterPaginated = vi.fn(() =>
+      iterableClips([makeClip("twurple")])
+    );
+    const helixFetchFn = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            data: [
+              {
+                id: "api-1",
+                url: "https://clips.twitch.tv/api-1",
+                title: "api clip 1",
+                creator_id: "creator-1",
+                creator_name: "Viewer",
+                game_id: "24241",
+                thumbnail_url:
+                  "https://clips-media-assets2.twitch.tv/api-1-preview-480x272.jpg",
+                created_at: "2026-05-25T10:00:00.000Z",
+                view_count: 9,
+              },
+            ],
+            pagination: { cursor: "cursor-1" },
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            data: [
+              {
+                id: "api-2",
+                url: "https://clips.twitch.tv/api-2",
+                title: "api clip 2",
+                creator_id: "creator-2",
+                creator_name: "OtherViewer",
+                game_id: "509658",
+                thumbnail_url:
+                  "https://clips-media-assets2.twitch.tv/api-2-preview-480x272.jpg",
+                created_at: "2026-05-25T10:15:00.000Z",
+                view_count: 7,
+              },
+            ],
+            pagination: {},
+          }),
+      });
+    const sync = new ClipCacheSynchronizer({
+      apiClient: { clips: { getClipsForBroadcasterPaginated } },
+      broadcasterId: "broadcaster-id",
+      store,
+      helixClientId: "client-id",
+      helixAccessTokenProvider: () => "access-token",
+      helixFetchFn,
+    });
+
+    await sync.syncWindow({
+      start: new Date("2026-05-25T10:00:00.000Z"),
+      end: new Date("2026-05-25T11:00:00.000Z"),
+    });
+
+    expect(getClipsForBroadcasterPaginated).not.toHaveBeenCalled();
+    expect(helixFetchFn).toHaveBeenCalledTimes(2);
+    const firstUrl = new URL(helixFetchFn.mock.calls[0][0]);
+    expect(firstUrl.searchParams.get("broadcaster_id")).toBe("broadcaster-id");
+    expect(firstUrl.searchParams.get("started_at")).toBe(
+      "2026-05-25T10:00:00.000Z"
+    );
+    expect(firstUrl.searchParams.get("ended_at")).toBe(
+      "2026-05-25T11:00:00.000Z"
+    );
+    expect(firstUrl.searchParams.get("first")).toBe("100");
+    expect(helixFetchFn.mock.calls[0][1].headers).toMatchObject({
+      "Accept-Encoding": "identity",
+      Authorization: "Bearer access-token",
+      "Client-Id": "client-id",
+    });
+    const secondUrl = new URL(helixFetchFn.mock.calls[1][0]);
+    expect(secondUrl.searchParams.get("after")).toBe("cursor-1");
+    expect(
+      store
+        .listClipsCreatedBetween(
+          "2026-05-25T10:00:00.000Z",
+          "2026-05-25T11:00:00.000Z"
+        )
+        .map((clip) => clip.id)
+    ).toEqual(["api-1", "api-2"]);
+  });
+
   it("marks recently deleted cached clips unavailable after id verification", async () => {
     store.saveClips([
       clipToCachedClip(makeClip("kept", "2026-05-25T10:10:00.000Z")),
@@ -583,6 +675,35 @@ describe("ClipCacheSynchronizer", () => {
 
     await sync.runDailyReconcileIfDue(new Date("2026-01-03T12:00:00.000Z"));
     expect(getClipsForBroadcasterPaginated).toHaveBeenCalledTimes(2);
+
+    await sync.runDailyReconcileIfDue(new Date("2026-01-04T00:00:01.000Z"));
+    expect(getClipsForBroadcasterPaginated).toHaveBeenCalledTimes(6);
+  });
+
+  it("throttles daily reconcile retries after an incomplete scan", async () => {
+    const getClipsForBroadcasterPaginated = vi.fn(() =>
+      failingIterable(new Error("Premature close"))
+    );
+    const sync = new ClipCacheSynchronizer({
+      apiClient: { clips: { getClipsForBroadcasterPaginated } },
+      broadcasterId: "broadcaster-id",
+      store,
+      oldestClipDate: new Date("2026-01-01T00:00:00.000Z"),
+      fullWindowDays: 1,
+      fullWindowRetryAttempts: 0,
+      fullWindowRetryDelayMs: 0,
+    });
+
+    await sync.runDailyReconcileIfDue(new Date("2026-01-03T00:00:00.000Z"));
+    expect(getClipsForBroadcasterPaginated).toHaveBeenCalledTimes(2);
+
+    await sync.runDailyReconcileIfDue(new Date("2026-01-03T00:03:00.000Z"));
+
+    expect(getClipsForBroadcasterPaginated).toHaveBeenCalledTimes(2);
+    expect(store.getSyncState("daily_reconcile_at")).toBeNull();
+    expect(store.getSyncState("daily_reconcile_attempt_at")).toBe(
+      "2026-01-03T00:00:00.000Z"
+    );
 
     await sync.runDailyReconcileIfDue(new Date("2026-01-04T00:00:01.000Z"));
     expect(getClipsForBroadcasterPaginated).toHaveBeenCalledTimes(6);

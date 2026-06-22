@@ -26,6 +26,11 @@ interface ClipCacheSyncOptions {
   apiClient: ClipSyncApiClient;
   broadcasterId: string;
   store: ClipCacheStore;
+  helixClientId?: string;
+  helixAccessToken?: string;
+  helixAccessTokenProvider?: () => string;
+  helixFetchFn?: ClipSyncHelixFetchLike;
+  helixPageSize?: number;
   oldestClipDate?: Date;
   fullWindowDays?: number;
   fullTailWindowDays?: number;
@@ -54,12 +59,29 @@ interface FullBackfillOptions {
   reconcileMissing?: boolean;
 }
 
+interface ClipSyncHelixResponse {
+  ok: boolean;
+  status?: number;
+  text(): Promise<string>;
+}
+
+type ClipSyncHelixFetchLike = (
+  url: string,
+  init: { headers: Record<string, string> }
+) => Promise<ClipSyncHelixResponse>;
+
+interface HelixClipSyncPage {
+  data: HelixClip[];
+  cursor: string | null;
+}
+
 const DEFAULT_OLDEST_CLIP_DATE = new Date("2016-05-01T00:00:00.000Z");
 const DEFAULT_FULL_WINDOW_DAYS = 30;
 const DEFAULT_FULL_TAIL_WINDOW_DAYS = 3;
 const DEFAULT_FULL_WINDOW_RETRY_ATTEMPTS = 2;
 const DEFAULT_FULL_WINDOW_RETRY_DELAY_MS = 1000;
 const DEFAULT_SPLIT_THRESHOLD = 950;
+const DEFAULT_HELIX_PAGE_SIZE = 100;
 const DEFAULT_RECENT_WINDOW_MINUTES = 6 * 60;
 const DEFAULT_RECENT_UNAVAILABLE_GRACE_MINUTES = 2 * 60;
 const DEFAULT_RECENT_SYNC_INTERVAL_MS = 60 * 1000;
@@ -69,6 +91,7 @@ const DEFAULT_DAILY_RECONCILE_INTERVAL_MS = ONE_DAY_MS;
 const DEFAULT_DAILY_RECONCILE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const RECENT_SYNC_STATE_KEY = "recent_sync_at";
 export const DAILY_RECONCILE_STATE_KEY = "daily_reconcile_at";
+const DAILY_RECONCILE_ATTEMPT_STATE_KEY = "daily_reconcile_attempt_at";
 
 function chunkArray<T>(values: T[], size: number): T[][] {
   const chunks: T[][] = [];
@@ -135,6 +158,71 @@ export function buildClipDateWindows(
   return windows;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function readString(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  return typeof value === "string" ? value : "";
+}
+
+function readNumber(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key];
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function parseHelixClipSyncPage(raw: unknown): HelixClipSyncPage {
+  const root = asRecord(raw);
+  const rawData = Array.isArray(root?.["data"]) ? root["data"] : [];
+  const clips: HelixClip[] = [];
+
+  for (const item of rawData) {
+    const clip = asRecord(item);
+    if (!clip) continue;
+
+    const id = readString(clip, "id");
+    const url = readString(clip, "url");
+    const title = readString(clip, "title");
+    const creatorId = readString(clip, "creator_id");
+    const creatorDisplayName = readString(clip, "creator_name");
+    if (!id || !url || !title || !creatorId || !creatorDisplayName) continue;
+
+    const createdAt = readString(clip, "created_at");
+    const creationDate = createdAt ? new Date(createdAt) : undefined;
+    const normalizedCreationDate =
+      creationDate && !Number.isNaN(creationDate.getTime())
+        ? creationDate
+        : undefined;
+
+    clips.push({
+      id,
+      url,
+      title,
+      creatorId,
+      creatorDisplayName,
+      gameId: readString(clip, "game_id"),
+      creationDate: normalizedCreationDate,
+      views: readNumber(clip, "view_count"),
+      thumbnailUrl: readString(clip, "thumbnail_url"),
+    } as HelixClip);
+  }
+
+  const pagination = asRecord(root?.["pagination"]);
+  const cursor = pagination ? readString(pagination, "cursor") : "";
+  return {
+    data: clips,
+    cursor: cursor || null,
+  };
+}
+
 export function clipToCachedClip(clip: HelixClip): CachedClip {
   return {
     id: clip.id,
@@ -196,6 +284,10 @@ export class ClipCacheSynchronizer {
   private readonly staleRecentSyncMs: number;
   private readonly dailyReconcileIntervalMs: number;
   private readonly dailyReconcileCheckIntervalMs: number;
+  private readonly helixClientId: string;
+  private readonly helixAccessTokenProvider: () => string;
+  private readonly helixFetchFn: ClipSyncHelixFetchLike;
+  private readonly helixPageSize: number;
   private recentSyncTimer: ReturnType<typeof setInterval> | null = null;
   private dailyReconcileTimer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
@@ -239,6 +331,19 @@ export class ClipCacheSynchronizer {
     this.dailyReconcileCheckIntervalMs =
       options.dailyReconcileCheckIntervalMs ??
       DEFAULT_DAILY_RECONCILE_CHECK_INTERVAL_MS;
+    this.helixClientId = options.helixClientId?.trim() ?? "";
+    const staticHelixAccessToken = options.helixAccessToken?.trim() ?? "";
+    this.helixAccessTokenProvider =
+      options.helixAccessTokenProvider ?? (() => staticHelixAccessToken);
+    this.helixFetchFn =
+      options.helixFetchFn ?? ((url, init) => fetch(url, init));
+    this.helixPageSize = Math.max(
+      1,
+      Math.min(
+        DEFAULT_HELIX_PAGE_SIZE,
+        Math.floor(options.helixPageSize ?? DEFAULT_HELIX_PAGE_SIZE)
+      )
+    );
   }
 
   start(): void {
@@ -385,12 +490,26 @@ export class ClipCacheSynchronizer {
     const lastReconciled =
       this.options.store.getSyncState(DAILY_RECONCILE_STATE_KEY);
     const lastReconciledMs = lastReconciled ? Date.parse(lastReconciled) : 0;
-    if (now.getTime() - lastReconciledMs < this.dailyReconcileIntervalMs) {
+    const lastAttempted =
+      this.options.store.getSyncState(DAILY_RECONCILE_ATTEMPT_STATE_KEY);
+    const lastAttemptedMs = lastAttempted ? Date.parse(lastAttempted) : 0;
+    const lastGateMs = Math.max(lastReconciledMs, lastAttemptedMs);
+    if (now.getTime() - lastGateMs < this.dailyReconcileIntervalMs) {
+      return;
+    }
+    if (this.fullScanRunning) {
+      logger.info(
+        "🎬 clip日次再走査は別の全期間同期中または未完了のため延期します。"
+      );
       return;
     }
 
     this.dailyReconcileRunning = true;
     try {
+      this.options.store.setSyncState(
+        DAILY_RECONCILE_ATTEMPT_STATE_KEY,
+        now.toISOString()
+      );
       const completed = await this.runFullBackfill(now, {
         reconcileMissing: true,
       });
@@ -535,6 +654,11 @@ export class ClipCacheSynchronizer {
   }
 
   private async fetchWindow(window: ClipDateWindow): Promise<HelixClip[]> {
+    const accessToken = this.helixAccessTokenProvider().trim();
+    if (this.helixClientId && accessToken) {
+      return this.fetchWindowByHelixIdentity(window, accessToken);
+    }
+
     const paginator =
       this.options.apiClient.clips.getClipsForBroadcasterPaginated(
         this.options.broadcasterId,
@@ -550,6 +674,59 @@ export class ClipCacheSynchronizer {
     }
 
     return clips;
+  }
+
+  private async fetchWindowByHelixIdentity(
+    window: ClipDateWindow,
+    accessToken: string
+  ): Promise<HelixClip[]> {
+    const clips: HelixClip[] = [];
+    let after: string | null = null;
+
+    while (true) {
+      const page = await this.fetchHelixClipIdentityPage(
+        window,
+        accessToken,
+        after
+      );
+      clips.push(...page.data);
+
+      if (!page.cursor || page.cursor === after) {
+        return clips;
+      }
+      after = page.cursor;
+    }
+  }
+
+  private async fetchHelixClipIdentityPage(
+    window: ClipDateWindow,
+    accessToken: string,
+    after: string | null
+  ): Promise<HelixClipSyncPage> {
+    const url = new URL("https://api.twitch.tv/helix/clips");
+    url.searchParams.set("broadcaster_id", this.options.broadcasterId);
+    url.searchParams.set("started_at", window.start.toISOString());
+    url.searchParams.set("ended_at", window.end.toISOString());
+    url.searchParams.set("first", String(this.helixPageSize));
+    if (after) {
+      url.searchParams.set("after", after);
+    }
+
+    const response = await this.helixFetchFn(url.toString(), {
+      headers: {
+        Accept: "application/json",
+        "Accept-Encoding": "identity",
+        Authorization: `Bearer ${accessToken}`,
+        "Client-Id": this.helixClientId,
+      },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Twitch Helix clips request failed: status=${response.status ?? "unknown"}`
+      );
+    }
+
+    return parseHelixClipSyncPage(JSON.parse(await response.text()));
   }
 
   private async markUnavailableRecentMissingClips(

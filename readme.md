@@ -227,11 +227,11 @@ SQLiteストアへ初回移行できるJSON例:
 - 一般ユーザーは 30 分のクールダウンが適用
 - クールダウン終了時に Bot がチャットへ「リキャスト復帰」コメントを自動送信
 - `!myclip` は `!clip` とは独立したクールダウン管理
-- 起動後に `data/clips.sqlite` へ全期間クリップをバックグラウンド同期する。Twitch APIの一時的な `Premature close` などで期間窓の取得に失敗した場合は、その期間窓だけ既定2回再試行し、失敗が続く場合は期間窓を二分割して小さい窓で再取得する。分割後の小窓が全て成功した場合は元の大きい窓も完了扱いにし、再試行中はINFOログ、分割後も取れなかった最小窓だけWARNログにする
+- 起動後に `data/clips.sqlite` へ全期間クリップをバックグラウンド同期する。実運用ではTwitch client id/access tokenを使ってHelix clips APIを `Accept-Encoding: identity` 付きで直fetchし、現在のrefresh済みaccess tokenを参照する。Twitch APIの一時的な `Premature close` などで期間窓の取得に失敗した場合は、その期間窓だけ既定2回再試行し、失敗が続く場合は期間窓を二分割して小さい窓で再取得する。分割後の小窓が全て成功した場合は元の大きい窓も完了扱いにし、再試行中はINFOログ、分割後も取れなかった最小窓だけWARNログにする。Twurple paginator経路は認証情報がないテスト/互換fallbackとして残す
 - 同期済み期間は `clip_scan_windows` に保存し、再起動後は取得済み期間をスキップ
 - 配信していない時間に1日1回、全期間を再走査してTwitch側で返らなくなったClipを `unavailable_at` 付きで無効化する。直近同期でも、DBに既にあるClipが一覧から消えた場合は `getClipsByIds` で個別確認し、返らないIDだけ削除/非公開として無効化する。ただし作成から2時間以内のClipはTwitch API反映の揺れとして直近削除確認の対象外にし、すでに無効化されていた場合も直近同期時に有効へ戻す
 - 無効化されたClipは `!clip` / `!myclip` と配信まとめクリップ候補から除外され、Twitch APIで再び返った場合は自動で有効化される
-- 日次再走査の最終実行時刻は `clip_sync_state` の `daily_reconcile_at` に保存する。通常バックフィルと競合して未完了だった場合は実行済みにしない
+- 日次再走査の最終実行時刻は `clip_sync_state` の `daily_reconcile_at` に保存する。開始試行時刻は `daily_reconcile_attempt_at` に保存し、Twitch APIの一時切断などで未完了になっても同じ24時間枠で全期間再走査を繰り返さない。通常バックフィルと競合して未完了だった場合は実行済みにしない
 - 直近6時間のクリップは起動直後と1分ごとに再同期し、Twitch側のClip一覧APIへの反映が1時間以上遅れたClipも候補へ入れる。時間幅は `.env` の `TWITCH_CLIP_RECENT_WINDOW_MINUTES` で調整できる
 - 直近同期ログの `fetched` はTwitch APIから返ったClip件数、`saved` は新規または無効化から復活したClip件数、`unavailable` は削除/非公開として新たに無効化したClip件数。既存Clipの再保存だけでは `saved=0` のままにする
 - `!clip` / `!myclip` 実行時はSQLiteキャッシュから即選択し、キャッシュ未準備時のみ最大200件の軽いAPIフォールバックを使う。実運用ではTwitch client id/access tokenを使ってHelix clips APIを `Accept-Encoding: identity` 付きで直fetchし、`Premature close` などの一時通信エラーだけ再試行する。Twurple paginatorは認証情報が渡されないテスト/互換用fallbackとして残す
@@ -353,6 +353,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-06-22**: 本番ログで `clip全期間再走査期間同期失敗` が大量に流れていた件を調査。原因は日次再走査の全期間Clip同期がまだTwurple paginator経由でHelix clips APIを読み、特定の30日窓や分割後の小窓でも `Premature close` が起きることと、未完了時に `daily_reconcile_at` を更新しないためオフライン監視のたびに同じ再走査が再開されることだった。`src/commands/clip-cache-sync.ts` は実運用でTwitch client id/access tokenがある場合、Clip同期本体も `Accept-Encoding: identity` 付きHelix clips直fetchへ切り替え、現在のrefresh済みaccess tokenを参照する。あわせて未完了の日次再走査でも `daily_reconcile_attempt_at` を保存し、同じ24時間枠で全期間再走査を繰り返さないようにした。Twurple paginatorは認証情報がないテスト/互換fallbackとして維持する
 - **2026-06-22**: Raid元配信情報取得が Helix streams の `Premature close` で失敗する問題に対応。`src/commands/raid-info.ts` は実運用で `Accept-Encoding: identity` 付きのHelix streams直fetchを使い、一時通信エラーだけ既定2回再試行する。`src/bot.ts` は現在のTwitch client id/access tokenを渡し、Twurple経路はテスト/互換fallbackとして維持する。あわせてRaid挨拶文のOllamaモデル解決を `OLLAMA_SHOUTOUT_MODEL` → `CHAT_AI_MODEL` → `OLLAMA_MODEL` に変更し、`CHAT_AI_MODEL=qwen2.5:7b` の軽量テスト設定をRaid挨拶にも継承できるようにした。対象テスト35件と全体 `npm test` 40ファイル401件、`npm run build`、`npm run lint`、`git diff --check` が通過
 - **2026-06-21**: `http://192.168.0.99:3220/` のMemory WebUIでEdit時にKeyを変更できるようにした。`scripts/memory-web.mjs` はEditダイアログのKey readOnlyを解除し、更新時に既存mem0 IDへ `memory: "key: value"` と `metadata.key/kind/sourceUser/source/app_id` をPATCHする。`ops/mem0-oss-server/app.py` も `metadata` 付きPATCHを受け取り、`mem0ai` の `Memory.update(..., metadata=...)` へ渡す。対象テストは `npm test -- --run tests/scripts/memory-web.test.ts` 8件と `python -m pytest -q tests/test_mem0_oss_server.py` 5件が通過。commit `8dbd5e34c53d48114a36e3e8828aea78ed68f565` のimageをサブPCへbuild/pushし、`sub-ai_mem0` と `twitchraid-memory-web` を更新済み。LAN実URLで一時mem0記憶をCreate→EditでKey変更→Deleteし、変更後Keyが一覧に反映され、一時IDが残らないことを確認した。
 - **2026-06-21**: 明示メモ保存で `覚えて: キー=内容` 形式だけでなく、`私はカレーが好きって覚えて` / `覚えて: 私はカレーが好き` / `るっかの好きなゲームはVALORANTって覚えて` のような自然文も保存できるようにした。明示メモ本文から末尾の `って` / `と` を落とし、暗黙メモと同じ安全抽出を再利用する。発言者の一人称は `sourceUser` を使って `viewerの好きなもの` のように正規化し、主語やキーがない `43歳って覚えて` は従来通り形式不正でOllamaへ流さない。対象テストは `npm test -- --run tests/commands/mention-chat-memory.test.ts tests/bot-mention-chat.test.ts` で67件通過。

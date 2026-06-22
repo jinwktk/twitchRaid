@@ -358,6 +358,8 @@ export class Bot {
       apiClient: this.apiClient,
       broadcasterId: this.config.twitchBroadcasterId,
       store: this.clipCacheStore,
+      helixClientId: this.config.twitchClientId,
+      helixAccessTokenProvider: () => this.config.twitchAccessToken,
       recentWindowMinutes: this.config.clipRecentWindowMinutes,
       isStreamLive: () => this.streamLive,
       onRecentSyncComplete: async (result) => {
