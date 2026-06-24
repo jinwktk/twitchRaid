@@ -99,9 +99,15 @@ describe("formatGeneratedMentionChatReply", () => {
     expect(formatGeneratedMentionChatReply("める！", 200)).toBe("める！");
     expect(formatGeneratedMentionChatReply("え？", 200)).toBe("え？");
     expect(formatGeneratedMentionChatReply("GG！", 200)).toBe("GG！");
-    expect(formatGeneratedMentionChatReply("Hello there", 200)).toBe(
-      "Hello there"
+    expect(formatGeneratedMentionChatReply("Apex LegendsやるD！", 200)).toBe(
+      "Apex LegendsやるD！"
     );
+  });
+
+  it("rejects generated replies that contain general English words", () => {
+    expect(formatGeneratedMentionChatReply("tonight何が食べたい？", 200)).toBeNull();
+    expect(formatGeneratedMentionChatReply("Throat painだね", 200)).toBeNull();
+    expect(formatGeneratedMentionChatReply("Hello there", 200)).toBeNull();
   });
 
   it("allows short Japanese kanji-only replies from chat prompts", () => {
@@ -467,6 +473,75 @@ describe("generateMentionChatReply", () => {
     expect(reply).toBe("GG！");
   });
 
+  it("repairs generated replies that contain general English words", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "tonight何が食べたい？一緒に考えよう♪" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "夜ご飯は何が食べたい？一緒に考えようD！" }),
+      });
+
+    const reply = await generateMentionChatReply({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5:7b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "今日の夜ご飯はなにがいい？",
+      fetchImpl,
+    });
+
+    expect(reply).toBe("夜ご飯は何が食べたい？一緒に考えようD！");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const repairBody = JSON.parse(fetchImpl.mock.calls[1][1].body as string);
+    expect(repairBody.prompt).toContain("tonight何が食べたい？");
+    expect(repairBody.prompt).toContain("日本語だけ");
+  });
+
+  it("rejects generated replies when the English-word repair still violates policy", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => logger);
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "tonight何が食べたい？" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "Dinnerにしよう" }),
+      });
+
+    try {
+      const reply = await generateMentionChatReply({
+        enabled: true,
+        baseUrl: "http://127.0.0.1:11434",
+        model: "qwen2.5:7b",
+        timeoutMs: 3000,
+        keepAlive: "30m",
+        maxResponseChars: 200,
+        channel: "#rukalun",
+        userName: "viewer",
+        promptText: "今日の夜ご飯はなにがいい？",
+        fetchImpl,
+      });
+
+      expect(reply).toBeNull();
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("reason=english_word_repair_failed")
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it("uses a safe fallback for low-information match outcome replies", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
@@ -691,7 +766,7 @@ describe("generateMentionChatReply", () => {
           json: async () => ({ response: "Hello there" }),
         }),
       })
-    ).resolves.toBe("Hello there");
+    ).resolves.toBeNull();
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining(

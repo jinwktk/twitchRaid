@@ -49,6 +49,45 @@ const RUKALUN_RESIDENCE_REFUSAL_REPLY =
 const HEALTH_CONCERN_SUPPORT_REPLY =
   "心配だねD！無理せず水分とって休んで、つらそうなら早めに病院や周りの人に相談してね。";
 const HEALTH_CONCERN_REPORT_MAX_CHARS = 80;
+const LATIN_TOKEN_PATTERN = /[A-Za-z][A-Za-z0-9_+-]*/gu;
+const COMMON_ENGLISH_GENERAL_WORDS = new Set([
+  "about",
+  "again",
+  "and",
+  "are",
+  "body",
+  "breakfast",
+  "chat",
+  "cold",
+  "dinner",
+  "drink",
+  "eat",
+  "food",
+  "for",
+  "good",
+  "hello",
+  "hungry",
+  "is",
+  "lunch",
+  "morning",
+  "night",
+  "ok",
+  "okay",
+  "pain",
+  "please",
+  "reply",
+  "sorry",
+  "thanks",
+  "there",
+  "throat",
+  "today",
+  "tomorrow",
+  "tonight",
+  "want",
+  "what",
+  "with",
+  "you",
+]);
 
 const MENTION_CHAT_SYSTEM_PROMPT = [
   "あなたはTwitchチャットで自然な1〜2文で返事する、るっかるん本人として振る舞う日本語アシスタントです。",
@@ -87,6 +126,22 @@ function stripWrappingQuotes(value: string): string {
 
 function stripCommandPrefix(value: string): string {
   return value.replace(/^\s*!+/, "").trim();
+}
+
+function isAllowedLatinToken(token: string): boolean {
+  if (token.length <= 1) return true;
+  const normalized = token.toLowerCase();
+  if (COMMON_ENGLISH_GENERAL_WORDS.has(normalized)) return false;
+  if (/^[A-Z0-9_+-]+$/u.test(token)) return true;
+  if (/^[a-z][a-z0-9_+-]*$/u.test(token)) return false;
+  return true;
+}
+
+function containsDisallowedEnglishGeneralWord(value: string): boolean {
+  for (const match of value.matchAll(LATIN_TOKEN_PATTERN)) {
+    if (!isAllowedLatinToken(match[0])) return true;
+  }
+  return false;
 }
 
 function removeEmoji(value: string): string {
@@ -361,6 +416,23 @@ function buildMentionChatPrompt(options: GenerateMentionChatReplyOptions): strin
   return lines.join("\n");
 }
 
+function buildMentionChatRepairPrompt({
+  promptText,
+  rejectedReply,
+}: {
+  promptText: string;
+  rejectedReply: string;
+}): string {
+  return [
+    "次のTwitchチャット返信案には英語の一般語が混ざっています。",
+    "意味を保ったまま、必ず日本語だけの自然な1文へ直してください。",
+    "固有名詞やユーザーが指定した表記を除き、英単語・ローマ字の説明語を使わないでください。",
+    `ユーザーの発言: ${shorten(singleLine(promptText), PROMPT_TEXT_LIMIT)}`,
+    `修正前の返信案: ${shorten(singleLine(rejectedReply), PROMPT_TEXT_LIMIT)}`,
+    "完成したチャット返信だけを返してください。",
+  ].join("\n");
+}
+
 export function resolveMentionChatAliases(
   aliases: string[],
   fallbackAlias: string
@@ -393,7 +465,51 @@ export function formatGeneratedMentionChatReply(
     stripWrappingQuotes(singleLine(removeEmoji(generated)))
   );
   if (!normalized) return null;
+  if (containsDisallowedEnglishGeneralWord(normalized)) return null;
   return shorten(normalized, maxResponseChars);
+}
+
+async function repairEnglishWordMentionChatReply({
+  baseUrl,
+  model,
+  timeoutMs,
+  keepAlive,
+  maxResponseChars,
+  promptText,
+  rejectedReply,
+  fetchImpl,
+}: {
+  baseUrl: string;
+  model: string;
+  timeoutMs: number;
+  keepAlive?: string;
+  maxResponseChars: number;
+  promptText: string;
+  rejectedReply: string;
+  fetchImpl: typeof fetch;
+}): Promise<string | null> {
+  const response = await fetchImpl(buildOllamaGenerateUrl(baseUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      model,
+      system: MENTION_CHAT_SYSTEM_PROMPT,
+      prompt: buildMentionChatRepairPrompt({ promptText, rejectedReply }),
+      stream: false,
+      think: false,
+      keep_alive: keepAlive,
+      options: {
+        temperature: 0.1,
+        num_predict: DEFAULT_OLLAMA_NUM_PREDICT,
+      },
+    }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok) return null;
+
+  const body = (await response.json()) as OllamaGenerateResponse;
+  if (typeof body.response !== "string") return null;
+  return formatGeneratedMentionChatReply(body.response, maxResponseChars);
 }
 
 export async function generateMentionChatReply({
@@ -486,6 +602,33 @@ export async function generateMentionChatReply({
       isMatchOutcomeQuestion(promptText)
         ? MATCH_OUTCOME_FALLBACK_REPLY
         : null;
+    if (
+      !reply &&
+      body.response &&
+      containsDisallowedEnglishGeneralWord(singleLine(body.response))
+    ) {
+      logger.warn(
+        `⚠️ AIメンション会話生成返信を日本語へ修正します: reason=english_word, prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}`
+      );
+      const repairedReply = await repairEnglishWordMentionChatReply({
+        baseUrl,
+        model: trimmedModel,
+        timeoutMs,
+        keepAlive,
+        maxResponseChars,
+        promptText,
+        rejectedReply: body.response,
+        fetchImpl,
+      });
+      if (repairedReply) {
+        logPromptAndReplyIfEnabled(promptReplyLogEnabled, builtPrompt, repairedReply);
+        return repairedReply;
+      }
+      logger.warn(
+        `⚠️ AIメンション会話生成失敗: reason=english_word_repair_failed, prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}`
+      );
+      return null;
+    }
     if (!reply) {
       if (matchOutcomeFallback) {
         logger.warn(
