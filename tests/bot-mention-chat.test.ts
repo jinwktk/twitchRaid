@@ -512,7 +512,8 @@ describe("Bot mention chat", () => {
     expect(body.model).toBe("qwen2.5:7b");
     expect(body.images).toBeUndefined();
     expect(body.system).not.toContain("画像から分かる内容");
-    expect(body.prompt).toContain("配信画面画像: 添付なし");
+    expect(body.prompt).not.toContain("配信画面画像");
+    expect(body.prompt).not.toContain("画面を見えているふり");
     expect(say).toHaveBeenCalledWith("#rukalun", "画面は見ずに答えるD！");
   });
 

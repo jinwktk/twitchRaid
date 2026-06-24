@@ -330,6 +330,7 @@ function cleanImplicitMemoryEntry(
   const normalizedKey = key.toLowerCase();
 
   if (!key || !value) return null;
+  if ([...key].length < 2) return null;
   if (key.length > options.maxKeyChars || rawValue.length > options.maxValueChars) {
     return null;
   }

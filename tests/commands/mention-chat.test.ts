@@ -153,6 +153,9 @@ describe("generateMentionChatReply", () => {
       },
     });
     expect(body.system).toContain("日本語");
+    expect(body.system).toContain("日本語だけ");
+    expect(body.system).toContain("英語の一般語");
+    expect(body.system).not.toContain("Output Japanese only");
     expect(body.system).toContain("るっかるん本人");
     expect(body.system).toContain("秘密");
     expect(body.system).toContain("自然な1〜2文");
@@ -162,6 +165,8 @@ describe("generateMentionChatReply", () => {
     expect(body.prompt).toContain("るっかるん本人として");
     expect(body.prompt).toContain("自然な1〜2文");
     expect(body.prompt).toContain("単語だけ");
+    expect(body.prompt).toContain("英語の一般語");
+    expect(body.prompt).not.toContain("配信画面画像");
     expect(body.prompt).not.toContain("TWITCH_ACCESS_TOKEN");
     expect(reply).toBe("こんにちはD！配信たのしんでいってね！");
   });
@@ -409,8 +414,8 @@ describe("generateMentionChatReply", () => {
     expect(body.model).toBe("qwen2.5:7b");
     expect(body.images).toBeUndefined();
     expect(body.system).not.toContain("画像から分かる内容");
-    expect(body.prompt).toContain("配信画面画像: 添付なし");
-    expect(body.prompt).toContain("画面を見えているふりをしないでください");
+    expect(body.prompt).not.toContain("配信画面画像");
+    expect(body.prompt).not.toContain("画面を見えているふり");
     expect(reply).toBe("画面は見ずに答えるD！");
   });
 
@@ -435,7 +440,7 @@ describe("generateMentionChatReply", () => {
 
     const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
     expect(body.images).toBeUndefined();
-    expect(body.prompt).toContain("配信画面画像: 添付なし");
+    expect(body.prompt).not.toContain("配信画面画像");
     expect(reply).toBe("Apex Legends");
   });
 

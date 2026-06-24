@@ -591,6 +591,7 @@ describe("auto-learn mention chat memory", () => {
         { ...options, maxKeyChars: 40, maxValueChars: 120 }
       )
     ).toBeNull();
+    expect(extractImplicitMentionChatMemoryEntry("お: よ～", options)).toBeNull();
     expect(
       extractImplicitMentionChatMemoryEntry(
         "長すぎるキー名ですは値",
