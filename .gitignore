@@ -53,3 +53,9 @@ Thumbs.db
 
 # テストカバレッジ
 coverage/
+AGENTS.md
+**/AGENTS.md
+.agents/
+.codex/
+.env.*
+!.env.example
