@@ -30,6 +30,10 @@ export interface MentionChatImmediateReply {
   reply: string;
 }
 
+export interface FormatGeneratedMentionChatReplyOptions {
+  allowedLatinTokens?: readonly string[];
+}
+
 interface OllamaGenerateResponse {
   response?: unknown;
 }
@@ -128,18 +132,31 @@ function stripCommandPrefix(value: string): string {
   return value.replace(/^\s*!+/, "").trim();
 }
 
-function isAllowedLatinToken(token: string): boolean {
+function buildAllowedLatinTokenSet(
+  tokens: readonly string[] | undefined
+): Set<string> {
+  return new Set(tokens?.map(normalizeName).filter(Boolean) ?? []);
+}
+
+function isAllowedLatinToken(
+  token: string,
+  allowedLatinTokenSet: ReadonlySet<string>
+): boolean {
   if (token.length <= 1) return true;
   const normalized = token.toLowerCase();
+  if (allowedLatinTokenSet.has(normalized)) return true;
   if (COMMON_ENGLISH_GENERAL_WORDS.has(normalized)) return false;
   if (/^[A-Z0-9_+-]+$/u.test(token)) return true;
   if (/^[a-z][a-z0-9_+-]*$/u.test(token)) return false;
   return true;
 }
 
-function containsDisallowedEnglishGeneralWord(value: string): boolean {
+function containsDisallowedEnglishGeneralWord(
+  value: string,
+  allowedLatinTokenSet: ReadonlySet<string> = new Set()
+): boolean {
   for (const match of value.matchAll(LATIN_TOKEN_PATTERN)) {
-    if (!isAllowedLatinToken(match[0])) return true;
+    if (!isAllowedLatinToken(match[0], allowedLatinTokenSet)) return true;
   }
   return false;
 }
@@ -459,13 +476,21 @@ export function extractMentionChatPrompt(
 
 export function formatGeneratedMentionChatReply(
   generated: string,
-  maxResponseChars: number
+  maxResponseChars: number,
+  options: FormatGeneratedMentionChatReplyOptions = {}
 ): string | null {
   const normalized = stripCommandPrefix(
     stripWrappingQuotes(singleLine(removeEmoji(generated)))
   );
   if (!normalized) return null;
-  if (containsDisallowedEnglishGeneralWord(normalized)) return null;
+  if (
+    containsDisallowedEnglishGeneralWord(
+      normalized,
+      buildAllowedLatinTokenSet(options.allowedLatinTokens)
+    )
+  ) {
+    return null;
+  }
   return shorten(normalized, maxResponseChars);
 }
 
@@ -477,6 +502,7 @@ async function repairEnglishWordMentionChatReply({
   maxResponseChars,
   promptText,
   rejectedReply,
+  allowedLatinTokens,
   fetchImpl,
 }: {
   baseUrl: string;
@@ -486,6 +512,7 @@ async function repairEnglishWordMentionChatReply({
   maxResponseChars: number;
   promptText: string;
   rejectedReply: string;
+  allowedLatinTokens?: readonly string[];
   fetchImpl: typeof fetch;
 }): Promise<string | null> {
   const response = await fetchImpl(buildOllamaGenerateUrl(baseUrl), {
@@ -509,7 +536,9 @@ async function repairEnglishWordMentionChatReply({
 
   const body = (await response.json()) as OllamaGenerateResponse;
   if (typeof body.response !== "string") return null;
-  return formatGeneratedMentionChatReply(body.response, maxResponseChars);
+  return formatGeneratedMentionChatReply(body.response, maxResponseChars, {
+    allowedLatinTokens,
+  });
 }
 
 export async function generateMentionChatReply({
@@ -532,6 +561,8 @@ export async function generateMentionChatReply({
   const trimmedModel = model.trim();
   if (!enabled || !trimmedModel) return null;
   const logPromptText = redactedPromptText ?? promptText;
+  const allowedLatinTokens = [userName];
+  const allowedLatinTokenSet = buildAllowedLatinTokenSet(allowedLatinTokens);
   const immediateReply = resolveMentionChatImmediateReply(promptText);
   if (immediateReply?.reason === "command_execution") {
     logger.warn(
@@ -596,7 +627,8 @@ export async function generateMentionChatReply({
 
     const reply = formatGeneratedMentionChatReply(
       body.response,
-      maxResponseChars
+      maxResponseChars,
+      { allowedLatinTokens }
     );
     const matchOutcomeFallback =
       isMatchOutcomeQuestion(promptText)
@@ -605,7 +637,10 @@ export async function generateMentionChatReply({
     if (
       !reply &&
       body.response &&
-      containsDisallowedEnglishGeneralWord(singleLine(body.response))
+      containsDisallowedEnglishGeneralWord(
+        singleLine(body.response),
+        allowedLatinTokenSet
+      )
     ) {
       logger.warn(
         `⚠️ AIメンション会話生成返信を日本語へ修正します: reason=english_word, prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}`
@@ -618,6 +653,7 @@ export async function generateMentionChatReply({
         maxResponseChars,
         promptText,
         rejectedReply: body.response,
+        allowedLatinTokens,
         fetchImpl,
       });
       if (repairedReply) {

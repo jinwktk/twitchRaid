@@ -110,6 +110,17 @@ describe("formatGeneratedMentionChatReply", () => {
     expect(formatGeneratedMentionChatReply("Hello there", 200)).toBeNull();
   });
 
+  it("allows caller-provided Latin identifiers such as Twitch user names", () => {
+    const reply = "すみません、kanonalcさん。最近コマンドの使い方を勉強中です。";
+
+    expect(formatGeneratedMentionChatReply(reply, 200)).toBeNull();
+    expect(
+      formatGeneratedMentionChatReply(reply, 200, {
+        allowedLatinTokens: ["kanonalc"],
+      })
+    ).toBe(reply);
+  });
+
   it("allows short Japanese kanji-only replies from chat prompts", () => {
     expect(formatGeneratedMentionChatReply("猫！", 200)).toBe("猫！");
     expect(formatGeneratedMentionChatReply("左！", 200)).toBe("左！");
@@ -503,6 +514,34 @@ describe("generateMentionChatReply", () => {
     const repairBody = JSON.parse(fetchImpl.mock.calls[1][1].body as string);
     expect(repairBody.prompt).toContain("tonight何が食べたい？");
     expect(repairBody.prompt).toContain("日本語だけ");
+  });
+
+  it("does not repair a Japanese reply only because it contains the requester name", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response:
+          "すみません、kanonalcさん。最近コマンドの使い方を勉強中です。何か手伝えることがありますか？",
+      }),
+    });
+
+    const reply = await generateMentionChatReply({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5:7b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "kanonalc",
+      promptText: "いい加減コマンド使えるようにしろ仕事しろよ１０日間なにしてるん",
+      fetchImpl,
+    });
+
+    expect(reply).toBe(
+      "すみません、kanonalcさん。最近コマンドの使い方を勉強中です。何か手伝えることがありますか？"
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("rejects generated replies when the English-word repair still violates policy", async () => {
