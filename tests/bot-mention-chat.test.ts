@@ -1411,6 +1411,47 @@ describe("Bot mention chat", () => {
     });
   });
 
+  it("saves first-person implicit profile statements under the source user", async () => {
+    vi.useFakeTimers();
+    const memoryPath = path.join(ensureTempDir(), "implicit-profile.json");
+    const { bot, say } = makeBot({
+      chatAiAutoLearnEnabled: true,
+      chatAiImplicitMemoryEnabled: true,
+      chatAiMemoryEnabled: true,
+      chatAiMemoryPath: memoryPath,
+      chatAiMemoryWriterUsers: ["all"],
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "覚えておくD！" }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 私は社会人だよ",
+      100
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith("#rukalun", "覚えておくD！");
+    expect(fs.existsSync(memoryPath)).toBe(false);
+
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fs.readFileSync(memoryPath, "utf8"))).toMatchObject({
+      viewer: "社会人",
+      __meta: {
+        viewer: {
+          kind: "implicit",
+          sourceUser: "viewer",
+          status: "active",
+        },
+      },
+    });
+  });
+
   it("mirrors implicit memory to mem0 even when the local memory store cannot be written", async () => {
     vi.useFakeTimers();
     const unwritableMemoryPath = ensureTempDir();

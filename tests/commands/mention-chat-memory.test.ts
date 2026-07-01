@@ -314,6 +314,12 @@ describe("auto-learn mention chat memory", () => {
       value: "カレー",
     });
     expect(
+      extractMentionChatMemoryEntry("私は社会人だよって覚えて", options)
+    ).toEqual({
+      key: "viewer",
+      value: "社会人",
+    });
+    expect(
       extractMentionChatMemoryEntry(
         "るっかの好きなゲームはVALORANTって覚えて",
         options
@@ -337,6 +343,12 @@ describe("auto-learn mention chat memory", () => {
       extractMentionChatMemoryEntry(
         "覚えて: 本名=山田太郎",
         { maxKeyChars: 40, maxValueChars: 120 }
+      )
+    ).toBeNull();
+    expect(
+      extractMentionChatMemoryEntry(
+        "私は43歳だよって覚えて",
+        { maxKeyChars: 40, maxValueChars: 120, sourceUser: "viewer" }
       )
     ).toBeNull();
     expect(
@@ -553,6 +565,12 @@ describe("auto-learn mention chat memory", () => {
       value: "カレー",
     });
     expect(
+      extractImplicitMentionChatMemoryEntry("私は社会人だよ", options)
+    ).toEqual({
+      key: "viewer",
+      value: "社会人",
+    });
+    expect(
       extractImplicitMentionChatMemoryEntry(
         "るっかの好きなゲームはVALORANT",
         options
@@ -578,6 +596,13 @@ describe("auto-learn mention chat memory", () => {
     ).toBeNull();
     expect(
       extractImplicitMentionChatMemoryEntry("私は43歳", options)
+    ).toBeNull();
+    expect(
+      extractImplicitMentionChatMemoryEntry("私は43歳だよ", {
+        ...options,
+        maxKeyChars: 40,
+        maxValueChars: 120,
+      })
     ).toBeNull();
     expect(
       extractImplicitMentionChatMemoryEntry(

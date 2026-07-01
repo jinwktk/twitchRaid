@@ -226,6 +226,8 @@ const IMPLICIT_UNSTABLE_VALUE_PATTERN =
   /(?:かも|たぶん|多分|一時的|今だけ|今日だけ|昨日だけ|明日だけ)/u;
 const IMPLICIT_PII_KEY_PATTERN =
   /本名|氏名|住所|所在地|誕生日|生年月日|マイナンバー|個人番号|電話番号|メールアドレス|メール/iu;
+const FIRST_PERSON_SENSITIVE_VALUE_PATTERN =
+  /(?:\d+|[0-9０-９]+)\s*(?:歳|才)|(?:誕生日|生年月日|生まれ|平成|昭和|令和|西暦|\d{4}年|[0-9０-９]+月[0-9０-９]+日)|(?:住んで|すんで|住まい|居住|在住|住所|所在地|出身|都|道|府|県|市|区|町|村)/u;
 const FIRST_PERSON_PATTERN = /^(?:私|わたし|僕|ぼく|俺|おれ|うち|自分)$/u;
 
 function isRecord(value: unknown): value is MemoryRecord {
@@ -318,18 +320,39 @@ function normalizeImplicitSourceUser(sourceUser: string | undefined): string {
   return singleLine(sourceUser ?? "").replace(/^[@＠]+/, "").toLowerCase();
 }
 
+function normalizeMemorySubjectKey(
+  rawKey: string,
+  sourceUser: string | undefined
+): { key: string; isFirstPerson: boolean } {
+  if (!FIRST_PERSON_PATTERN.test(rawKey)) {
+    return { key: rawKey, isFirstPerson: false };
+  }
+
+  return {
+    key: normalizeImplicitSourceUser(sourceUser) || "unknown",
+    isFirstPerson: true,
+  };
+}
+
+function isSensitiveFirstPersonMemoryValue(value: string): boolean {
+  return FIRST_PERSON_SENSITIVE_VALUE_PATTERN.test(value);
+}
+
 function cleanImplicitMemoryEntry(
   entry: MentionChatMemoryEntry,
   options: ExtractImplicitMentionChatMemoryEntryOptions
 ): MentionChatMemoryEntry | null {
   const rawKey = stripWrappingQuotes(singleLine(entry.key));
   const rawValue = stripWrappingQuotes(singleLine(entry.value));
-  if (FIRST_PERSON_PATTERN.test(rawKey)) return null;
-  const key = rawKey;
   const value = stripTrailingSentenceNoise(rawValue);
+  const subject = normalizeMemorySubjectKey(rawKey, options.sourceUser);
+  const key = subject.key;
   const normalizedKey = key.toLowerCase();
 
   if (!key || !value) return null;
+  if (subject.isFirstPerson && isSensitiveFirstPersonMemoryValue(value)) {
+    return null;
+  }
   if ([...key].length < 2) return null;
   if (key.length > options.maxKeyChars || rawValue.length > options.maxValueChars) {
     return null;
@@ -513,12 +536,17 @@ export function analyzeMentionChatMemoryRequest(
     return { isMemoryRequest: true, reason: "invalid_format" };
   }
 
-  const key = stripWrappingQuotes(singleLine(parsed.key));
+  const rawKey = stripWrappingQuotes(singleLine(parsed.key));
   const rawValue = stripWrappingQuotes(singleLine(parsed.value));
   const value = stripTrailingSentenceNoise(rawValue);
+  const subject = normalizeMemorySubjectKey(rawKey, sourceUser);
+  const key = subject.key;
   const normalizedKey = key.toLowerCase();
   if (!key || !value) {
     return { isMemoryRequest: true, reason: "invalid_format" };
+  }
+  if (subject.isFirstPerson && isSensitiveFirstPersonMemoryValue(value)) {
+    return { isMemoryRequest: true, reason: "unsafe" };
   }
   if (key.length > maxKeyChars || rawValue.length > maxValueChars) {
     return { isMemoryRequest: true, reason: "too_long" };
