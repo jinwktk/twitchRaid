@@ -21,6 +21,9 @@ export const DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS = 500;
 const DEFAULT_CHAT_AI_COOLDOWN_SECONDS = 5;
 const DEFAULT_CHAT_AI_BOT_ALIASES = ["にめいやボットくん", "nyme_ia2"];
 const DEFAULT_CHAT_AI_IGNORED_USERS = ["nyme_ia2"];
+const DEFAULT_CHAT_AI_CONVERSATION_HISTORY_MAX_MESSAGES = 6;
+const DEFAULT_CHAT_AI_CONVERSATION_HISTORY_MAX_CHARS = 1_000;
+const DEFAULT_CHAT_AI_CONVERSATION_HISTORY_TTL_SECONDS = 1_800;
 const DEFAULT_CHAT_AI_MEMORY_MAX_ITEMS = 8;
 const DEFAULT_CHAT_AI_MEMORY_MAX_CHARS = 600;
 const DEFAULT_CHAT_AI_MEM0_TIMEOUT_MS = 1_200;
@@ -121,6 +124,10 @@ export class Config {
   readonly chatAiTimeoutFallbackReply: string;
   readonly chatAiKeepAlive: string;
   readonly chatAiMaxResponseChars: number;
+  readonly chatAiConversationHistoryEnabled: boolean;
+  readonly chatAiConversationHistoryMaxMessages: number;
+  readonly chatAiConversationHistoryMaxChars: number;
+  readonly chatAiConversationHistoryTtlSeconds: number;
   readonly chatAiBotAliases: string[];
   readonly chatAiCooldownSeconds: number;
   readonly chatAiIgnoredUsers: string[];
@@ -280,6 +287,21 @@ export class Config {
     this.chatAiMaxResponseChars = parsePositiveInt(
       env["CHAT_AI_MAX_RESPONSE_CHARS"],
       DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS
+    );
+    this.chatAiConversationHistoryEnabled = parseEnabledFlag(
+      env["CHAT_AI_CONVERSATION_HISTORY_ENABLED"] ?? "true"
+    );
+    this.chatAiConversationHistoryMaxMessages = parsePositiveInt(
+      env["CHAT_AI_CONVERSATION_HISTORY_MAX_MESSAGES"],
+      DEFAULT_CHAT_AI_CONVERSATION_HISTORY_MAX_MESSAGES
+    );
+    this.chatAiConversationHistoryMaxChars = parsePositiveInt(
+      env["CHAT_AI_CONVERSATION_HISTORY_MAX_CHARS"],
+      DEFAULT_CHAT_AI_CONVERSATION_HISTORY_MAX_CHARS
+    );
+    this.chatAiConversationHistoryTtlSeconds = parsePositiveInt(
+      env["CHAT_AI_CONVERSATION_HISTORY_TTL_SECONDS"],
+      DEFAULT_CHAT_AI_CONVERSATION_HISTORY_TTL_SECONDS
     );
     this.chatAiBotAliases = parseNameList(
       env["CHAT_AI_BOT_ALIASES"],

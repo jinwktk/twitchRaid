@@ -60,7 +60,7 @@ import {
 import {
   extractMentionChatPrompt,
   formatMentionChatLogValue,
-  generateMentionChatReply,
+  generateMentionChatReplyDetailed,
   resolveMentionChatImmediateReply,
 } from "./commands/mention-chat";
 import {
@@ -200,6 +200,81 @@ interface MentionChatInput {
   now: number;
 }
 
+interface MentionChatConversationHistoryEntry {
+  role: "user" | "bot";
+  userName: string;
+  text: string;
+  createdAt: number;
+}
+
+interface MentionChatConversationHistoryText {
+  text: string;
+  itemCount: number;
+  charCount: number;
+}
+
+function normalizeMentionChatConversationKey(channel: string): string {
+  return channel.trim().toLowerCase();
+}
+
+function normalizeMentionChatConversationText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function shortenMentionChatConversationText(
+  value: string,
+  maxChars: number
+): string {
+  if (value.length <= maxChars) return value;
+  if (maxChars <= 3) return value.slice(0, maxChars);
+  return `${value.slice(0, maxChars - 3).trimEnd()}...`;
+}
+
+function formatMentionChatConversationHistoryEntry(
+  entry: MentionChatConversationHistoryEntry
+): string {
+  const text = normalizeMentionChatConversationText(entry.text);
+  return entry.role === "bot"
+    ? `るっかるん: ${text}`
+    : `ユーザー ${entry.userName}: ${text}`;
+}
+
+function buildMentionChatConversationHistoryText({
+  entries,
+  maxMessages,
+  maxChars,
+}: {
+  entries: MentionChatConversationHistoryEntry[];
+  maxMessages: number;
+  maxChars: number;
+}): MentionChatConversationHistoryText | null {
+  const effectiveMaxMessages = Math.max(1, Math.floor(maxMessages));
+  const effectiveMaxChars = Math.max(1, Math.floor(maxChars));
+  const recentEntries = entries.slice(-effectiveMaxMessages);
+  const selectedLines: string[] = [];
+
+  for (let i = recentEntries.length - 1; i >= 0; i -= 1) {
+    const line = formatMentionChatConversationHistoryEntry(recentEntries[i]);
+    const candidate = [line, ...selectedLines].join("\n");
+    if (candidate.length <= effectiveMaxChars) {
+      selectedLines.unshift(line);
+      continue;
+    }
+
+    if (selectedLines.length === 0) {
+      selectedLines.unshift(
+        shortenMentionChatConversationText(line, effectiveMaxChars)
+      );
+    }
+    break;
+  }
+
+  const text = selectedLines.join("\n").trim();
+  return text
+    ? { text, itemCount: selectedLines.length, charCount: text.length }
+    : null;
+}
+
 export class Bot {
   private readonly config: Config;
   private chatClient!: ChatClient;
@@ -227,6 +302,10 @@ export class Bot {
   private mentionChatInFlight = false;
   private mentionChatQueueDraining = false;
   private readonly mentionChatQueue: MentionChatRequest[] = [];
+  private readonly mentionChatConversationHistory = new Map<
+    string,
+    MentionChatConversationHistoryEntry[]
+  >();
   private lastMentionChatAttemptAt = 0;
   private streamClipPostRunning = false;
   private streamClipPostRerunRequested = false;
@@ -759,6 +838,65 @@ export class Bot {
     }, 0);
   }
 
+  private _getMentionChatConversationHistory(
+    channel: string,
+    now: number
+  ): MentionChatConversationHistoryText | null {
+    if (!(this.config.chatAiConversationHistoryEnabled ?? true)) return null;
+
+    const key = normalizeMentionChatConversationKey(channel);
+    const entries = this.mentionChatConversationHistory.get(key);
+    if (!entries?.length) return null;
+
+    const ttlSeconds = this.config.chatAiConversationHistoryTtlSeconds ?? 1_800;
+    const freshEntries = entries.filter(
+      (entry) => now - entry.createdAt <= ttlSeconds
+    );
+    if (freshEntries.length !== entries.length) {
+      if (freshEntries.length) {
+        this.mentionChatConversationHistory.set(key, freshEntries);
+      } else {
+        this.mentionChatConversationHistory.delete(key);
+      }
+    }
+    if (!freshEntries.length) return null;
+
+    return buildMentionChatConversationHistoryText({
+      entries: freshEntries,
+      maxMessages: this.config.chatAiConversationHistoryMaxMessages ?? 6,
+      maxChars: this.config.chatAiConversationHistoryMaxChars ?? 1_000,
+    });
+  }
+
+  private _recordMentionChatConversationHistory(
+    request: MentionChatRequest,
+    reply: string,
+    now: number
+  ): void {
+    if (!(this.config.chatAiConversationHistoryEnabled ?? true)) return;
+
+    const key = normalizeMentionChatConversationKey(request.channel);
+    const entries = this.mentionChatConversationHistory.get(key) ?? [];
+    const nextEntries = [
+      ...entries,
+      {
+        role: "user" as const,
+        userName: request.userName,
+        text: request.prompt,
+        createdAt: now,
+      },
+      {
+        role: "bot" as const,
+        userName: this.config.loginChannel,
+        text: reply,
+        createdAt: now,
+      },
+    ].slice(
+      -Math.max(1, this.config.chatAiConversationHistoryMaxMessages ?? 6)
+    );
+    this.mentionChatConversationHistory.set(key, nextEntries);
+  }
+
   private async _processMentionChatRequest(
     request: MentionChatRequest,
     now: number,
@@ -853,6 +991,15 @@ export class Bot {
         [memory.text, mem0Memory.text ? `mem0メモ:\n${mem0Memory.text}` : null]
           .filter((text): text is string => Boolean(text))
           .join("\n") || null;
+      const conversationHistory = this._getMentionChatConversationHistory(
+        request.channel,
+        now
+      );
+      if (conversationHistory) {
+        logger.info(
+          `AIメンション会話履歴を適用: items=${conversationHistory.itemCount}, chars=${conversationHistory.charCount}`
+        );
+      }
       const searchEnabled = this.config.chatAiSearchEnabled ?? false;
       const searchCandidate = shouldSearchMentionChat(request.prompt);
       const searchContext = await fetchMentionChatSearchContext({
@@ -882,7 +1029,7 @@ export class Bot {
       const promptLogValue = isMentionChatMemoryRequest(request.prompt)
         ? MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE
         : request.prompt;
-      const reply = await generateMentionChatReply({
+      const generatedReply = await generateMentionChatReplyDetailed({
         enabled: true,
         baseUrl: this.config.chatAiBaseUrl ?? this.config.ollamaBaseUrl,
         model,
@@ -897,17 +1044,19 @@ export class Bot {
         promptText: request.prompt,
         redactedPromptText: promptLogValue,
         memoryText: combinedMemoryText,
+        conversationHistoryText: conversationHistory?.text,
         searchContextText: searchContext?.text,
         streamImageBase64,
         promptReplyLogEnabled: this.config.chatAiPromptReplyLogEnabled ?? false,
       });
 
-      if (!reply) {
+      if (!generatedReply) {
         logger.warn(
           `⚠️ AIメンション会話は返信なし: user=${request.userName}, alias=${request.alias}`
         );
         return;
       }
+      const reply = generatedReply.reply;
 
       const replyWithEmote = appendContextualChatReplyEmote(
         reply,
@@ -924,6 +1073,13 @@ export class Bot {
       logger.info(
         `✅ AIメンション会話を送信: user=${request.userName}, alias=${request.alias}`
       );
+      if (generatedReply.source === "generated") {
+        this._recordMentionChatConversationHistory(
+          request,
+          reply,
+          now
+        );
+      }
       this._scheduleImplicitMentionChatMemorySave(request);
     } catch (e) {
       logger.error(`❌ AIメンション会話の送信に失敗しました: ${e}`);

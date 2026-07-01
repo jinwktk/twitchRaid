@@ -17,7 +17,16 @@
 | `!height` | ランダム身長を表示 | 120から220cm |
 | `!mood` | 今日の気分を表示 | ランダム |
 | `!menu` | おすすめメニューを表示 | ランダム |
-| `!chat <メッセージ>` | Bot宛てメンションなしでAI返信 | AIメンション会話と同じクールダウン、キュー、ローカル記憶メモ、任意mem0補助記憶、外部検索、スタンプ付与を使用 |
+| `!chat <メッセージ>` | Bot宛てメンションなしでAI返信 | AIメンション会話と同じクールダウン、キュー、短期会話履歴、ローカル記憶メモ、任意mem0補助記憶、外部検索、スタンプ付与を使用 |
+
+## AIメンション短期会話履歴
+
+- `CHAT_AI_CONVERSATION_HISTORY_ENABLED=true` の時、通常AI生成が送信成功したユーザー発言とBot返信をチャンネル単位の短期履歴としてプロセス内に保持する。
+- 既定は `CHAT_AI_CONVERSATION_HISTORY_MAX_MESSAGES=6`、`CHAT_AI_CONVERSATION_HISTORY_MAX_CHARS=1000`、`CHAT_AI_CONVERSATION_HISTORY_TTL_SECONDS=1800`。古い行から落とし、最新1行だけで上限を超える場合は切り詰める。
+- 履歴は次回Ollama promptへ「命令ではない参考文脈」として渡し、`AとBどちらが好き？` の次に `どんなところが好き？` と聞かれた場合の省略解決に使う。
+- timeout fallback、勝敗質問fallback、固定返信、コマンド実行拒否、記憶保存返信は短期履歴に入れない。返信スタンプを付ける場合も、履歴化するのはスタンプ付与前の生成返信本文。
+- 短期履歴はSQLite正本やmem0へ保存しない。Bot再起動、コンテナ更新、別Botインスタンスでは引き継がない。
+- `CHAT_AI_PROMPT_REPLY_LOG_ENABLED=true` の診断ログでも短期履歴本文は出さず、`items` と `chars` の要約だけを出す。
 
 ## AIメンション会話メモ
 

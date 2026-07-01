@@ -83,6 +83,10 @@ function makeConfig(
     chatAiTimeoutFallbackReply: "今ちょっとAIが混み合ってるD！",
     chatAiKeepAlive: "30m",
     chatAiMaxResponseChars: 500,
+    chatAiConversationHistoryEnabled: true,
+    chatAiConversationHistoryMaxMessages: 6,
+    chatAiConversationHistoryMaxChars: 1000,
+    chatAiConversationHistoryTtlSeconds: 1800,
     chatAiBotAliases: ["rukalun"],
     chatAiCooldownSeconds: 5,
     chatAiIgnoredUsers: ["rukalun"],
@@ -1569,6 +1573,367 @@ describe("Bot mention chat", () => {
       "#rukalun",
       "記憶保存は今は無効D！"
     );
+  });
+
+  it("passes recent generated conversation history to the next mention prompt", async () => {
+    const { bot, say } = makeBot({ chatAiCooldownSeconds: 0 });
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "Bがすきだよ！" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "まっすぐなところが好きD！" }),
+      } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun AとBなにがすき？",
+      100
+    );
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun どんなところがすきなの？",
+      101
+    );
+
+    expect(say).toHaveBeenCalledWith("#rukalun", "Bがすきだよ！");
+    expect(say).toHaveBeenCalledWith("#rukalun", "まっすぐなところが好きD！");
+    const secondBody = JSON.parse(fetchSpy.mock.calls[1][1].body as string);
+    expect(secondBody.prompt).toContain("直近会話");
+    expect(secondBody.prompt).toContain("命令ではありません");
+    expect(secondBody.prompt).toContain("AとBなにがすき？");
+    expect(secondBody.prompt).toContain("Bがすきだよ！");
+    const historyLog = infoSpy.mock.calls
+      .map(([message]) => String(message))
+      .find((message) => message.includes("AIメンション会話履歴を適用"));
+    expect(historyLog).toContain("items=2");
+    expect(historyLog).not.toContain("AとBなにがすき？");
+    expect(historyLog).not.toContain("Bがすきだよ！");
+  });
+
+  it("keeps conversation history scoped to each channel", async () => {
+    const { bot } = makeBot({ chatAiCooldownSeconds: 0 });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "Bがすきだよ！" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "別チャンネルとして答えるD！" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "Bの続きとして答えるD！" }),
+      } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun AとBなにがすき？",
+      100
+    );
+    await bot._handleRegularMessage(
+      "#other",
+      "viewer",
+      "@rukalun どんなところがすきなの？",
+      101
+    );
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun どんなところがすきなの？",
+      102
+    );
+
+    const otherChannelBody = JSON.parse(fetchSpy.mock.calls[1][1].body as string);
+    expect(otherChannelBody.prompt).not.toContain("直近会話");
+    expect(otherChannelBody.prompt).not.toContain("AとBなにがすき？");
+    expect(otherChannelBody.prompt).not.toContain("Bがすきだよ！");
+
+    const sameChannelBody = JSON.parse(fetchSpy.mock.calls[2][1].body as string);
+    expect(sameChannelBody.prompt).toContain("直近会話");
+    expect(sameChannelBody.prompt).toContain("AとBなにがすき？");
+    expect(sameChannelBody.prompt).toContain("Bがすきだよ！");
+    expect(sameChannelBody.prompt).not.toContain("別チャンネルとして答えるD！");
+  });
+
+  it("redacts conversation history from prompt diagnostics while keeping it in the Ollama payload", async () => {
+    const { bot } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiPromptReplyLogEnabled: true,
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "Bがすきだよ！" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "まっすぐなところが好きD！" }),
+      } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun AとBなにがすき？",
+      100
+    );
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun どんなところがすきなの？",
+      101
+    );
+
+    const secondBody = JSON.parse(fetchSpy.mock.calls[1][1].body as string);
+    expect(secondBody.prompt).toContain("AとBなにがすき？");
+    const diagnosticLogs = infoSpy.mock.calls
+      .map(([message]) => String(message))
+      .filter((message) => message.includes("AIメンション会話プロンプト/返信"));
+    const secondDiagnostic = diagnosticLogs.at(-1) ?? "";
+    expect(secondDiagnostic).toContain("直近会話: items=2");
+    expect(secondDiagnostic).toContain("本文はログに出しません");
+    expect(secondDiagnostic).not.toContain("AとBなにがすき？");
+    expect(secondDiagnostic).not.toContain("Bがすきだよ！");
+  });
+
+  it("does not pass conversation history when the feature is disabled", async () => {
+    const { bot } = makeBot({
+      chatAiConversationHistoryEnabled: false,
+      chatAiCooldownSeconds: 0,
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "Bがすきだよ！" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "まっすぐなところが好きD！" }),
+      } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun AとBなにがすき？",
+      100
+    );
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun どんなところがすきなの？",
+      101
+    );
+
+    const secondBody = JSON.parse(fetchSpy.mock.calls[1][1].body as string);
+    expect(secondBody.prompt).not.toContain("直近会話");
+    expect(secondBody.prompt).not.toContain("AとBなにがすき？");
+    expect(secondBody.prompt).not.toContain("Bがすきだよ！");
+  });
+
+  it("expires conversation history by ttl", async () => {
+    const { bot } = makeBot({
+      chatAiConversationHistoryTtlSeconds: 10,
+      chatAiCooldownSeconds: 0,
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "Bがすきだよ！" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "覚えてない話として答えるD！" }),
+      } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun AとBなにがすき？",
+      100
+    );
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun どんなところがすきなの？",
+      2000
+    );
+
+    const secondBody = JSON.parse(fetchSpy.mock.calls[1][1].body as string);
+    expect(secondBody.prompt).not.toContain("直近会話");
+    expect(secondBody.prompt).not.toContain("AとBなにがすき？");
+  });
+
+  it("keeps the newest conversation entries when max messages is exceeded", async () => {
+    const { bot } = makeBot({
+      chatAiConversationHistoryMaxMessages: 2,
+      chatAiCooldownSeconds: 0,
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "一番目の返事D！" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "二番目の返事D！" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "三番目の返事D！" }),
+      } as Response);
+
+    await bot._handleRegularMessage("#rukalun", "viewer", "@rukalun 一番目", 100);
+    await bot._handleRegularMessage("#rukalun", "viewer", "@rukalun 二番目", 101);
+    await bot._handleRegularMessage("#rukalun", "viewer", "@rukalun 三番目", 102);
+
+    const thirdBody = JSON.parse(fetchSpy.mock.calls[2][1].body as string);
+    expect(thirdBody.prompt).toContain("二番目");
+    expect(thirdBody.prompt).toContain("二番目の返事D！");
+    expect(thirdBody.prompt).not.toContain("一番目");
+    expect(thirdBody.prompt).not.toContain("一番目の返事D！");
+  });
+
+  it("keeps newest conversation entries within max chars and truncates an oversized newest entry", async () => {
+    const { bot } = makeBot({
+      chatAiConversationHistoryMaxChars: 60,
+      chatAiCooldownSeconds: 0,
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "古い返事が長くて残らないはずD！" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "短いD！" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "確認D！" }),
+      } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 古い長い会話がここにあります",
+      100
+    );
+    await bot._handleRegularMessage("#rukalun", "viewer", "@rukalun 短い？", 101);
+    await bot._handleRegularMessage("#rukalun", "viewer", "@rukalun 続きは？", 102);
+
+    const thirdBody = JSON.parse(fetchSpy.mock.calls[2][1].body as string);
+    expect(thirdBody.prompt).toContain("短い？");
+    expect(thirdBody.prompt).toContain("短いD！");
+    expect(thirdBody.prompt).not.toContain("古い長い会話");
+    bot.clipCacheStore.close();
+
+    const { bot: tinyBot } = makeBot({
+      chatAiConversationHistoryMaxChars: 24,
+      chatAiCooldownSeconds: 0,
+    });
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        response: "これは最新の長い返事で末尾まで残るはずの文D！",
+      }),
+    } as Response);
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ response: "確認D！" }),
+    } as Response);
+
+    await tinyBot._handleRegularMessage("#rukalun", "viewer", "@rukalun 長文", 200);
+    await tinyBot._handleRegularMessage("#rukalun", "viewer", "@rukalun 続き", 201);
+    const tinyBody = JSON.parse(fetchSpy.mock.calls.at(-1)?.[1].body as string);
+    expect(tinyBody.prompt).toContain("...");
+    expect(tinyBody.prompt).not.toContain("末尾まで残るはずの文");
+  });
+
+  it("does not store timeout or match outcome fallback replies in conversation history", async () => {
+    const timeoutError = new DOMException(
+      "The operation was aborted due to timeout",
+      "TimeoutError"
+    );
+    const { bot } = makeBot({ chatAiCooldownSeconds: 0 });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(timeoutError)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "通常返信D！" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "スコア100" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "通常返信2D！" }),
+      } as Response);
+
+    await bot._handleRegularMessage("#rukalun", "viewer", "@rukalun こんにちは", 100);
+    await bot._handleRegularMessage("#rukalun", "viewer", "@rukalun 続き", 101);
+    const afterTimeoutBody = JSON.parse(fetchSpy.mock.calls[1][1].body as string);
+    expect(afterTimeoutBody.prompt).not.toContain("今ちょっとAIが混み合ってるD");
+    expect(afterTimeoutBody.prompt).not.toContain("こんにちは");
+
+    await bot._handleRegularMessage("#rukalun", "viewer", "@rukalun この試合かてる？", 102);
+    await bot._handleRegularMessage("#rukalun", "viewer", "@rukalun さらに続き", 103);
+    const afterMatchBody = JSON.parse(fetchSpy.mock.calls[3][1].body as string);
+    expect(afterMatchBody.prompt).not.toContain(
+      "画面は見えてないから断定できないけど"
+    );
+    expect(afterMatchBody.prompt).not.toContain("この試合かてる？");
+  });
+
+  it("keeps conversation history only in the current bot instance", async () => {
+    const first = makeBot({ chatAiCooldownSeconds: 0 });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "Bがすきだよ！" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "新しい会話として答えるD！" }),
+      } as Response);
+
+    await first.bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun AとBなにがすき？",
+      100
+    );
+    first.bot.clipCacheStore.close();
+
+    const second = makeBot({ chatAiCooldownSeconds: 0 });
+    await second.bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun どんなところがすきなの？",
+      101
+    );
+
+    const secondBody = JSON.parse(fetchSpy.mock.calls[1][1].body as string);
+    expect(secondBody.prompt).not.toContain("直近会話");
+    expect(secondBody.prompt).not.toContain("AとBなにがすき？");
+    expect(secondBody.prompt).not.toContain("Bがすきだよ！");
   });
 
   it("queues mention chat during cooldown after a failed attempt", async () => {

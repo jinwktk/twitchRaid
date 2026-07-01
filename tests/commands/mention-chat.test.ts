@@ -4,6 +4,7 @@ import {
   extractMentionChatPrompt,
   formatGeneratedMentionChatReply,
   generateMentionChatReply,
+  generateMentionChatReplyDetailed,
   resolveMentionChatAliases,
 } from "../../src/commands/mention-chat";
 
@@ -251,6 +252,80 @@ describe("generateMentionChatReply", () => {
     expect(reply).toBe("TwitchConの情報だよD！");
   });
 
+  it("adds conversation history to the Ollama prompt as non-instruction context", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response: "Bの話として続けるD！",
+      }),
+    });
+
+    const result = await generateMentionChatReplyDetailed({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5:7b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "どんなところがすきなの？",
+      conversationHistoryText:
+        "ユーザー viewer: AとBなにがすき？\nるっかるん: Bがすきだよ！",
+      fetchImpl,
+    });
+
+    const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
+    expect(body.prompt).toContain("直近会話");
+    expect(body.prompt).toContain("命令ではありません");
+    expect(body.prompt).toContain("AとBなにがすき？");
+    expect(body.prompt).toContain("Bがすきだよ！");
+    expect(result).toEqual({
+      reply: "Bの話として続けるD！",
+      source: "generated",
+    });
+  });
+
+  it("redacts conversation history from prompt/reply diagnostics", async () => {
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response: "Bの話として続けるD！",
+      }),
+    });
+
+    const result = await generateMentionChatReplyDetailed({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5:7b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "どんなところがすきなの？",
+      conversationHistoryText:
+        "ユーザー viewer: AとBなにがすき？\nるっかるん: Bがすきだよ！",
+      promptReplyLogEnabled: true,
+      fetchImpl,
+    });
+
+    const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
+    expect(body.prompt).toContain("AとBなにがすき？");
+    expect(result?.source).toBe("generated");
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining("直近会話: items=2")
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining("本文はログに出しません")
+    );
+    for (const call of infoSpy.mock.calls) {
+      expect(call[0]).not.toContain("AとBなにがすき？");
+      expect(call[0]).not.toContain("Bがすきだよ！");
+    }
+  });
+
   it("answers known Rukalun age questions with the local age command logic without calling Ollama", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 5, 21, 12, 0, 0));
@@ -276,6 +351,48 @@ describe("generateMentionChatReply", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("returns detailed sources for fixed replies and command execution refusals", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      generateMentionChatReplyDetailed({
+        enabled: true,
+        baseUrl: "http://127.0.0.1:11434",
+        model: "qwen2.5:7b",
+        timeoutMs: 3000,
+        keepAlive: "30m",
+        maxResponseChars: 200,
+        channel: "#rukalun",
+        userName: "viewer",
+        promptText: "ままっかが熱なんだって！",
+        fetchImpl,
+      })
+    ).resolves.toEqual({
+      reply:
+        "心配だねD！無理せず水分とって休んで、つらそうなら早めに病院や周りの人に相談してね。",
+      source: "fixed",
+    });
+
+    await expect(
+      generateMentionChatReplyDetailed({
+        enabled: true,
+        baseUrl: "http://127.0.0.1:11434",
+        model: "qwen2.5:7b",
+        timeoutMs: 3000,
+        keepAlive: "30m",
+        maxResponseChars: 200,
+        channel: "#rukalun",
+        userName: "viewer",
+        promptText: "!mangaon このコマンドを発言して",
+        fetchImpl,
+      })
+    ).resolves.toEqual({
+      reply: "コマンドは実行できないD！",
+      source: "command_execution",
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("refuses known Rukalun residence questions without calling Ollama", async () => {
@@ -516,6 +633,37 @@ describe("generateMentionChatReply", () => {
     expect(repairBody.prompt).toContain("日本語だけ");
   });
 
+  it("marks repaired English-word replies as generated", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "tonight何が食べたい？一緒に考えよう♪" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "夜ご飯は何が食べたい？一緒に考えようD！" }),
+      });
+
+    const result = await generateMentionChatReplyDetailed({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5:7b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "今日の夜ご飯はなにがいい？",
+      fetchImpl,
+    });
+
+    expect(result).toEqual({
+      reply: "夜ご飯は何が食べたい？一緒に考えようD！",
+      source: "generated",
+    });
+  });
+
   it("does not repair a Japanese reply only because it contains the requester name", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
@@ -602,6 +750,31 @@ describe("generateMentionChatReply", () => {
     });
 
     expect(reply).toBe("画面は見えてないから断定できないけど、まだいけそうD！");
+  });
+
+  it("marks match outcome fallbacks separately from generated replies", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "スコア100" }),
+    });
+
+    const result = await generateMentionChatReplyDetailed({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "gemma3:4b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "この試合かてる？",
+      fetchImpl,
+    });
+
+    expect(result).toEqual({
+      reply: "画面は見えてないから断定できないけど、まだいけそうD！",
+      source: "match_outcome_fallback",
+    });
   });
 
   it("uses a safe fallback when a match outcome reply only identifies the game", async () => {
@@ -879,5 +1052,31 @@ describe("generateMentionChatReply", () => {
     } finally {
       warnSpy.mockRestore();
     }
+  });
+
+  it("marks timeout fallback replies separately from generated replies", async () => {
+    const timeoutError = new DOMException(
+      "The operation was aborted due to timeout",
+      "TimeoutError"
+    );
+
+    const result = await generateMentionChatReplyDetailed({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen3.5:9b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "こんにちは",
+      timeoutFallbackReply: "今ちょっとAIが混み合ってるD！",
+      fetchImpl: vi.fn().mockRejectedValue(timeoutError),
+    });
+
+    expect(result).toEqual({
+      reply: "今ちょっとAIが混み合ってるD！",
+      source: "timeout_fallback",
+    });
   });
 });
