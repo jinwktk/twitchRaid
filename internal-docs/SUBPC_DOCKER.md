@@ -84,6 +84,8 @@ Qdrantは `/home/mlove/dokploy/mem0/qdrant` を永続化し、公開portは持�
 
 2026-06-21 17:35 JSTにBot本番もMem0有効化済み。commit `1a496cdfd4dbe5b1979d742fa4bff8e093d4175d` のimageを `localhost:5050/twitch-raid-apcz9n:local` / `:1a496cd` へpushし、Dokploy application envを `/tmp/twitchraid-application-before-mem0-bot-20260621173445.sql` へバックアップ後、`CHAT_AI_MEM0_ENABLED=true`、`CHAT_AI_MEM0_ENDPOINT=http://mem0:8888`、`CHAT_AI_MEM0_USER_ID=rukalun`、`CHAT_AI_MEM0_TIMEOUT_MS=2000` などを永続化した。APIキー値は記録しない。実行中Bot container `9403e3f93884` から `dist/commands/mention-chat-mem0.js` を直接呼び、probe userで `saveReason=saved`、`loadReason=found`、`itemCount=1`、`hasText=true` を確認した。
 
+2026-07-02 JSTに本番Botの記憶保存設定を再確認し、`CHAT_AI_MEMORY_WRITER_USERS=all` で全ユーザー保存許可、`CHAT_AI_AUTO_LEARN_ENABLED=true` / `CHAT_AI_IMPLICIT_MEMORY_ENABLED=true` / `CHAT_AI_MEM0_ENABLED=true` を確認した。非 `rukalun` probeはSQLite正本へ保存できたが、`CHAT_AI_MEM0_TIMEOUT_MS=2000` ではmem0保存がBot側timeoutで `reason=failed` になり、mem0側では後続で挿入される境界状態だった。Dokploy application行を `/tmp/twitchraid-application-before-mem0-timeout-20260702-0228.csv` へバックアップし、Dokploy `application.env` とSwarm serviceの両方を `CHAT_AI_MEM0_TIMEOUT_MS=6000` へ更新した。新コンテナ `7fe42bacebd8` は同envで起動し、非 `rukalun` probeでSQLite保存とmem0保存がどちらも成功。検証用キーはSQLite/mem0双方から削除済み。
+
 ## Botサービス
 - Service: `twitch-raid-apcz9n`
 - Image: `localhost:5050/twitch-raid-apcz9n:local`
