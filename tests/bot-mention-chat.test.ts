@@ -82,7 +82,7 @@ function makeConfig(
     chatAiTimeoutMs: 3000,
     chatAiTimeoutFallbackReply: "今ちょっとAIが混み合ってるD！",
     chatAiKeepAlive: "30m",
-    chatAiMaxResponseChars: 200,
+    chatAiMaxResponseChars: 500,
     chatAiBotAliases: ["rukalun"],
     chatAiCooldownSeconds: 5,
     chatAiIgnoredUsers: ["rukalun"],

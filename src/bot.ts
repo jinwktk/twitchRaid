@@ -1,7 +1,7 @@
 import { ChatClient, ChatMessage } from "@twurple/chat";
 import { ApiClient } from "@twurple/api";
 import { RefreshingAuthProvider } from "@twurple/auth";
-import type { Config } from "./config";
+import { DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS, type Config } from "./config";
 import logger from "./utils/logger";
 import { StreamTitleNotifier } from "./notifications/stream-notifications";
 import type { DiscordWebhookPayload } from "./notifications/discord-webhook";
@@ -889,7 +889,9 @@ export class Bot {
         timeoutMs: this.config.chatAiTimeoutMs ?? 8_000,
         timeoutFallbackReply: this.config.chatAiTimeoutFallbackReply,
         keepAlive: this.config.chatAiKeepAlive ?? "30m",
-        maxResponseChars: this.config.chatAiMaxResponseChars ?? 200,
+        maxResponseChars:
+          this.config.chatAiMaxResponseChars ??
+          DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS,
         channel: request.channel,
         userName: request.userName,
         promptText: request.prompt,
