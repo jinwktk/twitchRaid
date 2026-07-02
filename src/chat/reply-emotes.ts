@@ -6,6 +6,7 @@ export interface ChatReplyEmoteContext {
   source: ChatReplyEmoteSource;
   promptText?: string;
   maxChars?: number;
+  deferTrimming?: boolean;
 }
 
 const BUILT_IN_RUKKA_EMOTES = [
@@ -220,6 +221,8 @@ export function appendContextualChatReplyEmote(
   const suffix = ` ${emote}`;
   if (suffix.length > maxChars) return reply;
 
-  const trimmedReply = trimReplyForSuffix(reply, suffix, maxChars);
+  const trimmedReply = context.deferTrimming
+    ? reply
+    : trimReplyForSuffix(reply, suffix, maxChars);
   return `${trimmedReply}${suffix}`;
 }

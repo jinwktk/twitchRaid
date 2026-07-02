@@ -37,9 +37,9 @@ export interface RaidGreetingDecision {
   detail?: string;
 }
 
-const GENERATED_RAID_GREETING_LIMIT = 250;
+export const GENERATED_RAID_GREETING_LIMIT = 500;
 const DEFAULT_OLLAMA_TEMPERATURE = 0.8;
-const DEFAULT_OLLAMA_NUM_PREDICT = 80;
+const DEFAULT_OLLAMA_NUM_PREDICT = 180;
 const NEGATIVE_RAID_SIZE_PATTERNS = [
   /人数\s*(?:が|は|も|の)?\s*(?:少な|すくな)/i,
   /(?:少な|すくな)かった/i,
@@ -50,11 +50,12 @@ const NEGATIVE_RAID_SIZE_PATTERNS = [
 ];
 
 const RAID_GREETING_SYSTEM_PROMPT = [
-  "あなたはTwitch Raidへのお礼文を短く楽しく作る日本語アシスタントです。",
+  "あなたはTwitch Raidへのお礼と紹介文を明るく作る日本語アシスタントです。",
   "Output Japanese only. Do not answer in English or Chinese.",
   "必ず日本語だけで返答し、ひらがなかカタカナを含めてください。",
   "与えられた情報だけを使い、知らない内容は作らないでください。",
   "返答は1通のTwitchチャット投稿だけ。説明、ハッシュタグ、引用符、前置き、箇条書きは禁止です。",
+  "500文字以内で、相手の配信内容が伝わるように詳しめに書いてください。",
   "必ずRaidのお礼、相手のユーザー名、配信情報または取得できなかったこと、チャンネルURLを含めてください。",
   "口調は「レイドありがとうD！！」に近い明るい雰囲気にしてください。",
   "絵文字は使わないでください。",
@@ -73,7 +74,7 @@ function shorten(value: string, maxLength: number): string {
   return `${value.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
-function shortenKeepingUrl(
+export function shortenRaidGreetingKeepingUrl(
   value: string,
   streamUrl: string,
   maxLength: number
@@ -84,9 +85,15 @@ function shortenKeepingUrl(
   if (urlIndex < 0) return shorten(value, maxLength);
 
   const beforeUrl = value.slice(0, urlIndex).trimEnd();
-  const reservedLength = streamUrl.length + 3;
-  const maxBeforeLength = Math.max(0, maxLength - reservedLength);
-  return `${beforeUrl.slice(0, maxBeforeLength).trimEnd()}${streamUrl}...`;
+  const afterUrl = value
+    .slice(urlIndex + streamUrl.length)
+    .trimEnd()
+    .replace(/^\.\.\.(?=\s|$)/, "");
+  const tail = `${streamUrl}${afterUrl}`;
+  const ellipsis = "...";
+  const maxBeforeLength = maxLength - tail.length - ellipsis.length;
+  if (maxBeforeLength <= 0) return shorten(tail, maxLength);
+  return `${beforeUrl.slice(0, maxBeforeLength).trimEnd()}${ellipsis}${tail}`;
 }
 
 function stripWrappingQuotes(value: string): string {
@@ -248,13 +255,14 @@ function buildRaidGreetingPrompt(info: RaidSourceInfo): string {
 
   return [
     "次のRaidに対して、Twitchチャットへ送る1通のRaid挨拶文を作ってください。",
-    "この文はRaid元配信者の紹介文です。",
+    "この文はRaid元配信者の紹介文です。相手の配信内容をなるべく長めに、詳しく紹介してください。",
     `ユーザー名: ${info.userName}`,
     `ゲーム: ${gameName}`,
     `配信タイトル: ${title}`,
     `チャンネルURL: ${info.streamUrl}`,
-    "ゲーム名と配信タイトルを必ず入れ、何をして遊んでいたかが手短に分かる文にしてください。",
-    "条件: 日本語、1通、事実だけ、短い文、チャンネルURLを必ず最後の方に入れる。",
+    "ゲーム名と配信タイトルを必ず入れ、何をして遊んでいたかが分かるように歓迎、労い、見どころを自然につないでください。",
+    "条件: 日本語、1通、事実だけ、500文字以内、チャンネルURLを必ず最後の方に入れる。",
+    "500文字はTwitchチャットの文字数上限でありRaid人数ではありません。",
     "人数の多い少ないには触れないでください。",
     "タイトル/ゲームが不明なら、配信情報は取得できなかったと正直に書いてください。",
     "完成したRaid挨拶文だけを返してください。説明は不要です。",
@@ -274,7 +282,7 @@ export function formatGeneratedRaidGreetingMessage(
   const withUser = ensureUserMention(withoutDuplicateLead, userName);
   const withUrl = ensureStreamUrl(withUser, info.streamUrl);
   const withStreamDetails = ensureStreamDetails(withUrl, info);
-  return shortenKeepingUrl(
+  return shortenRaidGreetingKeepingUrl(
     withStreamDetails,
     info.streamUrl,
     GENERATED_RAID_GREETING_LIMIT

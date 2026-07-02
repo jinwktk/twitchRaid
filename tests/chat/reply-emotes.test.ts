@@ -83,6 +83,17 @@ describe("chat reply emotes", () => {
     ).toBe("レイドありがとうD！ rukkaNiceraido");
   });
 
+  it("can defer contextual trimming when the caller owns final trimming", () => {
+    const longReply = "レイドありがとうD！" + "あ".repeat(500);
+    const result = appendContextualChatReplyEmote(longReply, ["rukkaNikoniko"], {
+      source: "raid",
+      deferTrimming: true,
+    });
+
+    expect(result.length).toBeGreaterThan(500);
+    expect(result.endsWith(" rukkaNiceraido")).toBe(true);
+  });
+
   it("keeps legacy first-emote behavior for unknown configured emotes", () => {
     expect(
       appendContextualChatReplyEmote("GG！", ["rukkaHi"], {

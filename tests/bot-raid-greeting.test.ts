@@ -229,4 +229,52 @@ describe("Bot raid greeting", () => {
       expect.stringContaining('rukkaNiceraido"')
     );
   });
+
+  it("keeps the raid URL when a long AI greeting receives a contextual emote", async () => {
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    const longGreeting = `レイドありがとうD！！ @raiduser さん、Minecraftでたのしい建築配信をしてたD！${"建築の工夫やのんびりした雰囲気が伝わる配信で、初見さんにも見どころが分かりやすく、作業の進み方も楽しく追える内容だったD！".repeat(8)}来てくれてありがとうD！チャンネルはこD→https://www.twitch.tv/raiduser`;
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response: longGreeting,
+        done: true,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchImpl);
+    const bot = new Bot(
+      makeConfig({
+        ollamaShoutoutEnabled: true,
+        ollamaShoutoutModel: "qwen2.5:7b",
+        chatReplyEmotes: ["rukkaNikoniko"],
+      })
+    ) as unknown as {
+      chatClient: { say: ReturnType<typeof vi.fn> };
+      _sendRaidGreeting: (
+        channel: string,
+        info: unknown,
+        viewerCount: number
+      ) => Promise<void>;
+    };
+    bot.chatClient = { say: vi.fn().mockResolvedValue(undefined) };
+
+    await bot._sendRaidGreeting(
+      "#rukalun",
+      {
+        userName: "raiduser",
+        streamUrl: "https://www.twitch.tv/raiduser",
+        title: "たのしい建築配信",
+        gameName: "Minecraft",
+      },
+      12
+    );
+
+    const sentMessage = bot.chatClient.say.mock.calls[0][1] as string;
+    expect(sentMessage).toContain("https://www.twitch.tv/raiduser");
+    expect(sentMessage).toContain("rukkaNiceraido");
+    expect(sentMessage.length).toBeGreaterThan(450);
+    expect(sentMessage.length).toBeLessThanOrEqual(500);
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('detail=ok')
+    );
+  });
 });

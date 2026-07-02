@@ -81,7 +81,7 @@ describe("generateRaidGreetingMessage", () => {
       keep_alive: "5m",
       options: {
         temperature: 0.8,
-        num_predict: 80,
+        num_predict: 180,
       },
     });
     expect(body.prompt).toContain("RaidUser");
@@ -92,10 +92,21 @@ describe("generateRaidGreetingMessage", () => {
     expect(body.prompt).toContain("紹介文");
     expect(body.prompt).toContain("ゲーム名と配信タイトル");
     expect(body.prompt).toContain("何をして遊んでいたか");
+    expect(body.prompt).toContain("500文字以内");
+    expect(body.prompt).toContain("なるべく長め");
+    expect(body.prompt).toContain("詳しく紹介");
+    expect(body.prompt).toContain("文字数上限でありRaid人数ではありません");
     expect(body.prompt).not.toContain("250文字");
-    expect(body.prompt).not.toContain("Raid人数");
+    expect(body.prompt).not.toContain("短い文");
+    expect(body.prompt).not.toContain("手短");
+    expect(body.prompt).not.toContain("Raid人数: 12");
+    expect(body.prompt).not.toContain("viewerCount");
     expect(body.prompt).not.toContain("12人");
     expect(body.prompt).toContain("人数の多い少ないには触れない");
+    expect(body.system).toContain("Twitch Raidへのお礼と紹介文");
+    expect(body.system).toContain("500文字以内");
+    expect(body.system).toContain("詳しめ");
+    expect(body.system).not.toContain("短く");
     expect(message).toBe(
       "レイドありがとうD！！ @raiduser さんは、Minecraftでたのしい建築配信をしてたD！チャンネルはこD→https://www.twitch.tv/raiduser"
     );
@@ -198,7 +209,7 @@ describe("generateRaidGreetingMessage", () => {
 });
 
 describe("formatGeneratedRaidGreetingMessage", () => {
-  it("keeps the generated greeting single-line and under the AI greeting limit", () => {
+  it("keeps the generated greeting single-line and under the Twitch chat limit", () => {
     const message = formatGeneratedRaidGreetingMessage(
       raidInfo,
       ` "レイドありがとうD！！ @raiduser さん、Minecraftでたのしい建築配信をしながら、すごく${"楽しい".repeat(250)}\n配信お疲れ様D！チャンネルはこD→https://www.twitch.tv/raiduser" `
@@ -207,8 +218,22 @@ describe("formatGeneratedRaidGreetingMessage", () => {
     expect(message).not.toContain("\n");
     expect(message).toContain("@raiduser");
     expect(message).toContain("https://www.twitch.tv/raiduser");
-    expect(message?.length).toBeLessThanOrEqual(250);
-    expect(message.endsWith("...")).toBe(true);
+    expect(message?.length).toBeLessThanOrEqual(500);
+    expect(message).toContain("...");
+  });
+
+  it("keeps valid generated greetings longer than the former 250 character limit", () => {
+    const message = formatGeneratedRaidGreetingMessage(
+      raidInfo,
+      `レイドありがとうD！！ @raiduser さん、Minecraftでたのしい建築配信をしてたD！${"建築の工夫やのんびりした空気が伝わる配信で、初見さんにも見どころが分かりやすくて、作業の進み方も楽しく追える内容だったD！".repeat(3)}来てくれてありがとうD！チャンネルはこD→https://www.twitch.tv/raiduser`
+    );
+
+    expect(message).toContain("@raiduser");
+    expect(message).toContain("https://www.twitch.tv/raiduser");
+    expect(message).toContain("来てくれてありがとうD！");
+    expect(message?.length).toBeGreaterThan(250);
+    expect(message?.length).toBeLessThanOrEqual(500);
+    expect(message).not.toContain("...");
   });
 
   it("adds the user mention and channel URL when the model omits them", () => {

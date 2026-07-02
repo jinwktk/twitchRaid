@@ -55,7 +55,9 @@ import {
   type RaidSourceInfo,
 } from "./commands/raid-info";
 import {
+  GENERATED_RAID_GREETING_LIMIT,
   buildRaidGreetingMessage,
+  shortenRaidGreetingKeepingUrl,
 } from "./commands/shoutout-introduction";
 import {
   extractMentionChatPrompt,
@@ -1738,11 +1740,17 @@ export class Bot {
         {
           source: "raid",
           promptText: [info.gameName, info.title].filter(Boolean).join(" "),
+          deferTrimming: true,
         }
       );
-      await this.chatClient.say(channel, messageWithEmote);
+      const finalMessage = shortenRaidGreetingKeepingUrl(
+        messageWithEmote,
+        info.streamUrl,
+        GENERATED_RAID_GREETING_LIMIT
+      );
+      await this.chatClient.say(channel, finalMessage);
       logger.info(
-        `✅ Raid挨拶文を送信: target=${info.userName}, viewerCount=${viewerCount}, message=${formatMentionChatLogValue(messageWithEmote)}`
+        `✅ Raid挨拶文を送信: target=${info.userName}, viewerCount=${viewerCount}, message=${formatMentionChatLogValue(finalMessage)}`
       );
     } catch (sendErr) {
       logger.error(`❌ Raid挨拶文の送信に失敗しました: ${sendErr}`);
