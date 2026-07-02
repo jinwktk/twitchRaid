@@ -190,6 +190,7 @@ function memoryRequestReplyForReason(reason: string): string {
 interface MentionChatRequest {
   channel: string;
   userName: string;
+  userDisplayName?: string | null;
   alias: string;
   prompt: string;
 }
@@ -197,6 +198,7 @@ interface MentionChatRequest {
 interface MentionChatInput {
   channel: string;
   user: string;
+  userDisplayName?: string | null;
   alias: string;
   prompt: string;
   now: number;
@@ -217,6 +219,12 @@ interface MentionChatConversationHistoryText {
 
 function normalizeMentionChatConversationKey(channel: string): string {
   return channel.trim().toLowerCase();
+}
+
+function getChatMessageDisplayName(msg: ChatMessage | undefined): string | null {
+  const displayName = (msg as { userInfo?: { displayName?: string } } | undefined)
+    ?.userInfo?.displayName;
+  return displayName?.trim() || null;
 }
 
 function normalizeMentionChatConversationText(value: string): string {
@@ -536,7 +544,13 @@ export class Bot {
         logger.info(`🤖 コマンド検出: ${formatCommandDetectionLogText(text)}`);
         await this._handleCommand(channel, user, text, msg);
       } else {
-        await this._handleRegularMessage(channel, user, text);
+        await this._handleRegularMessage(
+          channel,
+          user,
+          text,
+          Date.now() / 1000,
+          getChatMessageDisplayName(msg)
+        );
       }
     });
 
@@ -560,19 +574,21 @@ export class Bot {
     channel: string,
     user: string,
     text: string,
-    now = Date.now() / 1000
+    now = Date.now() / 1000,
+    userDisplayName?: string | null
   ): Promise<void> {
     this.commentSpeedMeter.record(now);
     this._debouncedSaveCommentState();
     this._persistStreamSummaryCounts();
-    await this._handleMentionChat(channel, user, text, now);
+    await this._handleMentionChat(channel, user, text, now, userDisplayName);
   }
 
   private async _handleMentionChat(
     channel: string,
     user: string,
     text: string,
-    now: number
+    now: number,
+    userDisplayName?: string | null
   ): Promise<void> {
     if (!(this.config.chatAiEnabled ?? false)) return;
 
@@ -585,6 +601,7 @@ export class Bot {
     await this._enqueueMentionChatRequest({
       channel,
       user,
+      userDisplayName,
       alias: match.alias,
       prompt: match.prompt,
       now,
@@ -595,7 +612,8 @@ export class Bot {
     channel: string,
     user: string,
     prompt: string,
-    now: number
+    now: number,
+    userDisplayName?: string | null
   ): Promise<void> {
     const normalizedPrompt = prompt.trim();
     if (!normalizedPrompt) {
@@ -607,6 +625,7 @@ export class Bot {
     await this._enqueueMentionChatRequest({
       channel,
       user,
+      userDisplayName,
       alias: "!chat",
       prompt: normalizedPrompt,
       now,
@@ -616,6 +635,7 @@ export class Bot {
   private async _enqueueMentionChatRequest({
     channel,
     user,
+    userDisplayName,
     alias,
     prompt,
     now,
@@ -634,6 +654,7 @@ export class Bot {
     const request: MentionChatRequest = {
       channel,
       userName: normalizedUser,
+      userDisplayName,
       alias,
       prompt,
     };
@@ -1061,6 +1082,7 @@ export class Bot {
           DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS,
         channel: request.channel,
         userName: request.userName,
+        userDisplayName: request.userDisplayName,
         promptText: request.prompt,
         redactedPromptText: promptLogValue,
         memoryText: combinedMemoryText,
@@ -1200,7 +1222,8 @@ export class Bot {
           channel,
           user,
           restText,
-          Date.now() / 1000
+          Date.now() / 1000,
+          getChatMessageDisplayName(msg)
         );
         break;
       case "speed":

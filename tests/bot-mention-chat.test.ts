@@ -20,7 +20,8 @@ type MentionChatTestBot = Bot & {
     channel: string,
     user: string,
     text: string,
-    now?: number
+    now?: number,
+    userDisplayName?: string | null
   ) => Promise<void>;
   _handleCommand: (
     channel: string,
@@ -211,6 +212,33 @@ describe("Bot mention chat", () => {
     );
     expect(infoSpy).toHaveBeenCalledWith(
       expect.stringContaining('reply="こんにちはD！"')
+    );
+  });
+
+  it("passes Twitch display names to AI mention replies for user-facing callouts", async () => {
+    const { bot, say } = makeBot({ chatAiCooldownSeconds: 0 });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response: "kanonalcさん、1時間後でお会いできるね♡",
+      }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "kanonalc",
+      "@rukalun １時間後たんDだすから教えて",
+      100,
+      "かのんのん"
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect(body.prompt).toContain("ユーザー表示名: かのんのん");
+    expect(body.prompt).toContain("ログインID: kanonalc");
+    expect(body.prompt).toContain("呼びかける時はユーザー表示名を使い");
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "かのんのんさん、1時間後でお会いできるね"
     );
   });
 

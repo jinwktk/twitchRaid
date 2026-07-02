@@ -692,6 +692,38 @@ describe("generateMentionChatReply", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("uses the Twitch display name for callouts when it differs from the login id", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response: "kanonalcさん、1時間後でお会いできるね♡",
+      }),
+    });
+
+    const result = await generateMentionChatReplyDetailed({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5:7b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "kanonalc",
+      userDisplayName: "かのんのん",
+      promptText: "１時間後たんDだすから教えて",
+      fetchImpl,
+    });
+
+    const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
+    expect(body.prompt).toContain("ユーザー表示名: かのんのん");
+    expect(body.prompt).toContain("ログインID: kanonalc");
+    expect(body.prompt).toContain("呼びかける時はユーザー表示名を使い");
+    expect(result).toEqual({
+      reply: "かのんのんさん、1時間後でお会いできるね",
+      source: "generated",
+    });
+  });
+
   it("rejects generated replies when the English-word repair still violates policy", async () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => logger);
     const fetchImpl = vi

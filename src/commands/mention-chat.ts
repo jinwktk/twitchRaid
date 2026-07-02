@@ -16,6 +16,7 @@ export interface GenerateMentionChatReplyOptions {
   maxResponseChars: number;
   channel: string;
   userName: string;
+  userDisplayName?: string | null;
   promptText: string;
   redactedPromptText?: string;
   memoryText?: string | null;
@@ -380,6 +381,30 @@ function buildOllamaGenerateUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/api/generate`;
 }
 
+function normalizeRequesterDisplayName(
+  userName: string,
+  userDisplayName: string | null | undefined
+): string | null {
+  const displayName = singleLine(userDisplayName ?? "").trim();
+  if (!displayName) return null;
+  return displayName === userName ? null : displayName;
+}
+
+function preferRequesterDisplayNameInReply(
+  value: string,
+  userName: string,
+  userDisplayName: string | null | undefined
+): string {
+  const displayName = normalizeRequesterDisplayName(userName, userDisplayName);
+  if (!displayName) return value;
+
+  const pattern = new RegExp(
+    `(^|[^${MENTION_NAME_CHAR_CLASS}])@?${escapeRegExp(userName)}(?=$|さん|ちゃん|くん|君|様|氏|[^${MENTION_NAME_CHAR_CLASS}])`,
+    "giu"
+  );
+  return value.replace(pattern, (_match, prefix: string) => `${prefix}${displayName}`);
+}
+
 function normalizePromptMemoryText(value: string | null | undefined): string | null {
   const text = value
     ?.split(/\r?\n/)
@@ -436,11 +461,21 @@ function buildMentionChatPrompt(options: BuildMentionChatPromptOptions): string 
     options.conversationHistoryText
   );
   const searchContextText = normalizePromptContextText(options.searchContextText);
+  const displayName = normalizeRequesterDisplayName(
+    options.userName,
+    options.userDisplayName
+  );
   const lines = [
     "TwitchチャットでBot宛てに届いたメンションへ、自然な1〜2文で返事してください。",
     "Botの自認: るっかるん本人として、一人称で自然に返してください。",
     `チャンネル: ${options.channel}`,
-    `ユーザー名: ${options.userName}`,
+    ...(displayName
+      ? [
+          `ユーザー表示名: ${displayName}`,
+          `ログインID: ${options.userName}`,
+          "呼びかける時はユーザー表示名を使い、ログインIDでは呼ばないでください。",
+        ]
+      : [`ユーザー名: ${options.userName}`]),
     `ユーザーの発言: ${promptText}`,
     "返信方針: 一語だけ、相づちだけ、単語だけの返答は禁止です。雑談は軽く自然に、質問には分かる範囲の答えを入れてください。",
   ];
@@ -546,6 +581,8 @@ async function repairEnglishWordMentionChatReply({
   promptText,
   rejectedReply,
   allowedLatinTokens,
+  userName,
+  userDisplayName,
   fetchImpl,
 }: {
   baseUrl: string;
@@ -556,6 +593,8 @@ async function repairEnglishWordMentionChatReply({
   promptText: string;
   rejectedReply: string;
   allowedLatinTokens?: readonly string[];
+  userName: string;
+  userDisplayName?: string | null;
   fetchImpl: typeof fetch;
 }): Promise<string | null> {
   const response = await fetchImpl(buildOllamaGenerateUrl(baseUrl), {
@@ -579,9 +618,17 @@ async function repairEnglishWordMentionChatReply({
 
   const body = (await response.json()) as OllamaGenerateResponse;
   if (typeof body.response !== "string") return null;
-  return formatGeneratedMentionChatReply(body.response, maxResponseChars, {
-    allowedLatinTokens,
-  });
+  return formatGeneratedMentionChatReply(
+    preferRequesterDisplayNameInReply(
+      body.response,
+      userName,
+      userDisplayName
+    ),
+    maxResponseChars,
+    {
+      allowedLatinTokens,
+    }
+  );
 }
 
 export async function generateMentionChatReplyDetailed({
@@ -594,6 +641,7 @@ export async function generateMentionChatReplyDetailed({
   maxResponseChars,
   channel,
   userName,
+  userDisplayName,
   promptText,
   redactedPromptText,
   memoryText,
@@ -605,7 +653,7 @@ export async function generateMentionChatReplyDetailed({
   const trimmedModel = model.trim();
   if (!enabled || !trimmedModel) return null;
   const logPromptText = redactedPromptText ?? promptText;
-  const allowedLatinTokens = [userName];
+  const allowedLatinTokens = [userName, userDisplayName ?? ""];
   const allowedLatinTokenSet = buildAllowedLatinTokenSet(allowedLatinTokens);
   const immediateReply = resolveMentionChatImmediateReply(promptText);
   if (immediateReply?.reason === "command_execution") {
@@ -627,6 +675,7 @@ export async function generateMentionChatReplyDetailed({
       maxResponseChars,
       channel,
       userName,
+      userDisplayName,
       promptText,
       memoryText,
       conversationHistoryText,
@@ -678,7 +727,11 @@ export async function generateMentionChatReplyDetailed({
     }
 
     const reply = formatGeneratedMentionChatReply(
-      body.response,
+      preferRequesterDisplayNameInReply(
+        body.response,
+        userName,
+        userDisplayName
+      ),
       maxResponseChars,
       { allowedLatinTokens }
     );
@@ -706,6 +759,8 @@ export async function generateMentionChatReplyDetailed({
         promptText,
         rejectedReply: body.response,
         allowedLatinTokens,
+        userName,
+        userDisplayName,
         fetchImpl,
       });
       if (repairedReply) {
