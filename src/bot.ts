@@ -277,6 +277,23 @@ function buildMentionChatConversationHistoryText({
     : null;
 }
 
+function shouldApplyMentionChatConversationHistory(promptText: string): boolean {
+  const prompt = normalizeMentionChatConversationText(promptText);
+  if (!prompt) return false;
+
+  if (/^(?:続き|さらに続き|それで|じゃあ|で、)/u.test(prompt)) {
+    return true;
+  }
+  if (
+    /(?:さっき|先ほど|直前|前(?:の|に|言った)|今(?:の|言った)|教えた|言ったじゃん|教えたじゃん|もういい|その話|この話|あの話|同じ話|どんなところ|どこが|どのへん|なんで|どうして|理由|詳しく)/u.test(
+      prompt
+    )
+  ) {
+    return true;
+  }
+  return /^(?:それ|これ|あれ|そこ|ここ)(?:[はがをのってで]|$)/u.test(prompt);
+}
+
 export class Bot {
   private readonly config: Config;
   private chatClient!: ChatClient;
@@ -993,10 +1010,11 @@ export class Bot {
         [memory.text, mem0Memory.text ? `mem0メモ:\n${mem0Memory.text}` : null]
           .filter((text): text is string => Boolean(text))
           .join("\n") || null;
-      const conversationHistory = this._getMentionChatConversationHistory(
-        request.channel,
-        now
-      );
+      const conversationHistory = shouldApplyMentionChatConversationHistory(
+        request.prompt
+      )
+        ? this._getMentionChatConversationHistory(request.channel, now)
+        : null;
       if (conversationHistory) {
         logger.info(
           `AIメンション会話履歴を適用: items=${conversationHistory.itemCount}, chars=${conversationHistory.charCount}`

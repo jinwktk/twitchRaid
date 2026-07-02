@@ -224,6 +224,11 @@ const IMPLICIT_TEMPORARY_KEY_PATTERN =
   /^(?:今日|昨日|明日|今|現在|さっき|今回|この|その|あの|これ|それ|あれ|ここ|そこ|あそこ)$/u;
 const IMPLICIT_UNSTABLE_VALUE_PATTERN =
   /(?:かも|たぶん|多分|一時的|今だけ|今日だけ|昨日だけ|明日だけ)/u;
+const IMPLICIT_TRANSIENT_CONVERSATION_PATTERN =
+  /(?:もういい|その話|この話|あの話|同じ話|話は|調子に乗|あんま調子|負け|勝ち|低能|黙れ|やめろ)/u;
+const IMPLICIT_RIDDLE_PATTERN =
+  /(?:なーん|なぞなぞ|クイズ|答えは|モノマネ)/u;
+const TWITCH_EMOTE_TOKEN_PATTERN = /\brukka[A-Za-z0-9_]+\b/u;
 const IMPLICIT_PII_KEY_PATTERN =
   /本名|氏名|住所|所在地|誕生日|生年月日|マイナンバー|個人番号|電話番号|メールアドレス|メール/iu;
 const FIRST_PERSON_SENSITIVE_VALUE_PATTERN =
@@ -358,11 +363,15 @@ function cleanImplicitMemoryEntry(
     return null;
   }
   if (/(?:です|ます)$/u.test(key)) return null;
+  if (/(?:の話|話題)$/u.test(key)) return null;
   if (RESERVED_MEMORY_KEYS.has(normalizedKey)) return null;
   if (
     isUnsafeImplicitMemoryKey(key) ||
     isUnsafeMemoryText(value) ||
-    IMPLICIT_UNSTABLE_VALUE_PATTERN.test(value)
+    IMPLICIT_UNSTABLE_VALUE_PATTERN.test(value) ||
+    IMPLICIT_TRANSIENT_CONVERSATION_PATTERN.test(`${key} ${value}`) ||
+    IMPLICIT_RIDDLE_PATTERN.test(`${key} ${value}`) ||
+    TWITCH_EMOTE_TOKEN_PATTERN.test(`${key} ${value}`)
   ) {
     return null;
   }
@@ -572,11 +581,21 @@ export function extractImplicitMentionChatMemoryEntry(
   if (MEMORY_KEYWORD_PATTERN.test(prompt)) return null;
   if (IMPLICIT_QUESTION_OR_REQUEST_PATTERN.test(prompt)) return null;
   if (isUnsafeMemoryText(prompt)) return null;
+  if (
+    IMPLICIT_TRANSIENT_CONVERSATION_PATTERN.test(prompt) ||
+    IMPLICIT_RIDDLE_PATTERN.test(prompt) ||
+    TWITCH_EMOTE_TOKEN_PATTERN.test(prompt)
+  ) {
+    return null;
+  }
 
   const favoriteMatch = prompt.match(/^(.+?)は(.+?)が好き(?:です|だ|だよ|だね)?[。.!！\s]*$/u);
   if (favoriteMatch) {
     const sourceUser = normalizeImplicitSourceUser(options.sourceUser);
     const subject = stripWrappingQuotes(singleLine(favoriteMatch[1]));
+    if (!FIRST_PERSON_PATTERN.test(subject) && !/るっか/u.test(subject)) {
+      return null;
+    }
     const keySubject = FIRST_PERSON_PATTERN.test(subject)
       ? sourceUser || "unknown"
       : subject;

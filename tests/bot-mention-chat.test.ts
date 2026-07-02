@@ -1617,6 +1617,58 @@ describe("Bot mention chat", () => {
     expect(historyLog).not.toContain("Bがすきだよ！");
   });
 
+  it("does not pass conversation history into unrelated new topics", async () => {
+    const { bot } = makeBot({ chatAiCooldownSeconds: 0 });
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "何のお寿司が好き？" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "今は時計を見られないD！" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "猫が好きD！" }),
+      } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun お寿司で何が好き",
+      100
+    );
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 今何時？",
+      101
+    );
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 犬と猫どっちが好き？",
+      102
+    );
+
+    const timeBody = JSON.parse(fetchSpy.mock.calls[1][1].body as string);
+    const preferenceBody = JSON.parse(fetchSpy.mock.calls[2][1].body as string);
+    expect(timeBody.prompt).not.toContain("直近会話");
+    expect(timeBody.prompt).not.toContain("お寿司で何が好き");
+    expect(timeBody.prompt).not.toContain("何のお寿司が好き");
+    expect(preferenceBody.prompt).not.toContain("直近会話");
+    expect(preferenceBody.prompt).not.toContain("お寿司で何が好き");
+    expect(preferenceBody.prompt).not.toContain("何のお寿司が好き");
+    expect(
+      infoSpy.mock.calls.filter(([message]) =>
+        String(message).includes("AIメンション会話履歴を適用")
+      )
+    ).toHaveLength(0);
+  });
+
   it("keeps conversation history scoped to each channel", async () => {
     const { bot } = makeBot({ chatAiCooldownSeconds: 0 });
     const fetchSpy = vi
@@ -1798,7 +1850,12 @@ describe("Bot mention chat", () => {
 
     await bot._handleRegularMessage("#rukalun", "viewer", "@rukalun 一番目", 100);
     await bot._handleRegularMessage("#rukalun", "viewer", "@rukalun 二番目", 101);
-    await bot._handleRegularMessage("#rukalun", "viewer", "@rukalun 三番目", 102);
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 続き 三番目",
+      102
+    );
 
     const thirdBody = JSON.parse(fetchSpy.mock.calls[2][1].body as string);
     expect(thirdBody.prompt).toContain("二番目");

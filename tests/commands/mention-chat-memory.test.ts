@@ -592,6 +592,25 @@ describe("auto-learn mention chat memory", () => {
       extractImplicitMentionChatMemoryEntry("るっかは何歳?", options)
     ).toBeNull();
     expect(
+      extractImplicitMentionChatMemoryEntry("お寿司の話はもういいよ", {
+        ...options,
+        maxKeyChars: 40,
+        maxValueChars: 120,
+      })
+    ).toBeNull();
+    expect(
+      extractImplicitMentionChatMemoryEntry(
+        "ナンはナンでも食べれないナンってなーんだ",
+        { ...options, maxKeyChars: 40, maxValueChars: 120 }
+      )
+    ).toBeNull();
+    expect(
+      extractImplicitMentionChatMemoryEntry(
+        "好きな寿司はウニだよ rukkaUnitabetaiii",
+        { ...options, maxKeyChars: 40, maxValueChars: 120 }
+      )
+    ).toBeNull();
+    expect(
       extractImplicitMentionChatMemoryEntry("今日は暑い", options)
     ).toBeNull();
     expect(
