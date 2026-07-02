@@ -94,6 +94,46 @@ describe("discord webhook helpers", () => {
     expect(thread).toEqual({ id: "thread-id" });
   });
 
+  it("recovers an existing thread attached to the start message", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({ code: 160004, message: "Thread already exists" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: "message-id",
+          channel_id: "channel-id",
+          thread: { id: "existing-thread-id" },
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const thread = await createDiscordThreadFromMessage({
+      botToken: "secret",
+      channelId: "channel-id",
+      messageId: "message-id",
+      name: "配信まとめ",
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://discord.com/api/v10/channels/channel-id/messages/message-id",
+      expect.objectContaining({
+        method: "GET",
+        headers: {
+          Authorization: "Bot secret",
+          "Content-Type": "application/json",
+        },
+      })
+    );
+    expect(thread).toEqual({ id: "existing-thread-id" });
+  });
+
   it("sends a Discord message with a bot token", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

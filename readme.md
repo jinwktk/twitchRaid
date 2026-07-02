@@ -70,7 +70,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - `STREAM_SUMMARY_STATE_PATH` に配信まとめの再起動復元用JSONパスを設定できます（未設定時は `data/stream-summary-state.json`）
 - `STREAM_SUMMARY_MAX_CLIPS` に配信まとめスレッドへ投稿する最大クリップ数を設定できます（未設定時は `10`）
 - `CHAT_RECOMMENDATION_ENABLED=false` で配信中の定期おすすめコメントを停止できます（未設定時は有効）。`CHAT_RECOMMENDATION_INTERVAL_MINUTES` で投稿間隔を分単位で変更できます（未設定時は `60`）
-- `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を設定すると、Bot APIで配信開始通知、クリップURL、終了まとめを投稿し、配信開始通知メッセージからDiscordスレッドを作成します。終了まとめとクリップは既存スレッドがある場合だけ投稿し、Bot API投稿が403などで失敗した場合の `DISCORD_WEBHOOK_URL` フォールバックも `thread_id` 付きで同じスレッドへ送ります。スレッドが無い場合は通常Webhookへ外出しせず、pending stateのまま再試行待ちにします
+- `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` を設定すると、Bot APIで配信開始通知、クリップURL、終了まとめを投稿し、配信開始通知メッセージからDiscordスレッドを作成します。終了まとめとクリップは既存スレッドがある場合だけ投稿し、Bot API投稿が403などで失敗した場合の `DISCORD_WEBHOOK_URL` フォールバックも `thread_id` 付きで同じスレッドへ送ります。スレッドが無い場合は通常Webhookへ外出しせず、pending stateのまま再試行待ちにします。保存済み開始通知メッセージに既にスレッドが付いている場合は、Discordメッセージ情報から `thread.id` を再取得してstateへ復旧します
 - `DISCORD_SUMMARY_WEBHOOK_THREAD_ENABLED=true` を設定すると、Webhookだけで `thread_name` によるスレッド作成を試します。この方式はDiscordのフォーラム/メディアチャンネルWebhook向けです。通常テキストチャンネルWebhookではDiscord側で拒否されるため、自動で通常Webhook投稿へフォールバックします
 - `CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true` を設定すると、直近Clip同期完了後に公開JSONを再生成し、差分があれば `CLIP_SEARCH_PUBLISH_REPO_DIR` の `main` へcommit/pushします。RukalunPage分離後の既定値は `C:\Users\mlove\Documents\GitHub\RukalunPage` と、その配下の `clip-search-data.json` です。別パスで運用する場合だけ `CLIP_SEARCH_PUBLISH_REPO_DIR` と `CLIP_SEARCH_DATA_PATH` を指定します。公開前には公開repoで `git fetch <remote> <branch>` を行い、`git cherry -v <remote>/<branch> HEAD` でローカルだけのcommitを判定します。公開JSONだけを変更するBotの `Clip検索JSONを同期時刻更新` またはremote側に同等patchがある `-` commitだけなら `<remote>/<branch>` へ戻してから再生成します。ローカル未コミット変更や、`+` の非Bot開発commitがある場合は破壊せず自動公開をスキップし、ログに `protectedCommits` と `dropEligibleCommits` を出します。pushはcheckout branch名に依存しないよう `HEAD:<branch>` へ行います。新規/復活Clipが0件の同期も `CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS` ごとに公開し、新規/復活Clipまたは削除/非公開Clipの無効化があった場合は間隔内でも公開します。保存0件かつ無効化0件で直前HEADが `Clip検索JSONを同期時刻更新` の場合だけ、そのBot同期commitをamendして `--force-with-lease` でpushします。GitHub HTTPS pushで認証情報が無い場合は `github-auth-missing` としてスキップし、`CLIP_SEARCH_PUBLISH_GITHUB_TOKEN` / `GITHUB_TOKEN` / `GH_TOKEN` の設定を促すWARNログを初回だけ出し、同一プロセス内の2回目以降はINFOへ落とします。この場合も0件同期は最小公開間隔で再試行を間引きます。直前HEADがCodexなどの開発commitの場合や、Clip追加・復活・削除/非公開化がある同期では通常commit/pushします。未設定時の公開間隔は5分、remote/branchは `origin` / `main` です。Bot再起動時は既存JSONの `generatedAt` を読んで公開間隔を引き継ぎます
 - サブPC運用では `E:\GitHub\RukalunPage` を `https://github.com/jinwktk/RukalunPage.git` のcloneとして用意してください。既存フォルダに `clip-search-data.json` だけがあり `.git` が無い場合、同期後処理で `fatal: not a git repository` になります
@@ -198,7 +198,7 @@ SQLiteストアへ初回移行できるJSON例:
 - 通常の配信開始通知を送った直後にスレッド作成だけ失敗した場合、同じ開始処理内では新しい開始通知を投稿し直さない。Clip/終了まとめ前のスレッド保証でも開始通知を自動再投稿しない。これによりDiscordへ開始通知が2通流れることを防ぐ
 - `!streamnotify` で手動送信した場合は、新しく送った通知投稿の `startMessageId` / `threadId` を既存stateより優先し、その通知投稿から作成したスレッドへ以後のクリップと終了まとめを集約する
 - 直近クリップ同期は1分ごとに実行し、既定では過去6時間分を取り直す。配信中に新規クリップを検知したら未投稿分だけ配信まとめスレッドへ投稿して `postedClipIds` に保存する
-- クリップ検知時に `threadId` が無い場合は、保存済み `startMessageId` からスレッド作成だけを再試行する。`startMessageId` も無い場合やスレッド作成に失敗した場合は、開始通知を再投稿せず警告ログで止める
+- クリップ検知時に `threadId` が無い場合は、保存済み `startMessageId` からスレッド作成だけを再試行する。Discord側でその開始通知に既存スレッドが付いている場合は `thread.id` を再取得して復旧する。`startMessageId` も無い場合やスレッド作成・既存スレッド取得に失敗した場合は、開始通知を再投稿せず警告ログで止める
 - 開始通知そのものを再送したい場合は、管理者が `!streamnotify` を使って明示的に手動送信する
 - 新しい開始通知が投稿されたが `threadId` が返らなかった場合は、古い `threadId` を保持せずクリアする。これにより、存在しない/古いスレッドへ投稿済み扱いで `postedClipIds` だけ進むことを防ぐ
 - 配信終了検知時に「配信終了まとめ」をDiscordへ投稿し、配信時間、ゲーム、コメント数、Raid数、クリップ数、ハイライト候補を表示
@@ -354,6 +354,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-07-03**: 配信まとめstateに `startMessageId` はあるが `threadId` が無く、Discord側では開始通知メッセージに既存スレッドが付いている場合に、毎分 `配信まとめスレッドを保証できませんでした` が出続ける問題を修正した。Discordのスレッド作成APIが既存スレッドなどで失敗した場合、開始通知メッセージをGETして `thread.id` を取得し、既存スレッドをstateへ復旧できるようにした。対象テストは `tests/notifications/discord-webhook.test.ts` に追加した。
 - **2026-07-02**: 本番ログで `!chat レゲエパンチについて調べて` が検索候補になっていたものの、SearXNGが `reason=no_result_or_failed` で文脈なしになり、Ollamaが `調べてみるね` と未検索のまま返していた。検索依頼で結果が取れない場合はOllamaへ落とさず `ごめん、検索結果がなくて分からないD！` を返すようにし、SearXNGが空または検索語不一致のノイズだけを返す場合は日本語Wikipedia summaryを補助検索する。あわせて `ops/searxng/settings.yml` は `google` だけでなく `duckduckgo` / `bing` も有効化し、Google単独の空結果に依存しない構成へ更新した。対象テストは `tests/commands/mention-chat-search.test.ts`、`tests/bot-mention-chat.test.ts`、`tests/searxng-config.test.ts` に追加した。
 - **2026-07-02**: AIメンション会話で `かのんのん (kanonalc)` のようにTwitch表示名とlogin IDが違うユーザーを、生成返信が `kanonalcさん` とlogin IDで呼んでいたため、Twurple `ChatMessage.userInfo.displayName` をAI生成経路へ渡すようにした。promptでは `ユーザー表示名` と `ログインID` を分け、呼びかけは表示名を使うよう指示する。生成後もlogin ID呼びを表示名へ置換するため、`kanonalcさん` は `かのんのんさん` になる。対象テストは `tests/commands/mention-chat.test.ts` と `tests/bot-mention-chat.test.ts` に追加した。
 - **2026-07-02**: 本番ログで `!chat` が新しい話題にも短期履歴と汚染された暗黙メモリを引きずり、同じ話題の返信を繰り返していたため、短期履歴の注入を省略・追跡質問だけに限定した。`今何時？` や `犬と猫どっちが好き？` には `直近会話` を渡さず、`続き` / `どんなところ` / `なんで` などでは従来通り直前文脈を使う。暗黙メモリは `お寿司の話はもういいよ`、なぞなぞ、Twitchエモート混じりの生成返信を保存しないようにした。対象テストは `tests/bot-mention-chat.test.ts` と `tests/commands/mention-chat-memory.test.ts` に追加した。

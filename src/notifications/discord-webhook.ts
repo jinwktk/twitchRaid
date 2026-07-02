@@ -51,6 +51,12 @@ export interface DiscordThread {
   id: string;
 }
 
+interface DiscordMessageWithThread {
+  thread?: {
+    id?: string;
+  };
+}
+
 export interface ExecuteDiscordWebhookOptions {
   wait?: boolean;
   threadId?: string;
@@ -154,12 +160,44 @@ export async function createDiscordThreadFromMessage({
   );
 
   if (!response.ok) {
+    const existingThread = await fetchDiscordMessageThread({
+      botToken,
+      channelId,
+      messageId,
+    });
+    if (existingThread) return existingThread;
     throw new Error(`Discord thread creation failed: ${response.status}`);
   }
 
   const body = (await response.json()) as { id?: string };
   if (!body.id) throw new Error("Discord thread response did not include id");
   return { id: body.id };
+}
+
+async function fetchDiscordMessageThread({
+  botToken,
+  channelId,
+  messageId,
+}: Pick<CreateDiscordThreadFromMessageOptions, "botToken" | "channelId" | "messageId">): Promise<DiscordThread | null> {
+  try {
+    const response = await fetch(
+      `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bot ${botToken}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    if (!response.ok) return null;
+
+    const body = (await response.json()) as DiscordMessageWithThread;
+    const threadId = body.thread?.id;
+    return threadId ? { id: threadId } : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function sendDiscordBotMessage({
