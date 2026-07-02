@@ -122,6 +122,8 @@ const YOUTUBE_CHANNEL_URL = "https://is.gd/rukalunyt";
 const HELP_MESSAGE =
   "!使えるコマンド: 基本 !help / !age / !goods / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
 const MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE = "[memory-request]";
+const MENTION_CHAT_SEARCH_NO_RESULT_REPLY =
+  "ごめん、検索結果がなくて分からないD！";
 const MENTION_CHAT_MEMORY_KEYWORD_PATTERN =
   /(?:覚えて(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|記憶して(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|メモして(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|忘れないで(?!いる|いた|います|た|しょ))/u;
 const MENTION_CHAT_MEMORY_SAVED_REPLY = "覚えたD！";
@@ -1065,6 +1067,25 @@ export class Bot {
             searchEnabled ? "no_result_or_failed" : "disabled"
           }`
         );
+        if (searchEnabled) {
+          const replyWithEmote = appendContextualChatReplyEmote(
+            MENTION_CHAT_SEARCH_NO_RESULT_REPLY,
+            this.config.chatReplyEmotes,
+            {
+              source: "mention",
+              promptText: request.prompt,
+            }
+          );
+          const model = this.config.chatAiModel ?? "";
+          logger.info(
+            `AIメンション会話応答: user=${request.userName}, alias=${request.alias}, model=${model}, image=false, prompt=${formatMentionChatLogValue(request.prompt)}, reply=${formatMentionChatLogValue(replyWithEmote)}`
+          );
+          await this.chatClient.say(request.channel, replyWithEmote);
+          logger.info(
+            `✅ AIメンション会話を送信: user=${request.userName}, alias=${request.alias}`
+          );
+          return;
+        }
       }
       const model = this.config.chatAiModel ?? "";
       const promptLogValue = isMentionChatMemoryRequest(request.prompt)

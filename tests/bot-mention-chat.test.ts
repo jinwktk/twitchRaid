@@ -1119,7 +1119,7 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "通常返信D！");
   });
 
-  it("logs when external search returns no usable context", async () => {
+  it("replies with a no-result fallback when external search returns no usable context", async () => {
     const { bot, say } = makeBot({
       chatAiSearchEnabled: true,
       chatAiSearchEndpoint: "https://api.duckduckgo.com/",
@@ -1137,22 +1137,25 @@ describe("Bot mention chat", () => {
 
       return {
         ok: true,
-        json: async () => ({ response: "検索なしで返すD！" }),
+        json: async () => ({ response: "レゲエパンチって何？調べてみるね♪" }),
       } as Response;
     });
 
     await bot._handleRegularMessage(
       "#rukalun",
       "viewer",
-      "@rukalun 夏尾さんについて",
+      "@rukalun レゲエパンチについて調べて",
       100
     );
 
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(infoSpy).toHaveBeenCalledWith(
       "AIメンション会話外部検索は未適用: reason=no_result_or_failed"
     );
-    expect(say).toHaveBeenCalledWith("#rukalun", "検索なしで返すD！");
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "ごめん、検索結果がなくて分からないD！"
+    );
   });
 
   it("stores learned memory with audit metadata and replies without calling Ollama", async () => {

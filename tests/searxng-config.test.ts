@@ -46,7 +46,7 @@ describe("SearXNG self-hosting config", () => {
     ).toBe(false);
   });
 
-  it("enables JSON output and keeps Google as the only default engine", () => {
+  it("enables JSON output and keeps multiple search engines available", () => {
     const settings = fs.readFileSync(
       path.join(repoRoot, "ops/searxng/settings.yml"),
       "utf8"
@@ -56,6 +56,8 @@ describe("SearXNG self-hosting config", () => {
     expect(settings).toContain("- json");
     expect(settings).toContain("keep_only:");
     expect(settings).toContain("- google");
+    expect(settings).toContain("- duckduckgo");
+    expect(settings).toContain("- bing");
     expect(settings).toContain("disabled: false");
   });
 });

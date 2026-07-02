@@ -132,6 +132,98 @@ describe("mention chat external search", () => {
     expect(result?.text).toContain("https://www.twitch.tv/rukalun");
   });
 
+  it("falls back to Japanese Wikipedia when SearXNG has no usable result", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.startsWith("http://searxng.test/")) {
+        return jsonResponse({ query: "レゲエパンチ", results: [] });
+      }
+      if (url.startsWith("https://ja.wikipedia.org/api/rest_v1/page/summary/")) {
+        return jsonResponse({
+          title: "レゲエパンチ",
+          extract:
+            "レゲエパンチは、宮城県仙台市のご当地カクテル。ピーチリキュールの烏龍茶割り。",
+          content_urls: {
+            desktop: {
+              page: "https://ja.wikipedia.org/wiki/レゲエパンチ",
+            },
+          },
+        });
+      }
+      throw new Error(`unexpected url: ${url}`);
+    });
+
+    const result = await fetchMentionChatSearchContext({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search?language=all&safesearch=0",
+      engines: "google",
+      queryText: "レゲエパンチについて調べて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 2,
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(String(fetchImpl.mock.calls[0][0])).toContain("q=%E3%83%AC%E3%82%B2%E3%82%A8%E3%83%91%E3%83%B3%E3%83%81");
+    expect(String(fetchImpl.mock.calls[1][0])).toContain(
+      "https://ja.wikipedia.org/api/rest_v1/page/summary/"
+    );
+    expect(result?.resultCount).toBe(1);
+    expect(result?.text).toContain("レゲエパンチ");
+    expect(result?.text).toContain("ピーチリキュールの烏龍茶割り");
+  });
+
+  it("uses Japanese Wikipedia instead of noisy SearXNG results without the exact query", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.startsWith("http://searxng.test/")) {
+        return jsonResponse({
+          query: "レゲエパンチ",
+          results: [
+            {
+              title: "レゲエ - Wikipedia",
+              content: "ジャマイカ発祥の音楽ジャンル。",
+              url: "https://ja.wikipedia.org/wiki/レゲエ",
+            },
+          ],
+        });
+      }
+      if (url.startsWith("https://ja.wikipedia.org/api/rest_v1/page/summary/")) {
+        return jsonResponse({
+          title: "レゲエパンチ",
+          extract:
+            "レゲエパンチは、宮城県仙台市のご当地カクテル。ピーチリキュールの烏龍茶割り。",
+          content_urls: {
+            desktop: {
+              page: "https://ja.wikipedia.org/wiki/レゲエパンチ",
+            },
+          },
+        });
+      }
+      throw new Error(`unexpected url: ${url}`);
+    });
+
+    const result = await fetchMentionChatSearchContext({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search?language=all&safesearch=0",
+      engines: "bing",
+      queryText: "レゲエパンチについて調べて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 2,
+      fetchImpl,
+    });
+
+    expect(result?.text).toContain("レゲエパンチ");
+    expect(result?.text).toContain("ピーチリキュールの烏龍茶割り");
+    expect(result?.text).not.toContain("ジャマイカ発祥の音楽ジャンル");
+  });
+
   it("does not call fetch for unsafe or oversized queries", async () => {
     const fetchImpl = vi.fn();
     const base = {

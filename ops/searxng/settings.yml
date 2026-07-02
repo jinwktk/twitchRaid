@@ -2,6 +2,8 @@ use_default_settings:
   engines:
     keep_only:
       - google
+      - duckduckgo
+      - bing
 
 general:
   debug: false
@@ -32,4 +34,12 @@ engines:
   - name: google
     disabled: false
     shortcut: go
+    timeout: 8.0
+  - name: duckduckgo
+    disabled: false
+    shortcut: ddg
+    timeout: 8.0
+  - name: bing
+    disabled: false
+    shortcut: bi
     timeout: 8.0
