@@ -70,6 +70,8 @@ const HEALTH_CONCERN_SUPPORT_REPLY =
   "心配だねD！無理せず水分とって休んで、つらそうなら早めに病院や周りの人に相談してね。";
 const HEALTH_CONCERN_REPORT_MAX_CHARS = 80;
 const LATIN_TOKEN_PATTERN = /[A-Za-z][A-Za-z0-9_+-]*/gu;
+const ENGLISH_TERM_EXPLANATION_PATTERN =
+  /(?:英語|英単語|英文|スラング|略語|意味|どういう意味|どういうこと|とは何|とはなに|何ですか|なんですか)/u;
 const COMMON_ENGLISH_GENERAL_WORDS = new Set([
   "about",
   "again",
@@ -142,7 +144,27 @@ function shorten(value: string, maxLength: number): string {
 }
 
 function stripWrappingQuotes(value: string): string {
-  return value.replace(/^[`"'「『]+/, "").replace(/[`"'」』]+$/, "").trim();
+  let stripped = value.trim();
+  const quotePairs: Array<[string, string]> = [
+    ["`", "`"],
+    ['"', '"'],
+    ["'", "'"],
+    ["「", "」"],
+    ["『", "』"],
+  ];
+
+  let changed = true;
+  while (changed && stripped.length >= 2) {
+    changed = false;
+    for (const [open, close] of quotePairs) {
+      if (stripped.startsWith(open) && stripped.endsWith(close)) {
+        stripped = stripped.slice(open.length, -close.length).trim();
+        changed = true;
+        break;
+      }
+    }
+  }
+  return stripped;
 }
 
 function stripCommandPrefix(value: string): string {
@@ -153,6 +175,17 @@ function buildAllowedLatinTokenSet(
   tokens: readonly string[] | undefined
 ): Set<string> {
   return new Set(tokens?.map(normalizeName).filter(Boolean) ?? []);
+}
+
+function extractPromptSpecifiedLatinTokens(promptText: string): string[] {
+  if (!ENGLISH_TERM_EXPLANATION_PATTERN.test(promptText)) return [];
+
+  const tokens = new Set<string>();
+  for (const match of promptText.matchAll(LATIN_TOKEN_PATTERN)) {
+    const token = normalizeName(match[0]);
+    if (token.length > 1) tokens.add(token);
+  }
+  return [...tokens];
 }
 
 function isAllowedLatinToken(
@@ -512,6 +545,14 @@ function buildMentionChatPrompt(options: BuildMentionChatPromptOptions): string 
     `条件: 必ず日本語だけ、最大${maxResponseChars}文字以内、事実だけ、固有名詞以外の英語の一般語は使わない、症状名や専門語も日本語で言い換える、内部情報や秘密は話さない。`,
     "完成したチャット返信だけを返してください。"
   );
+  const promptLatinTokens = extractPromptSpecifiedLatinTokens(promptText);
+  if (promptLatinTokens.length > 0) {
+    lines.splice(
+      lines.length - 1,
+      0,
+      `英語説明の例外: 質問中の英単語（${promptLatinTokens.join(", ")}）だけは表記として引用してよいです。その他の英単語や英文例は使わず、説明本文は日本語にしてください。`
+    );
+  }
   return lines.join("\n");
 }
 
@@ -522,14 +563,23 @@ function buildMentionChatRepairPrompt({
   promptText: string;
   rejectedReply: string;
 }): string {
-  return [
+  const lines = [
     "次のTwitchチャット返信案には英語の一般語が混ざっています。",
     "意味を保ったまま、必ず日本語だけの自然な1文へ直してください。",
     "固有名詞やユーザーが指定した表記を除き、英単語・ローマ字の説明語を使わないでください。",
     `ユーザーの発言: ${shorten(singleLine(promptText), PROMPT_TEXT_LIMIT)}`,
     `修正前の返信案: ${shorten(singleLine(rejectedReply), PROMPT_TEXT_LIMIT)}`,
     "完成したチャット返信だけを返してください。",
-  ].join("\n");
+  ];
+  const promptLatinTokens = extractPromptSpecifiedLatinTokens(promptText);
+  if (promptLatinTokens.length > 0) {
+    lines.splice(
+      lines.length - 1,
+      0,
+      `ただし、ユーザーが質問中で指定した英単語（${promptLatinTokens.join(", ")}）だけは引用してよいです。その他の英単語や英文例は使わないでください。`
+    );
+  }
+  return lines.join("\n");
 }
 
 export function resolveMentionChatAliases(
@@ -657,7 +707,11 @@ export async function generateMentionChatReplyDetailed({
   const trimmedModel = model.trim();
   if (!enabled || !trimmedModel) return null;
   const logPromptText = redactedPromptText ?? promptText;
-  const allowedLatinTokens = [userName, userDisplayName ?? ""];
+  const allowedLatinTokens = [
+    userName,
+    userDisplayName ?? "",
+    ...extractPromptSpecifiedLatinTokens(promptText),
+  ];
   const allowedLatinTokenSet = buildAllowedLatinTokenSet(allowedLatinTokens);
   const immediateReply = resolveMentionChatImmediateReply(promptText);
   if (immediateReply?.reason === "command_execution") {

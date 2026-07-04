@@ -668,6 +668,76 @@ describe("generateMentionChatReply", () => {
     });
   });
 
+  it("allows English terms from the user prompt when explaining English slang", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response:
+          "「big peach」は直訳なら大きな桃で、文脈によって褒め言葉っぽく使われることがあるよD！",
+      }),
+    });
+
+    const reply = await generateMentionChatReply({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5:7b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "英語のスラングでbig peachってどういう意味？",
+      fetchImpl,
+    });
+
+    expect(reply).toBe(
+      "「big peach」は直訳なら大きな桃で、文脈によって褒め言葉っぽく使われることがあるよD！"
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
+    expect(body.prompt).toContain("質問中の英単語");
+    expect(body.prompt).toContain("big, peach");
+  });
+
+  it("repairs English slang replies while keeping only the requested English term", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          response:
+            "「nuts」は「すごい」という意味で、This is nuts! みたいに使うよD！",
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          response: "「nuts」は「すごい」「やばい」みたいな意味で使われるよD！",
+        }),
+      });
+
+    const reply = await generateMentionChatReply({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5:7b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "英語のスラングでnutsとは何ですか？",
+      fetchImpl,
+    });
+
+    expect(reply).toBe(
+      "「nuts」は「すごい」「やばい」みたいな意味で使われるよD！"
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const repairBody = JSON.parse(fetchImpl.mock.calls[1][1].body as string);
+    expect(repairBody.prompt).toContain("nuts");
+    expect(repairBody.prompt).toContain("その他の英単語や英文例は使わない");
+  });
+
   it("does not repair a Japanese reply only because it contains the requester name", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
