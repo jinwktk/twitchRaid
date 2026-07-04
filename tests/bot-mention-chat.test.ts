@@ -185,6 +185,9 @@ describe("Bot mention chat", () => {
     expect(
       formatCommandDetectionLogText("!chat 覚えて: APIキー=sk-proj-1234567890")
     ).toBe("[memory-request]");
+    expect(
+      formatCommandDetectionLogText("!chat るっかるんの口調は年相応って覚えといて")
+    ).toBe("[memory-request]");
     expect(formatCommandDetectionLogText("!chat こんにちは")).toBe(
       "!chat こんにちは"
     );
@@ -1375,6 +1378,30 @@ describe("Bot mention chat", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(JSON.parse(fs.readFileSync(memoryPath, "utf8"))).toMatchObject({
       viewerの好きなもの: "カレー",
+    });
+    expect(say).toHaveBeenCalledWith("#rukalun", "覚えたD！");
+  });
+
+  it("saves colloquial memory requests without calling Ollama", async () => {
+    const memoryPath = path.join(ensureTempDir(), "chat-ai-memory.json");
+    const { bot, say } = makeBot({
+      chatAiAutoLearnEnabled: true,
+      chatAiMemoryEnabled: true,
+      chatAiMemoryPath: memoryPath,
+      chatAiMemoryWriterUsers: ["viewer"],
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun るっかるんの口調は年相応って覚えといて",
+      100
+    );
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(JSON.parse(fs.readFileSync(memoryPath, "utf8"))).toMatchObject({
+      "るっかるんの口調": "年相応",
     });
     expect(say).toHaveBeenCalledWith("#rukalun", "覚えたD！");
   });

@@ -393,7 +393,41 @@ describe("auto-learn mention chat memory", () => {
     const options = { maxKeyChars: 40, maxValueChars: 120 };
 
     expect(
+      extractMentionChatMemoryEntry("るっかるんの口調は年相応って覚えといて", {
+        ...options,
+        sourceUser: "viewer",
+      })
+    ).toEqual({
+      key: "るっかるんの口調",
+      value: "年相応",
+    });
+    expect(
+      extractMentionChatMemoryEntry("覚えといてください: 呼び方=るっかるん", options)
+    ).toEqual({
+      key: "呼び方",
+      value: "るっかるん",
+    });
+    expect(
+      extractMentionChatMemoryEntry("記憶しといて るっかの好きなゲーム=FF14", options)
+    ).toEqual({
+      key: "るっかの好きなゲーム",
+      value: "FF14",
+    });
+    expect(
+      extractMentionChatMemoryEntry("メモっといて 口調=短くD", options)
+    ).toEqual({
+      key: "口調",
+      value: "短くD",
+    });
+
+    expect(
       analyzeMentionChatMemoryRequest("43歳って覚えて", options)
+    ).toMatchObject({
+      isMemoryRequest: true,
+      reason: "invalid_format",
+    });
+    expect(
+      analyzeMentionChatMemoryRequest("43歳って覚えといて", options)
     ).toMatchObject({
       isMemoryRequest: true,
       reason: "invalid_format",
