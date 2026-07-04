@@ -221,6 +221,11 @@ interface MentionChatConversationHistoryText {
   charCount: number;
 }
 
+interface CombinedMentionChatMemoryText {
+  text: string | null;
+  dedupedMem0ItemCount: number;
+}
+
 const UNSAFE_MENTION_CHAT_CONVERSATION_CONTEXT_PATTERN =
   /https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|\b(?:token|secret|password|passwd|api[\s_-]?key|access[\s_-]?token|refresh[\s_-]?token)\b|apiキー|トークン|アクセストークン|リフレッシュトークン|シークレット|認証情報|認証|パスワード|秘密鍵|秘密|前の指示|上の指示|以前の指示|指示を無視|命令を無視|ルールを無視|システムプロンプト|プロンプトを表示|内部設定|developer message|system prompt|ignore (?:all )?(?:previous|above) instructions/iu;
 
@@ -236,6 +241,71 @@ function getChatMessageDisplayName(msg: ChatMessage | undefined): string | null 
 
 function normalizeMentionChatConversationText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function splitMentionChatMemoryLines(
+  value: string | null | undefined
+): string[] {
+  return (value ?? "")
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function normalizeMentionChatMemoryLine(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function extractMentionChatMemoryLineKey(value: string): string | null {
+  const line = value.replace(/\s+/g, " ").trim();
+  const separatorIndex = line.search(/[：:]/u);
+  if (separatorIndex <= 0) return null;
+
+  const key = line.slice(0, separatorIndex).trim().toLowerCase();
+  return key || null;
+}
+
+function combineMentionChatMemoryText(
+  localMemoryText: string | null | undefined,
+  mem0MemoryText: string | null | undefined
+): CombinedMentionChatMemoryText {
+  const localText = (localMemoryText ?? "").trim();
+  const mem0Lines = splitMentionChatMemoryLines(mem0MemoryText);
+  if (mem0Lines.length === 0) {
+    return { text: localText || null, dedupedMem0ItemCount: 0 };
+  }
+
+  const localLines = splitMentionChatMemoryLines(localText);
+  const localLineSet = new Set(localLines.map(normalizeMentionChatMemoryLine));
+  const localKeySet = new Set(
+    localLines
+      .map(extractMentionChatMemoryLineKey)
+      .filter((key): key is string => Boolean(key))
+  );
+
+  const remainingMem0Lines: string[] = [];
+  let dedupedMem0ItemCount = 0;
+  for (const line of mem0Lines) {
+    const normalizedLine = normalizeMentionChatMemoryLine(line);
+    const key = extractMentionChatMemoryLineKey(line);
+    if (localLineSet.has(normalizedLine) || (key && localKeySet.has(key))) {
+      dedupedMem0ItemCount += 1;
+      continue;
+    }
+    remainingMem0Lines.push(line);
+  }
+
+  const parts = [
+    localText || null,
+    remainingMem0Lines.length > 0
+      ? `mem0メモ:\n${remainingMem0Lines.join("\n")}`
+      : null,
+  ].filter((text): text is string => Boolean(text));
+
+  return {
+    text: parts.length > 0 ? parts.join("\n") : null,
+    dedupedMem0ItemCount,
+  };
 }
 
 function shortenMentionChatConversationText(
@@ -1184,10 +1254,16 @@ export class Bot {
           `AIメンション会話mem0メモは未適用: reason=${mem0Memory.reason}`
         );
       }
-      const combinedMemoryText =
-        [memory.text, mem0Memory.text ? `mem0メモ:\n${mem0Memory.text}` : null]
-          .filter((text): text is string => Boolean(text))
-          .join("\n") || null;
+      const combinedMemory = combineMentionChatMemoryText(
+        memory.text,
+        mem0Memory.text
+      );
+      if (combinedMemory.dedupedMem0ItemCount > 0) {
+        logger.info(
+          `AIメンション会話mem0メモ重複を除外: items=${combinedMemory.dedupedMem0ItemCount}`
+        );
+      }
+      const combinedMemoryText = combinedMemory.text;
       const conversationHistory = shouldApplyMentionChatConversationHistory(
         request.prompt
       )

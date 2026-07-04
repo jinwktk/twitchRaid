@@ -167,7 +167,7 @@ describe("generateMentionChatReply", () => {
       keep_alive: "30m",
       options: {
         temperature: 0.4,
-        num_predict: 80,
+        num_predict: 220,
       },
     });
     expect(body.system).toContain("日本語");
@@ -176,12 +176,12 @@ describe("generateMentionChatReply", () => {
     expect(body.system).not.toContain("Output Japanese only");
     expect(body.system).toContain("るっかるん本人");
     expect(body.system).toContain("秘密");
-    expect(body.system).toContain("自然な1〜2文");
+    expect(body.system).toContain("Twitchチャット1通");
     expect(body.system).toContain("一語だけ");
     expect(body.prompt).toContain("viewer");
     expect(body.prompt).toContain("こんにちは");
     expect(body.prompt).toContain("るっかるん本人として");
-    expect(body.prompt).toContain("自然な1〜2文");
+    expect(body.prompt).toContain("200文字以内");
     expect(body.prompt).toContain("単語だけ");
     expect(body.prompt).toContain("英語の一般語");
     expect(body.prompt).not.toContain("配信画面画像");
@@ -286,7 +286,7 @@ describe("generateMentionChatReply", () => {
     });
   });
 
-  it("redacts conversation history from prompt/reply diagnostics", async () => {
+  it("shows conversation history in prompt/reply diagnostics", async () => {
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
@@ -315,14 +315,18 @@ describe("generateMentionChatReply", () => {
     expect(body.prompt).toContain("AとBなにがすき？");
     expect(result?.source).toBe("generated");
     expect(infoSpy).toHaveBeenCalledWith(
-      expect.stringContaining("直近会話: items=2")
+      expect.stringContaining(
+        "直近会話: 次の内容はこのチャンネル内の直近User/Bot会話です。"
+      )
     );
     expect(infoSpy).toHaveBeenCalledWith(
-      expect.stringContaining("本文はログに出しません")
+      expect.stringContaining("AとBなにがすき？")
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Bがすきだよ！")
     );
     for (const call of infoSpy.mock.calls) {
-      expect(call[0]).not.toContain("AとBなにがすき？");
-      expect(call[0]).not.toContain("Bがすきだよ！");
+      expect(call[0]).not.toContain("本文はログに出しません");
     }
   });
 

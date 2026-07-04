@@ -739,6 +739,87 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "カレーだねD！");
   });
 
+  it("removes mem0 memory lines already present in the local reference memory", async () => {
+    const dir = ensureTempDir();
+    const memoryPath = path.join(dir, "chat-ai-memory.json");
+    fs.writeFileSync(
+      memoryPath,
+      JSON.stringify({
+        ままっか: "るっかのお母様",
+        好きなゲーム: "VALORANT",
+        __meta: {
+          ままっか: {
+            kind: "semantic",
+            status: "active",
+            sourceUser: "viewer",
+            createdAt: "2026-07-04T00:00:00.000Z",
+            updatedAt: "2026-07-04T00:00:00.000Z",
+          },
+          好きなゲーム: {
+            kind: "semantic",
+            status: "active",
+            sourceUser: "viewer",
+            createdAt: "2026-07-04T00:00:00.000Z",
+            updatedAt: "2026-07-04T00:00:00.000Z",
+          },
+        },
+      }),
+      "utf8"
+    );
+    const { bot } = makeBot({
+      chatAiMemoryEnabled: true,
+      chatAiMemoryStore: "json",
+      chatAiMemoryPath: memoryPath,
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiMem0UserId: "rukalun",
+      chatAiMem0AgentId: "twitchRaid",
+      chatAiMem0TimeoutMs: 1000,
+      chatAiMem0MaxResults: 3,
+      chatAiMem0MaxChars: 300,
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input) => {
+        if (String(input) === "http://mem0:8888/search") {
+          return {
+            ok: true,
+            json: async () => ({
+              results: [
+                { memory: "ままっか: るっかのお母様" },
+                { memory: "好きなゲーム: Apex Legends" },
+                { memory: "追加メモ: るんるん星" },
+              ],
+            }),
+          } as Response;
+        }
+        return {
+          ok: true,
+          json: async () => ({ response: "覚えてるD！" }),
+        } as Response;
+      }
+    );
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun ままっかと好きなゲームについてどう思う？",
+      Date.now() / 1000
+    );
+
+    const ollamaCall = fetchSpy.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    const body = JSON.parse(ollamaCall?.[1]?.body as string);
+    expect(body.prompt.match(/ままっか: るっかのお母様/g)).toHaveLength(1);
+    expect(body.prompt.match(/好きなゲーム:/g)).toHaveLength(1);
+    expect(body.prompt).not.toContain("好きなゲーム: Apex Legends");
+    expect(body.prompt).toContain("追加メモ: るんるん星");
+    expect(infoSpy).toHaveBeenCalledWith(
+      "AIメンション会話mem0メモ重複を除外: items=2"
+    );
+  });
+
   it("answers known Rukalun personal questions before memory injection or external calls", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 5, 21, 12, 0, 0));
@@ -1935,7 +2016,7 @@ describe("Bot mention chat", () => {
     expect(sameChannelBody.prompt).not.toContain("別チャンネルとして答えるD！");
   });
 
-  it("redacts conversation history from prompt diagnostics while keeping it in the Ollama payload", async () => {
+  it("shows conversation history in prompt diagnostics when prompt logging is enabled", async () => {
     const { bot } = makeBot({
       chatAiCooldownSeconds: 0,
       chatAiPromptReplyLogEnabled: true,
@@ -1971,10 +2052,10 @@ describe("Bot mention chat", () => {
       .map(([message]) => String(message))
       .filter((message) => message.includes("AIメンション会話プロンプト/返信"));
     const secondDiagnostic = diagnosticLogs.at(-1) ?? "";
-    expect(secondDiagnostic).toContain("直近会話: items=2");
-    expect(secondDiagnostic).toContain("本文はログに出しません");
-    expect(secondDiagnostic).not.toContain("AとBなにがすき？");
-    expect(secondDiagnostic).not.toContain("Bがすきだよ！");
+    expect(secondDiagnostic).toContain("直近会話");
+    expect(secondDiagnostic).toContain("AとBなにがすき？");
+    expect(secondDiagnostic).toContain("Bがすきだよ！");
+    expect(secondDiagnostic).not.toContain("本文はログに出しません");
   });
 
   it("does not pass conversation history when the feature is disabled", async () => {
