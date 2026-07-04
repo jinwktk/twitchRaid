@@ -1189,6 +1189,70 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "自然に答えるD！");
   });
 
+  it("researches with free search and regenerates when Ollama says it does not know", async () => {
+    const { bot, say } = makeBot({
+      chatAiSearchEnabled: true,
+      chatAiSearchEndpoint: "https://api.duckduckgo.com/",
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const ollamaResponses = [
+      "それはちょっと分からないD！",
+      "るか吉はおみくじの最上位枠で、出現率は0.01%だよD！",
+    ];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.startsWith("https://api.duckduckgo.com/")) {
+        const bytes = Buffer.from(
+          JSON.stringify({
+            Heading: "るか吉",
+            AbstractText: "るか吉はおみくじの最上位枠で、出現率は0.01%。",
+            AbstractURL: "https://example.test/rukakichi",
+          }),
+          "utf8"
+        );
+        return {
+          ok: true,
+          headers: { get: () => null },
+          arrayBuffer: async () =>
+            bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        } as Response;
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ response: ollamaResponses.shift() ?? "再生成D！" }),
+      } as Response;
+    });
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun るか吉は何パーセント？",
+      100
+    );
+
+    const searchCalls = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).startsWith("https://api.duckduckgo.com/")
+    );
+    const ollamaCalls = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    expect(searchCalls).toHaveLength(1);
+    expect(ollamaCalls).toHaveLength(2);
+    const firstPrompt = JSON.parse(ollamaCalls[0]?.[1]?.body as string).prompt;
+    const secondPrompt = JSON.parse(ollamaCalls[1]?.[1]?.body as string).prompt;
+    expect(firstPrompt).not.toContain("外部検索結果");
+    expect(secondPrompt).toContain("外部検索結果");
+    expect(secondPrompt).toContain("出現率は0.01%");
+    expect(infoSpy).toHaveBeenCalledWith(
+      "AIメンション会話リサーチ検索を適用: results=1"
+    );
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "るか吉はおみくじの最上位枠で、出現率は0.01%だよD！"
+    );
+  });
+
   it("logs when a search-like mention is skipped because external search is disabled", async () => {
     const { bot, say } = makeBot({
       chatAiSearchEnabled: false,

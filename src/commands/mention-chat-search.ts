@@ -11,6 +11,7 @@ export interface FetchMentionChatSearchContextOptions {
   endpoint: string;
   engines?: string;
   queryText: string;
+  force?: boolean;
   timeoutMs: number;
   maxQueryChars: number;
   maxResponseBytes: number;
@@ -47,6 +48,8 @@ const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu;
 const PHONE_PATTERN = /(?:\+?\d[\d\s-]{8,}\d)/u;
 const SECRET_PATTERN =
   /\b(?:token|secret|password|passwd|api[\s_-]?key|access[\s_-]?token|refresh[\s_-]?token)\b|認証|パスワード|秘密|環境変数/iu;
+const RESEARCH_RETRY_REPLY_PATTERN =
+  /(?:わからない|分からない|知らない|把握して(?:い)?ない|確認できない|断定できない|情報(?:が)?(?:ない|足りない)|調べてみ(?:る|ます)|調べないと|検索してみ(?:る|ます))/u;
 const WIKIPEDIA_SUMMARY_ENDPOINT =
   "https://ja.wikipedia.org/api/rest_v1/page/summary/";
 
@@ -113,6 +116,10 @@ export function shouldSearchMentionChat(value: string): boolean {
       hasQuestionWordRequest(query) ||
       hasExternalFactQuestion(query))
   );
+}
+
+export function shouldResearchMentionChatReply(value: string): boolean {
+  return RESEARCH_RETRY_REPLY_PATTERN.test(singleLine(value));
 }
 
 function isUnsafeExternalQuery(value: string, maxQueryChars: number): boolean {
@@ -383,6 +390,7 @@ export async function fetchMentionChatSearchContext({
   endpoint,
   engines = "",
   queryText,
+  force = false,
   timeoutMs,
   maxQueryChars,
   maxResponseBytes,
@@ -398,7 +406,7 @@ export async function fetchMentionChatSearchContext({
     maxQueryChars <= 0 ||
     maxResponseBytes <= 0 ||
     maxResults <= 0 ||
-    !shouldSearchMentionChat(query) ||
+    (!force && !shouldSearchMentionChat(query)) ||
     hasUnsafeExternalQueryContent(query) ||
     isUnsafeExternalQuery(searchQuery, maxQueryChars)
   ) {

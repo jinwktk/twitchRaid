@@ -263,6 +263,36 @@ describe("mention chat external search", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("can force a safe research search even when the prompt is not a normal search candidate", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        Heading: "るか吉",
+        AbstractText: "るか吉はおみくじの最上位枠で、出現率は0.01%。",
+        AbstractURL: "https://example.test/rukakichi",
+      })
+    );
+
+    const result = await fetchMentionChatSearchContext({
+      enabled: true,
+      endpoint: "https://api.duckduckgo.com/",
+      queryText: "るか吉は何パーセント？",
+      force: true,
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 2,
+      fetchImpl,
+    });
+
+    expect(shouldSearchMentionChat("るか吉は何パーセント？")).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(String(fetchImpl.mock.calls[0][0])).toContain(
+      "q=%E3%82%8B%E3%81%8B%E5%90%89"
+    );
+    expect(result?.text).toContain("るか吉");
+    expect(result?.text).toContain("出現率は0.01%");
+  });
+
   it("returns null for http errors, malformed json, oversized responses, and empty results", async () => {
     const base = {
       enabled: true,

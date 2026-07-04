@@ -96,6 +96,7 @@ import {
 } from "./commands/bot-request-notes";
 import {
   fetchMentionChatSearchContext,
+  shouldResearchMentionChatReply,
   shouldSearchMentionChat,
 } from "./commands/mention-chat-search";
 import {
@@ -1395,7 +1396,7 @@ export class Bot {
       const promptLogValue = isMentionChatMemoryRequest(request.prompt)
         ? MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE
         : request.prompt;
-      const generatedReply = await generateMentionChatReplyDetailed({
+      let generatedReply = await generateMentionChatReplyDetailed({
         enabled: true,
         baseUrl: this.config.chatAiBaseUrl ?? this.config.ollamaBaseUrl,
         model,
@@ -1416,6 +1417,63 @@ export class Bot {
         streamImageBase64,
         promptReplyLogEnabled: this.config.chatAiPromptReplyLogEnabled ?? false,
       });
+
+      if (
+        generatedReply?.source === "generated" &&
+        !searchContext &&
+        searchEnabled &&
+        shouldResearchMentionChatReply(generatedReply.reply)
+      ) {
+        const researchSearchContext = await fetchMentionChatSearchContext({
+          enabled: true,
+          provider: this.config.chatAiSearchProvider ?? "duckduckgo",
+          endpoint:
+            this.config.chatAiSearchEndpoint ?? "https://api.duckduckgo.com/",
+          engines: this.config.chatAiSearchEngines ?? "",
+          queryText: request.prompt,
+          force: true,
+          timeoutMs: this.config.chatAiSearchTimeoutMs ?? 2_500,
+          maxQueryChars: this.config.chatAiSearchMaxQueryChars ?? 120,
+          maxResponseBytes: this.config.chatAiSearchMaxResponseBytes ?? 65_536,
+          maxResults: this.config.chatAiSearchMaxResults ?? 3,
+        });
+
+        if (researchSearchContext) {
+          logger.info(
+            `AIメンション会話リサーチ検索を適用: results=${researchSearchContext.resultCount}`
+          );
+          const researchedReply = await generateMentionChatReplyDetailed({
+            enabled: true,
+            baseUrl: this.config.chatAiBaseUrl ?? this.config.ollamaBaseUrl,
+            model,
+            timeoutMs: this.config.chatAiTimeoutMs ?? 8_000,
+            timeoutFallbackReply: this.config.chatAiTimeoutFallbackReply,
+            keepAlive: this.config.chatAiKeepAlive ?? "30m",
+            maxResponseChars:
+              this.config.chatAiMaxResponseChars ??
+              DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS,
+            channel: request.channel,
+            userName: request.userName,
+            userDisplayName: request.userDisplayName,
+            promptText: request.prompt,
+            redactedPromptText: promptLogValue,
+            memoryText: combinedMemoryText,
+            conversationHistoryText: conversationHistory?.text,
+            searchContextText: researchSearchContext.text,
+            streamImageBase64,
+            promptReplyLogEnabled:
+              this.config.chatAiPromptReplyLogEnabled ?? false,
+          });
+
+          if (researchedReply?.source === "generated") {
+            generatedReply = researchedReply;
+          }
+        } else {
+          logger.info(
+            "AIメンション会話リサーチ検索は未適用: reason=no_result_or_failed"
+          );
+        }
+      }
 
       if (!generatedReply) {
         logger.warn(
