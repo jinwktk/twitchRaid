@@ -243,6 +243,9 @@ CHAT_AI_MODEL=qwen2.5:7b
 CHAT_AI_TIMEOUT_MS=4500
 CHAT_AI_TIMEOUT_FALLBACK_REPLY=AIが混み合ってるD！
 CHAT_AI_KEEP_ALIVE=10m
+CHAT_AI_PREWARM_ENABLED=true
+CHAT_AI_PREWARM_INTERVAL_SECONDS=300
+CHAT_AI_PREWARM_TIMEOUT_MS=90000
 CHAT_AI_MAX_RESPONSE_CHARS=120
 CHAT_AI_CONVERSATION_HISTORY_ENABLED=false
 CHAT_AI_CONVERSATION_HISTORY_MAX_MESSAGES=4
@@ -302,6 +305,9 @@ CHAT_REPLY_EMOTES= rukkaHi, @rukkaGG, ＠rukkaHi, RukkaNice
     expect(config.chatAiTimeoutMs).toBe(4500);
     expect(config.chatAiTimeoutFallbackReply).toBe("AIが混み合ってるD！");
     expect(config.chatAiKeepAlive).toBe("10m");
+    expect(config.chatAiPrewarmEnabled).toBe(true);
+    expect(config.chatAiPrewarmIntervalSeconds).toBe(300);
+    expect(config.chatAiPrewarmTimeoutMs).toBe(90000);
     expect(config.chatAiMaxResponseChars).toBe(120);
     expect(config.chatAiConversationHistoryEnabled).toBe(false);
     expect(config.chatAiConversationHistoryMaxMessages).toBe(4);
@@ -382,6 +388,9 @@ OLLAMA_MODEL=qwen2.5:7b
       "今ちょっとAIが混み合ってるD！"
     );
     expect(config.chatAiKeepAlive).toBe("30m");
+    expect(config.chatAiPrewarmEnabled).toBe(false);
+    expect(config.chatAiPrewarmIntervalSeconds).toBe(600);
+    expect(config.chatAiPrewarmTimeoutMs).toBe(90000);
     expect(config.chatAiMaxResponseChars).toBe(500);
     expect(config.chatAiConversationHistoryEnabled).toBe(true);
     expect(config.chatAiConversationHistoryMaxMessages).toBe(6);

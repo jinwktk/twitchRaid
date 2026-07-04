@@ -69,6 +69,7 @@ import {
   generateMentionChatReplyDetailed,
   resolveMentionChatImmediateReply,
 } from "./commands/mention-chat";
+import { prewarmOllamaGenerateModel } from "./commands/ollama-prewarm";
 import {
   analyzeMentionChatMemoryRequest,
   extractImplicitMentionChatMemoryEntry,
@@ -432,6 +433,8 @@ export class Bot {
   >();
   private readonly streamCommentMemoryMem0Dedup = new Map<string, number>();
   private lastMentionChatAttemptAt = 0;
+  private lastChatAiPrewarmAt = 0;
+  private chatAiPrewarmInFlight = false;
   private streamClipPostRunning = false;
   private streamClipPostRerunRequested = false;
   private streamClipPostRerunAt: Date | null = null;
@@ -2127,6 +2130,8 @@ export class Bot {
     const tokenRefreshThresholdSeconds = 5 * 60; // 期限5分前
     let lastTokenRefresh = Date.now() / 1000;
 
+    void this._prewarmChatAiModel("startup");
+
     this.keepAliveTimer = setInterval(async () => {
       try {
         const now = Date.now() / 1000;
@@ -2179,10 +2184,63 @@ export class Bot {
             logger.error(`定期おすすめコメント送信中にエラー: ${e}`);
           }
         }
+
+        if (this._shouldPrewarmChatAiModel(now)) {
+          void this._prewarmChatAiModel("interval");
+        }
       } catch (e) {
         logger.error(`❌ キープアライブ中にエラー: ${e}`);
       }
     }, connectionCheckInterval);
+  }
+
+  private _shouldPrewarmChatAiModel(now: number): boolean {
+    if (
+      !this.config.chatAiPrewarmEnabled ||
+      !this.config.chatAiEnabled ||
+      !this.config.chatAiModel
+    ) {
+      return false;
+    }
+    const intervalSeconds = this.config.chatAiPrewarmIntervalSeconds ?? 600;
+    return now - this.lastChatAiPrewarmAt >= intervalSeconds;
+  }
+
+  private async _prewarmChatAiModel(
+    trigger: "startup" | "interval"
+  ): Promise<void> {
+    if (
+      !this.config.chatAiPrewarmEnabled ||
+      !this.config.chatAiEnabled ||
+      !this.config.chatAiModel ||
+      this.chatAiPrewarmInFlight
+    ) {
+      return;
+    }
+
+    this.chatAiPrewarmInFlight = true;
+    try {
+      const model = this.config.chatAiModel;
+      const result = await prewarmOllamaGenerateModel({
+        enabled: true,
+        baseUrl: this.config.chatAiBaseUrl ?? this.config.ollamaBaseUrl,
+        model,
+        timeoutMs: this.config.chatAiPrewarmTimeoutMs ?? 90_000,
+        keepAlive: this.config.chatAiKeepAlive ?? "30m",
+      });
+      this.lastChatAiPrewarmAt = Date.now() / 1000;
+      if (result.status === "warmed") {
+        logger.info(
+          `AIメンション会話モデルprewarm完了: trigger=${trigger}, model=${formatMentionChatLogValue(model)}, elapsedMs=${result.elapsedMs}, keepAlive=${formatMentionChatLogValue(this.config.chatAiKeepAlive ?? "30m")}`
+        );
+      } else if (result.status === "failed") {
+        logger.warn(
+          `AIメンション会話モデルprewarm失敗: trigger=${trigger}, reason=${result.reason}, model=${formatMentionChatLogValue(model)}, timeoutMs=${this.config.chatAiPrewarmTimeoutMs ?? 90_000}, elapsedMs=${result.elapsedMs}, detail=${formatMentionChatLogValue(result.detail)}`
+        );
+      }
+    } finally {
+      this.chatAiPrewarmInFlight = false;
+    }
   }
 
   private _chatChannel(): string {

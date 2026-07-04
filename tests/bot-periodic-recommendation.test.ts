@@ -48,6 +48,15 @@ function makeConfig(): Config {
     clipSearchPublishBranch: "main",
     chatRecommendationEnabled: true,
     chatRecommendationIntervalMinutes: 60,
+    chatAiEnabled: false,
+    chatAiBaseUrl: "http://127.0.0.1:11434",
+    chatAiModel: "",
+    chatAiTimeoutMs: 8000,
+    chatAiTimeoutFallbackReply: "今ちょっとAIが混み合ってるD！",
+    chatAiKeepAlive: "30m",
+    chatAiPrewarmEnabled: false,
+    chatAiPrewarmIntervalSeconds: 600,
+    chatAiPrewarmTimeoutMs: 90_000,
     maxSummaryClipPosts: 10,
     ollamaShoutoutEnabled: false,
     ollamaBaseUrl: "http://127.0.0.1:11434",
@@ -168,6 +177,56 @@ describe("Bot periodic recommendations", () => {
     bot._startKeepAlive();
     await vi.advanceTimersByTimeAsync(7_200_000);
 
+    expect(say).not.toHaveBeenCalled();
+  });
+
+  it("prewarms the chat AI model immediately and on the configured interval", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-04T12:00:00.000Z"));
+    const config = {
+      ...makeConfig(),
+      chatAiEnabled: true,
+      chatAiBaseUrl: "http://ollama:11434",
+      chatAiModel: "qwen3.5:9b",
+      chatAiKeepAlive: "30m",
+      chatAiPrewarmEnabled: true,
+      chatAiPrewarmIntervalSeconds: 600,
+      chatAiPrewarmTimeoutMs: 90_000,
+    } as Config;
+    const bot = new Bot(config) as unknown as Bot & {
+      chatClient: { say: ReturnType<typeof vi.fn> };
+      streamLive: boolean;
+      keepAliveTimer: ReturnType<typeof setInterval> | null;
+      clipCacheStore: { close: () => void };
+      _startKeepAlive: () => void;
+    };
+    activeBot = bot;
+    const say = vi.fn().mockResolvedValue(undefined);
+    bot.chatClient = { say };
+    bot.streamLive = false;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ response: "" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+    );
+
+    bot._startKeepAlive();
+    await Promise.resolve();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchSpy.mock.calls[0]?.[1]?.body as string)).toMatchObject({
+      model: "qwen3.5:9b",
+      keep_alive: "30m",
+      options: { num_predict: 1 },
+    });
+
+    await vi.advanceTimersByTimeAsync(9 * 60 * 1000);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(90 * 1000);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(say).not.toHaveBeenCalled();
   });
 

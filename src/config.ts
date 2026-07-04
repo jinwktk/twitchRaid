@@ -17,6 +17,8 @@ const DEFAULT_CLIP_SEARCH_PUBLISH_REPO_DIR = path.resolve(
 const DEFAULT_CHAT_AI_TIMEOUT_MS = 8_000;
 const DEFAULT_CHAT_AI_TIMEOUT_FALLBACK_REPLY =
   "今ちょっとAIが混み合ってるD！";
+const DEFAULT_CHAT_AI_PREWARM_INTERVAL_SECONDS = 600;
+const DEFAULT_CHAT_AI_PREWARM_TIMEOUT_MS = 90_000;
 export const DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS = 500;
 const DEFAULT_CHAT_AI_COOLDOWN_SECONDS = 5;
 const DEFAULT_CHAT_AI_BOT_ALIASES = ["にめいやボットくん", "nyme_ia2"];
@@ -126,6 +128,9 @@ export class Config {
   readonly chatAiTimeoutMs: number;
   readonly chatAiTimeoutFallbackReply: string;
   readonly chatAiKeepAlive: string;
+  readonly chatAiPrewarmEnabled: boolean;
+  readonly chatAiPrewarmIntervalSeconds: number;
+  readonly chatAiPrewarmTimeoutMs: number;
   readonly chatAiMaxResponseChars: number;
   readonly chatAiConversationHistoryEnabled: boolean;
   readonly chatAiConversationHistoryMaxMessages: number;
@@ -291,6 +296,17 @@ export class Config {
         ? DEFAULT_CHAT_AI_TIMEOUT_FALLBACK_REPLY
         : env["CHAT_AI_TIMEOUT_FALLBACK_REPLY"].trim();
     this.chatAiKeepAlive = env["CHAT_AI_KEEP_ALIVE"]?.trim() || "30m";
+    this.chatAiPrewarmEnabled = parseEnabledFlag(
+      env["CHAT_AI_PREWARM_ENABLED"] ?? "0"
+    );
+    this.chatAiPrewarmIntervalSeconds = parsePositiveInt(
+      env["CHAT_AI_PREWARM_INTERVAL_SECONDS"],
+      DEFAULT_CHAT_AI_PREWARM_INTERVAL_SECONDS
+    );
+    this.chatAiPrewarmTimeoutMs = parsePositiveInt(
+      env["CHAT_AI_PREWARM_TIMEOUT_MS"],
+      DEFAULT_CHAT_AI_PREWARM_TIMEOUT_MS
+    );
     this.chatAiMaxResponseChars = parsePositiveInt(
       env["CHAT_AI_MAX_RESPONSE_CHARS"],
       DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS
