@@ -987,6 +987,82 @@ describe("mention chat memory store", () => {
     ).toBe("viewerの好きなもの: カレー");
   });
 
+  it("evicts older candidate sqlite memory before active memory when observed memories exceed the cap", () => {
+    const dir = createTempDir();
+    const jsonPath = path.join(dir, "chat-ai-memory.json");
+    const sqlitePath = path.join(dir, "chat-ai-memory.sqlite");
+
+    upsertMentionChatMemoryEntryStore({
+      store: "sqlite",
+      jsonPath,
+      sqlitePath,
+      key: "口調",
+      value: "短くD",
+      kind: "semantic",
+      status: "active",
+      sourceUser: "admin",
+      maxItems: 50,
+      now: () => "2026-07-04T10:00:00.000Z",
+    });
+    saveMentionChatMemoryObservationStore({
+      enabled: true,
+      store: "sqlite",
+      jsonPath,
+      sqlitePath,
+      entry: { key: "viewerの好きなもの", value: "カレー" },
+      kind: "implicit",
+      sourceUser: "viewer",
+      maxItems: 50,
+      promotionMinObservations: 2,
+      now: () => "2026-07-04T10:01:00.000Z",
+    });
+
+    const result = saveMentionChatMemoryObservationStore({
+      enabled: true,
+      store: "sqlite",
+      jsonPath,
+      sqlitePath,
+      entry: { key: "viewerの属性", value: "社会人" },
+      kind: "implicit",
+      sourceUser: "viewer",
+      maxItems: 2,
+      promotionMinObservations: 2,
+      now: () => "2026-07-04T10:02:00.000Z",
+    });
+
+    expect(result).toMatchObject({
+      saved: true,
+      reason: "observed",
+      key: "viewerの属性",
+      status: "candidate",
+    });
+    expect(
+      listMentionChatMemoryEntriesStore({
+        store: "sqlite",
+        jsonPath,
+        sqlitePath,
+        status: "all",
+      }).entries.map((entry) => ({
+        key: entry.key,
+        status: entry.status,
+      }))
+    ).toEqual([
+      { key: "viewerの属性", status: "candidate" },
+      { key: "口調", status: "active" },
+    ]);
+    expect(
+      loadMentionChatMemoryStore({
+        enabled: true,
+        store: "sqlite",
+        jsonPath,
+        sqlitePath,
+        maxItems: 8,
+        maxChars: 600,
+        queryText: "口調は？",
+      }).text
+    ).toBe("口調: 短くD");
+  });
+
   it("filters topic-mismatched sqlite memory before injecting it into Ollama context", () => {
     const dir = createTempDir();
     const jsonPath = path.join(dir, "chat-ai-memory.json");

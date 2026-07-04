@@ -763,18 +763,56 @@ function loadWritableMemoryRecord(filePath: string): MemoryRecord | null {
   return isRecord(parsed) ? parsed : null;
 }
 
+function memoryEvictionRank(status: MentionChatMemoryEntryStatus): number {
+  if (status === "candidate") return 0;
+  if (status === "inactive") return 1;
+  return 2;
+}
+
+function pickMemoryEvictionKey(
+  keys: string[],
+  keepKey: string,
+  rankByKey: (key: string) => number
+): string {
+  const keepRank = rankByKey(keepKey);
+  return (
+    keys.find((key) => key !== keepKey && rankByKey(key) <= keepRank) ?? keys[0]
+  );
+}
+
+function sortedMemoryRecordKeysForEviction(
+  record: MemoryRecord,
+  meta: Record<string, MemoryMetadata>
+): string[] {
+  return Object.keys(record)
+    .filter((key) => !RESERVED_MEMORY_KEYS.has(key))
+    .sort((a, b) => {
+      const aMeta = meta[a];
+      const bMeta = meta[b];
+      const statusDiff =
+        memoryEvictionRank(normalizeMemoryStatus(aMeta?.status)) -
+        memoryEvictionRank(normalizeMemoryStatus(bMeta?.status));
+      if (statusDiff !== 0) return statusDiff;
+      const timeDiff =
+        parseTime(aMeta?.updatedAt ?? aMeta?.createdAt) -
+        parseTime(bMeta?.updatedAt ?? bMeta?.createdAt);
+      if (timeDiff !== 0) return timeDiff;
+      return a.localeCompare(b);
+    });
+}
+
 function capMemoryRecord(record: MemoryRecord, maxItems: number, keepKey: string): void {
   if (maxItems <= 0) return;
   const meta = metadataRecord(record);
 
-  let keys = Object.keys(record).filter(
-    (key) => !RESERVED_MEMORY_KEYS.has(key)
-  );
+  let keys = sortedMemoryRecordKeysForEviction(record, meta);
   while (keys.length > maxItems) {
-    const deleteKey = keys.find((key) => key !== keepKey) ?? keys[0];
+    const deleteKey = pickMemoryEvictionKey(keys, keepKey, (key) =>
+      memoryEvictionRank(normalizeMemoryStatus(meta[key]?.status))
+    );
     delete record[deleteKey];
     delete meta[deleteKey];
-    keys = Object.keys(record).filter((key) => !RESERVED_MEMORY_KEYS.has(key));
+    keys = sortedMemoryRecordKeysForEviction(record, meta);
   }
   if (Object.keys(meta).length > 0) {
     record[MEMORY_META_KEY] = meta;
@@ -1218,24 +1256,37 @@ function capSqliteMemoryRows(
 ): void {
   if (maxItems <= 0) return;
 
-  let keys = db
+  let rows = db
     .prepare(
       `
-      SELECT key
+      SELECT key, status
       FROM mention_chat_memory
-      ORDER BY updated_at ASC, key ASC
+      ORDER BY
+        CASE status
+          WHEN 'candidate' THEN 0
+          WHEN 'inactive' THEN 1
+          ELSE 2
+        END ASC,
+        updated_at ASC,
+        key ASC
     `
     )
-    .all()
-    .map((row) => (row as { key: string }).key);
+    .all() as unknown as Array<{ key: string; status: string }>;
 
   const deleteStatement = db.prepare(
     "DELETE FROM mention_chat_memory WHERE key = ?"
   );
-  while (keys.length > maxItems) {
-    const deleteKey = keys.find((key) => key !== keepKey) ?? keys[0];
+  while (rows.length > maxItems) {
+    const deleteKey = pickMemoryEvictionKey(
+      rows.map((row) => row.key),
+      keepKey,
+      (key) => {
+        const row = rows.find((candidate) => candidate.key === key);
+        return memoryEvictionRank(normalizeMemoryStatus(row?.status));
+      }
+    );
     deleteStatement.run(deleteKey);
-    keys = keys.filter((key) => key !== deleteKey);
+    rows = rows.filter((row) => row.key !== deleteKey);
   }
 }
 
