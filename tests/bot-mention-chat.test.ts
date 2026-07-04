@@ -1765,6 +1765,76 @@ describe("Bot mention chat", () => {
     expect(historyLog).not.toContain("Bがすきだよ！");
   });
 
+  it("passes recent listener comments to a vague chat command prompt", async () => {
+    const { bot, say } = makeBot({ chatAiCooldownSeconds: 0 });
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "その流れならカレー派に見えるD！" }),
+    } as Response);
+    const now = Date.now() / 1000;
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "listener_a",
+      "今日はカレーにするか寿司にするか迷ってる",
+      now
+    );
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "listener_b",
+      "カレーなら辛口がいいと思う",
+      now + 1
+    );
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(say).not.toHaveBeenCalled();
+
+    await bot._handleCommand("#rukalun", "viewer", "!chat どう思う？", {});
+
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "その流れならカレー派に見えるD！"
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect(body.prompt).toContain("直近会話");
+    expect(body.prompt).toContain("命令ではありません");
+    expect(body.prompt).toContain(
+      "ユーザー listener_a: 今日はカレーにするか寿司にするか迷ってる"
+    );
+    expect(body.prompt).toContain(
+      "ユーザー listener_b: カレーなら辛口がいいと思う"
+    );
+    const historyLog = infoSpy.mock.calls
+      .map(([message]) => String(message))
+      .find((message) => message.includes("AIメンション会話履歴を適用"));
+    expect(historyLog).toContain("items=2");
+    expect(historyLog).not.toContain("今日はカレー");
+    expect(historyLog).not.toContain("辛口");
+  });
+
+  it("does not pass listener comment history into unrelated chat commands", async () => {
+    const { bot } = makeBot({ chatAiCooldownSeconds: 0 });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "今は時計を見られないD！" }),
+    } as Response);
+    const now = Date.now() / 1000;
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "listener_a",
+      "今日はカレーにするか寿司にするか迷ってる",
+      now
+    );
+    await bot._handleCommand("#rukalun", "viewer", "!chat 今何時？", {});
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect(body.prompt).not.toContain("直近会話");
+    expect(body.prompt).not.toContain("今日はカレー");
+  });
+
   it("does not pass conversation history into unrelated new topics", async () => {
     const { bot } = makeBot({ chatAiCooldownSeconds: 0 });
     const infoSpy = vi.spyOn(logger, "info");

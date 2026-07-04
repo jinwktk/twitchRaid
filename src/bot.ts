@@ -221,6 +221,9 @@ interface MentionChatConversationHistoryText {
   charCount: number;
 }
 
+const UNSAFE_MENTION_CHAT_CONVERSATION_CONTEXT_PATTERN =
+  /https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|\b(?:token|secret|password|passwd|api[\s_-]?key|access[\s_-]?token|refresh[\s_-]?token)\b|apiキー|トークン|アクセストークン|リフレッシュトークン|シークレット|認証情報|認証|パスワード|秘密鍵|秘密|前の指示|上の指示|以前の指示|指示を無視|命令を無視|ルールを無視|システムプロンプト|プロンプトを表示|内部設定|developer message|system prompt|ignore (?:all )?(?:previous|above) instructions/iu;
+
 function normalizeMentionChatConversationKey(channel: string): string {
   return channel.trim().toLowerCase();
 }
@@ -293,6 +296,17 @@ function shouldApplyMentionChatConversationHistory(promptText: string): boolean 
   const prompt = normalizeMentionChatConversationText(promptText);
   if (!prompt) return false;
 
+  if (
+    /^(?:どう思う|どうおもう|どうかな|どうですか|どうだと思う)[？?。!！\s]*$/u.test(
+      prompt
+    ) ||
+    /^(?:これ|それ|あれ|この話|その話|今の|さっきの)(?:って|は|を)?どう(?:思う|おもう|かな|ですか)[？?。!！\s]*$/u.test(
+      prompt
+    )
+  ) {
+    return true;
+  }
+
   if (/^(?:続き|さらに続き|それで|じゃあ|で、)/u.test(prompt)) {
     return true;
   }
@@ -304,6 +318,12 @@ function shouldApplyMentionChatConversationHistory(promptText: string): boolean 
     return true;
   }
   return /^(?:それ|これ|あれ|そこ|ここ)(?:[はがをのってで]|$)/u.test(prompt);
+}
+
+function isSafeMentionChatConversationContextText(text: string): boolean {
+  const normalized = normalizeMentionChatConversationText(text);
+  if (!normalized) return false;
+  return !UNSAFE_MENTION_CHAT_CONVERSATION_CONTEXT_PATTERN.test(normalized);
 }
 
 export class Bot {
@@ -593,6 +613,7 @@ export class Bot {
       userDisplayName
     );
     if (!handledMentionChat) {
+      this._recordStreamCommentConversationHistory(channel, user, text, now);
       this._scheduleStreamCommentMemorySave(user, text);
     }
   }
@@ -1036,6 +1057,35 @@ export class Bot {
         role: "bot" as const,
         userName: this.config.loginChannel,
         text: reply,
+        createdAt: now,
+      },
+    ].slice(
+      -Math.max(1, this.config.chatAiConversationHistoryMaxMessages ?? 6)
+    );
+    this.mentionChatConversationHistory.set(key, nextEntries);
+  }
+
+  private _recordStreamCommentConversationHistory(
+    channel: string,
+    user: string,
+    text: string,
+    now: number
+  ): void {
+    if (!(this.config.chatAiConversationHistoryEnabled ?? true)) return;
+    if (!isSafeMentionChatConversationContextText(text)) return;
+
+    const userName = normalizeMentionChatUserName(user);
+    if (!userName) return;
+    if ((this.config.chatAiIgnoredUsers ?? []).includes(userName)) return;
+
+    const key = normalizeMentionChatConversationKey(channel);
+    const entries = this.mentionChatConversationHistory.get(key) ?? [];
+    const nextEntries = [
+      ...entries,
+      {
+        role: "user" as const,
+        userName,
+        text,
         createdAt: now,
       },
     ].slice(
