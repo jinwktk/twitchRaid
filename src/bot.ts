@@ -4,7 +4,11 @@ import { RefreshingAuthProvider } from "@twurple/auth";
 import { DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS, type Config } from "./config";
 import logger from "./utils/logger";
 import { StreamTitleNotifier } from "./notifications/stream-notifications";
-import type { DiscordWebhookPayload } from "./notifications/discord-webhook";
+import {
+  executeDiscordWebhook,
+  sendDiscordBotMessage,
+  type DiscordWebhookPayload,
+} from "./notifications/discord-webhook";
 import { ClipRecastNotifier } from "./notifications/clip-recast-notifier";
 import { PeriodicRecommendationNotifier } from "./notifications/periodic-recommendation-notifier";
 import { CommentSpeedMeter } from "./chat/comment-speed-meter";
@@ -84,6 +88,12 @@ import {
   loadMentionChatMem0Memory,
   saveMentionChatMem0Memory,
 } from "./commands/mention-chat-mem0";
+import {
+  buildBotRequestNotesDigest,
+  extractBotRequestNote,
+  markBotRequestNotesDigestSent,
+  saveBotRequestNoteObservationStore,
+} from "./commands/bot-request-notes";
 import {
   fetchMentionChatSearchContext,
   shouldSearchMentionChat,
@@ -435,6 +445,7 @@ export class Bot {
   private lastMentionChatAttemptAt = 0;
   private lastChatAiPrewarmAt = 0;
   private chatAiPrewarmInFlight = false;
+  private botRequestNotesDigestInFlight = false;
   private streamClipPostRunning = false;
   private streamClipPostRerunRequested = false;
   private streamClipPostRerunAt: Date | null = null;
@@ -691,6 +702,7 @@ export class Bot {
     if (!handledMentionChat) {
       this._recordStreamCommentConversationHistory(channel, user, text, now);
       this._scheduleStreamCommentMemorySave(user, text);
+      this._scheduleBotRequestNoteSave(user, text);
     }
   }
 
@@ -706,6 +718,7 @@ export class Bot {
       this.config.chatAiBotAliases ?? [this.config.loginChannel]
     );
     if (!match) return false;
+    this._scheduleBotRequestNoteSave(user, match.prompt);
     if (!(this.config.chatAiEnabled ?? false)) return true;
 
     await this._enqueueMentionChatRequest({
@@ -731,6 +744,7 @@ export class Bot {
       await this.chatClient.say(channel, CHAT_AI_COMMAND_USAGE);
       return;
     }
+    this._scheduleBotRequestNoteSave(user, normalizedPrompt);
     if (!(this.config.chatAiEnabled ?? false)) return;
 
     await this._enqueueMentionChatRequest({
@@ -957,6 +971,36 @@ export class Bot {
           logger.error(`❌ 配信コメント由来メモ保存に失敗しました: ${e}`);
         }
       })();
+    }, 0);
+  }
+
+  private _scheduleBotRequestNoteSave(user: string, text: string): void {
+    if (!(this.config.botRequestNotesEnabled ?? false)) return;
+
+    const sourceUser = normalizeMentionChatUserName(user);
+    if (!sourceUser) return;
+    if ((this.config.chatAiIgnoredUsers ?? []).includes(sourceUser)) return;
+
+    setTimeout(() => {
+      try {
+        const entry = extractBotRequestNote(text, { sourceUser });
+        if (!entry) return;
+
+        const result = saveBotRequestNoteObservationStore({
+          enabled: true,
+          dbPath: this.config.botRequestNotesDbPath ?? "",
+          entry,
+        });
+        if (result.saved) {
+          logger.info(
+            `Bot要望メモを保存: result=${result.reason}, id=${result.note?.id ?? "unknown"}, observations=${result.note?.observedCount ?? 1}`
+          );
+        } else {
+          logger.info(`Bot要望メモ保存をスキップ: reason=${result.reason}`);
+        }
+      } catch (e) {
+        logger.error(`❌ Bot要望メモ保存に失敗しました: ${e}`);
+      }
     }, 0);
   }
 
@@ -2185,6 +2229,8 @@ export class Bot {
           }
         }
 
+        await this._sendBotRequestNotesDigestIfDue(now);
+
         if (this._shouldPrewarmChatAiModel(now)) {
           void this._prewarmChatAiModel("interval");
         }
@@ -2240,6 +2286,58 @@ export class Bot {
       }
     } finally {
       this.chatAiPrewarmInFlight = false;
+    }
+  }
+
+  private async _sendBotRequestNotesDigestIfDue(now: number): Promise<void> {
+    if (!(this.config.botRequestNotesEnabled ?? false)) return;
+    if (!(this.config.botRequestNotesDigestEnabled ?? false)) return;
+    if (this.botRequestNotesDigestInFlight) return;
+
+    const nowIso = new Date(now * 1000).toISOString();
+    const digest = buildBotRequestNotesDigest({
+      enabled: true,
+      dbPath: this.config.botRequestNotesDbPath ?? "",
+      intervalHours: this.config.botRequestNotesDigestIntervalHours ?? 168,
+      maxItems: this.config.botRequestNotesDigestMaxItems ?? 10,
+      now: () => nowIso,
+    });
+    if (!digest.shouldSend || !digest.message) return;
+
+    const channelId =
+      this.config.botRequestNotesDiscordChannelId ||
+      this.config.discordSummaryChannelId;
+    const botToken = this.config.discordBotToken;
+    const webhookUrl = this.config.discordWebhookUrl;
+    if (!botToken && !webhookUrl) {
+      logger.info("Bot要望メモdigest送信をスキップ: reason=missing_discord");
+      return;
+    }
+
+    this.botRequestNotesDigestInFlight = true;
+    try {
+      if (botToken && channelId) {
+        await sendDiscordBotMessage({
+          botToken,
+          channelId,
+          content: digest.message,
+        });
+      } else if (webhookUrl) {
+        await executeDiscordWebhook(webhookUrl, { content: digest.message });
+      } else {
+        logger.info("Bot要望メモdigest送信をスキップ: reason=missing_channel");
+        return;
+      }
+
+      markBotRequestNotesDigestSent({
+        dbPath: this.config.botRequestNotesDbPath ?? "",
+        sentAt: nowIso,
+      });
+      logger.info(`Bot要望メモdigestを送信: items=${digest.itemCount}`);
+    } catch (e) {
+      logger.warn(`⚠️ Bot要望メモdigest送信に失敗しました: ${e}`);
+    } finally {
+      this.botRequestNotesDigestInFlight = false;
     }
   }
 

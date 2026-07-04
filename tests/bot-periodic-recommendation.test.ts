@@ -4,6 +4,10 @@ import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Config } from "../src/config";
 import { Bot } from "../src/bot";
+import {
+  extractBotRequestNote,
+  saveBotRequestNoteObservationStore,
+} from "../src/commands/bot-request-notes";
 
 let tmpDir: string | null = null;
 let activeBot:
@@ -48,6 +52,12 @@ function makeConfig(): Config {
     clipSearchPublishBranch: "main",
     chatRecommendationEnabled: true,
     chatRecommendationIntervalMinutes: 60,
+    botRequestNotesEnabled: false,
+    botRequestNotesDbPath: path.join(tmpDir, "bot-request-notes.sqlite"),
+    botRequestNotesDigestEnabled: false,
+    botRequestNotesDigestIntervalHours: 168,
+    botRequestNotesDigestMaxItems: 10,
+    botRequestNotesDiscordChannelId: "",
     chatAiEnabled: false,
     chatAiBaseUrl: "http://127.0.0.1:11434",
     chatAiModel: "",
@@ -228,6 +238,60 @@ describe("Bot periodic recommendations", () => {
     await vi.advanceTimersByTimeAsync(90 * 1000);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(say).not.toHaveBeenCalled();
+  });
+
+  it("posts a bot request note digest through Discord when due", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T00:00:00.000Z"));
+    const config = {
+      ...makeConfig(),
+      discordWebhookUrl: "https://discord.com/api/webhooks/123/token",
+      botRequestNotesEnabled: true,
+      botRequestNotesDigestEnabled: true,
+      botRequestNotesDigestIntervalHours: 168,
+      botRequestNotesDigestMaxItems: 10,
+    } as Config;
+    const entry = extractBotRequestNote(
+      "BotでRaid挨拶を再生成できるようにしてほしい",
+      { sourceUser: "viewer" }
+    );
+    expect(entry).not.toBeNull();
+    saveBotRequestNoteObservationStore({
+      enabled: true,
+      dbPath: config.botRequestNotesDbPath,
+      entry: entry!,
+      now: () => "2026-07-05T00:00:00.000Z",
+    });
+    const bot = new Bot(config) as unknown as Bot & {
+      chatClient: { say: ReturnType<typeof vi.fn> };
+      streamLive: boolean;
+      keepAliveTimer: ReturnType<typeof setInterval> | null;
+      clipCacheStore: { close: () => void };
+      _startKeepAlive: () => void;
+    };
+    activeBot = bot;
+    bot.chatClient = { say: vi.fn().mockResolvedValue(undefined) };
+    bot.streamLive = false;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("{}", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+
+    bot._startKeepAlive();
+    await vi.advanceTimersByTimeAsync(45_000);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toBe(
+      "https://discord.com/api/webhooks/123/token"
+    );
+    expect(JSON.parse(fetchSpy.mock.calls[0][1]?.body as string)).toMatchObject({
+      content: expect.stringContaining("Bot要望メモ未対応"),
+    });
+
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it("waits one interval after a new stream starts before posting", async () => {

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Config } from "../src/config";
 import { Bot, formatCommandDetectionLogText } from "../src/bot";
 import logger from "../src/utils/logger";
+import { listBotRequestNotesStore } from "../src/commands/bot-request-notes";
 
 let tmpDir: string | null = null;
 
@@ -91,6 +92,12 @@ function makeConfig(
     chatAiCommentMemoryEnabled: false,
     chatAiCommentMemoryMaxEntriesPerMessage: 2,
     chatAiCommentMemoryDedupTtlSeconds: 21600,
+    botRequestNotesEnabled: false,
+    botRequestNotesDbPath: path.join(dir, "bot-request-notes.sqlite"),
+    botRequestNotesDigestEnabled: false,
+    botRequestNotesDigestIntervalHours: 168,
+    botRequestNotesDigestMaxItems: 10,
+    botRequestNotesDiscordChannelId: "",
     chatAiBotAliases: ["rukalun"],
     chatAiCooldownSeconds: 5,
     chatAiIgnoredUsers: ["rukalun"],
@@ -1746,6 +1753,110 @@ describe("Bot mention chat", () => {
       expect(call[0]).not.toContain("カレー");
       expect(call[0]).not.toContain("社会人");
     }
+  });
+
+  it("stores bot request notes from regular comments without chat or Ollama calls", async () => {
+    vi.useFakeTimers();
+    const dir = ensureTempDir();
+    const requestDbPath = path.join(dir, "bot-request-notes.sqlite");
+    const { bot, say } = makeBot({
+      botRequestNotesEnabled: true,
+      botRequestNotesDbPath: requestDbPath,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "Botでおみくじ履歴を見られるようにしてほしい",
+      100
+    );
+
+    expect(say).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fs.existsSync(requestDbPath)).toBe(false);
+
+    await vi.runOnlyPendingTimersAsync();
+
+    const notes = listBotRequestNotesStore({ dbPath: requestDbPath });
+    expect(notes).toMatchObject({
+      totalCount: 1,
+      openCount: 1,
+      entries: [
+        {
+          status: "pending",
+          category: "feature",
+          sourceUser: "viewer",
+          summary: "Botでおみくじ履歴を見られるようにしてほしい",
+        },
+      ],
+    });
+    expect(say).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("stores bot request notes from bot mentions even when chat AI is disabled", async () => {
+    vi.useFakeTimers();
+    const dir = ensureTempDir();
+    const requestDbPath = path.join(dir, "mention-request-notes.sqlite");
+    const { bot, say } = makeBot({
+      chatAiEnabled: false,
+      botRequestNotesEnabled: true,
+      botRequestNotesDbPath: requestDbPath,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun Botの返答をあとで評価できるようにしてほしい",
+      100
+    );
+    await vi.runOnlyPendingTimersAsync();
+
+    const notes = listBotRequestNotesStore({ dbPath: requestDbPath });
+    expect(notes.entries[0]).toMatchObject({
+      category: "feature",
+      sourceUser: "viewer",
+      summary: "Botの返答をあとで評価できるようにしてほしい",
+    });
+    expect(say).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("stores bot request notes from !chat without adding extra Ollama calls", async () => {
+    vi.useFakeTimers();
+    const dir = ensureTempDir();
+    const requestDbPath = path.join(dir, "chat-request-notes.sqlite");
+    const { bot, say } = makeBot({
+      botRequestNotesEnabled: true,
+      botRequestNotesDbPath: requestDbPath,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "メモしたわけじゃないけど考えるD！" }),
+    } as Response);
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat BotでRaid挨拶を再生成できるようにしてほしい",
+      {}
+    );
+    await vi.runOnlyPendingTimersAsync();
+
+    const notes = listBotRequestNotesStore({ dbPath: requestDbPath });
+    expect(notes.entries[0]).toMatchObject({
+      category: "feature",
+      sourceUser: "viewer",
+      summary: "BotでRaid挨拶を再生成できるようにしてほしい",
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(String(fetchSpy.mock.calls[0][0])).toMatch(/\/api\/generate$/u);
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "メモしたわけじゃないけど考えるD！"
+    );
   });
 
   it("does not double-store bot mention messages as regular stream comments", async () => {

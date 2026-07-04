@@ -295,6 +295,12 @@ CHAT_AI_AUTO_LEARN_MAX_VALUE_CHARS=80
 CHAT_AI_AUTO_LEARN_MAX_ITEMS=30
 CHAT_AI_PROMPT_REPLY_LOG_ENABLED=true
 CHAT_REPLY_EMOTES= rukkaHi, @rukkaGG, ＠rukkaHi, RukkaNice
+BOT_REQUEST_NOTES_ENABLED=true
+BOT_REQUEST_NOTES_DB_PATH=data/custom-bot-request-notes.sqlite
+BOT_REQUEST_NOTES_DIGEST_ENABLED=true
+BOT_REQUEST_NOTES_DIGEST_INTERVAL_HOURS=24
+BOT_REQUEST_NOTES_DIGEST_MAX_ITEMS=5
+BOT_REQUEST_NOTES_DISCORD_CHANNEL_ID=bot-request-channel
 `);
 
     const config = new Config(envPath);
@@ -365,6 +371,14 @@ CHAT_REPLY_EMOTES= rukkaHi, @rukkaGG, ＠rukkaHi, RukkaNice
       "rukkaGG",
       "RukkaNice",
     ]);
+    expect(config.botRequestNotesEnabled).toBe(true);
+    expect(config.botRequestNotesDbPath).toBe(
+      path.resolve("data/custom-bot-request-notes.sqlite")
+    );
+    expect(config.botRequestNotesDigestEnabled).toBe(true);
+    expect(config.botRequestNotesDigestIntervalHours).toBe(24);
+    expect(config.botRequestNotesDigestMaxItems).toBe(5);
+    expect(config.botRequestNotesDiscordChannelId).toBe("bot-request-channel");
   });
 
   it("keeps chat AI disabled by default", () => {
@@ -399,6 +413,14 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiCommentMemoryEnabled).toBe(false);
     expect(config.chatAiCommentMemoryMaxEntriesPerMessage).toBe(2);
     expect(config.chatAiCommentMemoryDedupTtlSeconds).toBe(21600);
+    expect(config.botRequestNotesEnabled).toBe(false);
+    expect(config.botRequestNotesDbPath).toBe(
+      path.resolve("data/bot-request-notes.sqlite")
+    );
+    expect(config.botRequestNotesDigestEnabled).toBe(false);
+    expect(config.botRequestNotesDigestIntervalHours).toBe(168);
+    expect(config.botRequestNotesDigestMaxItems).toBe(10);
+    expect(config.botRequestNotesDiscordChannelId).toBe("");
     expect(config.chatAiBotAliases).toEqual(["にめいやボットくん", "nyme_ia2"]);
     expect(config.chatAiCooldownSeconds).toBe(5);
     expect(config.chatAiIgnoredUsers).toEqual(["nyme_ia2"]);

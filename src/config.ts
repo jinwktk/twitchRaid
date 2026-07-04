@@ -28,6 +28,8 @@ const DEFAULT_CHAT_AI_CONVERSATION_HISTORY_MAX_CHARS = 1_000;
 const DEFAULT_CHAT_AI_CONVERSATION_HISTORY_TTL_SECONDS = 1_800;
 const DEFAULT_CHAT_AI_COMMENT_MEMORY_MAX_ENTRIES_PER_MESSAGE = 2;
 const DEFAULT_CHAT_AI_COMMENT_MEMORY_DEDUP_TTL_SECONDS = 21_600;
+const DEFAULT_BOT_REQUEST_NOTES_DIGEST_INTERVAL_HOURS = 168;
+const DEFAULT_BOT_REQUEST_NOTES_DIGEST_MAX_ITEMS = 10;
 const DEFAULT_CHAT_AI_MEMORY_MAX_ITEMS = 8;
 const DEFAULT_CHAT_AI_MEMORY_MAX_CHARS = 600;
 const DEFAULT_CHAT_AI_MEMORY_PROMOTION_MIN_OBSERVATIONS = 2;
@@ -139,6 +141,12 @@ export class Config {
   readonly chatAiCommentMemoryEnabled: boolean;
   readonly chatAiCommentMemoryMaxEntriesPerMessage: number;
   readonly chatAiCommentMemoryDedupTtlSeconds: number;
+  readonly botRequestNotesEnabled: boolean;
+  readonly botRequestNotesDbPath: string;
+  readonly botRequestNotesDigestEnabled: boolean;
+  readonly botRequestNotesDigestIntervalHours: number;
+  readonly botRequestNotesDigestMaxItems: number;
+  readonly botRequestNotesDiscordChannelId: string;
   readonly chatAiBotAliases: string[];
   readonly chatAiCooldownSeconds: number;
   readonly chatAiIgnoredUsers: string[];
@@ -337,6 +345,27 @@ export class Config {
       env["CHAT_AI_COMMENT_MEMORY_DEDUP_TTL_SECONDS"],
       DEFAULT_CHAT_AI_COMMENT_MEMORY_DEDUP_TTL_SECONDS
     );
+    this.botRequestNotesEnabled = parseEnabledFlag(
+      env["BOT_REQUEST_NOTES_ENABLED"] ?? "0"
+    );
+    this.botRequestNotesDbPath = path.resolve(
+      BASE_DIR,
+      env["BOT_REQUEST_NOTES_DB_PATH"] ?? "data/bot-request-notes.sqlite"
+    );
+    this.botRequestNotesDigestEnabled = parseEnabledFlag(
+      env["BOT_REQUEST_NOTES_DIGEST_ENABLED"] ?? "0"
+    );
+    this.botRequestNotesDigestIntervalHours = parsePositiveInt(
+      env["BOT_REQUEST_NOTES_DIGEST_INTERVAL_HOURS"],
+      DEFAULT_BOT_REQUEST_NOTES_DIGEST_INTERVAL_HOURS
+    );
+    this.botRequestNotesDigestMaxItems = parsePositiveInt(
+      env["BOT_REQUEST_NOTES_DIGEST_MAX_ITEMS"],
+      DEFAULT_BOT_REQUEST_NOTES_DIGEST_MAX_ITEMS
+    );
+    this.botRequestNotesDiscordChannelId =
+      env["BOT_REQUEST_NOTES_DISCORD_CHANNEL_ID"]?.trim() ||
+      this.discordSummaryChannelId;
     this.chatAiBotAliases = parseNameList(
       env["CHAT_AI_BOT_ALIASES"],
       DEFAULT_CHAT_AI_BOT_ALIASES
