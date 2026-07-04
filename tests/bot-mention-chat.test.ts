@@ -88,6 +88,9 @@ function makeConfig(
     chatAiConversationHistoryMaxMessages: 6,
     chatAiConversationHistoryMaxChars: 1000,
     chatAiConversationHistoryTtlSeconds: 1800,
+    chatAiCommentMemoryEnabled: false,
+    chatAiCommentMemoryMaxEntriesPerMessage: 2,
+    chatAiCommentMemoryDedupTtlSeconds: 21600,
     chatAiBotAliases: ["rukalun"],
     chatAiCooldownSeconds: 5,
     chatAiIgnoredUsers: ["rukalun"],
@@ -1548,6 +1551,120 @@ describe("Bot mention chat", () => {
     expect(infoSpy).toHaveBeenCalledWith(
       "AIメンション会話mem0メモを保存: result=saved"
     );
+  });
+
+  it("stores safe regular stream comments to sqlite and mem0 without replying or calling Ollama", async () => {
+    vi.useFakeTimers();
+    const dir = ensureTempDir();
+    const memoryDbPath = path.join(dir, "comment-memory.sqlite");
+    const { bot, say } = makeBot({
+      chatAiEnabled: true,
+      chatAiAutoLearnEnabled: true,
+      chatAiImplicitMemoryEnabled: true,
+      chatAiCommentMemoryEnabled: true,
+      chatAiCommentMemoryMaxEntriesPerMessage: 2,
+      chatAiMemoryStore: "sqlite",
+      chatAiMemoryDbPath: memoryDbPath,
+      chatAiMemoryWriterUsers: ["all"],
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiMem0ApiKey: "mem0-key",
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ results: [{ id: "mem0-1" }] }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "私はカレーが好き。私は社会人だよ",
+      100
+    );
+
+    expect(say).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fs.existsSync(memoryDbPath)).toBe(false);
+
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(say).not.toHaveBeenCalled();
+    expect(fs.existsSync(memoryDbPath)).toBe(true);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls.map(([input]) => String(input))).toEqual([
+      "http://mem0:8888/memories",
+      "http://mem0:8888/memories",
+    ]);
+    const mem0Bodies = fetchSpy.mock.calls.map(([, init]) =>
+      JSON.parse(init?.body as string)
+    );
+    expect(mem0Bodies).toMatchObject([
+      {
+        messages: [{ role: "user", content: "viewerの好きなもの: カレー" }],
+        infer: false,
+        metadata: {
+          key: "viewerの好きなもの",
+          kind: "implicit",
+          sourceUser: "viewer",
+          source: "twitchRaid",
+        },
+      },
+      {
+        messages: [{ role: "user", content: "viewer: 社会人" }],
+        infer: false,
+        metadata: {
+          key: "viewer",
+          kind: "implicit",
+          sourceUser: "viewer",
+          source: "twitchRaid",
+        },
+      },
+    ]);
+    expect(
+      infoSpy.mock.calls.filter(([message]) =>
+        String(message).includes("配信コメント由来メモを保存")
+      )
+    ).toHaveLength(2);
+    expect(
+      infoSpy.mock.calls.filter(([message]) =>
+        String(message).includes("配信コメント由来mem0メモを保存: result=saved")
+      )
+    ).toHaveLength(2);
+    for (const call of infoSpy.mock.calls) {
+      expect(call[0]).not.toContain("カレー");
+      expect(call[0]).not.toContain("社会人");
+    }
+  });
+
+  it("does not double-store bot mention messages as regular stream comments", async () => {
+    vi.useFakeTimers();
+    const { bot, say } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiAutoLearnEnabled: true,
+      chatAiImplicitMemoryEnabled: true,
+      chatAiCommentMemoryEnabled: true,
+      chatAiMemoryWriterUsers: ["all"],
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "覚えたD！" }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 私はカレーが好き",
+      100
+    );
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(say).toHaveBeenCalledWith("#rukalun", "覚えたD！");
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(String(fetchSpy.mock.calls[0][0])).toMatch(/\/api\/generate$/u);
+    expect(String(fetchSpy.mock.calls[1][0])).toBe("http://mem0:8888/memories");
   });
 
   it("does not consume normal AI cooldown for memory fixed replies", async () => {

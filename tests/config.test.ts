@@ -248,6 +248,9 @@ CHAT_AI_CONVERSATION_HISTORY_ENABLED=false
 CHAT_AI_CONVERSATION_HISTORY_MAX_MESSAGES=4
 CHAT_AI_CONVERSATION_HISTORY_MAX_CHARS=320
 CHAT_AI_CONVERSATION_HISTORY_TTL_SECONDS=900
+CHAT_AI_COMMENT_MEMORY_ENABLED=true
+CHAT_AI_COMMENT_MEMORY_MAX_ENTRIES_PER_MESSAGE=3
+CHAT_AI_COMMENT_MEMORY_DEDUP_TTL_SECONDS=120
 CHAT_AI_BOT_ALIASES=＠RukalunBot,@Rukalun
 CHAT_AI_COOLDOWN_SECONDS=30
 CHAT_AI_IGNORED_USERS=＠RukalunBot,nightbot
@@ -303,6 +306,9 @@ CHAT_REPLY_EMOTES= rukkaHi, @rukkaGG, ＠rukkaHi, RukkaNice
     expect(config.chatAiConversationHistoryMaxMessages).toBe(4);
     expect(config.chatAiConversationHistoryMaxChars).toBe(320);
     expect(config.chatAiConversationHistoryTtlSeconds).toBe(900);
+    expect(config.chatAiCommentMemoryEnabled).toBe(true);
+    expect(config.chatAiCommentMemoryMaxEntriesPerMessage).toBe(3);
+    expect(config.chatAiCommentMemoryDedupTtlSeconds).toBe(120);
     expect(config.chatAiBotAliases).toEqual(["rukalunbot", "rukalun"]);
     expect(config.chatAiCooldownSeconds).toBe(30);
     expect(config.chatAiIgnoredUsers).toEqual(["rukalunbot", "nightbot"]);
@@ -379,6 +385,9 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiConversationHistoryMaxMessages).toBe(6);
     expect(config.chatAiConversationHistoryMaxChars).toBe(1000);
     expect(config.chatAiConversationHistoryTtlSeconds).toBe(1800);
+    expect(config.chatAiCommentMemoryEnabled).toBe(false);
+    expect(config.chatAiCommentMemoryMaxEntriesPerMessage).toBe(2);
+    expect(config.chatAiCommentMemoryDedupTtlSeconds).toBe(21600);
     expect(config.chatAiBotAliases).toEqual(["にめいやボットくん", "nyme_ia2"]);
     expect(config.chatAiCooldownSeconds).toBe(5);
     expect(config.chatAiIgnoredUsers).toEqual(["nyme_ia2"]);

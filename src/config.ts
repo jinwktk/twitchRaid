@@ -24,6 +24,8 @@ const DEFAULT_CHAT_AI_IGNORED_USERS = ["nyme_ia2"];
 const DEFAULT_CHAT_AI_CONVERSATION_HISTORY_MAX_MESSAGES = 6;
 const DEFAULT_CHAT_AI_CONVERSATION_HISTORY_MAX_CHARS = 1_000;
 const DEFAULT_CHAT_AI_CONVERSATION_HISTORY_TTL_SECONDS = 1_800;
+const DEFAULT_CHAT_AI_COMMENT_MEMORY_MAX_ENTRIES_PER_MESSAGE = 2;
+const DEFAULT_CHAT_AI_COMMENT_MEMORY_DEDUP_TTL_SECONDS = 21_600;
 const DEFAULT_CHAT_AI_MEMORY_MAX_ITEMS = 8;
 const DEFAULT_CHAT_AI_MEMORY_MAX_CHARS = 600;
 const DEFAULT_CHAT_AI_MEM0_TIMEOUT_MS = 1_200;
@@ -128,6 +130,9 @@ export class Config {
   readonly chatAiConversationHistoryMaxMessages: number;
   readonly chatAiConversationHistoryMaxChars: number;
   readonly chatAiConversationHistoryTtlSeconds: number;
+  readonly chatAiCommentMemoryEnabled: boolean;
+  readonly chatAiCommentMemoryMaxEntriesPerMessage: number;
+  readonly chatAiCommentMemoryDedupTtlSeconds: number;
   readonly chatAiBotAliases: string[];
   readonly chatAiCooldownSeconds: number;
   readonly chatAiIgnoredUsers: string[];
@@ -302,6 +307,17 @@ export class Config {
     this.chatAiConversationHistoryTtlSeconds = parsePositiveInt(
       env["CHAT_AI_CONVERSATION_HISTORY_TTL_SECONDS"],
       DEFAULT_CHAT_AI_CONVERSATION_HISTORY_TTL_SECONDS
+    );
+    this.chatAiCommentMemoryEnabled = parseEnabledFlag(
+      env["CHAT_AI_COMMENT_MEMORY_ENABLED"] ?? "0"
+    );
+    this.chatAiCommentMemoryMaxEntriesPerMessage = parsePositiveInt(
+      env["CHAT_AI_COMMENT_MEMORY_MAX_ENTRIES_PER_MESSAGE"],
+      DEFAULT_CHAT_AI_COMMENT_MEMORY_MAX_ENTRIES_PER_MESSAGE
+    );
+    this.chatAiCommentMemoryDedupTtlSeconds = parsePositiveInt(
+      env["CHAT_AI_COMMENT_MEMORY_DEDUP_TTL_SECONDS"],
+      DEFAULT_CHAT_AI_COMMENT_MEMORY_DEDUP_TTL_SECONDS
     );
     this.chatAiBotAliases = parseNameList(
       env["CHAT_AI_BOT_ALIASES"],

@@ -41,6 +41,12 @@ export interface ExtractMentionChatMemoryEntryOptions {
 export interface ExtractImplicitMentionChatMemoryEntryOptions
   extends ExtractMentionChatMemoryEntryOptions {}
 
+export interface ExtractStreamCommentMemoryEntriesOptions
+  extends ExtractMentionChatMemoryEntryOptions {
+  maxEntries: number;
+  knownTargets?: string[];
+}
+
 export interface SaveMentionChatAutoLearnMemoryOptions
   extends ExtractMentionChatMemoryEntryOptions {
   enabled: boolean;
@@ -66,6 +72,18 @@ export interface SaveMentionChatImplicitMemoryStoreOptions
   store: MentionChatMemoryStoreKind;
   jsonPath: string;
   sqlitePath: string;
+}
+
+export interface SaveMentionChatMemoryEntryStoreOptions {
+  enabled: boolean;
+  store: MentionChatMemoryStoreKind;
+  jsonPath: string;
+  sqlitePath: string;
+  entry: MentionChatMemoryEntry;
+  kind: MentionChatMemoryEntryKind;
+  maxItems: number;
+  sourceUser?: string;
+  now?: () => string;
 }
 
 export type MentionChatMemoryEntryKind = "semantic" | "implicit";
@@ -214,6 +232,14 @@ const CREDENTIAL_VALUE_PATTERN =
 const PROMPT_INJECTION_PATTERN =
   /前の指示|上の指示|以前の指示|指示を無視|命令を無視|ルールを無視|システムプロンプト|プロンプトを表示|内部設定|developer message|system prompt|ignore (?:all )?(?:previous|above) instructions/iu;
 const IMPLICIT_MEMORY_MAX_PROMPT_CHARS = 180;
+const DEFAULT_STREAM_COMMENT_MEMORY_TARGETS = [
+  "るっか",
+  "るっかるん",
+  "rukalun",
+  "にめいや",
+  "にめいやボットくん",
+  "nyme_ia2",
+];
 const DEFAULT_ADMIN_MEMORY_MAX_KEY_CHARS = 40;
 const DEFAULT_ADMIN_MEMORY_MAX_VALUE_CHARS = 120;
 const DEFAULT_ADMIN_MEMORY_LIST_LIMIT = 200;
@@ -234,6 +260,9 @@ const IMPLICIT_PII_KEY_PATTERN =
 const FIRST_PERSON_SENSITIVE_VALUE_PATTERN =
   /(?:\d+|[0-9０-９]+)\s*(?:歳|才)|(?:誕生日|生年月日|生まれ|平成|昭和|令和|西暦|\d{4}年|[0-9０-９]+月[0-9０-９]+日)|(?:住んで|すんで|住まい|居住|在住|住所|所在地|出身|都|道|府|県|市|区|町|村)/u;
 const FIRST_PERSON_PATTERN = /^(?:私|わたし|僕|ぼく|俺|おれ|うち|自分)$/u;
+const STREAM_COMMENT_SENTENCE_PATTERN = /[^。.!！?？]+[。.!！?？]?/gu;
+const SUBJECTLESS_FAVORITE_PATTERN =
+  /^(.+?)が好き(?:です|だ|だよ|だね)?[。.!！\s]*$/u;
 
 function isRecord(value: unknown): value is MemoryRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -325,6 +354,10 @@ function normalizeImplicitSourceUser(sourceUser: string | undefined): string {
   return singleLine(sourceUser ?? "").replace(/^[@＠]+/, "").toLowerCase();
 }
 
+function normalizeStreamCommentMemoryKey(value: string): string {
+  return singleLine(value).replace(/^[@＠]+/, "").toLowerCase();
+}
+
 function normalizeMemorySubjectKey(
   rawKey: string,
   sourceUser: string | undefined
@@ -377,6 +410,52 @@ function cleanImplicitMemoryEntry(
   }
 
   return { key, value };
+}
+
+function splitStreamCommentMemoryCandidates(text: string): string[] {
+  const prompt = singleLine(text);
+  if (!prompt) return [];
+  return (
+    prompt
+      .match(STREAM_COMMENT_SENTENCE_PATTERN)
+      ?.map((candidate) => singleLine(candidate))
+      .filter(Boolean) ?? []
+  );
+}
+
+function extractSubjectlessFavoriteStreamCommentMemoryEntry(
+  text: string,
+  options: ExtractStreamCommentMemoryEntriesOptions
+): MentionChatMemoryEntry | null {
+  const sourceUser = normalizeImplicitSourceUser(options.sourceUser);
+  if (!sourceUser) return null;
+  const match = text.match(SUBJECTLESS_FAVORITE_PATTERN);
+  if (!match) return null;
+  const value = stripWrappingQuotes(singleLine(match[1]));
+  if (!value || value.includes("は")) return null;
+  return cleanImplicitMemoryEntry(
+    {
+      key: `${sourceUser}の好きなもの`,
+      value,
+    },
+    options
+  );
+}
+
+function isAllowedStreamCommentMemoryEntry(
+  entry: MentionChatMemoryEntry,
+  options: ExtractStreamCommentMemoryEntriesOptions
+): boolean {
+  const sourceUser = normalizeImplicitSourceUser(options.sourceUser);
+  const key = normalizeStreamCommentMemoryKey(entry.key);
+  if (sourceUser && (key === sourceUser || key.startsWith(`${sourceUser}の`))) {
+    return true;
+  }
+
+  const targets = (options.knownTargets ?? DEFAULT_STREAM_COMMENT_MEMORY_TARGETS)
+    .map(normalizeStreamCommentMemoryKey)
+    .filter(Boolean);
+  return targets.some((target) => key === target || key.startsWith(`${target}の`));
 }
 
 function capLines(lines: string[], maxItems: number, maxChars: number): string[] {
@@ -611,6 +690,31 @@ export function extractImplicitMentionChatMemoryEntry(
   const parsed = splitMemoryKeyValue(prompt);
   if (!parsed) return null;
   return cleanImplicitMemoryEntry(parsed, options);
+}
+
+export function extractStreamCommentMemoryEntries(
+  commentText: string,
+  options: ExtractStreamCommentMemoryEntriesOptions
+): MentionChatMemoryEntry[] {
+  const maxEntries = Math.max(0, Math.floor(options.maxEntries));
+  if (maxEntries <= 0) return [];
+
+  const entries: MentionChatMemoryEntry[] = [];
+  const seen = new Set<string>();
+  for (const candidate of splitStreamCommentMemoryCandidates(commentText)) {
+    if (entries.length >= maxEntries) break;
+    const entry =
+      extractImplicitMentionChatMemoryEntry(candidate, options) ??
+      extractSubjectlessFavoriteStreamCommentMemoryEntry(candidate, options);
+    if (!entry) continue;
+    if (!isAllowedStreamCommentMemoryEntry(entry, options)) continue;
+
+    const dedupKey = `${entry.key}\n${entry.value}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
+    entries.push(entry);
+  }
+  return entries;
 }
 
 function loadWritableMemoryRecord(filePath: string): MemoryRecord | null {
@@ -1248,6 +1352,55 @@ export function saveMentionChatImplicitMemoryStore({
     maxItems,
     sourceUser,
     kind: "implicit",
+    now,
+  });
+}
+
+export function saveMentionChatMemoryEntryStore({
+  enabled,
+  store,
+  jsonPath,
+  sqlitePath,
+  entry,
+  kind,
+  maxItems,
+  sourceUser,
+  now = () => new Date().toISOString(),
+}: SaveMentionChatMemoryEntryStoreOptions): SaveMentionChatAutoLearnMemoryResult {
+  if (!enabled) return { saved: false, reason: "disabled" };
+
+  const cleaned = cleanAdminMemoryEntry({
+    key: entry.key,
+    value: entry.value,
+  });
+  if ("reason" in cleaned) {
+    return { saved: false, reason: cleaned.reason };
+  }
+
+  if (store === "json") {
+    if (!jsonPath.trim()) return { saved: false, reason: "disabled" };
+    try {
+      return saveMemoryEntry({
+        filePath: jsonPath,
+        entry: cleaned.entry,
+        maxItems,
+        sourceUser,
+        kind,
+        now,
+      });
+    } catch {
+      return { saved: false, reason: "write_failed" };
+    }
+  }
+
+  if (!sqlitePath.trim()) return { saved: false, reason: "disabled" };
+  return saveMemoryEntrySqlite({
+    sqlitePath,
+    jsonPath,
+    entry: cleaned.entry,
+    maxItems,
+    sourceUser,
+    kind,
     now,
   });
 }

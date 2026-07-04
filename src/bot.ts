@@ -68,8 +68,10 @@ import {
 import {
   analyzeMentionChatMemoryRequest,
   extractImplicitMentionChatMemoryEntry,
+  extractStreamCommentMemoryEntries,
   loadMentionChatMemoryStore,
   saveMentionChatAutoLearnMemoryStore,
+  saveMentionChatMemoryEntryStore,
   saveMentionChatImplicitMemoryStore,
   type MentionChatMemoryEntry,
   type AnalyzeMentionChatMemoryRequestResult,
@@ -335,6 +337,7 @@ export class Bot {
     string,
     MentionChatConversationHistoryEntry[]
   >();
+  private readonly streamCommentMemoryMem0Dedup = new Map<string, number>();
   private lastMentionChatAttemptAt = 0;
   private streamClipPostRunning = false;
   private streamClipPostRerunRequested = false;
@@ -582,7 +585,16 @@ export class Bot {
     this.commentSpeedMeter.record(now);
     this._debouncedSaveCommentState();
     this._persistStreamSummaryCounts();
-    await this._handleMentionChat(channel, user, text, now, userDisplayName);
+    const handledMentionChat = await this._handleMentionChat(
+      channel,
+      user,
+      text,
+      now,
+      userDisplayName
+    );
+    if (!handledMentionChat) {
+      this._scheduleStreamCommentMemorySave(user, text);
+    }
   }
 
   private async _handleMentionChat(
@@ -591,14 +603,13 @@ export class Bot {
     text: string,
     now: number,
     userDisplayName?: string | null
-  ): Promise<void> {
-    if (!(this.config.chatAiEnabled ?? false)) return;
-
+  ): Promise<boolean> {
     const match = extractMentionChatPrompt(
       text,
       this.config.chatAiBotAliases ?? [this.config.loginChannel]
     );
-    if (!match) return;
+    if (!match) return false;
+    if (!(this.config.chatAiEnabled ?? false)) return true;
 
     await this._enqueueMentionChatRequest({
       channel,
@@ -608,6 +619,7 @@ export class Bot {
       prompt: match.prompt,
       now,
     });
+    return true;
   }
 
   private async _handleChatAiCommand(
@@ -718,12 +730,14 @@ export class Bot {
     entry,
     kind,
     sourceUser,
+    logLabel = "AIメンション会話mem0メモ",
   }: {
     entry: MentionChatMemoryEntry;
     kind: "semantic" | "implicit";
     sourceUser: string;
-  }): Promise<void> {
-    if (!this._isMentionChatMem0Enabled()) return;
+    logLabel?: string;
+  }): Promise<boolean> {
+    if (!this._isMentionChatMem0Enabled()) return false;
 
     const result = await saveMentionChatMem0Memory({
       enabled: true,
@@ -738,12 +752,103 @@ export class Bot {
       sourceUser,
     });
     if (result.saved) {
-      logger.info("AIメンション会話mem0メモを保存: result=saved");
+      logger.info(`${logLabel}を保存: result=saved`);
     } else {
       logger.info(
-        `AIメンション会話mem0メモ保存をスキップ: reason=${result.reason}`
+        `${logLabel}保存をスキップ: reason=${result.reason}`
       );
     }
+    return result.saved;
+  }
+
+  private _streamCommentMemoryDedupKey(
+    entry: MentionChatMemoryEntry,
+    sourceUser: string
+  ): string {
+    return [
+      normalizeMentionChatUserName(sourceUser),
+      entry.key.replace(/\s+/g, " ").trim().toLowerCase(),
+      entry.value.replace(/\s+/g, " ").trim().toLowerCase(),
+    ].join("\n");
+  }
+
+  private async _saveStreamCommentMem0Memory(
+    entry: MentionChatMemoryEntry,
+    sourceUser: string
+  ): Promise<void> {
+    const ttlSeconds = this.config.chatAiCommentMemoryDedupTtlSeconds ?? 21_600;
+    const now = Date.now() / 1000;
+    const dedupKey = this._streamCommentMemoryDedupKey(entry, sourceUser);
+    const lastSavedAt = this.streamCommentMemoryMem0Dedup.get(dedupKey);
+    if (ttlSeconds > 0 && lastSavedAt !== undefined && now - lastSavedAt < ttlSeconds) {
+      logger.info("配信コメント由来mem0メモ保存をスキップ: reason=dedup");
+      return;
+    }
+
+    const saved = await this._saveMentionChatMem0Memory({
+      entry,
+      kind: "implicit",
+      sourceUser,
+      logLabel: "配信コメント由来mem0メモ",
+    });
+    if (saved) {
+      this.streamCommentMemoryMem0Dedup.set(dedupKey, now);
+    }
+  }
+
+  private _scheduleStreamCommentMemorySave(user: string, text: string): void {
+    if (!(this.config.chatAiCommentMemoryEnabled ?? false)) return;
+    if (!(this.config.chatAiImplicitMemoryEnabled ?? false)) return;
+    if (!(this.config.chatAiAutoLearnEnabled ?? false)) return;
+
+    const sourceUser = normalizeMentionChatUserName(user);
+    if (!sourceUser) return;
+    if ((this.config.chatAiIgnoredUsers ?? []).includes(sourceUser)) return;
+    if (
+      !isMentionChatMemoryWriter(
+        sourceUser,
+        this.config.chatAiMemoryWriterUsers ?? []
+      )
+    ) {
+      return;
+    }
+
+    setTimeout(() => {
+      void (async () => {
+        try {
+          const entries = extractStreamCommentMemoryEntries(text, {
+            maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
+            maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
+            sourceUser,
+            maxEntries: this.config.chatAiCommentMemoryMaxEntriesPerMessage ?? 2,
+          });
+          if (!entries.length) return;
+
+          for (const entry of entries) {
+            const result = saveMentionChatMemoryEntryStore({
+              enabled: true,
+              store: this.config.chatAiMemoryStore ?? "json",
+              jsonPath: this.config.chatAiMemoryPath ?? "",
+              sqlitePath: this.config.chatAiMemoryDbPath ?? "",
+              entry,
+              kind: "implicit",
+              maxItems: this.config.chatAiAutoLearnMaxItems ?? 50,
+              sourceUser,
+            });
+            if (result.saved) {
+              logger.info("配信コメント由来メモを保存: result=saved");
+            } else {
+              logger.info(
+                `配信コメント由来メモ保存をスキップ: reason=${result.reason}`
+              );
+            }
+            await this._saveStreamCommentMem0Memory(entry, sourceUser);
+          }
+        } catch (e) {
+          logger.error(`❌ 配信コメント由来メモ保存に失敗しました: ${e}`);
+        }
+      })();
+    }, 0);
   }
 
   private async _processMentionChatMemoryRequest(
