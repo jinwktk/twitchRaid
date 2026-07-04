@@ -86,8 +86,21 @@ export interface SaveMentionChatMemoryEntryStoreOptions {
   now?: () => string;
 }
 
+export interface SaveMentionChatMemoryObservationStoreOptions {
+  enabled: boolean;
+  store: MentionChatMemoryStoreKind;
+  jsonPath: string;
+  sqlitePath: string;
+  entry: MentionChatMemoryEntry;
+  kind: MentionChatMemoryEntryKind;
+  maxItems: number;
+  promotionMinObservations: number;
+  sourceUser?: string;
+  now?: () => string;
+}
+
 export type MentionChatMemoryEntryKind = "semantic" | "implicit";
-export type MentionChatMemoryEntryStatus = "active" | "inactive";
+export type MentionChatMemoryEntryStatus = "active" | "inactive" | "candidate";
 export type MentionChatMemoryListStatus = MentionChatMemoryEntryStatus | "all";
 
 export interface MentionChatMemoryAdminEntry {
@@ -98,6 +111,10 @@ export interface MentionChatMemoryAdminEntry {
   sourceUser: string;
   createdAt: string;
   updatedAt: string;
+  confidence?: number;
+  observedCount?: number;
+  promotedAt?: string;
+  lastObservedAt?: string;
 }
 
 export interface ListMentionChatMemoryEntriesStoreOptions {
@@ -152,6 +169,20 @@ export interface SaveMentionChatAutoLearnMemoryResult {
   key?: string;
 }
 
+export interface SaveMentionChatMemoryObservationStoreResult {
+  saved: boolean;
+  reason:
+    | SaveMentionChatAutoLearnMemoryResult["reason"]
+    | "observed"
+    | "promoted"
+    | "already_active"
+    | "conflict";
+  key?: string;
+  status?: MentionChatMemoryEntryStatus;
+  observedCount?: number;
+  promoted: boolean;
+}
+
 export interface DeleteMentionChatMemoryEntryResult {
   deleted: boolean;
   reason: "deleted" | "not_found" | "invalid_file" | "write_failed";
@@ -181,6 +212,10 @@ interface MemoryMetadata {
   sourceUser?: string;
   createdAt?: string;
   updatedAt?: string;
+  confidence?: number;
+  observedCount?: number;
+  promotedAt?: string;
+  lastObservedAt?: string;
 }
 
 interface SqliteMemoryRow {
@@ -191,6 +226,10 @@ interface SqliteMemoryRow {
   source_user: string;
   created_at: string;
   updated_at: string;
+  confidence?: number;
+  observed_count?: number;
+  promoted_at?: string;
+  last_observed_at?: string;
 }
 
 interface CountRow {
@@ -771,14 +810,20 @@ function normalizeMemoryKind(value: string | undefined): "semantic" | "implicit"
   return value === "implicit" ? "implicit" : "semantic";
 }
 
-function normalizeMemoryStatus(value: string | undefined): "active" | "inactive" {
-  return value === "inactive" ? "inactive" : "active";
+function normalizeMemoryStatus(
+  value: string | undefined
+): MentionChatMemoryEntryStatus {
+  if (value === "inactive") return "inactive";
+  if (value === "candidate") return "candidate";
+  return "active";
 }
 
 function normalizeListStatus(
   value: MentionChatMemoryListStatus | undefined
 ): MentionChatMemoryListStatus {
-  return value === "inactive" || value === "all" ? value : "active";
+  return value === "inactive" || value === "candidate" || value === "all"
+    ? value
+    : "active";
 }
 
 function normalizeListLimit(value: number | undefined): number {
@@ -797,19 +842,37 @@ function normalizeAdminEntryKind(
 function normalizeAdminEntryStatus(
   value: MentionChatMemoryEntryStatus | undefined
 ): MentionChatMemoryEntryStatus {
+  if (value === "candidate") return "candidate";
   return value === "inactive" ? "inactive" : "active";
 }
 
 function rowToAdminEntry(row: SqliteMemoryRow): MentionChatMemoryAdminEntry {
-  return {
+  const status = normalizeMemoryStatus(row.status);
+  const observedCount = Math.max(1, Number(row.observed_count ?? 1));
+  const confidence =
+    Number.isFinite(row.confidence) && row.confidence !== undefined
+      ? Number(row.confidence)
+      : status === "candidate"
+        ? 50
+        : 100;
+  const entry: MentionChatMemoryAdminEntry = {
     key: row.key,
     value: row.value,
     kind: normalizeMemoryKind(row.kind),
-    status: normalizeMemoryStatus(row.status),
+    status,
     sourceUser: singleLine(row.source_user) || "unknown",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+  if (status === "candidate" || observedCount > 1) {
+    entry.observedCount = observedCount;
+    entry.confidence = confidence;
+  }
+  if (row.promoted_at) entry.promotedAt = row.promoted_at;
+  if (row.last_observed_at && (status === "candidate" || observedCount > 1)) {
+    entry.lastObservedAt = row.last_observed_at;
+  }
+  return entry;
 }
 
 function adminEntryMatchesQuery(
@@ -881,12 +944,54 @@ function migrateMemoryDatabase(db: DatabaseSync): void {
       status TEXT NOT NULL DEFAULT 'active',
       source_user TEXT NOT NULL DEFAULT 'unknown',
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      confidence INTEGER NOT NULL DEFAULT 100,
+      observed_count INTEGER NOT NULL DEFAULT 1,
+      promoted_at TEXT NOT NULL DEFAULT '',
+      last_observed_at TEXT NOT NULL DEFAULT ''
     );
 
     CREATE INDEX IF NOT EXISTS idx_mention_chat_memory_status_updated
       ON mention_chat_memory (status, updated_at DESC);
   `);
+
+  addSqliteColumnIfMissing(
+    db,
+    "mention_chat_memory",
+    "confidence",
+    "INTEGER NOT NULL DEFAULT 100"
+  );
+  addSqliteColumnIfMissing(
+    db,
+    "mention_chat_memory",
+    "observed_count",
+    "INTEGER NOT NULL DEFAULT 1"
+  );
+  addSqliteColumnIfMissing(
+    db,
+    "mention_chat_memory",
+    "promoted_at",
+    "TEXT NOT NULL DEFAULT ''"
+  );
+  addSqliteColumnIfMissing(
+    db,
+    "mention_chat_memory",
+    "last_observed_at",
+    "TEXT NOT NULL DEFAULT ''"
+  );
+}
+
+function addSqliteColumnIfMissing(
+  db: DatabaseSync,
+  tableName: string,
+  columnName: string,
+  definition: string
+): void {
+  const columns = db
+    .prepare(`PRAGMA table_info(${tableName})`)
+    .all() as unknown as Array<{ name: string }>;
+  if (columns.some((column) => column.name === columnName)) return;
+  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
 }
 
 function countSqliteMemoryRows(db: DatabaseSync): number {
@@ -901,13 +1006,29 @@ function insertSqliteMemoryRow(
   row: {
     key: string;
     value: string;
-    kind: "semantic" | "implicit";
-    status: "active" | "inactive";
+    kind: MentionChatMemoryEntryKind;
+    status: MentionChatMemoryEntryStatus;
     sourceUser: string;
     createdAt: string;
     updatedAt: string;
+    confidence?: number;
+    observedCount?: number;
+    promotedAt?: string;
+    lastObservedAt?: string;
   }
 ): void {
+  const observedCount = Math.max(1, Math.floor(row.observedCount ?? 1));
+  const confidence = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.floor(row.confidence ?? (row.status === "candidate" ? 50 : 100))
+    )
+  );
+  const promotedAt =
+    row.promotedAt ?? (row.status === "active" ? row.updatedAt : "");
+  const lastObservedAt = row.lastObservedAt ?? row.updatedAt;
+
   db
     .prepare(
       `
@@ -918,15 +1039,23 @@ function insertSqliteMemoryRow(
         status,
         source_user,
         created_at,
-        updated_at
+        updated_at,
+        confidence,
+        observed_count,
+        promoted_at,
+        last_observed_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(key) DO UPDATE SET
         value = excluded.value,
         kind = excluded.kind,
         status = excluded.status,
         source_user = excluded.source_user,
-        updated_at = excluded.updated_at
+        updated_at = excluded.updated_at,
+        confidence = excluded.confidence,
+        observed_count = excluded.observed_count,
+        promoted_at = excluded.promoted_at,
+        last_observed_at = excluded.last_observed_at
     `
     )
     .run(
@@ -936,7 +1065,11 @@ function insertSqliteMemoryRow(
       row.status,
       row.sourceUser,
       row.createdAt,
-      row.updatedAt
+      row.updatedAt,
+      confidence,
+      observedCount,
+      promotedAt,
+      lastObservedAt
     );
 }
 
@@ -1050,7 +1183,8 @@ function loadMentionChatMemorySqlite({
     const rows = db
       .prepare(
         `
-        SELECT key, value, kind, status, source_user, created_at, updated_at
+        SELECT key, value, kind, status, source_user, created_at, updated_at,
+               confidence, observed_count, promoted_at, last_observed_at
         FROM mention_chat_memory
         WHERE status = 'active'
         ORDER BY rowid ASC
@@ -1405,6 +1539,318 @@ export function saveMentionChatMemoryEntryStore({
   });
 }
 
+function normalizePromotionMinObservations(value: number): number {
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 2;
+}
+
+function observationConfidence(
+  observedCount: number,
+  promotionMinObservations: number
+): number {
+  if (observedCount >= promotionMinObservations) return 100;
+  return Math.min(90, 40 + observedCount * 20);
+}
+
+function observationResult({
+  saved,
+  reason,
+  key,
+  status,
+  observedCount,
+}: {
+  saved: boolean;
+  reason: SaveMentionChatMemoryObservationStoreResult["reason"];
+  key?: string;
+  status?: MentionChatMemoryEntryStatus;
+  observedCount?: number;
+}): SaveMentionChatMemoryObservationStoreResult {
+  return {
+    saved,
+    reason,
+    key,
+    status,
+    observedCount,
+    promoted: reason === "promoted",
+  };
+}
+
+function saveJsonMemoryObservation({
+  jsonPath,
+  entry,
+  kind,
+  maxItems,
+  promotionMinObservations,
+  sourceUser,
+  now,
+}: {
+  jsonPath: string;
+  entry: MentionChatMemoryEntry;
+  kind: MentionChatMemoryEntryKind;
+  maxItems: number;
+  promotionMinObservations: number;
+  sourceUser?: string;
+  now: () => string;
+}): SaveMentionChatMemoryObservationStoreResult {
+  try {
+    const record = loadWritableMemoryRecord(jsonPath);
+    if (!record) return observationResult({ saved: false, reason: "invalid_file" });
+
+    const timestamp = now();
+    const meta = metadataRecord(record);
+    const existingValue = dictionaryValueToText(record[entry.key]);
+    const existingMeta = meta[entry.key];
+    const existingStatus = normalizeMemoryStatus(existingMeta?.status);
+    const existingObservedCount = Math.max(
+      1,
+      Math.floor(existingMeta?.observedCount ?? 1)
+    );
+
+    if (existingStatus === "active" && existingValue) {
+      if (existingValue !== entry.value) {
+        return observationResult({
+          saved: false,
+          reason: "conflict",
+          key: entry.key,
+          status: "active",
+          observedCount: existingObservedCount,
+        });
+      }
+
+      const observedCount = existingObservedCount + 1;
+      meta[entry.key] = {
+        ...existingMeta,
+        kind,
+        status: "active",
+        sourceUser: singleLine(sourceUser ?? "") || existingMeta?.sourceUser || "unknown",
+        createdAt: existingMeta?.createdAt || timestamp,
+        updatedAt: timestamp,
+        confidence: 100,
+        observedCount,
+        promotedAt: existingMeta?.promotedAt || existingMeta?.createdAt || timestamp,
+        lastObservedAt: timestamp,
+      };
+      record[MEMORY_META_KEY] = meta;
+      writeMemoryRecordAtomically(jsonPath, record);
+      return observationResult({
+        saved: true,
+        reason: "already_active",
+        key: entry.key,
+        status: "active",
+        observedCount,
+      });
+    }
+
+    const sameCandidate =
+      existingStatus === "candidate" && existingValue === entry.value;
+    const observedCount = sameCandidate ? existingObservedCount + 1 : 1;
+    const promoted = observedCount >= promotionMinObservations;
+    const status: MentionChatMemoryEntryStatus = promoted ? "active" : "candidate";
+    record[entry.key] = entry.value;
+    meta[entry.key] = {
+      kind,
+      status,
+      sourceUser: singleLine(sourceUser ?? "") || "unknown",
+      createdAt: existingMeta?.createdAt || timestamp,
+      updatedAt: timestamp,
+      confidence: observationConfidence(observedCount, promotionMinObservations),
+      observedCount,
+      promotedAt: promoted ? timestamp : "",
+      lastObservedAt: timestamp,
+    };
+    record[MEMORY_META_KEY] = meta;
+    capMemoryRecord(record, maxItems, entry.key);
+    writeMemoryRecordAtomically(jsonPath, record);
+    return observationResult({
+      saved: true,
+      reason: promoted ? "promoted" : "observed",
+      key: entry.key,
+      status,
+      observedCount,
+    });
+  } catch {
+    return observationResult({ saved: false, reason: "write_failed" });
+  }
+}
+
+function loadSqliteMemoryRow(
+  db: DatabaseSync,
+  key: string
+): SqliteMemoryRow | undefined {
+  return db
+    .prepare(
+      `
+      SELECT key, value, kind, status, source_user, created_at, updated_at,
+             confidence, observed_count, promoted_at, last_observed_at
+      FROM mention_chat_memory
+      WHERE key = ?
+      LIMIT 1
+    `
+    )
+    .get(key) as unknown as SqliteMemoryRow | undefined;
+}
+
+function saveSqliteMemoryObservation({
+  sqlitePath,
+  jsonPath,
+  entry,
+  kind,
+  maxItems,
+  promotionMinObservations,
+  sourceUser,
+  now,
+}: {
+  sqlitePath: string;
+  jsonPath: string;
+  entry: MentionChatMemoryEntry;
+  kind: MentionChatMemoryEntryKind;
+  maxItems: number;
+  promotionMinObservations: number;
+  sourceUser?: string;
+  now: () => string;
+}): SaveMentionChatMemoryObservationStoreResult {
+  let db: DatabaseSync | null = null;
+  try {
+    db = openMemoryDatabase(sqlitePath);
+    if (!db) return observationResult({ saved: false, reason: "invalid_file" });
+
+    importJsonMemoryIntoSqliteIfEmpty(db, jsonPath, now);
+    const timestamp = now();
+    const existing = loadSqliteMemoryRow(db, entry.key);
+    const existingStatus = normalizeMemoryStatus(existing?.status);
+    const existingObservedCount = Math.max(
+      1,
+      Math.floor(existing?.observed_count ?? 1)
+    );
+
+    if (existingStatus === "active" && existing?.value) {
+      if (existing.value !== entry.value) {
+        return observationResult({
+          saved: false,
+          reason: "conflict",
+          key: entry.key,
+          status: "active",
+          observedCount: existingObservedCount,
+        });
+      }
+
+      const observedCount = existingObservedCount + 1;
+      insertSqliteMemoryRow(db, {
+        key: entry.key,
+        value: entry.value,
+        kind,
+        status: "active",
+        sourceUser: singleLine(sourceUser ?? "") || existing.source_user || "unknown",
+        createdAt: existing.created_at || timestamp,
+        updatedAt: timestamp,
+        confidence: 100,
+        observedCount,
+        promotedAt: existing.promoted_at || existing.created_at || timestamp,
+        lastObservedAt: timestamp,
+      });
+      return observationResult({
+        saved: true,
+        reason: "already_active",
+        key: entry.key,
+        status: "active",
+        observedCount,
+      });
+    }
+
+    const sameCandidate =
+      existingStatus === "candidate" && existing?.value === entry.value;
+    const observedCount = sameCandidate ? existingObservedCount + 1 : 1;
+    const promoted = observedCount >= promotionMinObservations;
+    const status: MentionChatMemoryEntryStatus = promoted ? "active" : "candidate";
+    db.exec("BEGIN");
+    try {
+      insertSqliteMemoryRow(db, {
+        key: entry.key,
+        value: entry.value,
+        kind,
+        status,
+        sourceUser: singleLine(sourceUser ?? "") || "unknown",
+        createdAt: existing?.created_at || timestamp,
+        updatedAt: timestamp,
+        confidence: observationConfidence(observedCount, promotionMinObservations),
+        observedCount,
+        promotedAt: promoted ? timestamp : "",
+        lastObservedAt: timestamp,
+      });
+      capSqliteMemoryRows(db, maxItems, entry.key);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    return observationResult({
+      saved: true,
+      reason: promoted ? "promoted" : "observed",
+      key: entry.key,
+      status,
+      observedCount,
+    });
+  } catch {
+    return observationResult({ saved: false, reason: "write_failed" });
+  } finally {
+    db?.close();
+  }
+}
+
+export function saveMentionChatMemoryObservationStore({
+  enabled,
+  store,
+  jsonPath,
+  sqlitePath,
+  entry,
+  kind,
+  maxItems,
+  promotionMinObservations,
+  sourceUser,
+  now = () => new Date().toISOString(),
+}: SaveMentionChatMemoryObservationStoreOptions): SaveMentionChatMemoryObservationStoreResult {
+  if (!enabled) return observationResult({ saved: false, reason: "disabled" });
+
+  const cleaned = cleanAdminMemoryEntry({
+    key: entry.key,
+    value: entry.value,
+  });
+  if ("reason" in cleaned) {
+    return observationResult({ saved: false, reason: cleaned.reason });
+  }
+
+  const minObservations = normalizePromotionMinObservations(
+    promotionMinObservations
+  );
+  if (store === "json") {
+    if (!jsonPath.trim()) {
+      return observationResult({ saved: false, reason: "disabled" });
+    }
+    return saveJsonMemoryObservation({
+      jsonPath,
+      entry: cleaned.entry,
+      kind,
+      maxItems,
+      promotionMinObservations: minObservations,
+      sourceUser,
+      now,
+    });
+  }
+
+  if (!sqlitePath.trim()) {
+    return observationResult({ saved: false, reason: "disabled" });
+  }
+  return saveSqliteMemoryObservation({
+    sqlitePath,
+    jsonPath,
+    entry: cleaned.entry,
+    kind,
+    maxItems,
+    promotionMinObservations: minObservations,
+    sourceUser,
+    now,
+  });
+}
+
 function listJsonMemoryAdminEntries(
   jsonPath: string
 ): MentionChatMemoryAdminEntry[] {
@@ -1419,15 +1865,27 @@ function listJsonMemoryAdminEntries(
     const value = dictionaryValueToText(rawValue);
     if (!value || isUnsafeMemoryKey(key) || isUnsafeMemoryText(value)) continue;
     const entryMeta = meta[key];
-    entries.push({
+    const status = normalizeMemoryStatus(entryMeta?.status);
+    const observedCount = Math.max(1, Math.floor(entryMeta?.observedCount ?? 1));
+    const entry: MentionChatMemoryAdminEntry = {
       key,
       value,
       kind: normalizeMemoryKind(entryMeta?.kind),
-      status: normalizeMemoryStatus(entryMeta?.status),
+      status,
       sourceUser: singleLine(entryMeta?.sourceUser ?? "") || "unknown",
       createdAt: entryMeta?.createdAt ?? "",
       updatedAt: entryMeta?.updatedAt ?? "",
-    });
+    };
+    if (status === "candidate" || observedCount > 1) {
+      entry.observedCount = observedCount;
+      entry.confidence = Math.max(
+        0,
+        Math.min(100, Math.floor(entryMeta?.confidence ?? 50))
+      );
+      entry.lastObservedAt = entryMeta?.lastObservedAt ?? "";
+    }
+    if (entryMeta?.promotedAt) entry.promotedAt = entryMeta.promotedAt;
+    entries.push(entry);
   }
   return entries.sort(compareAdminEntries);
 }
@@ -1449,7 +1907,8 @@ function listSqliteMemoryAdminEntries({
     const rows = db
       .prepare(
         `
-        SELECT key, value, kind, status, source_user, created_at, updated_at
+        SELECT key, value, kind, status, source_user, created_at, updated_at,
+               confidence, observed_count, promoted_at, last_observed_at
         FROM mention_chat_memory
       `
       )

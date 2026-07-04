@@ -1489,7 +1489,7 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "覚えたD！");
   });
 
-  it("saves implicit memory after a successful reply without another Ollama call", async () => {
+  it("records implicit memory as a candidate after a successful reply without another Ollama call", async () => {
     vi.useFakeTimers();
     const memoryPath = path.join(ensureTempDir(), "implicit-memory.json");
     const { bot, say } = makeBot({
@@ -1524,13 +1524,14 @@ describe("Bot mention chat", () => {
         "viewerの好きなもの": {
           kind: "implicit",
           sourceUser: "viewer",
-          status: "active",
+          status: "candidate",
+          observedCount: 1,
         },
       },
     });
   });
 
-  it("saves first-person implicit profile statements under the source user", async () => {
+  it("records first-person implicit profile statements under the source user as candidates", async () => {
     vi.useFakeTimers();
     const memoryPath = path.join(ensureTempDir(), "implicit-profile.json");
     const { bot, say } = makeBot({
@@ -1565,20 +1566,22 @@ describe("Bot mention chat", () => {
         viewer: {
           kind: "implicit",
           sourceUser: "viewer",
-          status: "active",
+          status: "candidate",
+          observedCount: 1,
         },
       },
     });
   });
 
-  it("mirrors implicit memory to mem0 even when the local memory store cannot be written", async () => {
+  it("keeps implicit memory local when it is only an unpromoted observation", async () => {
     vi.useFakeTimers();
-    const unwritableMemoryPath = ensureTempDir();
+    const dir = ensureTempDir();
+    const memoryPath = path.join(dir, "implicit-memory.json");
     const { bot, say } = makeBot({
       chatAiAutoLearnEnabled: true,
       chatAiImplicitMemoryEnabled: true,
       chatAiMemoryEnabled: false,
-      chatAiMemoryPath: unwritableMemoryPath,
+      chatAiMemoryPath: memoryPath,
       chatAiMemoryWriterUsers: ["all"],
       chatAiMem0Enabled: true,
       chatAiMem0Endpoint: "http://mem0:8888",
@@ -1602,39 +1605,24 @@ describe("Bot mention chat", () => {
 
     await vi.runOnlyPendingTimersAsync();
 
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(fetchSpy).toHaveBeenLastCalledWith(
-      "http://mem0:8888/memories",
-      expect.objectContaining({
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-API-Key": "mem0-key",
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fs.readFileSync(memoryPath, "utf8"))).toMatchObject({
+      "viewerの好きなもの": "カレー",
+      __meta: {
+        "viewerの好きなもの": {
+          kind: "implicit",
+          sourceUser: "viewer",
+          status: "candidate",
+          observedCount: 1,
         },
-      })
-    );
-    expect(JSON.parse(fetchSpy.mock.calls[1][1]?.body as string)).toMatchObject({
-      messages: [{ role: "user", content: "viewerの好きなもの: カレー" }],
-      infer: false,
-      user_id: "rukalun",
-      agent_id: "twitchRaid",
-      metadata: {
-        key: "viewerの好きなもの",
-        kind: "implicit",
-        sourceUser: "viewer",
-        source: "twitchRaid",
-        app_id: "twitchRaid",
       },
     });
     expect(infoSpy).toHaveBeenCalledWith(
-      "AIメンション会話暗黙メモ保存をスキップ: reason=write_failed"
-    );
-    expect(infoSpy).toHaveBeenCalledWith(
-      "AIメンション会話mem0メモを保存: result=saved"
+      "AIメンション会話暗黙メモを候補として観測: observations=1"
     );
   });
 
-  it("stores safe regular stream comments to sqlite and mem0 without replying or calling Ollama", async () => {
+  it("promotes repeated safe regular stream comments before mirroring them to mem0", async () => {
     vi.useFakeTimers();
     const dir = ensureTempDir();
     const memoryDbPath = path.join(dir, "comment-memory.sqlite");
@@ -1672,6 +1660,21 @@ describe("Bot mention chat", () => {
 
     expect(say).not.toHaveBeenCalled();
     expect(fs.existsSync(memoryDbPath)).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(
+      infoSpy.mock.calls.filter(([message]) =>
+        String(message).includes("配信コメント由来メモを候補として観測")
+      )
+    ).toHaveLength(2);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "私はカレーが好き。私は社会人だよ",
+      200
+    );
+    await vi.runOnlyPendingTimersAsync();
+
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(fetchSpy.mock.calls.map(([input]) => String(input))).toEqual([
       "http://mem0:8888/memories",
@@ -1704,7 +1707,7 @@ describe("Bot mention chat", () => {
     ]);
     expect(
       infoSpy.mock.calls.filter(([message]) =>
-        String(message).includes("配信コメント由来メモを保存")
+        String(message).includes("配信コメント由来メモを昇格")
       )
     ).toHaveLength(2);
     expect(
@@ -1743,9 +1746,8 @@ describe("Bot mention chat", () => {
     await vi.runOnlyPendingTimersAsync();
 
     expect(say).toHaveBeenCalledWith("#rukalun", "覚えたD！");
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(String(fetchSpy.mock.calls[0][0])).toMatch(/\/api\/generate$/u);
-    expect(String(fetchSpy.mock.calls[1][0])).toBe("http://mem0:8888/memories");
   });
 
   it("does not consume normal AI cooldown for memory fixed replies", async () => {

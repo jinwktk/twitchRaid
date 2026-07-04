@@ -262,6 +262,7 @@ CHAT_AI_MEMORY_PATH=data/custom-chat-ai-memory.json
 CHAT_AI_MEMORY_DB_PATH=data/custom-chat-ai-memory.sqlite
 CHAT_AI_MEMORY_MAX_ITEMS=12
 CHAT_AI_MEMORY_MAX_CHARS=900
+CHAT_AI_MEMORY_PROMOTION_MIN_OBSERVATIONS=3
 CHAT_AI_MEMORY_WRITER_USERS=＠Rukalun,nyme_ia
 CHAT_AI_IMPLICIT_MEMORY_ENABLED=true
 CHAT_AI_MEM0_ENABLED=true
@@ -324,6 +325,7 @@ CHAT_REPLY_EMOTES= rukkaHi, @rukkaGG, ＠rukkaHi, RukkaNice
     );
     expect(config.chatAiMemoryMaxItems).toBe(12);
     expect(config.chatAiMemoryMaxChars).toBe(900);
+    expect(config.chatAiMemoryPromotionMinObservations).toBe(3);
     expect(config.chatAiMemoryWriterUsers).toEqual(["rukalun", "nyme_ia"]);
     expect(config.chatAiImplicitMemoryEnabled).toBe(true);
     expect(config.chatAiMem0Enabled).toBe(true);

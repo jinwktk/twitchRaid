@@ -15,6 +15,7 @@ import {
   saveMentionChatAutoLearnMemoryStore,
   saveMentionChatImplicitMemory,
   saveMentionChatImplicitMemoryStore,
+  saveMentionChatMemoryObservationStore,
   upsertMentionChatMemoryEntryStore,
 } from "../../src/commands/mention-chat-memory";
 
@@ -897,6 +898,95 @@ describe("mention chat memory store", () => {
     expect(fs.existsSync(jsonPath)).toBe(false);
   });
 
+  it("keeps observed implicit sqlite memory as a candidate until repeated evidence promotes it", () => {
+    const dir = createTempDir();
+    const jsonPath = path.join(dir, "chat-ai-memory.json");
+    const sqlitePath = path.join(dir, "chat-ai-memory.sqlite");
+
+    const first = saveMentionChatMemoryObservationStore({
+      enabled: true,
+      store: "sqlite",
+      jsonPath,
+      sqlitePath,
+      entry: { key: "viewerの好きなもの", value: "カレー" },
+      kind: "implicit",
+      sourceUser: "viewer",
+      maxItems: 50,
+      promotionMinObservations: 2,
+      now: () => "2026-07-04T10:10:00.000Z",
+    });
+
+    expect(first).toMatchObject({
+      saved: true,
+      reason: "observed",
+      key: "viewerの好きなもの",
+      status: "candidate",
+      observedCount: 1,
+      promoted: false,
+    });
+    expect(
+      loadMentionChatMemoryStore({
+        enabled: true,
+        store: "sqlite",
+        jsonPath,
+        sqlitePath,
+        maxItems: 8,
+        maxChars: 600,
+        queryText: "viewerの好きなものは？",
+      })
+    ).toEqual({ text: null, itemCount: 0, charCount: 0 });
+    expect(
+      listMentionChatMemoryEntriesStore({
+        store: "sqlite",
+        jsonPath,
+        sqlitePath,
+        status: "all",
+      }).entries
+    ).toMatchObject([
+      {
+        key: "viewerの好きなもの",
+        value: "カレー",
+        kind: "implicit",
+        status: "candidate",
+        sourceUser: "viewer",
+        observedCount: 1,
+      },
+    ]);
+
+    const second = saveMentionChatMemoryObservationStore({
+      enabled: true,
+      store: "sqlite",
+      jsonPath,
+      sqlitePath,
+      entry: { key: "viewerの好きなもの", value: "カレー" },
+      kind: "implicit",
+      sourceUser: "viewer",
+      maxItems: 50,
+      promotionMinObservations: 2,
+      now: () => "2026-07-04T10:11:00.000Z",
+    });
+
+    expect(second).toMatchObject({
+      saved: true,
+      reason: "promoted",
+      key: "viewerの好きなもの",
+      status: "active",
+      observedCount: 2,
+      promoted: true,
+    });
+    expect(
+      loadMentionChatMemoryStore({
+        enabled: true,
+        store: "sqlite",
+        jsonPath,
+        sqlitePath,
+        maxItems: 8,
+        maxChars: 600,
+        queryText: "viewerの好きなものは？",
+      }).text
+    ).toBe("viewerの好きなもの: カレー");
+  });
+
   it("filters topic-mismatched sqlite memory before injecting it into Ollama context", () => {
     const dir = createTempDir();
     const jsonPath = path.join(dir, "chat-ai-memory.json");
@@ -969,6 +1059,7 @@ describe("mention chat memory store", () => {
         sourceUser: "admin",
         createdAt: "2026-06-21T07:00:00.000Z",
         updatedAt: "2026-06-21T07:00:00.000Z",
+        promotedAt: "2026-06-21T07:00:00.000Z",
       },
     ]);
 

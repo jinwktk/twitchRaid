@@ -71,8 +71,7 @@ import {
   extractStreamCommentMemoryEntries,
   loadMentionChatMemoryStore,
   saveMentionChatAutoLearnMemoryStore,
-  saveMentionChatMemoryEntryStore,
-  saveMentionChatImplicitMemoryStore,
+  saveMentionChatMemoryObservationStore,
   type MentionChatMemoryEntry,
   type AnalyzeMentionChatMemoryRequestResult,
 } from "./commands/mention-chat-memory";
@@ -916,7 +915,7 @@ export class Bot {
           if (!entries.length) return;
 
           for (const entry of entries) {
-            const result = saveMentionChatMemoryEntryStore({
+            const result = saveMentionChatMemoryObservationStore({
               enabled: true,
               store: this.config.chatAiMemoryStore ?? "json",
               jsonPath: this.config.chatAiMemoryPath ?? "",
@@ -924,16 +923,28 @@ export class Bot {
               entry,
               kind: "implicit",
               maxItems: this.config.chatAiAutoLearnMaxItems ?? 50,
+              promotionMinObservations:
+                this.config.chatAiMemoryPromotionMinObservations ?? 2,
               sourceUser,
             });
-            if (result.saved) {
-              logger.info("配信コメント由来メモを保存: result=saved");
+            if (result.reason === "observed") {
+              logger.info(
+                `配信コメント由来メモを候補として観測: observations=${result.observedCount ?? 1}`
+              );
+            } else if (result.reason === "promoted") {
+              logger.info(
+                `配信コメント由来メモを昇格: observations=${result.observedCount ?? 1}`
+              );
+              await this._saveStreamCommentMem0Memory(entry, sourceUser);
+            } else if (result.reason === "already_active") {
+              logger.info(
+                `配信コメント由来メモは既に有効: observations=${result.observedCount ?? 1}`
+              );
             } else {
               logger.info(
                 `配信コメント由来メモ保存をスキップ: reason=${result.reason}`
               );
             }
-            await this._saveStreamCommentMem0Memory(entry, sourceUser);
           }
         } catch (e) {
           logger.error(`❌ 配信コメント由来メモ保存に失敗しました: ${e}`);
@@ -1046,29 +1057,40 @@ export class Bot {
           });
           if (!entry) return;
 
-          const result = saveMentionChatImplicitMemoryStore({
+          const result = saveMentionChatMemoryObservationStore({
             enabled: true,
             store: this.config.chatAiMemoryStore ?? "json",
             jsonPath: this.config.chatAiMemoryPath ?? "",
             sqlitePath: this.config.chatAiMemoryDbPath ?? "",
-            promptText: request.prompt,
-            maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
-            maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
+            entry,
+            kind: "implicit",
             maxItems: this.config.chatAiAutoLearnMaxItems ?? 50,
+            promotionMinObservations:
+              this.config.chatAiMemoryPromotionMinObservations ?? 2,
             sourceUser: request.userName,
           });
-          if (result.saved) {
-            logger.info("AIメンション会話暗黙メモを保存: result=saved");
+          if (result.reason === "observed") {
+            logger.info(
+              `AIメンション会話暗黙メモを候補として観測: observations=${result.observedCount ?? 1}`
+            );
+          } else if (result.reason === "promoted") {
+            logger.info(
+              `AIメンション会話暗黙メモを昇格: observations=${result.observedCount ?? 1}`
+            );
+            await this._saveMentionChatMem0Memory({
+              entry,
+              kind: "implicit",
+              sourceUser: request.userName,
+            });
+          } else if (result.reason === "already_active") {
+            logger.info(
+              `AIメンション会話暗黙メモは既に有効: observations=${result.observedCount ?? 1}`
+            );
           } else if (result.reason !== "not_memory_request") {
             logger.info(
               `AIメンション会話暗黙メモ保存をスキップ: reason=${result.reason}`
             );
           }
-          await this._saveMentionChatMem0Memory({
-            entry,
-            kind: "implicit",
-            sourceUser: request.userName,
-          });
         } catch (e) {
           logger.error(`❌ AIメンション会話暗黙メモ保存に失敗しました: ${e}`);
         }

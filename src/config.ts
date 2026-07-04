@@ -28,6 +28,7 @@ const DEFAULT_CHAT_AI_COMMENT_MEMORY_MAX_ENTRIES_PER_MESSAGE = 2;
 const DEFAULT_CHAT_AI_COMMENT_MEMORY_DEDUP_TTL_SECONDS = 21_600;
 const DEFAULT_CHAT_AI_MEMORY_MAX_ITEMS = 8;
 const DEFAULT_CHAT_AI_MEMORY_MAX_CHARS = 600;
+const DEFAULT_CHAT_AI_MEMORY_PROMOTION_MIN_OBSERVATIONS = 2;
 const DEFAULT_CHAT_AI_MEM0_TIMEOUT_MS = 1_200;
 const DEFAULT_CHAT_AI_MEM0_MAX_RESULTS = 3;
 const DEFAULT_CHAT_AI_MEM0_MAX_CHARS = 600;
@@ -144,6 +145,7 @@ export class Config {
   readonly chatAiMemoryDbPath: string;
   readonly chatAiMemoryMaxItems: number;
   readonly chatAiMemoryMaxChars: number;
+  readonly chatAiMemoryPromotionMinObservations: number;
   readonly chatAiMemoryWriterUsers: string[];
   readonly chatAiImplicitMemoryEnabled: boolean;
   readonly chatAiMem0Enabled: boolean;
@@ -357,6 +359,10 @@ export class Config {
     this.chatAiMemoryMaxChars = parsePositiveInt(
       env["CHAT_AI_MEMORY_MAX_CHARS"],
       DEFAULT_CHAT_AI_MEMORY_MAX_CHARS
+    );
+    this.chatAiMemoryPromotionMinObservations = parsePositiveInt(
+      env["CHAT_AI_MEMORY_PROMOTION_MIN_OBSERVATIONS"],
+      DEFAULT_CHAT_AI_MEMORY_PROMOTION_MIN_OBSERVATIONS
     );
     this.chatAiMemoryWriterUsers = parseNameList(
       env["CHAT_AI_MEMORY_WRITER_USERS"],
