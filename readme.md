@@ -354,6 +354,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-07-04**: サブPC本番のAIメンション会話モデルを、軽量化していた `qwen2.5:7b` から品質重視の `qwen3.5:9b` へ戻した。`CHAT_AI_MODEL` はDokploy永続envとSwarm service envの両方で更新し、実行コンテナ内の `Config` でも `chatAiModel=qwen3.5:9b` / `ollamaShoutoutModel=qwen3.5:9b` を確認。`CHAT_AI_TIMEOUT_MS=45000` と `CHAT_AI_KEEP_ALIVE=30m` は維持しているため、cold load時は遅延やtimeout fallbackに注意する。
 - **2026-07-03**: 配信まとめstateに `startMessageId` はあるが `threadId` が無く、Discord側では開始通知メッセージに既存スレッドが付いている場合に、毎分 `配信まとめスレッドを保証できませんでした` が出続ける問題を修正した。Discordのスレッド作成APIが既存スレッドなどで失敗した場合、開始通知メッセージをGETして `thread.id` を取得し、既存スレッドをstateへ復旧できるようにした。対象テストは `tests/notifications/discord-webhook.test.ts` に追加した。
 - **2026-07-02**: 本番ログで `!chat レゲエパンチについて調べて` が検索候補になっていたものの、SearXNGが `reason=no_result_or_failed` で文脈なしになり、Ollamaが `調べてみるね` と未検索のまま返していた。検索依頼で結果が取れない場合はOllamaへ落とさず `ごめん、検索結果がなくて分からないD！` を返すようにし、SearXNGが空または検索語不一致のノイズだけを返す場合は日本語Wikipedia summaryを補助検索する。あわせて `ops/searxng/settings.yml` は `google` だけでなく `duckduckgo` / `bing` も有効化し、Google単独の空結果に依存しない構成へ更新した。対象テストは `tests/commands/mention-chat-search.test.ts`、`tests/bot-mention-chat.test.ts`、`tests/searxng-config.test.ts` に追加した。
 - **2026-07-02**: AIメンション会話で `かのんのん (kanonalc)` のようにTwitch表示名とlogin IDが違うユーザーを、生成返信が `kanonalcさん` とlogin IDで呼んでいたため、Twurple `ChatMessage.userInfo.displayName` をAI生成経路へ渡すようにした。promptでは `ユーザー表示名` と `ログインID` を分け、呼びかけは表示名を使うよう指示する。生成後もlogin ID呼びを表示名へ置換するため、`kanonalcさん` は `かのんのんさん` になる。対象テストは `tests/commands/mention-chat.test.ts` と `tests/bot-mention-chat.test.ts` に追加した。
