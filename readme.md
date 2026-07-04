@@ -61,6 +61,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - Twitch認証は Bot 動作に必要な最小スコープのみ要求（`chat` / `shoutout` / `chat message delete` 系）。Botが使えるTwitchスタンプ一覧を取得する再認可では追加で `user:read:emotes` を要求します
 - トークン検証時は 401 Unauthorized の場合のみ再取得を実行します
 - 起動時の有効トークン検証と再取得成功時に、付与済みスコープ一覧を `[ECHO]` ログとして出力します
+- 起動時と再取得時の `expires_in` をプロセス内で追跡し、keep-aliveはアクセストークン期限5分前に自動refreshします。期限情報が取れない場合の保険として従来の2時間ごとの定期refreshも残しています。これにより、起動時点で残り30分程度の短命tokenでも、2時間間隔を待って失効し `直近clip同期失敗: status=401` を繰り返す状態を防ぎます
 - `user:read:emotes` を含む更新可能なユーザートークン取得にはTwitch OAuth Authorization Code Grantが必要で、`.env` の `TWITCH_CLIENT_ID` と正しい `TWITCH_SECRET_TOKEN` が必要です。`invalid client secret` が出る場合はTwitch Developer ConsoleでClient Secretを再発行し、`.env` へ反映してから再認可してください
 - `SHOUTOUT_ADMIN_USERS` に `!shoutout` を実行できる追加ユーザーをカンマ区切りで設定できます（未設定時は `rukalun`）
 - `MANGA_ADMIN_USERS` に `!mangaon` / `!mangaoff` を実行できる追加ユーザーをカンマ区切りで設定できます。にめいやアカウントは表示名ではなくTwitchログイン名 `nyme_ia` で登録します
@@ -356,6 +357,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-07-04**: サブPC本番で `20:07:35 JST` から直近Clip同期が `Twitch Helix clips request failed: status=401` を毎分出していた問題を修正した。起動時ログの `expires_in=2017` から、`19:33:54 JST` 起動後の失効時刻が約 `20:07:31 JST` で401開始と一致し、従来の2時間定期refreshでは短命tokenに間に合わないことが原因だった。`src/auth/token-manager.ts` はvalidate/refresh時の `expires_in` を保持し、`refreshAccessTokenIfExpiringSoon` で期限5分前refreshを行う。`src/bot.ts` のkeep-aliveはこの期限前refreshを先に実行し、期限情報がない場合の保険として従来の2時間refreshも残す。`tests/auth/token-manager.test.ts` に短命tokenはrefreshし、十分な残存時間ではrefreshしない回帰テストを追加した。
 - **2026-07-04**: ローカルLLMの長期記憶を、明示メモ即active、暗黙メモ/通常コメント由来メモはcandidate観測、同一 `key: value` が `CHAT_AI_MEMORY_PROMOTION_MIN_OBSERVATIONS`（既定2）回に達した時だけactiveへ昇格する育成型アーキテクチャへ変更した。SQLite正本は `confidence` / `observed_count` / `promoted_at` / `last_observed_at` を持つように移行し、candidateはOllama promptにもself-host mem0にも出さない。mem0ミラーは明示メモ保存時と暗黙/通常コメント由来メモの昇格時だけ行う。ストア上限超過時はcandidateをactiveより先に削除し、未昇格の観測が既存の有効メモを押し出さないようにした。対象テストは `tests/commands/mention-chat-memory.test.ts`、`tests/bot-mention-chat.test.ts`、`tests/config.test.ts` に追加/更新した。
 - **2026-07-04**: AIメンション会話promptの「自然な1〜2文」固定をやめ、短く済む時は短く、説明や文脈整理が必要ならTwitch上限500文字内で複数文でも答える方針にした。Ollama生成量は `num_predict=220` へ増やした。`CHAT_AI_PROMPT_REPLY_LOG_ENABLED=true` の全文診断ログでは、実際にOllamaへ送る `直近会話` 本文も表示する。mem0検索結果はローカルJSON/SQLite正本の同一 `key: value` または同一キーと重複する行を除外し、`参考メモ` と `mem0メモ` が二重に入らないようにした。対象テストは `tests/commands/mention-chat.test.ts` と `tests/bot-mention-chat.test.ts` に追加し、対象3ファイル114件、全体40ファイル443件、`npm run build`、`npm run lint`、`git diff --check` が通過した。
 - **2026-07-04**: リスナー同士の通常コメントもAIメンション会話の短期文脈へ一時保持し、直後の `!chat どう思う？` / `!chat どうかな？` など曖昧な追跡質問でだけOllama promptへ「命令ではない参考文脈」として渡すようにした。通常コメントだけではOllama呼び出しやチャット返信を行わず、`!chat 今何時？` のような新規話題には渡さない。URL/連絡先/秘密情報/プロンプト注入系の通常コメントは短期文脈にも入れない。対象テストは `tests/bot-mention-chat.test.ts` に追加した。

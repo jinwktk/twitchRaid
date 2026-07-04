@@ -29,7 +29,11 @@ import {
   startStreamSummaryThread,
   type StartStreamSummaryThreadResult,
 } from "./streams/stream-summary";
-import { refreshAccessTokenAdvanced } from "./auth/token-manager";
+import {
+  getAccessTokenSecondsUntilExpiry,
+  refreshAccessTokenAdvanced,
+  refreshAccessTokenIfExpiringSoon,
+} from "./auth/token-manager";
 import {
   clipHistoryKey,
   clipSearchHistoryKey,
@@ -2120,13 +2124,30 @@ export class Bot {
 
     const connectionCheckInterval = 45_000;
     const tokenRefreshInterval = 2 * 60 * 60; // 2時間（秒）
+    const tokenRefreshThresholdSeconds = 5 * 60; // 期限5分前
     let lastTokenRefresh = Date.now() / 1000;
 
     this.keepAliveTimer = setInterval(async () => {
       try {
         const now = Date.now() / 1000;
 
-        // 定期トークンリフレッシュ（2時間ごと）
+        const secondsUntilExpiry = getAccessTokenSecondsUntilExpiry(this.config);
+        if (
+          secondsUntilExpiry !== null &&
+          secondsUntilExpiry <= tokenRefreshThresholdSeconds
+        ) {
+          const previousToken = this.config.twitchAccessToken;
+          const refreshedToken = await refreshAccessTokenIfExpiringSoon(
+            this.config,
+            tokenRefreshThresholdSeconds
+          );
+          if (refreshedToken && refreshedToken !== previousToken) {
+            lastTokenRefresh = now;
+            logger.info("✅ 期限前トークンリフレッシュ完了");
+          }
+        }
+
+        // 定期トークンリフレッシュ（期限情報がない場合の保険）
         if (now - lastTokenRefresh > tokenRefreshInterval) {
           logger.info("⏰ 定期トークンリフレッシュを実行...");
           const newToken = await refreshAccessTokenAdvanced(this.config);

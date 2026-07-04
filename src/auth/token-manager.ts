@@ -20,13 +20,16 @@ interface CachedValidation {
 }
 
 const VALIDATION_CACHE_TTL_MS = 5 * 60 * 1000; // 5分
+const DEFAULT_REFRESH_THRESHOLD_SECONDS = 5 * 60; // 期限5分前
 let validationCache: CachedValidation | null = null;
+let tokenExpiryCache: { token: string; expiresAt: number } | null = null;
 
 /**
  * テスト・手動更新用にキャッシュをクリアする
  */
 export function clearTokenValidationCache(): void {
   validationCache = null;
+  tokenExpiryCache = null;
 }
 
 function getCachedValidation(token: string): boolean {
@@ -40,6 +43,23 @@ function getCachedValidation(token: string): boolean {
 
 function setCachedValidation(token: string): void {
   validationCache = { token, validatedAt: Date.now() };
+}
+
+function setCachedTokenExpiry(token: string, expiresIn: unknown): void {
+  if (!token || typeof expiresIn !== "number" || !Number.isFinite(expiresIn)) {
+    return;
+  }
+  if (expiresIn <= 0) {
+    tokenExpiryCache = { token, expiresAt: Date.now() };
+    return;
+  }
+  tokenExpiryCache = { token, expiresAt: Date.now() + expiresIn * 1000 };
+}
+
+export function getAccessTokenSecondsUntilExpiry(config: Config): number | null {
+  const currentToken = config.twitchAccessToken;
+  if (!currentToken || tokenExpiryCache?.token !== currentToken) return null;
+  return Math.floor((tokenExpiryCache.expiresAt - Date.now()) / 1000);
 }
 
 /**
@@ -94,7 +114,10 @@ export async function validateAccessToken(
       logger.info(
         `✅ アクセストークンは有効: active_scopes=${grantedScopes.length}, expires_in=${data.expires_in ?? "unknown"}`
       );
-      if (currentToken) setCachedValidation(currentToken);
+      if (currentToken) {
+        setCachedValidation(currentToken);
+        setCachedTokenExpiry(currentToken, data.expires_in);
+      }
       return currentToken;
     }
 
@@ -148,6 +171,7 @@ export async function refreshAccessTokenAdvanced(
     const data = (await response.json()) as Record<string, unknown>;
     const newAccessToken = data["access_token"] as string | undefined;
     const newRefreshToken = data["refresh_token"] as string | undefined;
+    const refreshExpiresIn = data["expires_in"];
 
     if (!newAccessToken) {
       logger.error("❌ リフレッシュレスポンスに access_token が含まれません");
@@ -185,6 +209,9 @@ export async function refreshAccessTokenAdvanced(
         `✨ トークン検証完了: scope_count=${(validateData.scopes ?? []).length}, expires_in=${validateData.expires_in ?? "unknown"}`
       );
       setCachedValidation(newAccessToken);
+      setCachedTokenExpiry(newAccessToken, validateData.expires_in);
+    } else {
+      setCachedTokenExpiry(newAccessToken, refreshExpiresIn);
     }
 
     return newAccessToken;
@@ -192,6 +219,28 @@ export async function refreshAccessTokenAdvanced(
     logger.error(`❌ 高度なトークンリフレッシュ中にエラー: ${e instanceof Error ? e.message : String(e)}`);
     return null;
   }
+}
+
+export async function refreshAccessTokenIfExpiringSoon(
+  config: Config,
+  thresholdSeconds = DEFAULT_REFRESH_THRESHOLD_SECONDS
+): Promise<string | null> {
+  let secondsUntilExpiry = getAccessTokenSecondsUntilExpiry(config);
+
+  if (secondsUntilExpiry === null) {
+    const validToken = await validateAccessToken(config);
+    if (!validToken) return null;
+    secondsUntilExpiry = getAccessTokenSecondsUntilExpiry(config);
+  }
+
+  if (secondsUntilExpiry === null || secondsUntilExpiry > thresholdSeconds) {
+    return config.twitchAccessToken || null;
+  }
+
+  logger.info(
+    `⏰ アクセストークン期限が近いため更新します: remainingSeconds=${secondsUntilExpiry}, thresholdSeconds=${thresholdSeconds}`
+  );
+  return await refreshAccessTokenAdvanced(config);
 }
 
 /**
