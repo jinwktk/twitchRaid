@@ -1090,6 +1090,43 @@ describe("generateMentionChatReply", () => {
     }
   });
 
+  it("logs the built prompt when prompt/reply diagnostics are enabled and Ollama times out", async () => {
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    const timeoutError = new DOMException(
+      "The operation was aborted due to timeout",
+      "TimeoutError"
+    );
+    const fetchImpl = vi.fn().mockRejectedValue(timeoutError);
+
+    try {
+      const reply = await generateMentionChatReply({
+        enabled: true,
+        baseUrl: "http://127.0.0.1:11434",
+        model: "qwen3.5:9b",
+        timeoutMs: 3000,
+        keepAlive: "30m",
+        maxResponseChars: 200,
+        channel: "#rukalun",
+        userName: "viewer",
+        promptText: "どう思う？",
+        memoryText: "好物: カレー",
+        conversationHistoryText:
+          "ユーザー listener: カレーの話をしてる\nるっかるん: カレーいいねD！",
+        timeoutFallbackReply: "今ちょっとAIが混み合ってるD！",
+        promptReplyLogEnabled: true,
+        fetchImpl,
+      });
+
+      const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
+      expect(reply).toBe("今ちょっとAIが混み合ってるD！");
+      expect(infoSpy).toHaveBeenCalledWith(
+        `AIメンション会話プロンプト/失敗:\n理由：timeout\nプロンプト：${body.prompt}\nフォールバック返信：今ちょっとAIが混み合ってるD！`
+      );
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
   it("marks timeout fallback replies separately from generated replies", async () => {
     const timeoutError = new DOMException(
       "The operation was aborted due to timeout",

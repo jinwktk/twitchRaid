@@ -284,6 +284,27 @@ function logPromptAndReplyIfEnabled(
   logger.info(`AIメンション会話プロンプト/返信:\nプロンプト：${prompt}\n返信：${reply}`);
 }
 
+function logPromptFailureIfEnabled(
+  enabled: boolean | undefined,
+  prompt: string | null | undefined,
+  reason: string,
+  options: { fallbackReply?: string | null; detail?: string | null } = {}
+): void {
+  if (!enabled || !prompt) return;
+  const lines = [
+    "AIメンション会話プロンプト/失敗:",
+    `理由：${reason}`,
+    `プロンプト：${prompt}`,
+  ];
+  if (options.fallbackReply) {
+    lines.push(`フォールバック返信：${options.fallbackReply}`);
+  }
+  if (options.detail) {
+    lines.push(`詳細：${options.detail}`);
+  }
+  logger.info(lines.join("\n"));
+}
+
 function redactDiagnosticText(value: string): string {
   return value
     .replace(/\b(Bearer\s+)[^\s"',}]+/giu, "$1[redacted]")
@@ -647,6 +668,7 @@ export async function generateMentionChatReplyDetailed({
   }
   if (immediateReply) return { reply: immediateReply.reply, source: "fixed" };
   const startedAt = Date.now();
+  let diagnosticPrompt: string | null = null;
 
   try {
     const promptOptions: GenerateMentionChatReplyOptions = {
@@ -667,7 +689,7 @@ export async function generateMentionChatReplyDetailed({
       fetchImpl,
     };
     const builtPrompt = buildMentionChatPrompt(promptOptions);
-    const diagnosticPrompt = builtPrompt;
+    diagnosticPrompt = builtPrompt;
     const payload: Record<string, unknown> = {
       model: trimmedModel,
       system: MENTION_CHAT_SYSTEM_PROMPT,
@@ -693,6 +715,12 @@ export async function generateMentionChatReplyDetailed({
       logger.warn(
         `⚠️ AIメンション会話生成失敗: reason=http_error, status=${response.status}, model=${formatMentionChatLogValue(trimmedModel)}, image=false, prompt=${formatMentionChatLogValue(logPromptText)}, elapsedMs=${elapsedMs}, detail=${formatMentionChatLogValue(detail)}`
       );
+      logPromptFailureIfEnabled(
+        promptReplyLogEnabled,
+        diagnosticPrompt,
+        "http_error",
+        { detail: `status=${response.status}, detail=${detail}` }
+      );
       return null;
     }
 
@@ -700,6 +728,12 @@ export async function generateMentionChatReplyDetailed({
     if (typeof body.response !== "string") {
       logger.warn(
         `⚠️ AIメンション会話生成失敗: reason=invalid_response, responseType=${typeof body.response}`
+      );
+      logPromptFailureIfEnabled(
+        promptReplyLogEnabled,
+        diagnosticPrompt,
+        "invalid_response",
+        { detail: `responseType=${typeof body.response}` }
       );
       return null;
     }
@@ -752,6 +786,11 @@ export async function generateMentionChatReplyDetailed({
       logger.warn(
         `⚠️ AIメンション会話生成失敗: reason=english_word_repair_failed, prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}`
       );
+      logPromptFailureIfEnabled(
+        promptReplyLogEnabled,
+        diagnosticPrompt,
+        "english_word_repair_failed"
+      );
       return null;
     }
     if (!reply) {
@@ -771,6 +810,11 @@ export async function generateMentionChatReplyDetailed({
       }
       logger.warn(
         `⚠️ AIメンション会話生成失敗: reason=policy_rejected, prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}`
+      );
+      logPromptFailureIfEnabled(
+        promptReplyLogEnabled,
+        diagnosticPrompt,
+        "policy_rejected"
       );
       return null;
     }
@@ -804,11 +848,23 @@ export async function generateMentionChatReplyDetailed({
         timeoutFallbackReply ?? DEFAULT_TIMEOUT_FALLBACK_REPLY,
         maxResponseChars
       );
+      logPromptFailureIfEnabled(
+        promptReplyLogEnabled,
+        diagnosticPrompt,
+        "timeout",
+        { fallbackReply }
+      );
       return fallbackReply
         ? { reply: fallbackReply, source: "timeout_fallback" }
         : null;
     }
     logger.warn(`⚠️ AIメンション会話生成失敗: reason=exception, error=${message}`);
+    logPromptFailureIfEnabled(
+      promptReplyLogEnabled,
+      diagnosticPrompt,
+      "exception",
+      { detail: redactDiagnosticText(message) }
+    );
     return null;
   }
 }
