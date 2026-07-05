@@ -2226,6 +2226,7 @@ describe("Bot mention chat", () => {
       chatAiPromptReplyLogEnabled: true,
     });
     const infoSpy = vi.spyOn(logger, "info");
+    const logSpy = vi.spyOn(logger, "log");
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce({
@@ -2252,14 +2253,18 @@ describe("Bot mention chat", () => {
 
     const secondBody = JSON.parse(fetchSpy.mock.calls[1][1].body as string);
     expect(secondBody.prompt).toContain("AとBなにがすき？");
-    const diagnosticLogs = infoSpy.mock.calls
-      .map(([message]) => String(message))
+    const diagnosticLogs = logSpy.mock.calls
+      .filter(([level]) => level === "success")
+      .map(([, message]) => String(message))
       .filter((message) => message.includes("AIメンション会話プロンプト/Success"));
     const secondDiagnostic = diagnosticLogs.at(-1) ?? "";
     expect(secondDiagnostic).toContain("直近会話");
     expect(secondDiagnostic).toContain("AとBなにがすき？");
     expect(secondDiagnostic).toContain("Bがすきだよ！");
     expect(secondDiagnostic).not.toContain("本文はログに出しません");
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("AIメンション会話プロンプト/Success")
+    );
   });
 
   it("does not pass conversation history when the feature is disabled", async () => {

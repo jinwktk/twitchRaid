@@ -288,6 +288,7 @@ describe("generateMentionChatReply", () => {
 
   it("shows conversation history in prompt/reply diagnostics", async () => {
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => logger);
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -314,20 +315,26 @@ describe("generateMentionChatReply", () => {
     const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
     expect(body.prompt).toContain("AとBなにがすき？");
     expect(result?.source).toBe("generated");
-    expect(infoSpy).toHaveBeenCalledWith(
+    expect(logSpy).toHaveBeenCalledWith(
+      "success",
       expect.stringContaining(
         "直近会話: 次の内容はこのチャンネル内の直近User/Bot会話です。"
       )
     );
-    expect(infoSpy).toHaveBeenCalledWith(
+    expect(logSpy).toHaveBeenCalledWith(
+      "success",
       expect.stringContaining("AとBなにがすき？")
     );
-    expect(infoSpy).toHaveBeenCalledWith(
+    expect(logSpy).toHaveBeenCalledWith(
+      "success",
       expect.stringContaining("Bがすきだよ！")
     );
-    for (const call of infoSpy.mock.calls) {
-      expect(call[0]).not.toContain("本文はログに出しません");
+    for (const [, message] of logSpy.mock.calls) {
+      expect(String(message)).not.toContain("本文はログに出しません");
     }
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("AIメンション会話プロンプト/Success")
+    );
   });
 
   it("answers known Rukalun age questions with the local age command logic without calling Ollama", async () => {
@@ -474,6 +481,7 @@ describe("generateMentionChatReply", () => {
 
   it("logs the built prompt and final reply when prompt/reply diagnostics are enabled", async () => {
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => logger);
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -498,13 +506,18 @@ describe("generateMentionChatReply", () => {
 
     const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
     expect(reply).toBe("カレーの話も覚えてるD！");
-    expect(infoSpy).toHaveBeenCalledWith(
+    expect(logSpy).toHaveBeenCalledWith(
+      "success",
       `AIメンション会話プロンプト/Success:\nプロンプト：${body.prompt}\n返信：カレーの話も覚えてるD！`
+    );
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("AIメンション会話プロンプト/Success")
     );
   });
 
   it("does not log the built prompt by default", async () => {
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => logger);
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ response: "了解D！" }),
@@ -524,6 +537,10 @@ describe("generateMentionChatReply", () => {
     });
 
     expect(infoSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("AIメンション会話プロンプト/Success")
+    );
+    expect(logSpy).not.toHaveBeenCalledWith(
+      "success",
       expect.stringContaining("AIメンション会話プロンプト/Success")
     );
   });

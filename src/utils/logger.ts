@@ -12,7 +12,16 @@ const dailyRotate = new DailyRotateFile({
   maxFiles: "10",
 });
 
+const levels = {
+  error: 0,
+  warn: 1,
+  success: 2,
+  info: 3,
+  debug: 4,
+};
+
 const logger = winston.createLogger({
+  levels,
   level: "info",
   format: winston.format.combine(
     winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
