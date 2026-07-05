@@ -499,7 +499,7 @@ describe("generateMentionChatReply", () => {
     const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
     expect(reply).toBe("カレーの話も覚えてるD！");
     expect(infoSpy).toHaveBeenCalledWith(
-      `AIメンション会話プロンプト/返信:\nプロンプト：${body.prompt}\n返信：カレーの話も覚えてるD！`
+      `AIメンション会話プロンプト/Success:\nプロンプト：${body.prompt}\n返信：カレーの話も覚えてるD！`
     );
   });
 
@@ -524,7 +524,7 @@ describe("generateMentionChatReply", () => {
     });
 
     expect(infoSpy).not.toHaveBeenCalledWith(
-      expect.stringContaining("AIメンション会話プロンプト/返信")
+      expect.stringContaining("AIメンション会話プロンプト/Success")
     );
   });
 

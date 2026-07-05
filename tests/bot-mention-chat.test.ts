@@ -2254,7 +2254,7 @@ describe("Bot mention chat", () => {
     expect(secondBody.prompt).toContain("AとBなにがすき？");
     const diagnosticLogs = infoSpy.mock.calls
       .map(([message]) => String(message))
-      .filter((message) => message.includes("AIメンション会話プロンプト/返信"));
+      .filter((message) => message.includes("AIメンション会話プロンプト/Success"));
     const secondDiagnostic = diagnosticLogs.at(-1) ?? "";
     expect(secondDiagnostic).toContain("直近会話");
     expect(secondDiagnostic).toContain("AとBなにがすき？");

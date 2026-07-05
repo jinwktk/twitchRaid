@@ -314,7 +314,7 @@ function logPromptAndReplyIfEnabled(
   reply: string
 ): void {
   if (!enabled) return;
-  logger.info(`AIメンション会話プロンプト/返信:\nプロンプト：${prompt}\n返信：${reply}`);
+  logger.info(`AIメンション会話プロンプト/Success:\nプロンプト：${prompt}\n返信：${reply}`);
 }
 
 function logPromptFailureIfEnabled(
