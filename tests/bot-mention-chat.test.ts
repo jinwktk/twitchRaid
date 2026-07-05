@@ -2262,6 +2262,8 @@ describe("Bot mention chat", () => {
     expect(secondDiagnostic).toContain("AとBなにがすき？");
     expect(secondDiagnostic).toContain("Bがすきだよ！");
     expect(secondDiagnostic).not.toContain("本文はログに出しません");
+    expect(secondDiagnostic).not.toContain("\n");
+    expect(secondDiagnostic).toContain("\\n");
     expect(infoSpy).not.toHaveBeenCalledWith(
       expect.stringContaining("AIメンション会話プロンプト/Success")
     );

@@ -308,6 +308,18 @@ export function formatMentionChatLogValue(value: string): string {
   return JSON.stringify(shorten(singleLine(value), LOG_TEXT_LIMIT));
 }
 
+function formatDiagnosticLogValue(value: string): string {
+  return JSON.stringify(value);
+}
+
+function formatDiagnosticLogFields(
+  fields: ReadonlyArray<readonly [string, string]>
+): string {
+  return fields
+    .map(([name, value]) => `${name}=${formatDiagnosticLogValue(value)}`)
+    .join(" ");
+}
+
 function logPromptAndReplyIfEnabled(
   enabled: boolean | undefined,
   prompt: string,
@@ -316,7 +328,10 @@ function logPromptAndReplyIfEnabled(
   if (!enabled) return;
   logger.log(
     "success",
-    `AIメンション会話プロンプト/Success:\nプロンプト：${prompt}\n返信：${reply}`
+    `AIメンション会話プロンプト/Success: ${formatDiagnosticLogFields([
+      ["プロンプト", prompt],
+      ["返信", reply],
+    ])}`
   );
 }
 
@@ -327,18 +342,17 @@ function logPromptFailureIfEnabled(
   options: { fallbackReply?: string | null; detail?: string | null } = {}
 ): void {
   if (!enabled || !prompt) return;
-  const lines = [
-    "AIメンション会話プロンプト/失敗:",
-    `理由：${reason}`,
-    `プロンプト：${prompt}`,
+  const fields: Array<readonly [string, string]> = [
+    ["理由", reason],
+    ["プロンプト", prompt],
   ];
   if (options.fallbackReply) {
-    lines.push(`フォールバック返信：${options.fallbackReply}`);
+    fields.push(["フォールバック返信", options.fallbackReply]);
   }
   if (options.detail) {
-    lines.push(`詳細：${options.detail}`);
+    fields.push(["詳細", options.detail]);
   }
-  logger.info(lines.join("\n"));
+  logger.info(`AIメンション会話プロンプト/失敗: ${formatDiagnosticLogFields(fields)}`);
 }
 
 function redactDiagnosticText(value: string): string {
