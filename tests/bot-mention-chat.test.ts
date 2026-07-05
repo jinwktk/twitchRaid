@@ -2257,13 +2257,24 @@ describe("Bot mention chat", () => {
       .filter(([level]) => level === "success")
       .map(([, message]) => String(message))
       .filter((message) => message.includes("AIメンション会話プロンプト/Success"));
-    const secondDiagnostic = diagnosticLogs.at(-1) ?? "";
-    expect(secondDiagnostic).toContain("直近会話");
-    expect(secondDiagnostic).toContain("AとBなにがすき？");
-    expect(secondDiagnostic).toContain("Bがすきだよ！");
-    expect(secondDiagnostic).not.toContain("本文はログに出しません");
-    expect(secondDiagnostic).not.toContain("\n");
-    expect(secondDiagnostic).toContain("\\n");
+    expect(diagnosticLogs.at(0)).toMatch(
+      /^AIメンション会話プロンプト\/Success: promptLines=\d+ replyLines=1$/
+    );
+    expect(diagnosticLogs.some((message) => message.includes("直近会話"))).toBe(true);
+    expect(
+      diagnosticLogs.some((message) => message.includes("AとBなにがすき？"))
+    ).toBe(true);
+    expect(diagnosticLogs.some((message) => message.includes("Bがすきだよ！"))).toBe(
+      true
+    );
+    expect(diagnosticLogs).toContain(
+      "AIメンション会話プロンプト/Success reply[1/1]: まっすぐなところが好きD！"
+    );
+    for (const diagnosticLog of diagnosticLogs) {
+      expect(diagnosticLog).not.toContain("本文はログに出しません");
+      expect(diagnosticLog).not.toContain("\n");
+      expect(diagnosticLog).not.toContain("\\n");
+    }
     expect(infoSpy).not.toHaveBeenCalledWith(
       expect.stringContaining("AIメンション会話プロンプト/Success")
     );

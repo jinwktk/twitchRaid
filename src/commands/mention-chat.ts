@@ -59,6 +59,7 @@ const DEFAULT_OLLAMA_NUM_PREDICT = 220;
 const DEFAULT_TIMEOUT_FALLBACK_REPLY = "今ちょっとAIが混み合ってるD！";
 const PROMPT_TEXT_LIMIT = 500;
 const LOG_TEXT_LIMIT = 160;
+const DIAGNOSTIC_LOG_LINE_MAX_CHARS = 220;
 const HTTP_ERROR_DETAIL_MAX_BYTES = 4096;
 const MENTION_NAME_CHAR_CLASS = "\\p{L}\\p{N}_";
 const MATCH_OUTCOME_FALLBACK_REPLY =
@@ -308,16 +309,32 @@ export function formatMentionChatLogValue(value: string): string {
   return JSON.stringify(shorten(singleLine(value), LOG_TEXT_LIMIT));
 }
 
-function formatDiagnosticLogValue(value: string): string {
-  return JSON.stringify(value);
+function splitDiagnosticLogLines(value: string): string[] {
+  const lines = value.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const chunks: string[] = [];
+
+  for (const line of lines) {
+    if (line.length === 0) {
+      chunks.push("");
+      continue;
+    }
+
+    for (let index = 0; index < line.length; index += DIAGNOSTIC_LOG_LINE_MAX_CHARS) {
+      chunks.push(line.slice(index, index + DIAGNOSTIC_LOG_LINE_MAX_CHARS));
+    }
+  }
+
+  return chunks.length > 0 ? chunks : [""];
 }
 
-function formatDiagnosticLogFields(
-  fields: ReadonlyArray<readonly [string, string]>
+function formatDiagnosticLogLine(
+  prefix: string,
+  label: string,
+  line: string,
+  index: number,
+  total: number
 ): string {
-  return fields
-    .map(([name, value]) => `${name}=${formatDiagnosticLogValue(value)}`)
-    .join(" ");
+  return `${prefix} ${label}[${index + 1}/${total}]: ${line}`;
 }
 
 function logPromptAndReplyIfEnabled(
@@ -326,13 +343,22 @@ function logPromptAndReplyIfEnabled(
   reply: string
 ): void {
   if (!enabled) return;
-  logger.log(
-    "success",
-    `AIメンション会話プロンプト/Success: ${formatDiagnosticLogFields([
-      ["プロンプト", prompt],
-      ["返信", reply],
-    ])}`
-  );
+  const prefix = "AIメンション会話プロンプト/Success";
+  const promptLines = splitDiagnosticLogLines(prompt);
+  const replyLines = splitDiagnosticLogLines(reply);
+  logger.log("success", `${prefix}: promptLines=${promptLines.length} replyLines=${replyLines.length}`);
+  promptLines.forEach((line, index) => {
+    logger.log(
+      "success",
+      formatDiagnosticLogLine(prefix, "prompt", line, index, promptLines.length)
+    );
+  });
+  replyLines.forEach((line, index) => {
+    logger.log(
+      "success",
+      formatDiagnosticLogLine(prefix, "reply", line, index, replyLines.length)
+    );
+  });
 }
 
 function logPromptFailureIfEnabled(
@@ -342,17 +368,26 @@ function logPromptFailureIfEnabled(
   options: { fallbackReply?: string | null; detail?: string | null } = {}
 ): void {
   if (!enabled || !prompt) return;
-  const fields: Array<readonly [string, string]> = [
-    ["理由", reason],
-    ["プロンプト", prompt],
-  ];
-  if (options.fallbackReply) {
-    fields.push(["フォールバック返信", options.fallbackReply]);
-  }
-  if (options.detail) {
-    fields.push(["詳細", options.detail]);
-  }
-  logger.info(`AIメンション会話プロンプト/失敗: ${formatDiagnosticLogFields(fields)}`);
+  const prefix = "AIメンション会話プロンプト/失敗";
+  const promptLines = splitDiagnosticLogLines(prompt);
+  const fallbackLines = options.fallbackReply
+    ? splitDiagnosticLogLines(options.fallbackReply)
+    : [];
+  const detailLines = options.detail ? splitDiagnosticLogLines(options.detail) : [];
+  logger.info(
+    `${prefix}: reason=${reason} promptLines=${promptLines.length} fallbackLines=${fallbackLines.length} detailLines=${detailLines.length}`
+  );
+  promptLines.forEach((line, index) => {
+    logger.info(formatDiagnosticLogLine(prefix, "prompt", line, index, promptLines.length));
+  });
+  fallbackLines.forEach((line, index) => {
+    logger.info(
+      formatDiagnosticLogLine(prefix, "fallback", line, index, fallbackLines.length)
+    );
+  });
+  detailLines.forEach((line, index) => {
+    logger.info(formatDiagnosticLogLine(prefix, "detail", line, index, detailLines.length));
+  });
 }
 
 function redactDiagnosticText(value: string): string {

@@ -315,6 +315,15 @@ describe("generateMentionChatReply", () => {
     const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
     expect(body.prompt).toContain("AとBなにがすき？");
     expect(result?.source).toBe("generated");
+    const successMessages = logSpy.mock.calls
+      .filter(([level]) => level === "success")
+      .map(([, message]) => String(message));
+    expect(successMessages[0]).toMatch(
+      /^AIメンション会話プロンプト\/Success: promptLines=\d+ replyLines=\d+$/
+    );
+    expect(successMessages).toContain(
+      "AIメンション会話プロンプト/Success reply[1/1]: Bの話として続けるD！"
+    );
     expect(logSpy).toHaveBeenCalledWith(
       "success",
       expect.stringContaining(
@@ -329,9 +338,10 @@ describe("generateMentionChatReply", () => {
       "success",
       expect.stringContaining("Bがすきだよ！")
     );
-    for (const [, message] of logSpy.mock.calls) {
-      expect(String(message)).not.toContain("本文はログに出しません");
-      expect(String(message)).not.toContain("\n");
+    for (const message of successMessages) {
+      expect(message).not.toContain("本文はログに出しません");
+      expect(message).not.toContain("\n");
+      expect(message).not.toContain("\\n");
     }
     expect(infoSpy).not.toHaveBeenCalledWith(
       expect.stringContaining("AIメンション会話プロンプト/Success")
@@ -506,13 +516,24 @@ describe("generateMentionChatReply", () => {
     });
 
     const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
-    const expectedLog = `AIメンション会話プロンプト/Success: プロンプト=${JSON.stringify(
-      body.prompt
-    )} 返信=${JSON.stringify("カレーの話も覚えてるD！")}`;
+    const successMessages = logSpy.mock.calls
+      .filter(([level]) => level === "success")
+      .map(([, message]) => String(message));
     expect(reply).toBe("カレーの話も覚えてるD！");
-    expect(expectedLog).not.toContain("\n");
-    expect(expectedLog).toContain("\\n");
-    expect(logSpy).toHaveBeenCalledWith("success", expectedLog);
+    expect(body.prompt).toContain("好物: カレー");
+    expect(successMessages[0]).toMatch(
+      /^AIメンション会話プロンプト\/Success: promptLines=\d+ replyLines=1$/
+    );
+    expect(successMessages.some((message) => message.includes("好物: カレー"))).toBe(
+      true
+    );
+    expect(successMessages).toContain(
+      "AIメンション会話プロンプト/Success reply[1/1]: カレーの話も覚えてるD！"
+    );
+    for (const message of successMessages) {
+      expect(message).not.toContain("\n");
+      expect(message).not.toContain("\\n");
+    }
     expect(infoSpy).not.toHaveBeenCalledWith(
       expect.stringContaining("AIメンション会話プロンプト/Success")
     );
@@ -1208,15 +1229,22 @@ describe("generateMentionChatReply", () => {
       });
 
       const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
-      const expectedLog = `AIメンション会話プロンプト/失敗: 理由=${JSON.stringify(
-        "timeout"
-      )} プロンプト=${JSON.stringify(
-        body.prompt
-      )} フォールバック返信=${JSON.stringify("今ちょっとAIが混み合ってるD！")}`;
+      const infoMessages = infoSpy.mock.calls.map(([message]) => String(message));
       expect(reply).toBe("今ちょっとAIが混み合ってるD！");
-      expect(expectedLog).not.toContain("\n");
-      expect(expectedLog).toContain("\\n");
-      expect(infoSpy).toHaveBeenCalledWith(expectedLog);
+      expect(body.prompt).toContain("好物: カレー");
+      expect(infoMessages[0]).toMatch(
+        /^AIメンション会話プロンプト\/失敗: reason=timeout promptLines=\d+ fallbackLines=1 detailLines=0$/
+      );
+      expect(infoMessages.some((message) => message.includes("好物: カレー"))).toBe(
+        true
+      );
+      expect(infoMessages).toContain(
+        "AIメンション会話プロンプト/失敗 fallback[1/1]: 今ちょっとAIが混み合ってるD！"
+      );
+      for (const message of infoMessages) {
+        expect(message).not.toContain("\n");
+        expect(message).not.toContain("\\n");
+      }
     } finally {
       infoSpy.mockRestore();
     }
