@@ -93,6 +93,7 @@ import {
   extractBotRequestNote,
   markBotRequestNotesDigestSent,
   saveBotRequestNoteObservationStore,
+  writeBotRequestNotesDigestFile,
 } from "./commands/bot-request-notes";
 import {
   fetchMentionChatSearchContext,
@@ -2367,45 +2368,59 @@ export class Bot {
       this.config.discordSummaryChannelId;
     const botToken = this.config.discordBotToken;
     const webhookUrl = this.config.discordWebhookUrl;
-    if (!botToken && !webhookUrl) {
-      logger.info("Bot要望メモdigest送信をスキップ: reason=missing_discord");
-      return;
-    }
+    const discordEnabled = this.config.botRequestNotesDigestDiscordEnabled;
 
     this.botRequestNotesDigestInFlight = true;
     try {
-      if (botToken && channelId) {
-        try {
-          await sendDiscordBotMessage({
-            botToken,
-            channelId,
-            content: digest.message,
-          });
-        } catch (botError) {
-          if (!webhookUrl) throw botError;
-          logger.info(
-            `Bot要望メモdigest Bot API送信に失敗したためWebhookへフォールバック: ${botError}`
-          );
+      const fileResult = writeBotRequestNotesDigestFile({
+        filePath: this.config.botRequestNotesDigestFilePath,
+        generatedAt: nowIso,
+        entries: digest.entries,
+      });
+      if (!fileResult.written) {
+        throw new Error(
+          `Bot request notes digest file write failed: reason=${fileResult.reason}`
+        );
+      }
+
+      let sentToDiscord = false;
+      if (discordEnabled) {
+        if (botToken && channelId) {
           try {
-            await executeDiscordWebhook(webhookUrl, { content: digest.message });
-          } catch (webhookError) {
-            throw new Error(
-              `Discord bot message failed and webhook fallback failed: bot=${botError}; webhook=${webhookError}`
+            await sendDiscordBotMessage({
+              botToken,
+              channelId,
+              content: digest.message,
+            });
+          } catch (botError) {
+            if (!webhookUrl) throw botError;
+            logger.info(
+              `Bot要望メモdigest Bot API送信に失敗したためWebhookへフォールバック: ${botError}`
             );
+            try {
+              await executeDiscordWebhook(webhookUrl, { content: digest.message });
+            } catch (webhookError) {
+              throw new Error(
+                `Discord bot message failed and webhook fallback failed: bot=${botError}; webhook=${webhookError}`
+              );
+            }
           }
+          sentToDiscord = true;
+        } else if (webhookUrl) {
+          await executeDiscordWebhook(webhookUrl, { content: digest.message });
+          sentToDiscord = true;
+        } else {
+          throw new Error("Discord digest destination is missing");
         }
-      } else if (webhookUrl) {
-        await executeDiscordWebhook(webhookUrl, { content: digest.message });
-      } else {
-        logger.info("Bot要望メモdigest送信をスキップ: reason=missing_channel");
-        return;
       }
 
       markBotRequestNotesDigestSent({
         dbPath: this.config.botRequestNotesDbPath ?? "",
         sentAt: nowIso,
       });
-      logger.info(`Bot要望メモdigestを送信: items=${digest.itemCount}`);
+      logger.info(
+        `Bot要望メモdigestを${sentToDiscord ? "送信" : "ファイル保存"}: items=${digest.itemCount}, path=${formatMentionChatLogValue(this.config.botRequestNotesDigestFilePath)}`
+      );
     } catch (e) {
       logger.warn(`⚠️ Bot要望メモdigest送信に失敗しました: ${e}`);
     } finally {

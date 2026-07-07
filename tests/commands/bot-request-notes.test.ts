@@ -9,6 +9,7 @@ import {
   markBotRequestNotesDigestSent,
   saveBotRequestNoteObservationStore,
   updateBotRequestNoteStore,
+  writeBotRequestNotesDigestFile,
 } from "../../src/commands/bot-request-notes";
 
 let tempDir: string | null = null;
@@ -214,5 +215,43 @@ describe("bot request note store", () => {
       shouldSend: false,
       reason: "interval",
     });
+  });
+
+  it("writes unresolved request notes to a recovery markdown file", () => {
+    const dir = makeTempDir();
+    const dbPath = path.join(dir, "bot-request-notes.sqlite");
+    const filePath = path.join(dir, "digests", "bot-request-notes-digest.md");
+    const entry = extractBotRequestNote(
+      "BotでRaid挨拶を再生成できるようにしてほしい",
+      { sourceUser: "viewer" }
+    );
+    expect(entry).not.toBeNull();
+    saveBotRequestNoteObservationStore({
+      enabled: true,
+      dbPath,
+      entry: entry!,
+      now: () => "2026-07-05T00:00:00.000Z",
+    });
+
+    const digest = buildBotRequestNotesDigest({
+      enabled: true,
+      dbPath,
+      intervalHours: 168,
+      maxItems: 10,
+      now: () => "2026-07-05T03:00:00.000Z",
+    });
+
+    const written = writeBotRequestNotesDigestFile({
+      filePath,
+      generatedAt: "2026-07-05T03:00:00.000Z",
+      entries: digest.entries,
+    });
+
+    expect(written).toMatchObject({ written: true, reason: "written" });
+    const content = fs.readFileSync(filePath, "utf8");
+    expect(content).toContain("# Bot要望メモ未対応");
+    expect(content).toContain("generatedAt: 2026-07-05T03:00:00.000Z");
+    expect(content).toContain("BotでRaid挨拶を再生成できるようにしてほしい");
+    expect(content).toContain("対応後は");
   });
 });

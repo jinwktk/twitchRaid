@@ -30,6 +30,8 @@ const DEFAULT_CHAT_AI_COMMENT_MEMORY_MAX_ENTRIES_PER_MESSAGE = 2;
 const DEFAULT_CHAT_AI_COMMENT_MEMORY_DEDUP_TTL_SECONDS = 21_600;
 const DEFAULT_BOT_REQUEST_NOTES_DIGEST_INTERVAL_HOURS = 168;
 const DEFAULT_BOT_REQUEST_NOTES_DIGEST_MAX_ITEMS = 10;
+const DEFAULT_BOT_REQUEST_NOTES_DIGEST_FILE_PATH =
+  "data/bot-request-notes-digest.md";
 const DEFAULT_CHAT_AI_MEMORY_MAX_ITEMS = 8;
 const DEFAULT_CHAT_AI_MEMORY_MAX_CHARS = 600;
 const DEFAULT_CHAT_AI_MEMORY_PROMOTION_MIN_OBSERVATIONS = 2;
@@ -147,6 +149,8 @@ export class Config {
   readonly botRequestNotesDigestIntervalHours: number;
   readonly botRequestNotesDigestMaxItems: number;
   readonly botRequestNotesDiscordChannelId: string;
+  readonly botRequestNotesDigestFilePath: string;
+  readonly botRequestNotesDigestDiscordEnabled: boolean;
   readonly chatAiBotAliases: string[];
   readonly chatAiCooldownSeconds: number;
   readonly chatAiIgnoredUsers: string[];
@@ -366,6 +370,14 @@ export class Config {
     this.botRequestNotesDiscordChannelId =
       env["BOT_REQUEST_NOTES_DISCORD_CHANNEL_ID"]?.trim() ||
       this.discordSummaryChannelId;
+    this.botRequestNotesDigestFilePath = path.resolve(
+      BASE_DIR,
+      env["BOT_REQUEST_NOTES_DIGEST_FILE_PATH"] ??
+        DEFAULT_BOT_REQUEST_NOTES_DIGEST_FILE_PATH
+    );
+    this.botRequestNotesDigestDiscordEnabled = parseEnabledFlag(
+      env["BOT_REQUEST_NOTES_DIGEST_DISCORD_ENABLED"] ?? "0"
+    );
     this.chatAiBotAliases = parseNameList(
       env["CHAT_AI_BOT_ALIASES"],
       DEFAULT_CHAT_AI_BOT_ALIASES

@@ -301,6 +301,8 @@ BOT_REQUEST_NOTES_DIGEST_ENABLED=true
 BOT_REQUEST_NOTES_DIGEST_INTERVAL_HOURS=24
 BOT_REQUEST_NOTES_DIGEST_MAX_ITEMS=5
 BOT_REQUEST_NOTES_DISCORD_CHANNEL_ID=bot-request-channel
+BOT_REQUEST_NOTES_DIGEST_FILE_PATH=data/custom-bot-request-notes-digest.md
+BOT_REQUEST_NOTES_DIGEST_DISCORD_ENABLED=true
 `);
 
     const config = new Config(envPath);
@@ -379,6 +381,10 @@ BOT_REQUEST_NOTES_DISCORD_CHANNEL_ID=bot-request-channel
     expect(config.botRequestNotesDigestIntervalHours).toBe(24);
     expect(config.botRequestNotesDigestMaxItems).toBe(5);
     expect(config.botRequestNotesDiscordChannelId).toBe("bot-request-channel");
+    expect(config.botRequestNotesDigestFilePath).toBe(
+      path.resolve("data/custom-bot-request-notes-digest.md")
+    );
+    expect(config.botRequestNotesDigestDiscordEnabled).toBe(true);
   });
 
   it("keeps chat AI disabled by default", () => {
@@ -421,6 +427,10 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.botRequestNotesDigestIntervalHours).toBe(168);
     expect(config.botRequestNotesDigestMaxItems).toBe(10);
     expect(config.botRequestNotesDiscordChannelId).toBe("");
+    expect(config.botRequestNotesDigestFilePath).toBe(
+      path.resolve("data/bot-request-notes-digest.md")
+    );
+    expect(config.botRequestNotesDigestDiscordEnabled).toBe(false);
     expect(config.chatAiBotAliases).toEqual(["にめいやボットくん", "nyme_ia2"]);
     expect(config.chatAiCooldownSeconds).toBe(5);
     expect(config.chatAiIgnoredUsers).toEqual(["nyme_ia2"]);

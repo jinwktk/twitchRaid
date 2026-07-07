@@ -106,6 +106,18 @@ export interface MarkBotRequestNotesDigestSentOptions {
   sentAt: string;
 }
 
+export interface WriteBotRequestNotesDigestFileOptions {
+  filePath: string;
+  generatedAt: string;
+  entries: BotRequestNote[];
+}
+
+export interface WriteBotRequestNotesDigestFileResult {
+  written: boolean;
+  reason: "written" | "invalid_file";
+  filePath?: string;
+}
+
 interface BotRequestNoteRow {
   id: number;
   dedupe_key: string;
@@ -659,6 +671,31 @@ export function markBotRequestNotesDigestSent({
   }
 }
 
+export function writeBotRequestNotesDigestFile({
+  filePath,
+  generatedAt,
+  entries,
+}: WriteBotRequestNotesDigestFileOptions): WriteBotRequestNotesDigestFileResult {
+  const normalizedPath = singleLine(filePath);
+  if (!normalizedPath) return { written: false, reason: "invalid_file" };
+
+  try {
+    fs.mkdirSync(path.dirname(normalizedPath), { recursive: true });
+    fs.writeFileSync(
+      normalizedPath,
+      formatBotRequestNotesDigestFileContent(entries, generatedAt),
+      "utf8"
+    );
+    return {
+      written: true,
+      reason: "written",
+      filePath: normalizedPath,
+    };
+  } catch {
+    return { written: false, reason: "invalid_file", filePath: normalizedPath };
+  }
+}
+
 function formatBotRequestNotesDigestMessage(entries: BotRequestNote[]): string {
   const lines = [`📝 Bot要望メモ未対応: ${entries.length}件`];
   entries.forEach((entry, index) => {
@@ -670,4 +707,40 @@ function formatBotRequestNotesDigestMessage(entries: BotRequestNote[]): string {
     );
   });
   return truncate(lines.join("\n"), 1900);
+}
+
+function escapeMarkdownTableCell(value: string | number): string {
+  return singleLine(String(value)).replace(/\|/gu, "\\|");
+}
+
+function formatBotRequestNotesDigestFileContent(
+  entries: BotRequestNote[],
+  generatedAt: string
+): string {
+  const lines = [
+    "# Bot要望メモ未対応",
+    "",
+    `generatedAt: ${generatedAt}`,
+    `openCount: ${entries.length}`,
+    "",
+    "回収手順: このファイルを読んで対応対象を決め、対応後は Bot Request Notes WebUI またはSQLite更新で status を done / rejected / duplicate などへ変更する。",
+    "",
+  ];
+
+  if (!entries.length) {
+    lines.push("未対応のBot要望メモはありません。", "");
+    return lines.join("\n");
+  }
+
+  lines.push(
+    "| id | status | category | user | observed | updatedAt | summary | evidence |",
+    "| --- | --- | --- | --- | ---: | --- | --- | --- |"
+  );
+  entries.forEach((entry) => {
+    lines.push(
+      `| ${entry.id} | ${escapeMarkdownTableCell(entry.status)} | ${escapeMarkdownTableCell(entry.category)} | ${escapeMarkdownTableCell(entry.sourceUser)} | ${entry.observedCount} | ${escapeMarkdownTableCell(entry.updatedAt)} | ${escapeMarkdownTableCell(entry.summary)} | ${escapeMarkdownTableCell(entry.evidence)} |`
+    );
+  });
+  lines.push("");
+  return lines.join("\n");
 }

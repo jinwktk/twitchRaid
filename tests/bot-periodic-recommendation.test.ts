@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Config } from "../src/config";
 import { Bot } from "../src/bot";
 import {
+  buildBotRequestNotesDigest,
   extractBotRequestNote,
   saveBotRequestNoteObservationStore,
 } from "../src/commands/bot-request-notes";
@@ -58,6 +59,11 @@ function makeConfig(): Config {
     botRequestNotesDigestIntervalHours: 168,
     botRequestNotesDigestMaxItems: 10,
     botRequestNotesDiscordChannelId: "",
+    botRequestNotesDigestFilePath: path.join(
+      tmpDir,
+      "bot-request-notes-digest.md"
+    ),
+    botRequestNotesDigestDiscordEnabled: false,
     chatAiEnabled: false,
     chatAiBaseUrl: "http://127.0.0.1:11434",
     chatAiModel: "",
@@ -240,7 +246,60 @@ describe("Bot periodic recommendations", () => {
     expect(say).not.toHaveBeenCalled();
   });
 
-  it("posts a bot request note digest through Discord when due", async () => {
+  it("writes a bot request note digest file by default without posting to Discord", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T00:00:00.000Z"));
+    const config = {
+      ...makeConfig(),
+      discordWebhookUrl: "https://discord.com/api/webhooks/123/token",
+      discordBotToken: "bot-token",
+      discordSummaryChannelId: "summary-channel",
+      botRequestNotesEnabled: true,
+      botRequestNotesDigestEnabled: true,
+      botRequestNotesDigestIntervalHours: 168,
+      botRequestNotesDigestMaxItems: 10,
+    } as Config;
+    const entry = extractBotRequestNote(
+      "BotでRaid挨拶を再生成できるようにしてほしい",
+      { sourceUser: "viewer" }
+    );
+    expect(entry).not.toBeNull();
+    saveBotRequestNoteObservationStore({
+      enabled: true,
+      dbPath: config.botRequestNotesDbPath,
+      entry: entry!,
+      now: () => "2026-07-05T00:00:00.000Z",
+    });
+    const bot = new Bot(config) as unknown as Bot & {
+      chatClient: { say: ReturnType<typeof vi.fn> };
+      streamLive: boolean;
+      keepAliveTimer: ReturnType<typeof setInterval> | null;
+      clipCacheStore: { close: () => void };
+      _startKeepAlive: () => void;
+    };
+    activeBot = bot;
+    bot.chatClient = { say: vi.fn().mockResolvedValue(undefined) };
+    bot.streamLive = false;
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("unexpected Discord fetch"));
+
+    bot._startKeepAlive();
+    await vi.advanceTimersByTimeAsync(45_000);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const digestFile = fs.readFileSync(
+      config.botRequestNotesDigestFilePath,
+      "utf8"
+    );
+    expect(digestFile).toContain("# Bot要望メモ未対応");
+    expect(digestFile).toContain("BotでRaid挨拶を再生成できるようにしてほしい");
+
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("posts a bot request note digest through Discord when explicitly enabled", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-05T00:00:00.000Z"));
     const config = {
@@ -248,6 +307,7 @@ describe("Bot periodic recommendations", () => {
       discordWebhookUrl: "https://discord.com/api/webhooks/123/token",
       botRequestNotesEnabled: true,
       botRequestNotesDigestEnabled: true,
+      botRequestNotesDigestDiscordEnabled: true,
       botRequestNotesDigestIntervalHours: 168,
       botRequestNotesDigestMaxItems: 10,
     } as Config;
@@ -289,9 +349,60 @@ describe("Bot periodic recommendations", () => {
     expect(JSON.parse(fetchSpy.mock.calls[0][1]?.body as string)).toMatchObject({
       content: expect.stringContaining("Bot要望メモ未対応"),
     });
+    expect(fs.existsSync(config.botRequestNotesDigestFilePath)).toBe(true);
 
     await vi.advanceTimersByTimeAsync(45_000);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a bot request note digest unsent when Discord is enabled without a destination", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T00:00:00.000Z"));
+    const config = {
+      ...makeConfig(),
+      botRequestNotesEnabled: true,
+      botRequestNotesDigestEnabled: true,
+      botRequestNotesDigestDiscordEnabled: true,
+      botRequestNotesDigestIntervalHours: 168,
+      botRequestNotesDigestMaxItems: 10,
+    } as Config;
+    const entry = extractBotRequestNote(
+      "BotでRaid挨拶を再生成できるようにしてほしい",
+      { sourceUser: "viewer" }
+    );
+    expect(entry).not.toBeNull();
+    saveBotRequestNoteObservationStore({
+      enabled: true,
+      dbPath: config.botRequestNotesDbPath,
+      entry: entry!,
+      now: () => "2026-07-05T00:00:00.000Z",
+    });
+    const bot = new Bot(config) as unknown as Bot & {
+      chatClient: { say: ReturnType<typeof vi.fn> };
+      streamLive: boolean;
+      keepAliveTimer: ReturnType<typeof setInterval> | null;
+      clipCacheStore: { close: () => void };
+      _startKeepAlive: () => void;
+    };
+    activeBot = bot;
+    bot.chatClient = { say: vi.fn().mockResolvedValue(undefined) };
+    bot.streamLive = false;
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    bot._startKeepAlive();
+    await vi.advanceTimersByTimeAsync(45_000);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fs.existsSync(config.botRequestNotesDigestFilePath)).toBe(true);
+    expect(
+      buildBotRequestNotesDigest({
+        enabled: true,
+        dbPath: config.botRequestNotesDbPath,
+        intervalHours: 168,
+        maxItems: 10,
+        now: () => "2026-07-05T00:00:45.000Z",
+      }).shouldSend
+    ).toBe(true);
   });
 
   it("falls back to webhook when bot request note digest bot API posting fails", async () => {
@@ -304,6 +415,7 @@ describe("Bot periodic recommendations", () => {
       discordSummaryChannelId: "summary-channel",
       botRequestNotesEnabled: true,
       botRequestNotesDigestEnabled: true,
+      botRequestNotesDigestDiscordEnabled: true,
       botRequestNotesDigestIntervalHours: 168,
       botRequestNotesDigestMaxItems: 10,
     } as Config;
@@ -371,6 +483,7 @@ describe("Bot periodic recommendations", () => {
       discordSummaryChannelId: "summary-channel",
       botRequestNotesEnabled: true,
       botRequestNotesDigestEnabled: true,
+      botRequestNotesDigestDiscordEnabled: true,
       botRequestNotesDigestIntervalHours: 168,
       botRequestNotesDigestMaxItems: 10,
     } as Config;
@@ -452,6 +565,7 @@ describe("Bot periodic recommendations", () => {
       discordSummaryChannelId: "summary-channel",
       botRequestNotesEnabled: true,
       botRequestNotesDigestEnabled: true,
+      botRequestNotesDigestDiscordEnabled: true,
       botRequestNotesDigestIntervalHours: 168,
       botRequestNotesDigestMaxItems: 10,
     } as Config;
