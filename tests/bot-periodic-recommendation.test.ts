@@ -294,6 +294,210 @@ describe("Bot periodic recommendations", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("falls back to webhook when bot request note digest bot API posting fails", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T00:00:00.000Z"));
+    const config = {
+      ...makeConfig(),
+      discordWebhookUrl: "https://discord.com/api/webhooks/123/token",
+      discordBotToken: "bot-token",
+      discordSummaryChannelId: "summary-channel",
+      botRequestNotesEnabled: true,
+      botRequestNotesDigestEnabled: true,
+      botRequestNotesDigestIntervalHours: 168,
+      botRequestNotesDigestMaxItems: 10,
+    } as Config;
+    const entry = extractBotRequestNote(
+      "BotでRaid挨拶を再生成できるようにしてほしい",
+      { sourceUser: "viewer" }
+    );
+    expect(entry).not.toBeNull();
+    saveBotRequestNoteObservationStore({
+      enabled: true,
+      dbPath: config.botRequestNotesDbPath,
+      entry: entry!,
+      now: () => "2026-07-05T00:00:00.000Z",
+    });
+    const bot = new Bot(config) as unknown as Bot & {
+      chatClient: { say: ReturnType<typeof vi.fn> };
+      streamLive: boolean;
+      keepAliveTimer: ReturnType<typeof setInterval> | null;
+      clipCacheStore: { close: () => void };
+      _startKeepAlive: () => void;
+    };
+    activeBot = bot;
+    bot.chatClient = { say: vi.fn().mockResolvedValue(undefined) };
+    bot.streamLive = false;
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response("{}", {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response("", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      );
+
+    bot._startKeepAlive();
+    await vi.advanceTimersByTimeAsync(45_000);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls[0][0]).toBe(
+      "https://discord.com/api/v10/channels/summary-channel/messages"
+    );
+    expect(fetchSpy.mock.calls[1][0]).toBe(
+      "https://discord.com/api/webhooks/123/token"
+    );
+    expect(JSON.parse(fetchSpy.mock.calls[1][1]?.body as string)).toMatchObject({
+      content: expect.stringContaining("Bot要望メモ未対応"),
+    });
+
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries bot request note digest when bot API and webhook posting both fail", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T00:00:00.000Z"));
+    const config = {
+      ...makeConfig(),
+      discordWebhookUrl: "https://discord.com/api/webhooks/123/token",
+      discordBotToken: "bot-token",
+      discordSummaryChannelId: "summary-channel",
+      botRequestNotesEnabled: true,
+      botRequestNotesDigestEnabled: true,
+      botRequestNotesDigestIntervalHours: 168,
+      botRequestNotesDigestMaxItems: 10,
+    } as Config;
+    const entry = extractBotRequestNote(
+      "BotでRaid挨拶を再生成できるようにしてほしい",
+      { sourceUser: "viewer" }
+    );
+    expect(entry).not.toBeNull();
+    saveBotRequestNoteObservationStore({
+      enabled: true,
+      dbPath: config.botRequestNotesDbPath,
+      entry: entry!,
+      now: () => "2026-07-05T00:00:00.000Z",
+    });
+    const bot = new Bot(config) as unknown as Bot & {
+      chatClient: { say: ReturnType<typeof vi.fn> };
+      streamLive: boolean;
+      keepAliveTimer: ReturnType<typeof setInterval> | null;
+      clipCacheStore: { close: () => void };
+      _startKeepAlive: () => void;
+    };
+    activeBot = bot;
+    bot.chatClient = { say: vi.fn().mockResolvedValue(undefined) };
+    bot.streamLive = false;
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response("{}", {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response("{}", {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response("{}", {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response("{}", {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        })
+      );
+
+    bot._startKeepAlive();
+    await vi.advanceTimersByTimeAsync(45_000);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls[0][0]).toBe(
+      "https://discord.com/api/v10/channels/summary-channel/messages"
+    );
+    expect(fetchSpy.mock.calls[1][0]).toBe(
+      "https://discord.com/api/webhooks/123/token"
+    );
+
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    expect(fetchSpy.mock.calls[2][0]).toBe(
+      "https://discord.com/api/v10/channels/summary-channel/messages"
+    );
+    expect(fetchSpy.mock.calls[3][0]).toBe(
+      "https://discord.com/api/webhooks/123/token"
+    );
+  });
+
+  it("retries bot request note digest when bot API posting fails without a webhook", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T00:00:00.000Z"));
+    const config = {
+      ...makeConfig(),
+      discordBotToken: "bot-token",
+      discordSummaryChannelId: "summary-channel",
+      botRequestNotesEnabled: true,
+      botRequestNotesDigestEnabled: true,
+      botRequestNotesDigestIntervalHours: 168,
+      botRequestNotesDigestMaxItems: 10,
+    } as Config;
+    const entry = extractBotRequestNote(
+      "BotでRaid挨拶を再生成できるようにしてほしい",
+      { sourceUser: "viewer" }
+    );
+    expect(entry).not.toBeNull();
+    saveBotRequestNoteObservationStore({
+      enabled: true,
+      dbPath: config.botRequestNotesDbPath,
+      entry: entry!,
+      now: () => "2026-07-05T00:00:00.000Z",
+    });
+    const bot = new Bot(config) as unknown as Bot & {
+      chatClient: { say: ReturnType<typeof vi.fn> };
+      streamLive: boolean;
+      keepAliveTimer: ReturnType<typeof setInterval> | null;
+      clipCacheStore: { close: () => void };
+      _startKeepAlive: () => void;
+    };
+    activeBot = bot;
+    bot.chatClient = { say: vi.fn().mockResolvedValue(undefined) };
+    bot.streamLive = false;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("{}", {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      })
+    );
+
+    bot._startKeepAlive();
+    await vi.advanceTimersByTimeAsync(45_000);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toBe(
+      "https://discord.com/api/v10/channels/summary-channel/messages"
+    );
+
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls[1][0]).toBe(
+      "https://discord.com/api/v10/channels/summary-channel/messages"
+    );
+  });
+
   it("waits one interval after a new stream starts before posting", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-13T00:00:00.000Z"));

@@ -2375,11 +2375,25 @@ export class Bot {
     this.botRequestNotesDigestInFlight = true;
     try {
       if (botToken && channelId) {
-        await sendDiscordBotMessage({
-          botToken,
-          channelId,
-          content: digest.message,
-        });
+        try {
+          await sendDiscordBotMessage({
+            botToken,
+            channelId,
+            content: digest.message,
+          });
+        } catch (botError) {
+          if (!webhookUrl) throw botError;
+          logger.info(
+            `Bot要望メモdigest Bot API送信に失敗したためWebhookへフォールバック: ${botError}`
+          );
+          try {
+            await executeDiscordWebhook(webhookUrl, { content: digest.message });
+          } catch (webhookError) {
+            throw new Error(
+              `Discord bot message failed and webhook fallback failed: bot=${botError}; webhook=${webhookError}`
+            );
+          }
+        }
       } else if (webhookUrl) {
         await executeDiscordWebhook(webhookUrl, { content: digest.message });
       } else {
