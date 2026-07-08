@@ -137,9 +137,10 @@ const DEFAULT_MENTION_CHAT_COOLDOWN_SECONDS = 5;
 const MENTION_CHAT_SKIP_PROMPT_LIMIT = 80;
 const CHAT_AI_COMMAND_USAGE = "⚠️ 使い方: !chat <メッセージ>";
 const YOUTUBE_CHANNEL_URL = "https://is.gd/rukalunyt";
-const SEVEN_DAY_IMAGE_ALBUM_URL = "https://imgur.com/a/w9Y9GbN";
+const SEVEN_DAYS_IMAGE_ALBUM_MESSAGE =
+  "7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN rukkaEeeee";
 const HELP_MESSAGE =
-  "!使えるコマンド: 基本 !help / !age / !goods / !7day / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
+  "!使えるコマンド: 基本 !help / !age / !goods / !7days / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
 const MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE = "[memory-request]";
 const MENTION_CHAT_SEARCH_NO_RESULT_REPLY =
   "ごめん、検索結果がなくて分からないD！";
@@ -1578,8 +1579,8 @@ export class Bot {
       case "goods":
         await this.chatClient.say(channel, "https://rukalun.booth.pm");
         break;
-      case "7day":
-        await this.chatClient.say(channel, SEVEN_DAY_IMAGE_ALBUM_URL);
+      case "7days":
+        await this.chatClient.say(channel, SEVEN_DAYS_IMAGE_ALBUM_MESSAGE);
         break;
       case "site":
         await this.chatClient.say(channel, "https://www.rukalun.mydns.jp");

@@ -104,7 +104,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!help` | 主要コマンド一覧をチャットに表示 | 返信文頭に `!` を付けて読み上げ回避、権限不要、クールダウンなし |
 | `!age` | 年齢を表示 | |
 | `!goods` | グッズ販売ページのURLを表示 | [booth.pm](https://rukalun.booth.pm) |
-| `!7day` | 7 Days to Die用の画像アルバムURLを表示 | [imgur.com/a/w9Y9GbN](https://imgur.com/a/w9Y9GbN) |
+| `!7days` | 7 Days to Die用のチャネポ案内と画像アルバムURLを表示 | `7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN rukkaEeeee` |
 | `!site` | Clip検索サイトのURLを表示 | [rukalun.mydns.jp](https://www.rukalun.mydns.jp) |
 | `!x` | XアカウントのURLを表示 | [x.com/rukalunlol](https://x.com/rukalunlol) |
 | `!youtube` | YouTubeチャンネルのURLを表示 | [is.gd/rukalunyt](https://is.gd/rukalunyt) |
@@ -362,7 +362,7 @@ internal-docs/
 ```
 
 ## 更新履歴
-- **2026-07-09**: `!7day` コマンドを追加し、Twitchチャットで `https://imgur.com/a/w9Y9GbN` を返せるようにした。`!help` の基本コマンド一覧にも `!7day` を追加し、対象テストは `tests/bot-help.test.ts` に追加した。
+- **2026-07-09**: 7 Days to Die用コマンドを `!7days` に変更し、Twitchチャットで `7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN rukkaEeeee` を返せるようにした。`!help` の基本コマンド一覧にも `!7days` を追加し、対象テストは `tests/bot-help.test.ts` に追加した。
 - **2026-07-07**: Bot要望メモdigestの既定出力をDiscord本文投稿からMarkdownファイル保存へ変更した。`BOT_REQUEST_NOTES_DIGEST_ENABLED=true` の時は未対応要望を `BOT_REQUEST_NOTES_DIGEST_FILE_PATH`（既定 `data/bot-request-notes-digest.md`）へ書き出し、回収作業ではこのファイルを読んで対応する。Discordへも出したい場合だけ `BOT_REQUEST_NOTES_DIGEST_DISCORD_ENABLED=true` を設定する。対象テストは `tests/commands/bot-request-notes.test.ts`、`tests/config.test.ts`、`tests/bot-periodic-recommendation.test.ts` に追加/更新した。
 - **2026-07-07**: Bot要望メモdigestがBot API投稿で `Discord bot message failed: 403` になった場合、`DISCORD_WEBHOOK_URL` が設定済みなら同じdigest本文をWebhookへfallback送信するようにした。Webhook成功時だけ送信済み時刻を記録し、Bot APIとWebhookの両方が失敗した場合やWebhook未設定の場合は未送信のまま次回tickで再試行する。対象テストは `tests/bot-periodic-recommendation.test.ts` に追加した。
 - **2026-07-05**: `CHAT_AI_PROMPT_REPLY_LOG_ENABLED=true` の成功時全文診断ログをINFOではなくSUCCESSログへ変更し、ヘッダも `AIメンション会話プロンプト/返信:` から `AIメンション会話プロンプト/Success:` へ変更した。ログビューアで先頭行だけSUCCESS、後続prompt行がINFOへ分裂しないよう、成功時は `prompt[1/N]` / `reply[1/N]` の複数SUCCESSログへ分け、失敗時も `prompt[1/N]` / `fallback[1/N]` / `detail[1/N]` の複数INFOログへ分ける。長い行は220文字単位で分割する。
