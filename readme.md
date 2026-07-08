@@ -105,6 +105,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!age` | 年齢を表示 | |
 | `!goods` | グッズ販売ページのURLを表示 | [booth.pm](https://rukalun.booth.pm) |
 | `!7days` | 7 Days to Die用のチャネポ案内と画像アルバムURLを表示 | `7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN rukkaEeeee` |
+| `!die` | 7 Days to Die用の固定セリフを表示 | `簡単に死んでたまるかッ🧟` |
 | `!site` | Clip検索サイトのURLを表示 | [rukalun.mydns.jp](https://www.rukalun.mydns.jp) |
 | `!x` | XアカウントのURLを表示 | [x.com/rukalunlol](https://x.com/rukalunlol) |
 | `!youtube` | YouTubeチャンネルのURLを表示 | [is.gd/rukalunyt](https://is.gd/rukalunyt) |
@@ -126,7 +127,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!boom [日数]` | 指定期間（省略時30日）で1時間以上遊んだゲーム別トータル時間と総配信時間を表示 | 日数は1〜60の整数、VODチャプター情報を集計 |
 | `!streamnotify` | 現在の配信開始通知をDiscordへ手動送信 | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ |
 
-2026-07-09時点の全コマンド検証では、上記24コマンドをBot dispatcher経由のスモークテスト対象にし、外部副作用が大きい `!shoutout` と `!streamnotify` は権限拒否・usage・offline応答で安全に確認しています。併せて `!clip` / `!myclip` / `!clipsearch` はSQLiteキャッシュ、`!chat` はAI生成スタブ、`!boom` / `!game` はHelix identity fetchスタブで確認します。
+2026-07-09時点の全コマンド検証では、上記25コマンドをBot dispatcher経由のスモークテスト対象にし、外部副作用が大きい `!shoutout` と `!streamnotify` は権限拒否・usage・offline応答で安全に確認しています。併せて `!clip` / `!myclip` / `!clipsearch` はSQLiteキャッシュ、`!chat` はAI生成スタブ、`!boom` / `!game` はHelix identity fetchスタブで確認します。
 
 ## 定期おすすめコメント
 - 配信中のみ、配信開始から1時間後に最初のおすすめコメントを投稿し、それ以降は既定1時間ごとに1通ずつ投稿する。起動直後や配信開始直後には即投稿しない
@@ -362,6 +363,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-07-09**: `!die` コマンドを追加し、Twitchチャットで `簡単に死んでたまるかッ🧟` を返せるようにした。`!help` の基本コマンド一覧にも `!die` を追加し、対象テストは `tests/bot-help.test.ts` に追加した。
 - **2026-07-09**: 7 Days to Die用コマンドを `!7days` に変更し、Twitchチャットで `7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN rukkaEeeee` を返せるようにした。`!help` の基本コマンド一覧にも `!7days` を追加し、対象テストは `tests/bot-help.test.ts` に追加した。
 - **2026-07-07**: Bot要望メモdigestの既定出力をDiscord本文投稿からMarkdownファイル保存へ変更した。`BOT_REQUEST_NOTES_DIGEST_ENABLED=true` の時は未対応要望を `BOT_REQUEST_NOTES_DIGEST_FILE_PATH`（既定 `data/bot-request-notes-digest.md`）へ書き出し、回収作業ではこのファイルを読んで対応する。Discordへも出したい場合だけ `BOT_REQUEST_NOTES_DIGEST_DISCORD_ENABLED=true` を設定する。対象テストは `tests/commands/bot-request-notes.test.ts`、`tests/config.test.ts`、`tests/bot-periodic-recommendation.test.ts` に追加/更新した。
 - **2026-07-07**: Bot要望メモdigestがBot API投稿で `Discord bot message failed: 403` になった場合、`DISCORD_WEBHOOK_URL` が設定済みなら同じdigest本文をWebhookへfallback送信するようにした。Webhook成功時だけ送信済み時刻を記録し、Bot APIとWebhookの両方が失敗した場合やWebhook未設定の場合は未送信のまま次回tickで再試行する。対象テストは `tests/bot-periodic-recommendation.test.ts` に追加した。

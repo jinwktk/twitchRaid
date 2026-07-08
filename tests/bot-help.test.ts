@@ -147,6 +147,7 @@ describe("Bot help command", () => {
       "!age",
       "!goods",
       "!7days",
+      "!die",
       "!site",
       "!x",
       "!youtube",
@@ -213,6 +214,15 @@ describe("Bot help command", () => {
     );
   });
 
+  it("sends the die survival phrase for die command", async () => {
+    const { bot, say } = makeBot();
+
+    await bot._handleCommand("#rukalun", "viewer", "!die", {});
+
+    expect(say).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith("#rukalun", "簡単に死んでたまるかッ🧟");
+  });
+
   it("sends the X account URL for x command", async () => {
     const { bot, say } = makeBot();
 
@@ -246,6 +256,7 @@ describe("Bot help command", () => {
         "!age",
         "!goods",
         "!7days",
+        "!die",
         "!weight",
         "!height",
         "!mood",
@@ -262,6 +273,7 @@ describe("Bot help command", () => {
       expect.stringMatching(/^\d+$/),
       "https://rukalun.booth.pm",
       "7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN rukkaEeeee",
+      "簡単に死んでたまるかッ🧟",
       "15kg",
       "120cm",
       "今日の気分：絶好調！",
