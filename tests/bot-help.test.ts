@@ -146,6 +146,7 @@ describe("Bot help command", () => {
       "!help",
       "!age",
       "!goods",
+      "!7day",
       "!site",
       "!x",
       "!youtube",
@@ -200,6 +201,18 @@ describe("Bot help command", () => {
     );
   });
 
+  it("sends the 7day image album URL for 7day command", async () => {
+    const { bot, say } = makeBot();
+
+    await bot._handleCommand("#rukalun", "viewer", "!7day", {});
+
+    expect(say).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "https://imgur.com/a/w9Y9GbN"
+    );
+  });
+
   it("sends the X account URL for x command", async () => {
     const { bot, say } = makeBot();
 
@@ -232,6 +245,7 @@ describe("Bot help command", () => {
       for (const command of [
         "!age",
         "!goods",
+        "!7day",
         "!weight",
         "!height",
         "!mood",
@@ -247,6 +261,7 @@ describe("Bot help command", () => {
     expect(say.mock.calls.map((call) => call[1])).toEqual([
       expect.stringMatching(/^\d+$/),
       "https://rukalun.booth.pm",
+      "https://imgur.com/a/w9Y9GbN",
       "15kg",
       "120cm",
       "今日の気分：絶好調！",
