@@ -148,6 +148,7 @@ describe("Bot help command", () => {
       "!goods",
       "!7days",
       "!die",
+      "!work",
       "!site",
       "!x",
       "!youtube",
@@ -223,6 +224,18 @@ describe("Bot help command", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "簡単に死んでたまるかッ🧟");
   });
 
+  it("sends the work send-off phrase for work command", async () => {
+    const { bot, say } = makeBot();
+
+    await bot._handleCommand("#rukalun", "viewer", "!work", {});
+
+    expect(say).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "るっかるん、今日もお仕事気を付けて、いってらっしゃい"
+    );
+  });
+
   it("sends the X account URL for x command", async () => {
     const { bot, say } = makeBot();
 
@@ -257,6 +270,7 @@ describe("Bot help command", () => {
         "!goods",
         "!7days",
         "!die",
+        "!work",
         "!weight",
         "!height",
         "!mood",
@@ -274,6 +288,7 @@ describe("Bot help command", () => {
       "https://rukalun.booth.pm",
       "7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN rukkaEeeee",
       "簡単に死んでたまるかッ🧟",
+      "るっかるん、今日もお仕事気を付けて、いってらっしゃい",
       "15kg",
       "120cm",
       "今日の気分：絶好調！",

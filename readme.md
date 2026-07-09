@@ -106,6 +106,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!goods` | グッズ販売ページのURLを表示 | [booth.pm](https://rukalun.booth.pm) |
 | `!7days` | 7 Days to Die用のチャネポ案内と画像アルバムURLを表示 | `7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN rukkaEeeee` |
 | `!die` | 7 Days to Die用の固定セリフを表示 | `簡単に死んでたまるかッ🧟` |
+| `!work` | お仕事の見送り固定セリフを表示 | `るっかるん、今日もお仕事気を付けて、いってらっしゃい` |
 | `!site` | Clip検索サイトのURLを表示 | [rukalun.mydns.jp](https://www.rukalun.mydns.jp) |
 | `!x` | XアカウントのURLを表示 | [x.com/rukalunlol](https://x.com/rukalunlol) |
 | `!youtube` | YouTubeチャンネルのURLを表示 | [is.gd/rukalunyt](https://is.gd/rukalunyt) |
@@ -363,6 +364,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-07-09**: `!work` コマンドを追加し、Twitchチャットで `るっかるん、今日もお仕事気を付けて、いってらっしゃい` を返せるようにした。`!help` の基本コマンド一覧にも `!work` を追加し、対象テストは `tests/bot-help.test.ts` に追加した。
 - **2026-07-09**: `!die` コマンドを追加し、Twitchチャットで `簡単に死んでたまるかッ🧟` を返せるようにした。`!help` の基本コマンド一覧にも `!die` を追加し、対象テストは `tests/bot-help.test.ts` に追加した。
 - **2026-07-09**: 7 Days to Die用コマンドを `!7days` に変更し、Twitchチャットで `7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN rukkaEeeee` を返せるようにした。`!help` の基本コマンド一覧にも `!7days` を追加し、対象テストは `tests/bot-help.test.ts` に追加した。
 - **2026-07-07**: Bot要望メモdigestの既定出力をDiscord本文投稿からMarkdownファイル保存へ変更した。`BOT_REQUEST_NOTES_DIGEST_ENABLED=true` の時は未対応要望を `BOT_REQUEST_NOTES_DIGEST_FILE_PATH`（既定 `data/bot-request-notes-digest.md`）へ書き出し、回収作業ではこのファイルを読んで対応する。Discordへも出したい場合だけ `BOT_REQUEST_NOTES_DIGEST_DISCORD_ENABLED=true` を設定する。対象テストは `tests/commands/bot-request-notes.test.ts`、`tests/config.test.ts`、`tests/bot-periodic-recommendation.test.ts` に追加/更新した。

@@ -140,8 +140,10 @@ const YOUTUBE_CHANNEL_URL = "https://is.gd/rukalunyt";
 const SEVEN_DAYS_IMAGE_ALBUM_MESSAGE =
   "7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN rukkaEeeee";
 const DIE_SURVIVAL_REPLY = "簡単に死んでたまるかッ🧟";
+const WORK_SEND_OFF_REPLY =
+  "るっかるん、今日もお仕事気を付けて、いってらっしゃい";
 const HELP_MESSAGE =
-  "!使えるコマンド: 基本 !help / !age / !goods / !7days / !die / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
+  "!使えるコマンド: 基本 !help / !age / !goods / !7days / !die / !work / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
 const MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE = "[memory-request]";
 const MENTION_CHAT_SEARCH_NO_RESULT_REPLY =
   "ごめん、検索結果がなくて分からないD！";
@@ -1585,6 +1587,9 @@ export class Bot {
         break;
       case "die":
         await this.chatClient.say(channel, DIE_SURVIVAL_REPLY);
+        break;
+      case "work":
+        await this.chatClient.say(channel, WORK_SEND_OFF_REPLY);
         break;
       case "site":
         await this.chatClient.say(channel, "https://www.rukalun.mydns.jp");
