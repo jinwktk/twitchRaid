@@ -282,6 +282,8 @@ CHAT_AI_MEM0_MAX_CHARS=700
 CHAT_AI_MEM0_MIN_SCORE=0.72
 CHAT_AI_MEM0_RECALL_GATE_ENABLED=false
 CHAT_AI_MEM0_ALLOW_MISSING_SCORE=true
+CHAT_AI_MEM0_EMBED_PREWARM_ENABLED=true
+CHAT_AI_MEM0_EMBED_MODEL=nomic-embed-text
 CHAT_AI_MEMORY_HUB_ENABLED=true
 CHAT_AI_MEMORY_HUB_URL=http://127.0.0.1:3218
 CHAT_AI_MEMORY_HUB_NAMESPACE=rukalun
@@ -361,6 +363,8 @@ BOT_REQUEST_NOTES_DIGEST_DISCORD_ENABLED=true
     expect(config.chatAiMem0MinScore).toBe(0.72);
     expect(config.chatAiMem0RecallGateEnabled).toBe(false);
     expect(config.chatAiMem0AllowMissingScore).toBe(true);
+    expect(config.chatAiMem0EmbedPrewarmEnabled).toBe(true);
+    expect(config.chatAiMem0EmbedModel).toBe("nomic-embed-text");
     expect(config).not.toHaveProperty("chatAiMemoryHubEnabled");
     expect(config).not.toHaveProperty("chatAiMemoryHubUrl");
     expect(config).not.toHaveProperty("chatAiMemoryHubNamespace");
@@ -472,6 +476,8 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiMem0MinScore).toBe(0.5);
     expect(config.chatAiMem0RecallGateEnabled).toBe(true);
     expect(config.chatAiMem0AllowMissingScore).toBe(false);
+    expect(config.chatAiMem0EmbedPrewarmEnabled).toBe(false);
+    expect(config.chatAiMem0EmbedModel).toBe("");
     expect(config).not.toHaveProperty("chatAiMemoryHubEnabled");
     expect(config).not.toHaveProperty("chatAiMemoryHubUrl");
     expect(config).not.toHaveProperty("chatAiMemoryHubNamespace");

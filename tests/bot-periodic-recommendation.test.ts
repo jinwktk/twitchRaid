@@ -73,6 +73,8 @@ function makeConfig(): Config {
     chatAiPrewarmEnabled: false,
     chatAiPrewarmIntervalSeconds: 600,
     chatAiPrewarmTimeoutMs: 90_000,
+    chatAiMem0EmbedPrewarmEnabled: false,
+    chatAiMem0EmbedModel: "",
     maxSummaryClipPosts: 10,
     ollamaShoutoutEnabled: false,
     ollamaBaseUrl: "http://127.0.0.1:11434",
@@ -245,6 +247,67 @@ describe("Bot periodic recommendations", () => {
 
     await vi.advanceTimersByTimeAsync(90 * 1000);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(say).not.toHaveBeenCalled();
+  });
+
+  it("prewarms the mem0 embedding model immediately and on the chat prewarm interval", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-10T14:20:00.000Z"));
+    const config = {
+      ...makeConfig(),
+      chatAiEnabled: true,
+      chatAiBaseUrl: "http://ollama:11434",
+      chatAiModel: "qwen3.5:9b",
+      chatAiKeepAlive: "30m",
+      chatAiPrewarmEnabled: true,
+      chatAiPrewarmIntervalSeconds: 600,
+      chatAiPrewarmTimeoutMs: 90_000,
+      chatAiMem0EmbedPrewarmEnabled: true,
+      chatAiMem0EmbedModel: "nomic-embed-text",
+    } as Config;
+    const bot = new Bot(config) as unknown as Bot & {
+      chatClient: { say: ReturnType<typeof vi.fn> };
+      streamLive: boolean;
+      keepAliveTimer: ReturnType<typeof setInterval> | null;
+      clipCacheStore: { close: () => void };
+      _startKeepAlive: () => void;
+    };
+    activeBot = bot;
+    const say = vi.fn().mockResolvedValue(undefined);
+    bot.chatClient = { say };
+    bot.streamLive = false;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input) =>
+        new Response(
+          String(input).endsWith("/api/embed")
+            ? JSON.stringify({ embeddings: [[0.1]] })
+            : JSON.stringify({ response: "" }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        )
+    );
+
+    bot._startKeepAlive();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
+      "http://ollama:11434/api/generate",
+      "http://ollama:11434/api/embed",
+    ]);
+    expect(JSON.parse(fetchSpy.mock.calls[1]?.[1]?.body as string)).toEqual({
+      model: "nomic-embed-text",
+      input: "warmup",
+    });
+
+    await vi.advanceTimersByTimeAsync(9 * 60 * 1000);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(90 * 1000);
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
     expect(say).not.toHaveBeenCalled();
   });
 
