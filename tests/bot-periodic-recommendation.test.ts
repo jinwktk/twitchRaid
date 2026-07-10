@@ -71,10 +71,12 @@ function makeConfig(): Config {
     chatAiTimeoutFallbackReply: "今ちょっとAIが混み合ってるD！",
     chatAiKeepAlive: "30m",
     chatAiPrewarmEnabled: false,
+    chatAiPrewarmPrimeEnabled: false,
     chatAiPrewarmIntervalSeconds: 600,
     chatAiPrewarmTimeoutMs: 90_000,
     chatAiMem0EmbedPrewarmEnabled: false,
     chatAiMem0EmbedModel: "",
+    chatAiMem0SearchPrewarmEnabled: false,
     maxSummaryClipPosts: 10,
     ollamaShoutoutEnabled: false,
     ollamaBaseUrl: "http://127.0.0.1:11434",
@@ -250,7 +252,7 @@ describe("Bot periodic recommendations", () => {
     expect(say).not.toHaveBeenCalled();
   });
 
-  it("prewarms the mem0 embedding model after the chat model and on the same interval", async () => {
+  it("runs startup-only prime and mem0 search in strict order while keeping intervals lightweight", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-10T14:20:00.000Z"));
     const config = {
@@ -260,10 +262,20 @@ describe("Bot periodic recommendations", () => {
       chatAiModel: "qwen3.5:9b",
       chatAiKeepAlive: "30m",
       chatAiPrewarmEnabled: true,
+      chatAiPrewarmPrimeEnabled: true,
       chatAiPrewarmIntervalSeconds: 600,
       chatAiPrewarmTimeoutMs: 90_000,
       chatAiMem0EmbedPrewarmEnabled: true,
       chatAiMem0EmbedModel: "nomic-embed-text",
+      chatAiMem0SearchPrewarmEnabled: true,
+      chatAiMemoryEnabled: true,
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiMem0ApiKey: "test-key",
+      chatAiMem0UserId: "rukalun",
+      chatAiMem0AgentId: "twitchRaid",
+      chatAiContextLength: 4096,
+      chatAiMaxResponseChars: 500,
     } as Config;
     const bot = new Bot(config) as unknown as Bot & {
       chatClient: { say: ReturnType<typeof vi.fn> };
@@ -280,10 +292,22 @@ describe("Bot periodic recommendations", () => {
     const startupGenerate = new Promise<Response>((resolve) => {
       resolveStartupGenerate = resolve;
     });
+    let resolvePrimeGenerate!: (response: Response) => void;
+    const primeGenerate = new Promise<Response>((resolve) => {
+      resolvePrimeGenerate = resolve;
+    });
     let generateCalls = 0;
+    let resolvePrimeStarted!: () => void;
+    const primeStarted = new Promise<void>((resolve) => {
+      resolvePrimeStarted = resolve;
+    });
     let resolveEmbedStarted!: () => void;
     const embedStarted = new Promise<void>((resolve) => {
       resolveEmbedStarted = resolve;
+    });
+    let resolveMem0Started!: () => void;
+    const mem0Started = new Promise<void>((resolve) => {
+      resolveMem0Started = resolve;
     });
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
@@ -295,8 +319,19 @@ describe("Bot periodic recommendations", () => {
             headers: { "content-type": "application/json" },
           });
         }
+        if (String(input) === "http://mem0:8888/search") {
+          resolveMem0Started();
+          return new Response(JSON.stringify({ results: [] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
         generateCalls += 1;
         if (generateCalls === 1) return startupGenerate;
+        if (generateCalls === 2) {
+          resolvePrimeStarted();
+          return primeGenerate;
+        }
         return new Response(JSON.stringify({ response: "" }), {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -317,23 +352,241 @@ describe("Bot periodic recommendations", () => {
         headers: { "content-type": "application/json" },
       })
     );
-    await embedStarted;
+    await primeStarted;
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(String(fetchSpy.mock.calls[1]?.[0])).toBe(
+      "http://ollama:11434/api/generate"
+    );
+    const primeBody = JSON.parse(fetchSpy.mock.calls[1]?.[1]?.body as string);
+    expect(primeBody).toMatchObject({
+      model: "qwen3.5:9b",
+      stream: false,
+      think: false,
+      keep_alive: "30m",
+      options: {
+        temperature: 0,
+        num_predict: 1,
+        num_ctx: 4096,
+      },
+    });
+    expect(primeBody.system).toContain("るっかるん本人");
+    expect(primeBody.prompt).toContain("チャンネル: #prewarm");
+    expect(fetchSpy).not.toHaveBeenCalledWith(
+      "http://ollama:11434/api/embed",
+      expect.anything()
+    );
+
+    resolvePrimeGenerate(
+      new Response(JSON.stringify({ response: "D" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    await embedStarted;
+    await mem0Started;
+
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    expect(String(fetchSpy.mock.calls[2]?.[0])).toBe(
       "http://ollama:11434/api/embed"
     );
-    expect(JSON.parse(fetchSpy.mock.calls[1]?.[1]?.body as string)).toEqual({
+    expect(JSON.parse(fetchSpy.mock.calls[2]?.[1]?.body as string)).toEqual({
       model: "nomic-embed-text",
       input: "warmup",
     });
+    expect(String(fetchSpy.mock.calls[3]?.[0])).toBe(
+      "http://mem0:8888/search"
+    );
+    expect(JSON.parse(fetchSpy.mock.calls[3]?.[1]?.body as string)).toEqual({
+      query: "起動時ウォームアップ確認",
+      filters: {
+        user_id: "rukalun",
+        agent_id: "twitchRaid",
+      },
+      top_k: 1,
+      threshold: 1,
+    });
 
     await vi.advanceTimersByTimeAsync(9 * 60 * 1000);
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
 
     await vi.advanceTimersByTimeAsync(90 * 1000);
-    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    expect(fetchSpy).toHaveBeenCalledTimes(6);
+    expect(
+      fetchSpy.mock.calls.filter(
+        ([input]) => String(input) === "http://mem0:8888/search"
+      )
+    ).toHaveLength(1);
+    expect(
+      fetchSpy.mock.calls.filter(([input, init]) => {
+        if (!String(input).endsWith("/api/generate")) return false;
+        const body = JSON.parse(init?.body as string);
+        return typeof body.prompt === "string";
+      })
+    ).toHaveLength(1);
     expect(say).not.toHaveBeenCalled();
+  });
+
+  it("attempts startup-only prime and mem0 search only once across reconnects", async () => {
+    const config = {
+      ...makeConfig(),
+      chatAiEnabled: true,
+      chatAiBaseUrl: "http://ollama:11434",
+      chatAiModel: "qwen3.5:9b",
+      chatAiKeepAlive: "30m",
+      chatAiPrewarmEnabled: true,
+      chatAiPrewarmPrimeEnabled: true,
+      chatAiPrewarmTimeoutMs: 180_000,
+      chatAiMem0EmbedPrewarmEnabled: true,
+      chatAiMem0EmbedModel: "nomic-embed-text",
+      chatAiMem0SearchPrewarmEnabled: true,
+      chatAiMemoryEnabled: true,
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiMem0ApiKey: "test-key",
+      chatAiMem0UserId: "rukalun",
+      chatAiMem0AgentId: "twitchRaid",
+      chatAiContextLength: 4096,
+      chatAiMaxResponseChars: 500,
+    } as Config;
+    const bot = new Bot(config) as unknown as Bot & {
+      clipCacheStore: { close: () => void };
+      _prewarmChatAiModel: (trigger: "startup" | "interval") => Promise<void>;
+    };
+    activeBot = bot;
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input, init) => {
+        if (String(input) === "http://mem0:8888/search") {
+          return new Response(JSON.stringify({ results: [] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        const body = JSON.parse(init?.body as string);
+        return new Response(
+          JSON.stringify(
+            String(input).endsWith("/api/embed")
+              ? { embeddings: [[0.1]] }
+              : { response: body.prompt ? "D" : "" }
+          ),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        );
+      });
+
+    await bot._prewarmChatAiModel("startup");
+    await bot._prewarmChatAiModel("startup");
+
+    const generateBodies = fetchSpy.mock.calls
+      .filter(([input]) => String(input).endsWith("/api/generate"))
+      .map(([, init]) => JSON.parse(init?.body as string));
+    expect(generateBodies.filter((body) => body.prompt)).toHaveLength(1);
+    expect(generateBodies.filter((body) => !body.prompt)).toHaveLength(2);
+    expect(
+      fetchSpy.mock.calls.filter(([input]) =>
+        String(input).endsWith("/api/embed")
+      )
+    ).toHaveLength(2);
+    expect(
+      fetchSpy.mock.calls.filter(
+        ([input]) => String(input) === "http://mem0:8888/search"
+      )
+    ).toHaveLength(1);
+  });
+
+  it("does not start prime or embedding when the generation preload fails", async () => {
+    const config = {
+      ...makeConfig(),
+      chatAiEnabled: true,
+      chatAiBaseUrl: "http://ollama:11434",
+      chatAiModel: "qwen3.5:9b",
+      chatAiKeepAlive: "30m",
+      chatAiPrewarmEnabled: true,
+      chatAiPrewarmPrimeEnabled: true,
+      chatAiPrewarmTimeoutMs: 180_000,
+      chatAiMem0EmbedPrewarmEnabled: true,
+      chatAiMem0EmbedModel: "nomic-embed-text",
+      chatAiMem0SearchPrewarmEnabled: true,
+      chatAiMemoryEnabled: true,
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiContextLength: 4096,
+      chatAiMaxResponseChars: 500,
+    } as Config;
+    const bot = new Bot(config) as unknown as Bot & {
+      clipCacheStore: { close: () => void };
+      _prewarmChatAiModel: (trigger: "startup" | "interval") => Promise<void>;
+    };
+    activeBot = bot;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("preload failed", {
+        status: 500,
+        headers: { "content-type": "text/plain" },
+      })
+    );
+
+    await bot._prewarmChatAiModel("startup");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
+      "http://ollama:11434/api/generate"
+    );
+    expect(JSON.parse(fetchSpy.mock.calls[0]?.[1]?.body as string)).not.toHaveProperty(
+      "prompt"
+    );
+  });
+
+  it("does not start mem0 search when the embedding prewarm fails", async () => {
+    const config = {
+      ...makeConfig(),
+      chatAiEnabled: true,
+      chatAiBaseUrl: "http://ollama:11434",
+      chatAiModel: "qwen3.5:9b",
+      chatAiKeepAlive: "30m",
+      chatAiPrewarmEnabled: true,
+      chatAiPrewarmPrimeEnabled: true,
+      chatAiPrewarmTimeoutMs: 180_000,
+      chatAiMem0EmbedPrewarmEnabled: true,
+      chatAiMem0EmbedModel: "nomic-embed-text",
+      chatAiMem0SearchPrewarmEnabled: true,
+      chatAiMemoryEnabled: true,
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiContextLength: 4096,
+      chatAiMaxResponseChars: 500,
+    } as Config;
+    const bot = new Bot(config) as unknown as Bot & {
+      clipCacheStore: { close: () => void };
+      _prewarmChatAiModel: (trigger: "startup" | "interval") => Promise<void>;
+    };
+    activeBot = bot;
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input, init) => {
+        if (String(input).endsWith("/api/embed")) {
+          return new Response("embed failed", {
+            status: 500,
+            headers: { "content-type": "text/plain" },
+          });
+        }
+        const body = JSON.parse(init?.body as string);
+        return new Response(JSON.stringify({ response: body.prompt ? "D" : "" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
+
+    await bot._prewarmChatAiModel("startup");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(
+      fetchSpy.mock.calls.filter(
+        ([input]) => String(input) === "http://mem0:8888/search"
+      )
+    ).toHaveLength(0);
   });
 
   it("writes a bot request note digest file by default without posting to Discord", async () => {

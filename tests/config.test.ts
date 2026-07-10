@@ -245,6 +245,7 @@ CHAT_AI_TIMEOUT_FALLBACK_REPLY=AIが混み合ってるD！
 CHAT_AI_KEEP_ALIVE=10m
 CHAT_AI_CONTEXT_LENGTH=2048
 CHAT_AI_PREWARM_ENABLED=true
+CHAT_AI_PREWARM_PRIME_ENABLED=true
 CHAT_AI_PREWARM_INTERVAL_SECONDS=300
 CHAT_AI_PREWARM_TIMEOUT_MS=90000
 CHAT_AI_MAX_RESPONSE_CHARS=120
@@ -284,6 +285,7 @@ CHAT_AI_MEM0_RECALL_GATE_ENABLED=false
 CHAT_AI_MEM0_ALLOW_MISSING_SCORE=true
 CHAT_AI_MEM0_EMBED_PREWARM_ENABLED=true
 CHAT_AI_MEM0_EMBED_MODEL=nomic-embed-text
+CHAT_AI_MEM0_SEARCH_PREWARM_ENABLED=true
 CHAT_AI_MEMORY_HUB_ENABLED=true
 CHAT_AI_MEMORY_HUB_URL=http://127.0.0.1:3218
 CHAT_AI_MEMORY_HUB_NAMESPACE=rukalun
@@ -322,6 +324,7 @@ BOT_REQUEST_NOTES_DIGEST_DISCORD_ENABLED=true
     expect(config.chatAiKeepAlive).toBe("10m");
     expect(config.chatAiContextLength).toBe(2048);
     expect(config.chatAiPrewarmEnabled).toBe(true);
+    expect(config.chatAiPrewarmPrimeEnabled).toBe(true);
     expect(config.chatAiPrewarmIntervalSeconds).toBe(300);
     expect(config.chatAiPrewarmTimeoutMs).toBe(90000);
     expect(config.chatAiMaxResponseChars).toBe(120);
@@ -365,6 +368,7 @@ BOT_REQUEST_NOTES_DIGEST_DISCORD_ENABLED=true
     expect(config.chatAiMem0AllowMissingScore).toBe(true);
     expect(config.chatAiMem0EmbedPrewarmEnabled).toBe(true);
     expect(config.chatAiMem0EmbedModel).toBe("nomic-embed-text");
+    expect(config.chatAiMem0SearchPrewarmEnabled).toBe(true);
     expect(config).not.toHaveProperty("chatAiMemoryHubEnabled");
     expect(config).not.toHaveProperty("chatAiMemoryHubUrl");
     expect(config).not.toHaveProperty("chatAiMemoryHubNamespace");
@@ -424,6 +428,7 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiKeepAlive).toBe("30m");
     expect(config.chatAiContextLength).toBe(4096);
     expect(config.chatAiPrewarmEnabled).toBe(false);
+    expect(config.chatAiPrewarmPrimeEnabled).toBe(false);
     expect(config.chatAiPrewarmIntervalSeconds).toBe(600);
     expect(config.chatAiPrewarmTimeoutMs).toBe(180000);
     expect(config.chatAiMaxResponseChars).toBe(500);
@@ -478,6 +483,7 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiMem0AllowMissingScore).toBe(false);
     expect(config.chatAiMem0EmbedPrewarmEnabled).toBe(false);
     expect(config.chatAiMem0EmbedModel).toBe("");
+    expect(config.chatAiMem0SearchPrewarmEnabled).toBe(false);
     expect(config).not.toHaveProperty("chatAiMemoryHubEnabled");
     expect(config).not.toHaveProperty("chatAiMemoryHubUrl");
     expect(config).not.toHaveProperty("chatAiMemoryHubNamespace");
