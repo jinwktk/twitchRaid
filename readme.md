@@ -364,6 +364,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-07-10（TDD red / 実装前）**: Ollamaまわりの記憶精度・回答精度・応答性能を改善するため、先に回帰契約を追加した。対象は、無関係なローカルメモの除外と日本語alias/主体分離、local active/candidate/inactive/delete tombstoneを正本とするmem0抑止、mem0 score閾値と欠損scoreの既定拒否、挨拶時のmem0省略、local+mem0最終文字数上限、mem0/外部検索の並行開始と通信失敗のfail-open、SearXNG不一致ノイズ除外、Ollama `num_ctx` /性能ログ/request ID、tokenを生成しないpreload、Ollama service安全設定である。旧実装に対し対象8ファイル209件を実行し、新契約46件だけが想定どおりred、既存163件はgreenだった。Mem0 OSS wrapperのthreshold伝播6件は既存実装でgreen。現時点の本番挙動はまだ変更しておらず、実装・全体検証・段階反映後に本項を確定仕様へ更新する。
 - **2026-07-09**: `!work` コマンドを追加し、Twitchチャットで `るっかるん、今日もお仕事気を付けて、いってらっしゃい` を返せるようにした。`!help` の基本コマンド一覧にも `!work` を追加し、対象テストは `tests/bot-help.test.ts` に追加した。
 - **2026-07-09**: `!die` コマンドを追加し、Twitchチャットで `簡単に死んでたまるかッ🧟` を返せるようにした。`!help` の基本コマンド一覧にも `!die` を追加し、対象テストは `tests/bot-help.test.ts` に追加した。
 - **2026-07-09**: 7 Days to Die用コマンドを `!7days` に変更し、Twitchチャットで `7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN rukkaEeeee` を返せるようにした。`!help` の基本コマンド一覧にも `!7days` を追加し、対象テストは `tests/bot-help.test.ts` に追加した。

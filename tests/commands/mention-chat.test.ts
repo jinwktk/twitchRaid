@@ -168,6 +168,7 @@ describe("generateMentionChatReply", () => {
       options: {
         temperature: 0.4,
         num_predict: 220,
+        num_ctx: 4096,
       },
     });
     expect(body.system).toContain("日本語");
@@ -569,6 +570,162 @@ describe("generateMentionChatReply", () => {
     );
   });
 
+  it("logs Ollama performance metrics with the request ID and without prompt or reply text", async () => {
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    infoSpy.mockClear();
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response: "了解D！",
+        total_duration: 2_500_000_000,
+        load_duration: 500_000_000,
+        prompt_eval_count: 42,
+        prompt_eval_duration: 200_000_000,
+        eval_count: 20,
+        eval_duration: 1_000_000_000,
+        done_reason: "stop",
+      }),
+    });
+
+    try {
+      const reply = await generateMentionChatReply({
+        enabled: true,
+        baseUrl: "http://127.0.0.1:11434",
+        model: "qwen3.5:9b",
+        timeoutMs: 3000,
+        keepAlive: "30m",
+        maxResponseChars: 200,
+        channel: "#rukalun",
+        userName: "viewer",
+        promptText: "本文に残したくない質問",
+        requestId: "mention-1700000000000-7",
+        fetchImpl,
+      });
+
+      const performanceMessages = infoSpy.mock.calls
+        .map(([message]) => String(message))
+        .filter((message) => message.includes("AIメンション会話Ollama性能"));
+      expect(reply).toBe("了解D！");
+      expect(performanceMessages).toHaveLength(1);
+      expect(performanceMessages[0]).toContain(
+        "requestId=mention-1700000000000-7"
+      );
+      expect(performanceMessages[0]).toContain("totalMs=2500");
+      expect(performanceMessages[0]).toContain("loadMs=500");
+      expect(performanceMessages[0]).toContain("promptTokens=42");
+      expect(performanceMessages[0]).toContain("promptEvalMs=200");
+      expect(performanceMessages[0]).toContain("evalTokens=20");
+      expect(performanceMessages[0]).toContain("evalMs=1000");
+      expect(performanceMessages[0]).toMatch(/tokensPerSecond=20(?:\.0+)?(?:,|$)/u);
+      expect(performanceMessages[0]).toContain("doneReason=stop");
+      expect(performanceMessages[0]).toMatch(/httpElapsedMs=\d+/u);
+      expect(performanceMessages[0]).not.toContain("本文に残したくない質問");
+      expect(performanceMessages[0]).not.toContain("了解D！");
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
+  it.each([
+    ["missing", {}],
+    [
+      "zero",
+      {
+        total_duration: 0,
+        load_duration: 0,
+        prompt_eval_count: 0,
+        prompt_eval_duration: 0,
+        eval_count: 0,
+        eval_duration: 0,
+        done_reason: "",
+      },
+    ],
+    [
+      "invalid",
+      {
+        total_duration: -1,
+        load_duration: "500000000",
+        prompt_eval_count: -3,
+        prompt_eval_duration: Number.POSITIVE_INFINITY,
+        eval_count: "20",
+        eval_duration: -10,
+        done_reason: { unsafe: true },
+      },
+    ],
+  ])("keeps a normal reply when Ollama metrics are %s", async (scenario, metrics) => {
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    infoSpy.mockClear();
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response: "通常どおり返すD！",
+        ...metrics,
+      }),
+    });
+
+    try {
+      const reply = await generateMentionChatReply({
+        enabled: true,
+        baseUrl: "http://127.0.0.1:11434",
+        model: "qwen3.5:9b",
+        timeoutMs: 3000,
+        keepAlive: "30m",
+        maxResponseChars: 200,
+        channel: "#rukalun",
+        userName: "viewer",
+        promptText: "こんにちは",
+        requestId: `mention-metrics-${scenario}`,
+        fetchImpl,
+      });
+
+      const performanceMessages = infoSpy.mock.calls
+        .map(([message]) => String(message))
+        .filter((message) => message.includes("AIメンション会話Ollama性能"));
+      expect(reply).toBe("通常どおり返すD！");
+      expect(performanceMessages).toHaveLength(1);
+      expect(performanceMessages[0]).toContain(
+        `requestId=mention-metrics-${scenario}`
+      );
+      expect(performanceMessages[0]).not.toMatch(/NaN|Infinity/u);
+      expect(performanceMessages[0]).not.toContain("通常どおり返すD！");
+      expect(performanceMessages[0]).toContain("doneReason=n/a");
+      expect(performanceMessages[0]).toMatch(/httpElapsedMs=\d+/u);
+      if (scenario === "zero") {
+        for (const field of [
+          "totalMs",
+          "loadMs",
+          "promptTokens",
+          "promptEvalMs",
+          "evalTokens",
+          "evalMs",
+        ]) {
+          expect(performanceMessages[0]).toContain(`${field}=0`);
+        }
+        expect(performanceMessages[0]).toContain("tokensPerSecond=n/a");
+      } else {
+        for (const field of [
+          "totalMs",
+          "loadMs",
+          "promptTokens",
+          "promptEvalMs",
+          "evalTokens",
+          "evalMs",
+          "tokensPerSecond",
+        ]) {
+          expect(performanceMessages[0]).toContain(`${field}=n/a`);
+        }
+      }
+      if (scenario === "invalid") {
+        expect(performanceMessages[0]).not.toContain("unsafe");
+        expect(performanceMessages[0]).not.toContain("loadMs=500000000");
+        expect(performanceMessages[0]).not.toContain("promptTokens=-3");
+        expect(performanceMessages[0]).not.toContain("evalTokens=20");
+      }
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
   it("ignores stream image input and never sends images to Ollama", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
@@ -676,6 +833,11 @@ describe("generateMentionChatReply", () => {
     const repairBody = JSON.parse(fetchImpl.mock.calls[1][1].body as string);
     expect(repairBody.prompt).toContain("tonight何が食べたい？");
     expect(repairBody.prompt).toContain("日本語だけ");
+    expect(repairBody.options).toMatchObject({
+      temperature: 0.1,
+      num_predict: 220,
+      num_ctx: 4096,
+    });
   });
 
   it("marks repaired English-word replies as generated", async () => {

@@ -84,6 +84,7 @@ function makeConfig(
     chatAiTimeoutMs: 3000,
     chatAiTimeoutFallbackReply: "今ちょっとAIが混み合ってるD！",
     chatAiKeepAlive: "30m",
+    chatAiContextLength: 4096,
     chatAiMaxResponseChars: 500,
     chatAiConversationHistoryEnabled: true,
     chatAiConversationHistoryMaxMessages: 6,
@@ -109,6 +110,7 @@ function makeConfig(
     chatAiMemoryDbPath: path.join(dir, "chat-ai-memory.sqlite"),
     chatAiMemoryMaxItems: 8,
     chatAiMemoryMaxChars: 600,
+    chatAiMemoryRelevanceFilterEnabled: true,
     chatAiMemoryWriterUsers: ["rukalun"],
     chatAiImplicitMemoryEnabled: false,
     chatAiMem0Enabled: false,
@@ -120,6 +122,9 @@ function makeConfig(
     chatAiMem0TimeoutMs: 1200,
     chatAiMem0MaxResults: 3,
     chatAiMem0MaxChars: 600,
+    chatAiMem0MinScore: 0.5,
+    chatAiMem0RecallGateEnabled: true,
+    chatAiMem0AllowMissingScore: false,
     chatAiSearchEnabled: false,
     chatAiSearchEndpoint: "https://api.duckduckgo.com/",
     chatAiSearchTimeoutMs: 2500,
@@ -155,6 +160,17 @@ function makeConfig(
     getLastStreamTitle: vi.fn(() => ""),
     ...overrides,
   } as unknown as Config;
+}
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
 }
 
 function makeBot(
@@ -708,7 +724,9 @@ describe("Bot mention chat", () => {
         if (url === "http://mem0:8888/search") {
           return {
             ok: true,
-            json: async () => ({ results: [{ memory: "mem0好物: カレー" }] }),
+            json: async () => ({
+              results: [{ memory: "mem0好物: カレー", score: 0.91 }],
+            }),
           } as Response;
         }
         return {
@@ -737,6 +755,7 @@ describe("Bot mention chat", () => {
         agent_id: "twitchRaid",
       },
       top_k: 2,
+      threshold: 0.5,
     });
     const ollamaCall = fetchSpy.mock.calls.find(([input]) =>
       String(input).endsWith("/api/generate")
@@ -796,9 +815,9 @@ describe("Bot mention chat", () => {
             ok: true,
             json: async () => ({
               results: [
-                { memory: "ままっか: るっかのお母様" },
-                { memory: "好きなゲーム: Apex Legends" },
-                { memory: "追加メモ: るんるん星" },
+                { memory: "ままっか: るっかのお母様", score: 0.95 },
+                { memory: "好きなゲーム: Apex Legends", score: 0.94 },
+                { memory: "追加メモ: るんるん星", score: 0.9 },
               ],
             }),
           } as Response;
@@ -828,6 +847,262 @@ describe("Bot mention chat", () => {
     expect(infoSpy).toHaveBeenCalledWith(
       "AIメンション会話mem0メモ重複を除外: items=2"
     );
+  });
+
+  it.each(["こんにちは", "ありがとう！", "なるほど"])(
+    "skips mem0 for a definite greeting or reaction while still generating: %s",
+    async (promptText) => {
+      const { bot, say } = makeBot({
+        chatAiMemoryEnabled: true,
+        chatAiMem0Enabled: true,
+        chatAiMem0Endpoint: "http://mem0:8888",
+        chatAiCooldownSeconds: 0,
+      });
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+        async (input) => {
+          if (String(input) === "http://mem0:8888/search") {
+            return new Response(JSON.stringify({ results: [] }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          return new Response(JSON.stringify({ response: "自然に返すD！" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+      );
+
+      await bot._handleRegularMessage(
+        "#rukalun",
+        "viewer",
+        `@rukalun ${promptText}`,
+        100
+      );
+
+      expect(
+        fetchSpy.mock.calls.filter(
+          ([input]) => String(input) === "http://mem0:8888/search"
+        )
+      ).toHaveLength(0);
+      expect(
+        fetchSpy.mock.calls.filter(([input]) =>
+          String(input).endsWith("/api/generate")
+        )
+      ).toHaveLength(1);
+      expect(say).toHaveBeenCalledWith("#rukalun", "自然に返すD！");
+    }
+  );
+
+  it("wires every Stage 1 memory kill switch through the Bot path", async () => {
+    const memoryPath = path.join(ensureTempDir(), "stage1-memory.json");
+    fs.writeFileSync(memoryPath, JSON.stringify({ 口調: "短くD" }), "utf8");
+    const { bot } = makeBot({
+      chatAiMemoryEnabled: true,
+      chatAiMemoryStore: "json",
+      chatAiMemoryPath: memoryPath,
+      chatAiMemoryRelevanceFilterEnabled: false,
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiMem0RecallGateEnabled: false,
+      chatAiMem0MinScore: 0,
+      chatAiMem0AllowMissingScore: true,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input) => {
+        if (String(input) === "http://mem0:8888/search") {
+          return new Response(
+            JSON.stringify({
+              results: [
+                { memory: "scoreゼロメモ", score: 0 },
+                { memory: "旧形式メモ" },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(JSON.stringify({ response: "段階導入D！" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    );
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun こんにちは",
+      100
+    );
+
+    const mem0Call = fetchSpy.mock.calls.find(
+      ([input]) => String(input) === "http://mem0:8888/search"
+    );
+    expect(JSON.parse(mem0Call?.[1]?.body as string)).toMatchObject({
+      threshold: 0,
+    });
+    const ollamaCall = fetchSpy.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    const prompt = JSON.parse(ollamaCall?.[1]?.body as string).prompt as string;
+    expect(prompt).toContain("口調: 短くD");
+    expect(prompt).toContain("scoreゼロメモ");
+    expect(prompt).toContain("旧形式メモ");
+  });
+
+  it("suppresses stale mem0 entries by local active, candidate, inactive, and tombstone authority", async () => {
+    const memoryPath = path.join(ensureTempDir(), "authority-memory.json");
+    fs.writeFileSync(
+      memoryPath,
+      JSON.stringify({
+        好物: "カレー",
+        口調: "候補のまま",
+        好きなゲーム: "無効化済み",
+        __meta: {
+          好物: { status: "active", updatedAt: "2026-07-10T10:00:00.000Z" },
+          口調: {
+            status: "candidate",
+            updatedAt: "2026-07-10T10:00:00.000Z",
+          },
+          好きなゲーム: {
+            status: "inactive",
+            updatedAt: "2026-07-10T10:00:00.000Z",
+          },
+        },
+        __tombstones: {
+          職業: { deletedAt: "2026-07-10T10:00:00.000Z" },
+        },
+      }),
+      "utf8"
+    );
+    const { bot } = makeBot({
+      chatAiMemoryEnabled: true,
+      chatAiMemoryStore: "json",
+      chatAiMemoryPath: memoryPath,
+      chatAiMemoryMaxChars: 300,
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiMem0MaxResults: 6,
+      chatAiMem0MaxChars: 300,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input) => {
+        if (String(input) === "http://mem0:8888/search") {
+          return new Response(
+            JSON.stringify({
+              results: [
+                {
+                  memory: "古いカレーが好き",
+                  metadata: { key: "好物" },
+                  score: 0.95,
+                },
+                {
+                  memory: "長くしゃべる",
+                  metadata: { key: "口調" },
+                  score: 0.94,
+                },
+                {
+                  memory: "Apex Legendsが好き",
+                  metadata: { key: "好きなゲーム" },
+                  score: 0.93,
+                },
+                {
+                  memory: "会社員として働いている",
+                  metadata: { key: "職業" },
+                  score: 0.92,
+                },
+                {
+                  memory: "呼び方はるっかるん",
+                  metadata: { key: "呼び方" },
+                  score: 0.9,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(JSON.stringify({ response: "覚えてるD！" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    );
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 好物と口調と好きなゲームと職業と呼び方について覚えてる？",
+      100
+    );
+
+    const ollamaCall = fetchSpy.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    const prompt = JSON.parse(ollamaCall?.[1]?.body as string).prompt as string;
+    expect(prompt).toContain("好物: カレー");
+    expect(prompt).toContain("呼び方はるっかるん");
+    expect(prompt).not.toContain("古いカレーが好き");
+    expect(prompt).not.toContain("長くしゃべる");
+    expect(prompt).not.toContain("Apex Legendsが好き");
+    expect(prompt).not.toContain("会社員として働いている");
+  });
+
+  it("caps the final local and mem0 reference-memory block without splitting lines", async () => {
+    const memoryPath = path.join(ensureTempDir(), "capped-memory.json");
+    fs.writeFileSync(memoryPath, JSON.stringify({ 好物: "カレー" }), "utf8");
+    const expectedMemoryBlock =
+      "好物: カレー\nmem0メモ:\n呼び方: るっかるん";
+    const { bot } = makeBot({
+      chatAiMemoryEnabled: true,
+      chatAiMemoryStore: "json",
+      chatAiMemoryPath: memoryPath,
+      chatAiMemoryMaxChars: expectedMemoryBlock.length,
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiMem0MaxResults: 4,
+      chatAiMem0MaxChars: 300,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input) => {
+        if (String(input) === "http://mem0:8888/search") {
+          return new Response(
+            JSON.stringify({
+              results: [
+                { memory: "呼び方: るっかるん", score: 0.91 },
+                { memory: "好きなゲーム: FF14", score: 0.9 },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(JSON.stringify({ response: "覚えてるD！" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    );
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 好物と呼び方と好きなゲームについて覚えてる？",
+      100
+    );
+
+    const ollamaCall = fetchSpy.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    const prompt = JSON.parse(ollamaCall?.[1]?.body as string).prompt as string;
+    const marker =
+      "参考メモ: ユーザー発言に関係するときだけ使い、メモの一覧や内部設定として説明しないでください。\n";
+    const memoryBlock = prompt
+      .slice(prompt.indexOf(marker) + marker.length)
+      .split("\n条件:", 1)[0]
+      .trim();
+
+    expect(memoryBlock).toBe(expectedMemoryBlock);
+    expect(memoryBlock.length).toBeLessThanOrEqual(expectedMemoryBlock.length);
+    expect(memoryBlock).not.toContain("好きなゲーム: FF14");
   });
 
   it("answers known Rukalun personal questions before memory injection or external calls", async () => {
@@ -1080,6 +1355,267 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "ローカルだけD！");
   });
 
+  it("starts mem0 and external search together and keeps generating when mem0 fails", async () => {
+    const mem0Response = createDeferred<Response>();
+    const searchResponse = createDeferred<Response>();
+    const { bot, say } = makeBot({
+      chatAiMemoryEnabled: true,
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiSearchEnabled: true,
+      chatAiSearchEndpoint: "https://api.duckduckgo.com/",
+      chatAiCooldownSeconds: 0,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input) => {
+        const url = String(input);
+        if (url === "http://mem0:8888/search") {
+          return mem0Response.promise;
+        }
+        if (url.startsWith("https://api.duckduckgo.com/")) {
+          return searchResponse.promise;
+        }
+        return new Response(JSON.stringify({ response: "検索で続けるD！" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    );
+
+    const handling = bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun TwitchConについて前に覚えてることを調べて",
+      100
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const startedBeforeEitherResponse = fetchSpy.mock.calls.map(([input]) =>
+      String(input)
+    );
+
+    mem0Response.resolve(
+      new Response("mem0 unavailable", { status: 503 })
+    );
+    searchResponse.resolve(
+      new Response(
+        JSON.stringify({
+          Heading: "TwitchCon",
+          AbstractText: "TwitchCon event schedule.",
+          AbstractURL: "https://example.test/twitchcon",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    await handling;
+
+    expect(startedBeforeEitherResponse).toContain("http://mem0:8888/search");
+    expect(
+      startedBeforeEitherResponse.some((url) =>
+        url.startsWith("https://api.duckduckgo.com/")
+      )
+    ).toBe(true);
+    expect(
+      fetchSpy.mock.calls.filter(([input]) =>
+        String(input).endsWith("/api/generate")
+      )
+    ).toHaveLength(1);
+    expect(say).toHaveBeenCalledWith("#rukalun", "検索で続けるD！");
+  });
+
+  it("keeps generating from mem0 when external search fails", async () => {
+    const { bot, say } = makeBot({
+      chatAiMemoryEnabled: true,
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiSearchEnabled: true,
+      chatAiSearchEndpoint: "https://api.duckduckgo.com/",
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input) => {
+        const url = String(input);
+        if (url === "http://mem0:8888/search") {
+          return new Response(
+            JSON.stringify({
+              results: [{ memory: "TwitchConの好物: ピザ", score: 0.91 }],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (url.startsWith("https://api.duckduckgo.com/")) {
+          throw new Error("search unavailable");
+        }
+        return new Response(JSON.stringify({ response: "メモから答えるD！" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    );
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun TwitchConの好物について前に話したことを調べて",
+      100
+    );
+
+    const ollamaCall = fetchSpy.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    expect(ollamaCall).toBeDefined();
+    expect(JSON.parse(ollamaCall?.[1]?.body as string).prompt).toContain(
+      "TwitchConの好物: ピザ"
+    );
+    expect(say).toHaveBeenCalledWith("#rukalun", "メモから答えるD！");
+    expect(say).not.toHaveBeenCalledWith(
+      "#rukalun",
+      "ごめん、検索結果がなくて分からないD！"
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining("searchReason=failed")
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      "AIメンション会話外部検索は未適用: reason=failed"
+    );
+  });
+
+  it("correlates context and Ollama performance logs without logging content or secrets", async () => {
+    const { bot } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiMem0ApiKey: "context-secret-key",
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          response: "分かったよ！",
+          total_duration: 1_500_000_000,
+          load_duration: 100_000_000,
+          prompt_eval_count: 30,
+          prompt_eval_duration: 300_000_000,
+          eval_count: 15,
+          eval_duration: 750_000_000,
+          done_reason: "stop",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun ログに残さない質問その一",
+      100
+    );
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun ログに残さない質問その二",
+      101
+    );
+
+    const messages = infoSpy.mock.calls.map(([message]) => String(message));
+    const contextLogs = messages.filter((message) =>
+      message.includes("AIメンション会話コンテキスト準備")
+    );
+    const performanceLogs = messages.filter((message) =>
+      message.includes("AIメンション会話Ollama性能")
+    );
+    const requestIds = (logs: string[]) =>
+      logs.map((message) => {
+        const match = message.match(/requestId=([^,\s]+)/u);
+        expect(match, message).not.toBeNull();
+        return match?.[1] ?? "";
+      });
+
+    expect(contextLogs).toHaveLength(2);
+    expect(performanceLogs).toHaveLength(2);
+    const contextIds = requestIds(contextLogs);
+    const performanceIds = requestIds(performanceLogs);
+    expect(new Set(contextIds).size).toBe(2);
+    expect(new Set(performanceIds)).toEqual(new Set(contextIds));
+    for (const message of contextLogs) {
+      expect(message).toMatch(/localItems=\d+/u);
+      expect(message).toMatch(/mem0Requested=(?:true|false)/u);
+      expect(message).toMatch(/mem0Reason=[^,\s]+/u);
+      expect(message).toMatch(/mem0Ms=\d+/u);
+      expect(message).toMatch(/searchReason=[^,\s]+/u);
+      expect(message).toMatch(/searchResults=\d+/u);
+      expect(message).toMatch(/searchMs=\d+/u);
+      expect(message).toMatch(/totalMs=\d+/u);
+      expect(message).not.toContain("ログに残さない質問");
+      expect(message).not.toContain("context-secret-key");
+    }
+    for (const message of performanceLogs) {
+      expect(message).not.toContain("ログに残さない質問");
+      expect(message).not.toContain("context-secret-key");
+    }
+  });
+
+  it("passes the configured context length and request ID through initial and repair generations", async () => {
+    const { bot, say } = makeBot({
+      chatAiContextLength: 2048,
+      chatAiCooldownSeconds: 0,
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const responses = [
+      "tonight何が食べたい？一緒に考えよう♪",
+      "今夜は何が食べたい？一緒に考えよう♪",
+    ];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            response: responses.shift() ?? "修正済みだよ！",
+            total_duration: 1_000_000_000,
+            load_duration: 0,
+            prompt_eval_count: 20,
+            prompt_eval_duration: 200_000_000,
+            eval_count: 10,
+            eval_duration: 500_000_000,
+            done_reason: "stop",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+    );
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 今日の夜ご飯はなにがいい？",
+      100
+    );
+
+    const generateCalls = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    expect(generateCalls).toHaveLength(2);
+    for (const [, init] of generateCalls) {
+      expect(JSON.parse(init?.body as string).options).toMatchObject({
+        num_ctx: 2048,
+      });
+    }
+    const messages = infoSpy.mock.calls.map(([message]) => String(message));
+    const contextLog = messages.find((message) =>
+      message.includes("AIメンション会話コンテキスト準備")
+    );
+    const performanceLogs = messages.filter((message) =>
+      message.includes("AIメンション会話Ollama性能")
+    );
+    const contextRequestId = contextLog?.match(/requestId=([^,\s]+)/u)?.[1];
+    const performanceRequestIds = performanceLogs.map(
+      (message) => message.match(/requestId=([^,\s]+)/u)?.[1]
+    );
+
+    expect(contextRequestId).toBeTruthy();
+    expect(performanceLogs).toHaveLength(2);
+    expect(new Set(performanceRequestIds)).toEqual(new Set([contextRequestId]));
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "今夜は何が食べたい？一緒に考えよう♪"
+    );
+  });
+
   it("passes external search context to Ollama when search is enabled", async () => {
     const { bot, say } = makeBot({
       chatAiSearchEnabled: true,
@@ -1308,7 +1844,10 @@ describe("Bot mention chat", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(infoSpy).toHaveBeenCalledWith(
-      "AIメンション会話外部検索は未適用: reason=no_result_or_failed"
+      "AIメンション会話外部検索は未適用: reason=no_result"
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining("searchReason=no_result")
     );
     expect(say).toHaveBeenCalledWith(
       "#rukalun",

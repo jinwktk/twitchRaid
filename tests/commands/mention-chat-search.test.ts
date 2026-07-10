@@ -224,6 +224,57 @@ describe("mention chat external search", () => {
     expect(result?.text).not.toContain("ジャマイカ発祥の音楽ジャンル");
   });
 
+  it.each([
+    ["Wikipedia non-OK", { ok: false, status: 404 } as Response],
+    [
+      "Wikipedia empty",
+      jsonResponse({
+        title: "レゲエパンチ",
+        extract: "",
+        content_urls: {},
+      }),
+    ],
+  ])(
+    "returns null for mismatched SearXNG noise when %s cannot provide a summary",
+    async (_scenario, wikipediaResponse) => {
+      const fetchImpl = vi.fn().mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.startsWith("http://searxng.test/")) {
+          return jsonResponse({
+            query: "レゲエパンチ",
+            results: [
+              {
+                title: "レゲエ - Wikipedia",
+                content: "ジャマイカ発祥の音楽ジャンル。",
+                url: "https://ja.wikipedia.org/wiki/レゲエ",
+              },
+            ],
+          });
+        }
+        if (url.startsWith("https://ja.wikipedia.org/api/rest_v1/page/summary/")) {
+          return wikipediaResponse;
+        }
+        throw new Error(`unexpected url: ${url}`);
+      });
+
+      const result = await fetchMentionChatSearchContext({
+        enabled: true,
+        provider: "searxng",
+        endpoint: "http://searxng.test/search?language=all&safesearch=0",
+        engines: "bing",
+        queryText: "レゲエパンチについて調べて",
+        timeoutMs: 2500,
+        maxQueryChars: 120,
+        maxResponseBytes: 65536,
+        maxResults: 2,
+        fetchImpl,
+      });
+
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(result).toBeNull();
+    }
+  );
+
   it("does not call fetch for unsafe or oversized queries", async () => {
     const fetchImpl = vi.fn();
     const base = {

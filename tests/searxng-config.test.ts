@@ -30,6 +30,9 @@ describe("SearXNG self-hosting config", () => {
     expect(compose).toContain("MEM0_OLLAMA_BASE_URL: http://sub-ai_ollama:11434");
     expect(compose).toContain("MEM0_EMBEDDER_MODEL: nomic-embed-text:latest");
     expect(compose).toContain("MEM0_INFER_DEFAULT: \"false\"");
+    expect(compose).toContain("OLLAMA_KEEP_ALIVE: 30m");
+    expect(compose).toContain('OLLAMA_NUM_PARALLEL: "1"');
+    expect(compose).toContain('OLLAMA_CONTEXT_LENGTH: "4096"');
     expect(compose).toContain("aliases:");
     expect(compose).toContain("- searxng");
     expect(compose).toContain("- mem0");

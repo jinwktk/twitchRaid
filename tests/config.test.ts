@@ -243,6 +243,7 @@ CHAT_AI_MODEL=qwen2.5:7b
 CHAT_AI_TIMEOUT_MS=4500
 CHAT_AI_TIMEOUT_FALLBACK_REPLY=AIが混み合ってるD！
 CHAT_AI_KEEP_ALIVE=10m
+CHAT_AI_CONTEXT_LENGTH=2048
 CHAT_AI_PREWARM_ENABLED=true
 CHAT_AI_PREWARM_INTERVAL_SECONDS=300
 CHAT_AI_PREWARM_TIMEOUT_MS=90000
@@ -267,6 +268,7 @@ CHAT_AI_MEMORY_MAX_ITEMS=12
 CHAT_AI_MEMORY_MAX_CHARS=900
 CHAT_AI_MEMORY_PROMOTION_MIN_OBSERVATIONS=3
 CHAT_AI_MEMORY_WRITER_USERS=＠Rukalun,nyme_ia
+CHAT_AI_MEMORY_RELEVANCE_FILTER_ENABLED=false
 CHAT_AI_IMPLICIT_MEMORY_ENABLED=true
 CHAT_AI_MEM0_ENABLED=true
 CHAT_AI_MEM0_ENDPOINT=http://mem0:8888
@@ -277,6 +279,9 @@ CHAT_AI_MEM0_APP_ID=chat
 CHAT_AI_MEM0_TIMEOUT_MS=1700
 CHAT_AI_MEM0_MAX_RESULTS=4
 CHAT_AI_MEM0_MAX_CHARS=700
+CHAT_AI_MEM0_MIN_SCORE=0.72
+CHAT_AI_MEM0_RECALL_GATE_ENABLED=false
+CHAT_AI_MEM0_ALLOW_MISSING_SCORE=true
 CHAT_AI_MEMORY_HUB_ENABLED=true
 CHAT_AI_MEMORY_HUB_URL=http://127.0.0.1:3218
 CHAT_AI_MEMORY_HUB_NAMESPACE=rukalun
@@ -313,6 +318,7 @@ BOT_REQUEST_NOTES_DIGEST_DISCORD_ENABLED=true
     expect(config.chatAiTimeoutMs).toBe(4500);
     expect(config.chatAiTimeoutFallbackReply).toBe("AIが混み合ってるD！");
     expect(config.chatAiKeepAlive).toBe("10m");
+    expect(config.chatAiContextLength).toBe(2048);
     expect(config.chatAiPrewarmEnabled).toBe(true);
     expect(config.chatAiPrewarmIntervalSeconds).toBe(300);
     expect(config.chatAiPrewarmTimeoutMs).toBe(90000);
@@ -341,6 +347,7 @@ BOT_REQUEST_NOTES_DIGEST_DISCORD_ENABLED=true
     expect(config.chatAiMemoryMaxChars).toBe(900);
     expect(config.chatAiMemoryPromotionMinObservations).toBe(3);
     expect(config.chatAiMemoryWriterUsers).toEqual(["rukalun", "nyme_ia"]);
+    expect(config.chatAiMemoryRelevanceFilterEnabled).toBe(false);
     expect(config.chatAiImplicitMemoryEnabled).toBe(true);
     expect(config.chatAiMem0Enabled).toBe(true);
     expect(config.chatAiMem0Endpoint).toBe("http://mem0:8888");
@@ -351,6 +358,9 @@ BOT_REQUEST_NOTES_DIGEST_DISCORD_ENABLED=true
     expect(config.chatAiMem0TimeoutMs).toBe(1700);
     expect(config.chatAiMem0MaxResults).toBe(4);
     expect(config.chatAiMem0MaxChars).toBe(700);
+    expect(config.chatAiMem0MinScore).toBe(0.72);
+    expect(config.chatAiMem0RecallGateEnabled).toBe(false);
+    expect(config.chatAiMem0AllowMissingScore).toBe(true);
     expect(config).not.toHaveProperty("chatAiMemoryHubEnabled");
     expect(config).not.toHaveProperty("chatAiMemoryHubUrl");
     expect(config).not.toHaveProperty("chatAiMemoryHubNamespace");
@@ -408,6 +418,7 @@ OLLAMA_MODEL=qwen2.5:7b
       "今ちょっとAIが混み合ってるD！"
     );
     expect(config.chatAiKeepAlive).toBe("30m");
+    expect(config.chatAiContextLength).toBe(4096);
     expect(config.chatAiPrewarmEnabled).toBe(false);
     expect(config.chatAiPrewarmIntervalSeconds).toBe(600);
     expect(config.chatAiPrewarmTimeoutMs).toBe(90000);
@@ -447,6 +458,7 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiMemoryMaxItems).toBe(8);
     expect(config.chatAiMemoryMaxChars).toBe(600);
     expect(config.chatAiMemoryWriterUsers).toEqual(["rukalun"]);
+    expect(config.chatAiMemoryRelevanceFilterEnabled).toBe(true);
     expect(config.chatAiImplicitMemoryEnabled).toBe(false);
     expect(config.chatAiMem0Enabled).toBe(false);
     expect(config.chatAiMem0Endpoint).toBe("");
@@ -457,6 +469,9 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiMem0TimeoutMs).toBe(1200);
     expect(config.chatAiMem0MaxResults).toBe(3);
     expect(config.chatAiMem0MaxChars).toBe(600);
+    expect(config.chatAiMem0MinScore).toBe(0.5);
+    expect(config.chatAiMem0RecallGateEnabled).toBe(true);
+    expect(config.chatAiMem0AllowMissingScore).toBe(false);
     expect(config).not.toHaveProperty("chatAiMemoryHubEnabled");
     expect(config).not.toHaveProperty("chatAiMemoryHubUrl");
     expect(config).not.toHaveProperty("chatAiMemoryHubNamespace");
@@ -476,6 +491,66 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiPromptReplyLogEnabled).toBe(false);
     expect(config.chatReplyEmotes).toEqual([]);
   });
+
+  it.each(["511", "8193", "NaN"])(
+    "falls back to context length 4096 when CHAT_AI_CONTEXT_LENGTH=%s",
+    (rawContextLength) => {
+      const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+CHAT_AI_CONTEXT_LENGTH=${rawContextLength}
+`);
+
+      const config = new Config(envPath);
+
+      expect(config.chatAiContextLength).toBe(4096);
+    }
+  );
+
+  it.each(["-1", "1.1", "NaN"])(
+    "falls back to mem0 score 0.5 when CHAT_AI_MEM0_MIN_SCORE=%s",
+    (rawMinScore) => {
+      const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+CHAT_AI_MEM0_MIN_SCORE=${rawMinScore}
+`);
+
+      const config = new Config(envPath);
+
+      expect(config.chatAiMem0MinScore).toBe(0.5);
+    }
+  );
+
+  it.each([
+    ["0", 0],
+    ["1", 1],
+  ])(
+    "accepts CHAT_AI_MEM0_MIN_SCORE boundary %s",
+    (rawMinScore, expected) => {
+      const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+CHAT_AI_MEM0_MIN_SCORE=${rawMinScore}
+`);
+
+      const config = new Config(envPath);
+
+      expect(config.chatAiMem0MinScore).toBe(expected);
+    }
+  );
 
   it("falls back to shoutout Ollama settings for chat AI when chat AI toggle is unset", () => {
     const envPath = writeEnvFile(`

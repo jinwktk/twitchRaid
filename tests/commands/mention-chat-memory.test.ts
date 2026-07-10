@@ -2,6 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as mentionChatMemoryModule from "../../src/commands/mention-chat-memory";
 import {
   analyzeMentionChatMemoryRequest,
   extractMentionChatMemoryEntry,
@@ -18,6 +19,36 @@ import {
   saveMentionChatMemoryObservationStore,
   upsertMentionChatMemoryEntryStore,
 } from "../../src/commands/mention-chat-memory";
+
+type LoadMentionChatMemoryAuthorityStore = (options: {
+  store: "json" | "sqlite";
+  jsonPath: string;
+  sqlitePath: string;
+}) => {
+  activeKeys: string[];
+  suppressedKeys: string[];
+};
+
+function loadMentionChatMemoryAuthorityStore(options: {
+  store: "json" | "sqlite";
+  jsonPath: string;
+  sqlitePath: string;
+}): ReturnType<LoadMentionChatMemoryAuthorityStore> {
+  const loader = (
+    mentionChatMemoryModule as unknown as {
+      loadMentionChatMemoryAuthorityStore?: LoadMentionChatMemoryAuthorityStore;
+    }
+  ).loadMentionChatMemoryAuthorityStore;
+
+  expect(
+    loader,
+    "mention-chat-memory must expose local key authority for mem0 suppression"
+  ).toBeTypeOf("function");
+  if (!loader) {
+    throw new Error("loadMentionChatMemoryAuthorityStore is not implemented");
+  }
+  return loader(options);
+}
 
 let tempDir: string | null = null;
 
@@ -263,6 +294,105 @@ describe("loadMentionChatMemory", () => {
       charCount: 0,
     });
     expect(ageQuestion.text).toBe("るっか: 平成6年8月14日生まれ");
+  });
+
+  it("does not return score-zero active memory for an unrelated Japanese question", () => {
+    const filePath = writeMemoryFile({
+      好物: "カレー",
+      口調: "短くD",
+      "るっかの好きなゲーム": "FF14",
+    });
+
+    const result = loadMentionChatMemory({
+      enabled: true,
+      filePath,
+      maxItems: 8,
+      maxChars: 600,
+      queryText: "今日の天気はどうなりそう？☔",
+    });
+
+    expect(result).toEqual({ text: null, itemCount: 0, charCount: 0 });
+  });
+
+  it("matches Japanese aliases for favorites, games, speaking style, and occupation", () => {
+    const filePath = writeMemoryFile({
+      好物: "カレー",
+      "viewerの好きなもの": "寿司",
+      "るっかの好きなゲーム": "FF14",
+      口調: "短くD",
+      "viewerの職業": "社会人",
+    });
+    const load = (queryText: string) =>
+      loadMentionChatMemory({
+        enabled: true,
+        filePath,
+        maxItems: 8,
+        maxChars: 600,
+        queryText,
+      });
+
+    expect(load("好きな食べ物なんだっけ？").text).toBe("好物: カレー");
+    expect(load("viewerは何が好き？").text?.split("\n")).toEqual(
+      expect.arrayContaining(["viewerの好きなもの: 寿司", "好物: カレー"])
+    );
+    expect(load("viewerは何が好き？").itemCount).toBe(2);
+    expect(load("るっかが好きなゲームを教えて").text).toBe(
+      "るっかの好きなゲーム: FF14"
+    );
+    expect(load("話し方はどんな感じ？").text).toBe("口調: 短くD");
+    expect(load("viewerって社会人なの？").text).toBe(
+      "viewerの職業: 社会人"
+    );
+  });
+
+  it("keeps explicit subjects isolated while allowing subjectless topic memory", () => {
+    const filePath = writeMemoryFile({
+      "aliceの好物": "いちご",
+      "bobの好物": "カレー",
+      好物: "ラーメン",
+    });
+
+    const result = loadMentionChatMemory({
+      enabled: true,
+      filePath,
+      maxItems: 8,
+      maxChars: 600,
+      queryText: "aliceは何が好き？",
+    });
+
+    expect(result.text?.split("\n")).toEqual(
+      expect.arrayContaining(["aliceの好物: いちご", "好物: ラーメン"])
+    );
+    expect(result.itemCount).toBe(2);
+    expect(result.text).not.toContain("bobの好物");
+  });
+
+  it("restores the legacy ranked result when the relevance filter kill switch is off", () => {
+    const filePath = writeMemoryFile({
+      口調: "短くD",
+      好物: "カレー",
+      __meta: {
+        口調: {
+          status: "active",
+          updatedAt: "2026-07-10T09:00:00.000Z",
+        },
+        好物: {
+          status: "active",
+          updatedAt: "2026-07-10T10:00:00.000Z",
+        },
+      },
+    });
+
+    const result = loadMentionChatMemory({
+      enabled: true,
+      filePath,
+      maxItems: 8,
+      maxChars: 600,
+      queryText: "今日の天気は？",
+      relevanceFilterEnabled: false,
+    });
+
+    expect(result.text).toBe("好物: カレー\n口調: 短くD");
   });
 });
 
@@ -1221,6 +1351,110 @@ describe("mention chat memory store", () => {
     ).toEqual([]);
     expect(fs.existsSync(jsonPath)).toBe(false);
   });
+
+  it.each(["json", "sqlite"] as const)(
+    "exposes %s candidate, inactive, and tombstone keys as mem0 suppressions until an active upsert",
+    (store) => {
+      const dir = createTempDir();
+      const jsonPath = path.join(dir, "chat-ai-memory.json");
+      const sqlitePath = path.join(dir, "chat-ai-memory.sqlite");
+      const upsert = (
+        key: string,
+        status: "active" | "inactive" | "candidate",
+        value = "テスト値"
+      ) =>
+        upsertMentionChatMemoryEntryStore({
+          store,
+          jsonPath,
+          sqlitePath,
+          key,
+          value,
+          kind: "semantic",
+          status,
+          sourceUser: "admin",
+          maxItems: 50,
+          now: () => "2026-07-10T12:00:00.000Z",
+        });
+
+      expect(upsert("aliceの好物", "candidate", "いちご")).toMatchObject({
+        saved: true,
+      });
+      expect(upsert("bobの好物", "inactive", "カレー")).toMatchObject({
+        saved: true,
+      });
+      expect(upsert("削除済みの好物", "active", "寿司")).toMatchObject({
+        saved: true,
+      });
+      expect(
+        deleteMentionChatMemoryEntryStore({
+          store,
+          jsonPath,
+          sqlitePath,
+          key: "削除済みの好物",
+        })
+      ).toEqual({
+        deleted: true,
+        reason: "deleted",
+        key: "削除済みの好物",
+      });
+
+      const listedAfterDelete = listMentionChatMemoryEntriesStore({
+        store,
+        jsonPath,
+        sqlitePath,
+        status: "all",
+        queryText: "",
+        limit: 20,
+      });
+      expect(listedAfterDelete.entries.map((entry) => entry.key)).not.toContain(
+        "削除済みの好物"
+      );
+      expect(
+        listedAfterDelete.entries.map((entry) => entry.value)
+      ).not.toContain("寿司");
+      if (store === "json") {
+        const persisted = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as {
+          [key: string]: unknown;
+          __tombstones?: Record<string, { deletedAt?: string }>;
+        };
+        expect(persisted).not.toHaveProperty("削除済みの好物");
+        expect(persisted.__tombstones?.["削除済みの好物"]).toEqual({
+          deletedAt: expect.any(String),
+        });
+      }
+
+      const suppressed = loadMentionChatMemoryAuthorityStore({
+        store,
+        jsonPath,
+        sqlitePath,
+      });
+      expect(new Set(suppressed.activeKeys)).toEqual(new Set());
+      expect(new Set(suppressed.suppressedKeys)).toEqual(
+        new Set(["aliceの好物", "bobの好物", "削除済みの好物"])
+      );
+
+      expect(upsert("削除済みの好物", "active", "うどん")).toMatchObject({
+        saved: true,
+      });
+      const reactivated = loadMentionChatMemoryAuthorityStore({
+        store,
+        jsonPath,
+        sqlitePath,
+      });
+      expect(new Set(reactivated.activeKeys)).toEqual(
+        new Set(["削除済みの好物"])
+      );
+      expect(new Set(reactivated.suppressedKeys)).toEqual(
+        new Set(["aliceの好物", "bobの好物"])
+      );
+      if (store === "json") {
+        const persisted = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as {
+          __tombstones?: Record<string, unknown>;
+        };
+        expect(persisted.__tombstones).not.toHaveProperty("削除済みの好物");
+      }
+    }
+  );
 
   it("rejects unsafe admin memory entries", () => {
     const dir = createTempDir();

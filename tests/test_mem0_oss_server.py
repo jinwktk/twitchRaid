@@ -26,6 +26,7 @@ def load_app_module():
 class FakeMemory:
     def __init__(self):
         self.deleted_ids = []
+        self.searched = []
         self.updated = []
 
     def delete(self, memory_id):
@@ -35,6 +36,10 @@ class FakeMemory:
     def update(self, memory_id, data, metadata=None):
         self.updated.append((memory_id, data, metadata))
         return {"id": memory_id, "memory": data}
+
+    def search(self, **params):
+        self.searched.append(params)
+        return [{"id": "mem-1", "memory": "好物: ラーメン", "score": 0.8}]
 
 
 def test_delete_memory_by_id(monkeypatch):
@@ -128,3 +133,34 @@ def test_update_memory_requires_text(monkeypatch):
     assert response.status_code == 400
     assert response.json() == {"detail": "memory is required"}
     assert fake_memory.updated == []
+
+
+def test_search_forwards_similarity_threshold_to_mem0(monkeypatch):
+    app_module = load_app_module()
+    fake_memory = FakeMemory()
+    monkeypatch.setattr(app_module, "get_memory", lambda: fake_memory)
+    monkeypatch.setattr(app_module, "_api_key", lambda: "")
+    client = TestClient(app_module.app)
+
+    response = client.post(
+        "/search",
+        json={
+            "query": "好きな食べ物は？",
+            "user_id": "rukalun",
+            "top_k": 3,
+            "threshold": 0.5,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"id": "mem-1", "memory": "好物: ラーメン", "score": 0.8}
+    ]
+    assert fake_memory.searched == [
+        {
+            "query": "好きな食べ物は？",
+            "filters": {"user_id": "rukalun"},
+            "top_k": 3,
+            "threshold": 0.5,
+        }
+    ]

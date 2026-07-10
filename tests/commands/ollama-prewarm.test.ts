@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { prewarmOllamaGenerateModel } from "../../src/commands/ollama-prewarm";
 
 describe("prewarmOllamaGenerateModel", () => {
-  it("requests a tiny generate call to keep the configured model resident", async () => {
+  it("preloads the configured model without generating any tokens", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ response: "" }), {
         status: 200,
@@ -28,17 +28,14 @@ describe("prewarmOllamaGenerateModel", () => {
       })
     );
     const body = JSON.parse(fetchImpl.mock.calls[0]?.[1]?.body as string);
-    expect(body).toMatchObject({
+    expect(body).toEqual({
       model: "qwen3.5:9b",
-      prompt: "ping",
       stream: false,
-      think: false,
       keep_alive: "30m",
-      options: {
-        temperature: 0,
-        num_predict: 1,
-      },
     });
+    expect(body).not.toHaveProperty("prompt");
+    expect(body).not.toHaveProperty("think");
+    expect(body).not.toHaveProperty("options");
   });
 
   it("skips without calling Ollama when disabled or model is missing", async () => {
