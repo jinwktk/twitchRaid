@@ -14,6 +14,8 @@ export interface LoadMentionChatMemoryOptions {
   maxItems: number;
   maxChars: number;
   queryText?: string;
+  subjectAliases?: readonly string[];
+  relevanceFilterEnabled?: boolean;
 }
 
 export type MentionChatMemoryStoreKind = "json" | "sqlite";
@@ -154,6 +156,17 @@ export interface DeleteMentionChatMemoryEntryStoreOptions {
   key: string;
 }
 
+export interface LoadMentionChatMemoryAuthorityStoreOptions {
+  store: MentionChatMemoryStoreKind;
+  jsonPath: string;
+  sqlitePath: string;
+}
+
+export interface MentionChatMemoryAuthorityStore {
+  activeKeys: string[];
+  suppressedKeys: string[];
+}
+
 export interface SaveMentionChatAutoLearnMemoryResult {
   saved: boolean;
   reason:
@@ -236,6 +249,11 @@ interface CountRow {
   count: number;
 }
 
+interface SqliteMemoryTombstoneRow {
+  key: string;
+  deleted_at: string;
+}
+
 interface MemoryLine {
   key: string;
   value: string;
@@ -252,7 +270,13 @@ const EMPTY_MEMORY: MentionChatMemoryResult = {
   charCount: 0,
 };
 const MEMORY_META_KEY = "__meta";
-const RESERVED_MEMORY_KEYS = new Set(["global", "users", MEMORY_META_KEY]);
+const MEMORY_TOMBSTONES_KEY = "__tombstones";
+const RESERVED_MEMORY_KEYS = new Set([
+  "global",
+  "users",
+  MEMORY_META_KEY,
+  MEMORY_TOMBSTONES_KEY,
+]);
 const MEMORY_REQUEST_PATTERN =
   /(?:覚えて|覚えといて(?:ください|下さい|ね)?|覚えとけ|記憶して|記憶しといて(?:ください|下さい|ね)?|メモして|メモしといて(?:ください|下さい|ね)?|メモっといて(?:ください|下さい|ね)?|忘れないで)[：:\s]+(.+)$/u;
 const SUFFIX_MEMORY_REQUEST_PATTERN =
@@ -531,6 +555,21 @@ function metadataRecord(record: MemoryRecord): Record<string, MemoryMetadata> {
   return value as Record<string, MemoryMetadata>;
 }
 
+function tombstoneRecord(
+  record: MemoryRecord
+): Record<string, { deletedAt?: string }> {
+  const value = record[MEMORY_TOMBSTONES_KEY];
+  if (!isRecord(value)) return {};
+  return value as Record<string, { deletedAt?: string }>;
+}
+
+function clearJsonMemoryTombstone(record: MemoryRecord, key: string): void {
+  if (!isRecord(record[MEMORY_TOMBSTONES_KEY])) return;
+  const tombstones = tombstoneRecord(record);
+  delete tombstones[key];
+  record[MEMORY_TOMBSTONES_KEY] = tombstones;
+}
+
 function parseTime(value: string | undefined): number {
   if (!value) return 0;
   const parsed = Date.parse(value);
@@ -801,9 +840,15 @@ function sortedMemoryRecordKeysForEviction(
     });
 }
 
-function capMemoryRecord(record: MemoryRecord, maxItems: number, keepKey: string): void {
+function capMemoryRecord(
+  record: MemoryRecord,
+  maxItems: number,
+  keepKey: string,
+  deletedAt: string
+): void {
   if (maxItems <= 0) return;
   const meta = metadataRecord(record);
+  const tombstones = tombstoneRecord(record);
 
   let keys = sortedMemoryRecordKeysForEviction(record, meta);
   while (keys.length > maxItems) {
@@ -812,12 +857,16 @@ function capMemoryRecord(record: MemoryRecord, maxItems: number, keepKey: string
     );
     delete record[deleteKey];
     delete meta[deleteKey];
+    tombstones[deleteKey] = { deletedAt };
     keys = sortedMemoryRecordKeysForEviction(record, meta);
   }
   if (Object.keys(meta).length > 0) {
     record[MEMORY_META_KEY] = meta;
   } else {
     delete record[MEMORY_META_KEY];
+  }
+  if (Object.keys(tombstones).length > 0) {
+    record[MEMORY_TOMBSTONES_KEY] = tombstones;
   }
 }
 
@@ -991,6 +1040,11 @@ function migrateMemoryDatabase(db: DatabaseSync): void {
 
     CREATE INDEX IF NOT EXISTS idx_mention_chat_memory_status_updated
       ON mention_chat_memory (status, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS mention_chat_memory_tombstones (
+      key TEXT PRIMARY KEY,
+      deleted_at TEXT NOT NULL
+    );
   `);
 
   addSqliteColumnIfMissing(
@@ -1109,6 +1163,12 @@ function insertSqliteMemoryRow(
       promotedAt,
       lastObservedAt
     );
+
+  if (row.status === "active") {
+    db.prepare("DELETE FROM mention_chat_memory_tombstones WHERE key = ?").run(
+      row.key
+    );
+  }
 }
 
 function importJsonMemoryIntoSqliteIfEmpty(
@@ -1116,7 +1176,11 @@ function importJsonMemoryIntoSqliteIfEmpty(
   jsonPath: string,
   now: () => string
 ): void {
-  if (countSqliteMemoryRows(db) > 0 || !jsonPath.trim() || !fs.existsSync(jsonPath)) {
+  if (
+    countSqliteMemoryRows(db) > 0 ||
+    !jsonPath.trim() ||
+    !fs.existsSync(jsonPath)
+  ) {
     return;
   }
 
@@ -1125,11 +1189,25 @@ function importJsonMemoryIntoSqliteIfEmpty(
 
   const timestamp = now();
   const meta = metadataRecord(record);
+  const jsonTombstones = tombstoneRecord(record);
+  const existingTombstones = new Set(
+    (
+      db
+        .prepare("SELECT key, deleted_at FROM mention_chat_memory_tombstones")
+        .all() as unknown as SqliteMemoryTombstoneRow[]
+    ).map((row) => singleLine(row.key))
+  );
   const rows: Array<Parameters<typeof insertSqliteMemoryRow>[1]> = [];
 
   for (const [key, value] of Object.entries(record)) {
     const normalizedKey = singleLine(key);
     if (!normalizedKey || RESERVED_MEMORY_KEYS.has(normalizedKey)) continue;
+    if (
+      existingTombstones.has(normalizedKey) ||
+      Object.prototype.hasOwnProperty.call(jsonTombstones, normalizedKey)
+    ) {
+      continue;
+    }
 
     const text = dictionaryValueToText(value);
     if (!text || isUnsafeMemoryKey(normalizedKey) || isUnsafeMemoryText(text)) {
@@ -1164,12 +1242,30 @@ function importJsonMemoryIntoSqliteIfEmpty(
     });
   });
 
-  if (rows.length === 0) return;
+  const tombstones = Object.entries(jsonTombstones)
+    .map(([key, value]) => ({
+      key: singleLine(key),
+      deletedAt:
+        typeof value?.deletedAt === "string" && singleLine(value.deletedAt)
+          ? singleLine(value.deletedAt)
+          : timestamp,
+    }))
+    .filter(({ key }) => key && !RESERVED_MEMORY_KEYS.has(key));
+
+  if (rows.length === 0 && tombstones.length === 0) return;
 
   db.exec("BEGIN");
   try {
     for (const row of rows) {
       insertSqliteMemoryRow(db, row);
+    }
+    const insertTombstone = db.prepare(`
+      INSERT INTO mention_chat_memory_tombstones (key, deleted_at)
+      VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET deleted_at = excluded.deleted_at
+    `);
+    for (const tombstone of tombstones) {
+      insertTombstone.run(tombstone.key, tombstone.deletedAt);
     }
     db.exec("COMMIT");
   } catch (error) {
@@ -1205,6 +1301,8 @@ function loadMentionChatMemorySqlite({
   maxItems,
   maxChars,
   queryText,
+  subjectAliases,
+  relevanceFilterEnabled = true,
 }: Omit<LoadMentionChatMemoryStoreOptions, "store">): MentionChatMemoryResult {
   if (!enabled || !sqlitePath.trim() || maxItems <= 0 || maxChars <= 0) {
     return { ...EMPTY_MEMORY };
@@ -1229,7 +1327,12 @@ function loadMentionChatMemorySqlite({
       `
       )
       .all() as unknown as SqliteMemoryRow[];
-    const ranked = rankMemoryLines(sqliteRowsToMemoryLines(rows), queryText);
+    const ranked = rankMemoryLines(
+      sqliteRowsToMemoryLines(rows),
+      queryText,
+      subjectAliases,
+      relevanceFilterEnabled
+    );
     const capped = capLines(
       ranked.map((line) => line.line),
       maxItems,
@@ -1252,7 +1355,8 @@ function loadMentionChatMemorySqlite({
 function capSqliteMemoryRows(
   db: DatabaseSync,
   maxItems: number,
-  keepKey: string
+  keepKey: string,
+  deletedAt: string
 ): void {
   if (maxItems <= 0) return;
 
@@ -1276,6 +1380,11 @@ function capSqliteMemoryRows(
   const deleteStatement = db.prepare(
     "DELETE FROM mention_chat_memory WHERE key = ?"
   );
+  const tombstoneStatement = db.prepare(`
+    INSERT INTO mention_chat_memory_tombstones (key, deleted_at)
+    VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET deleted_at = excluded.deleted_at
+  `);
   while (rows.length > maxItems) {
     const deleteKey = pickMemoryEvictionKey(
       rows.map((row) => row.key),
@@ -1286,6 +1395,7 @@ function capSqliteMemoryRows(
       }
     );
     deleteStatement.run(deleteKey);
+    tombstoneStatement.run(deleteKey, deletedAt);
     rows = rows.filter((row) => row.key !== deleteKey);
   }
 }
@@ -1330,7 +1440,7 @@ function saveMemoryEntrySqlite({
         createdAt: existing?.created_at || timestamp,
         updatedAt: timestamp,
       });
-      capSqliteMemoryRows(db, maxItems, entry.key);
+      capSqliteMemoryRows(db, maxItems, entry.key, timestamp);
       db.exec("COMMIT");
     } catch (error) {
       db.exec("ROLLBACK");
@@ -1366,6 +1476,7 @@ function saveMemoryEntry({
   const meta = metadataRecord(record);
   const existingMeta = meta[entry.key];
   record[entry.key] = entry.value;
+  clearJsonMemoryTombstone(record, entry.key);
   meta[entry.key] = {
     kind,
     status: "active",
@@ -1374,7 +1485,7 @@ function saveMemoryEntry({
     updatedAt: timestamp,
   };
   record[MEMORY_META_KEY] = meta;
-  capMemoryRecord(record, maxItems, entry.key);
+  capMemoryRecord(record, maxItems, entry.key, timestamp);
   writeMemoryRecordAtomically(filePath, record);
   return { saved: true, reason: "saved", key: entry.key };
 }
@@ -1668,6 +1779,7 @@ function saveJsonMemoryObservation({
       }
 
       const observedCount = existingObservedCount + 1;
+      clearJsonMemoryTombstone(record, entry.key);
       meta[entry.key] = {
         ...existingMeta,
         kind,
@@ -1697,6 +1809,9 @@ function saveJsonMemoryObservation({
     const promoted = observedCount >= promotionMinObservations;
     const status: MentionChatMemoryEntryStatus = promoted ? "active" : "candidate";
     record[entry.key] = entry.value;
+    if (promoted) {
+      clearJsonMemoryTombstone(record, entry.key);
+    }
     meta[entry.key] = {
       kind,
       status,
@@ -1709,7 +1824,7 @@ function saveJsonMemoryObservation({
       lastObservedAt: timestamp,
     };
     record[MEMORY_META_KEY] = meta;
-    capMemoryRecord(record, maxItems, entry.key);
+    capMemoryRecord(record, maxItems, entry.key, timestamp);
     writeMemoryRecordAtomically(jsonPath, record);
     return observationResult({
       saved: true,
@@ -1827,7 +1942,7 @@ function saveSqliteMemoryObservation({
         promotedAt: promoted ? timestamp : "",
         lastObservedAt: timestamp,
       });
-      capSqliteMemoryRows(db, maxItems, entry.key);
+      capSqliteMemoryRows(db, maxItems, entry.key, timestamp);
       db.exec("COMMIT");
     } catch (error) {
       db.exec("ROLLBACK");
@@ -2030,6 +2145,9 @@ function upsertJsonMemoryAdminEntry({
     const meta = metadataRecord(record);
     const existingMeta = meta[entry.key];
     record[entry.key] = entry.value;
+    if (status === "active") {
+      clearJsonMemoryTombstone(record, entry.key);
+    }
     meta[entry.key] = {
       kind,
       status,
@@ -2038,7 +2156,7 @@ function upsertJsonMemoryAdminEntry({
       updatedAt: timestamp,
     };
     record[MEMORY_META_KEY] = meta;
-    capMemoryRecord(record, maxItems, entry.key);
+    capMemoryRecord(record, maxItems, entry.key, timestamp);
     writeMemoryRecordAtomically(jsonPath, record);
     return { saved: true, reason: "saved", key: entry.key };
   } catch {
@@ -2088,7 +2206,7 @@ function upsertSqliteMemoryAdminEntry({
         createdAt: existing?.created_at || timestamp,
         updatedAt: timestamp,
       });
-      capSqliteMemoryRows(db, maxItems, entry.key);
+      capSqliteMemoryRows(db, maxItems, entry.key, timestamp);
       db.exec("COMMIT");
     } catch (error) {
       db.exec("ROLLBACK");
@@ -2172,6 +2290,9 @@ function deleteJsonMemoryAdminEntry({
     } else {
       delete record[MEMORY_META_KEY];
     }
+    const tombstones = tombstoneRecord(record);
+    tombstones[cleanKey] = { deletedAt: new Date().toISOString() };
+    record[MEMORY_TOMBSTONES_KEY] = tombstones;
     writeMemoryRecordAtomically(jsonPath, record);
     return { deleted: true, reason: "deleted", key: cleanKey };
   } catch {
@@ -2197,10 +2318,25 @@ function deleteSqliteMemoryAdminEntry({
     );
     const cleanKey = singleLine(key);
     if (!cleanKey) return { deleted: false, reason: "not_found" };
-    const result = db
-      .prepare("DELETE FROM mention_chat_memory WHERE key = ?")
-      .run(cleanKey) as unknown as { changes: number };
-    if (result.changes <= 0) return { deleted: false, reason: "not_found" };
+    const existing = db
+      .prepare("SELECT key FROM mention_chat_memory WHERE key = ? LIMIT 1")
+      .get(cleanKey) as { key: string } | undefined;
+    if (!existing) return { deleted: false, reason: "not_found" };
+    db.exec("BEGIN");
+    try {
+      db.prepare("DELETE FROM mention_chat_memory WHERE key = ?").run(cleanKey);
+      db.prepare(
+        `
+        INSERT INTO mention_chat_memory_tombstones (key, deleted_at)
+        VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET deleted_at = excluded.deleted_at
+      `
+      ).run(cleanKey, new Date().toISOString());
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
     return { deleted: true, reason: "deleted", key: cleanKey };
   } catch {
     return { deleted: false, reason: "write_failed" };
@@ -2221,12 +2357,98 @@ export function deleteMentionChatMemoryEntryStore({
   return deleteSqliteMemoryAdminEntry({ sqlitePath, jsonPath, key });
 }
 
+function authorityFromJsonRecord(
+  record: MemoryRecord
+): MentionChatMemoryAuthorityStore {
+  const meta = metadataRecord(record);
+  const suppressed = new Set(
+    Object.keys(tombstoneRecord(record)).map((key) => singleLine(key))
+  );
+  const active = new Set<string>();
+
+  for (const rawKey of Object.keys(record)) {
+    const key = singleLine(rawKey);
+    if (!key || RESERVED_MEMORY_KEYS.has(key)) continue;
+    if (suppressed.has(key)) continue;
+    if (normalizeMemoryStatus(meta[key]?.status) === "active") {
+      active.add(key);
+    } else {
+      suppressed.add(key);
+    }
+  }
+
+  return {
+    activeKeys: [...active].sort((a, b) => a.localeCompare(b)),
+    suppressedKeys: [...suppressed]
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b)),
+  };
+}
+
+export function loadMentionChatMemoryAuthorityStore({
+  store,
+  jsonPath,
+  sqlitePath,
+}: LoadMentionChatMemoryAuthorityStoreOptions): MentionChatMemoryAuthorityStore {
+  if (store === "json") {
+    try {
+      if (!jsonPath.trim() || !fs.existsSync(jsonPath)) {
+        return { activeKeys: [], suppressedKeys: [] };
+      }
+      const record = loadWritableMemoryRecord(jsonPath);
+      return record
+        ? authorityFromJsonRecord(record)
+        : { activeKeys: [], suppressedKeys: [] };
+    } catch {
+      return { activeKeys: [], suppressedKeys: [] };
+    }
+  }
+
+  let db: DatabaseSync | null = null;
+  try {
+    db = openMemoryDatabase(sqlitePath);
+    if (!db) return { activeKeys: [], suppressedKeys: [] };
+    importJsonMemoryIntoSqliteIfEmpty(db, jsonPath, () =>
+      new Date().toISOString()
+    );
+    const rows = db
+      .prepare("SELECT key, status FROM mention_chat_memory")
+      .all() as unknown as Array<{ key: string; status: string }>;
+    const tombstones = db
+      .prepare("SELECT key, deleted_at FROM mention_chat_memory_tombstones")
+      .all() as unknown as SqliteMemoryTombstoneRow[];
+    const suppressed = new Set(
+      tombstones.map((row) => singleLine(row.key)).filter(Boolean)
+    );
+    const active = new Set<string>();
+    for (const row of rows) {
+      const key = singleLine(row.key);
+      if (!key || suppressed.has(key)) continue;
+      if (normalizeMemoryStatus(row.status) === "active") {
+        active.add(key);
+      } else {
+        suppressed.add(key);
+      }
+    }
+    return {
+      activeKeys: [...active].sort((a, b) => a.localeCompare(b)),
+      suppressedKeys: [...suppressed].sort((a, b) => a.localeCompare(b)),
+    };
+  } catch {
+    return { activeKeys: [], suppressedKeys: [] };
+  } finally {
+    db?.close();
+  }
+}
+
 export function loadMentionChatMemory({
   enabled,
   filePath,
   maxItems,
   maxChars,
   queryText,
+  subjectAliases,
+  relevanceFilterEnabled = true,
 }: LoadMentionChatMemoryOptions): MentionChatMemoryResult {
   if (!enabled || !filePath.trim() || maxItems <= 0 || maxChars <= 0) {
     return { ...EMPTY_MEMORY };
@@ -2245,7 +2467,12 @@ export function loadMentionChatMemory({
         dictionaryLines.length
       ),
     ];
-    const ranked = rankMemoryLines(lines, queryText);
+    const ranked = rankMemoryLines(
+      lines,
+      queryText,
+      subjectAliases,
+      relevanceFilterEnabled
+    );
     const capped = capLines(
       ranked.map((line) => line.line),
       maxItems,
@@ -2271,6 +2498,8 @@ export function loadMentionChatMemoryStore({
   maxItems,
   maxChars,
   queryText,
+  subjectAliases,
+  relevanceFilterEnabled = true,
 }: LoadMentionChatMemoryStoreOptions): MentionChatMemoryResult {
   if (store === "json") {
     return loadMentionChatMemory({
@@ -2279,6 +2508,8 @@ export function loadMentionChatMemoryStore({
       maxItems,
       maxChars,
       queryText,
+      subjectAliases,
+      relevanceFilterEnabled,
     });
   }
 
@@ -2289,6 +2520,8 @@ export function loadMentionChatMemoryStore({
     maxItems,
     maxChars,
     queryText,
+    subjectAliases,
+    relevanceFilterEnabled,
   });
 }
 
@@ -2364,19 +2597,139 @@ function memoryLineMatchesQueryTopics(line: MemoryLine, queryText: string): bool
   return false;
 }
 
-function relevanceScore(line: MemoryLine, queryText: string): number {
+type MemorySemanticTopic =
+  | "favorite"
+  | "food"
+  | "game"
+  | "style"
+  | "occupation"
+  | "naming"
+  | "profile";
+
+function semanticTopics(value: string): Set<MemorySemanticTopic> {
+  const text = normalizedSearchText(value);
+  const topics = new Set<MemorySemanticTopic>();
+  if (/(?:好物|好き|お気に入り)/u.test(text)) topics.add("favorite");
+  if (/(?:好物|食の好み|食べ物|たべもの|料理|飲み物|のみもの)/u.test(text)) {
+    topics.add("food");
+  }
+  if (/(?:ゲーム|げーむ)/u.test(text)) topics.add("game");
+  if (/(?:口調|話し方|しゃべり方|喋り方|語尾)/u.test(text)) {
+    topics.add("style");
+  }
+  if (
+    /(?:職業|仕事|社会人|会社員|学生|無職|主婦|主夫|働いて|勤め)/u.test(
+      text
+    )
+  ) {
+    topics.add("occupation");
+  }
+  if (/(?:呼び方|名前|なまえ|なんて呼|どう呼)/u.test(text)) {
+    topics.add("naming");
+  }
+  if (/(?:について|何を覚えて|なにを覚えて|覚えてる|どんな人|プロフィール)/u.test(text)) {
+    topics.add("profile");
+  }
+  return topics;
+}
+
+export function resolveMentionChatMemorySubject(
+  key: string,
+  value = ""
+): string | null {
+  const match = singleLine(key).match(
+    /^(.+?)の(?:好物|好き|お気に入り|食の好み|食べ物|たべもの|料理|飲み物|のみもの|ゲーム|げーむ|職業|仕事|属性|口調|話し方|しゃべり方|喋り方|語尾|呼び方|名前|なまえ|年齢|誕生日|生年月日|住所|居住|出身)/u
+  );
+  if (match) return normalizedSearchText(match[1]) || null;
+
+  const normalizedKey = normalizedSearchText(key);
+  if (
+    !normalizedKey ||
+    /^(?:好物|口調|職業|仕事|属性|呼び方|方針|bot-tone)$/u.test(
+      normalizedKey
+    )
+  ) {
+    return null;
+  }
+  const valueTopics = semanticTopics(value);
+  const profileLikeValue =
+    valueTopics.has("favorite") ||
+    valueTopics.has("occupation") ||
+    /(?:\d+|[0-9０-９]+)\s*(?:歳|才)|(?:誕生日|生年月日|生まれ|住んで|居住|在住|出身)/u.test(
+      value
+    );
+  if (!profileLikeValue) return null;
+  return /^[a-z0-9_+-]+$/u.test(normalizedKey) ? normalizedKey : null;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function queryIncludesSubject(query: string, subject: string): boolean {
+  if (!subject) return false;
+  if (/^[a-z0-9_+-]+$/u.test(subject)) {
+    return new RegExp(`(?:^|[^a-z0-9_+-])${escapeRegExp(subject)}(?:$|[^a-z0-9_+-])`, "u").test(
+      query
+    );
+  }
+  return query.includes(subject);
+}
+
+function mentionedMemorySubjects(
+  lines: MemoryLine[],
+  queryText: string,
+  subjectAliases: readonly string[] = []
+): Set<string> {
+  const query = normalizedSearchText(queryText);
+  const subjects = new Set<string>();
+  if (/(?:私|わたし|僕|ぼく|俺|おれ|うち|自分)(?:は|って|の|について|だ)/u.test(query)) {
+    for (const alias of subjectAliases) {
+      const normalizedAlias = normalizedSearchText(alias);
+      if (normalizedAlias) subjects.add(normalizedAlias);
+    }
+  }
+  for (const line of lines) {
+    const subject = resolveMentionChatMemorySubject(line.key, line.value);
+    if (subject && queryIncludesSubject(query, subject)) subjects.add(subject);
+  }
+  return subjects;
+}
+
+function semanticTopicScore(line: MemoryLine, queryText: string): number {
+  const queryTopics = semanticTopics(queryText);
+  const lineTopics = semanticTopics(`${line.key} ${line.value}`);
+  if (queryTopics.has("game")) return lineTopics.has("game") ? 30 : 0;
+  if (queryTopics.has("food")) return lineTopics.has("food") ? 30 : 0;
+  if (queryTopics.has("style")) return lineTopics.has("style") ? 30 : 0;
+  if (queryTopics.has("occupation")) {
+    return lineTopics.has("occupation") ? 30 : 0;
+  }
+  if (queryTopics.has("naming")) return lineTopics.has("naming") ? 30 : 0;
+  if (queryTopics.has("favorite")) {
+    return lineTopics.has("favorite") ? 20 : 0;
+  }
+  return 0;
+}
+
+function relevanceScore(
+  line: MemoryLine,
+  queryText: string,
+  mentionedSubjects: ReadonlySet<string> = new Set()
+): number {
   const query = normalizedSearchText(queryText);
   const key = normalizedSearchText(line.key);
   const value = normalizedSearchText(line.value);
   const queryTopics = queryMemoryTopics(queryText);
   const lineTopics = memoryLineTopics(line);
+  const subject = resolveMentionChatMemorySubject(line.key, line.value);
   let score = 0;
 
   if (key && query.includes(key)) score += 100;
   if (value && query.includes(value)) score += 30;
 
   for (const term of asciiTerms(query)) {
-    if (key.includes(term)) score += 20;
+    if (key.includes(term) && term !== subject) score += 20;
     if (value.includes(term)) score += 8;
   }
 
@@ -2386,19 +2739,46 @@ function relevanceScore(line: MemoryLine, queryText: string): number {
   if (queryTopics.has("birthdate") && lineTopics.has("birthdate")) score += 20;
   if (queryTopics.has("residence") && lineTopics.has("residence")) score += 20;
 
+  const aliasScore = semanticTopicScore(line, queryText);
+  score += aliasScore;
+
+  if (
+    subject &&
+    (queryIncludesSubject(query, subject) || mentionedSubjects.has(subject))
+  ) {
+    if (semanticTopics(queryText).has("profile")) score += 40;
+    else if (aliasScore > 0) score += 15;
+  }
+
   return score;
 }
 
-function rankMemoryLines(lines: MemoryLine[], queryText: string | undefined): MemoryLine[] {
+function rankMemoryLines(
+  lines: MemoryLine[],
+  queryText: string | undefined,
+  subjectAliases: readonly string[] = [],
+  relevanceFilterEnabled = true
+): MemoryLine[] {
   const query = queryText?.trim();
   if (!query) return lines;
 
-  const candidates = lines.filter((line) =>
-    memoryLineMatchesQueryTopics(line, query)
-  );
+  const mentionedSubjects = mentionedMemorySubjects(lines, query, subjectAliases);
+  const candidates = lines
+    .filter((line) => memoryLineMatchesQueryTopics(line, query))
+    .filter((line) => {
+      if (!relevanceFilterEnabled) return true;
+      const subject = resolveMentionChatMemorySubject(line.key, line.value);
+      if (subject) {
+        if (mentionedSubjects.size === 0) return false;
+        if (!mentionedSubjects.has(subject)) return false;
+      }
+      return relevanceScore(line, query, mentionedSubjects) > 0;
+    });
 
   return [...candidates].sort((a, b) => {
-    const scoreDiff = relevanceScore(b, query) - relevanceScore(a, query);
+    const scoreDiff =
+      relevanceScore(b, query, mentionedSubjects) -
+      relevanceScore(a, query, mentionedSubjects);
     if (scoreDiff !== 0) return scoreDiff;
     const timeDiff = b.updatedAt - a.updatedAt;
     if (timeDiff !== 0) return timeDiff;

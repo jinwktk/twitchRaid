@@ -635,7 +635,7 @@ describe("Bot mention chat", () => {
     await bot._handleRegularMessage(
       "#rukalun",
       "viewer",
-      "@rukalun 好きな食べ物なんだっけ？",
+      "@rukalun 口調はどうだっけ？",
       100
     );
 
@@ -650,6 +650,51 @@ describe("Bot mention chat", () => {
       expect(call[0]).not.toContain("語尾はDを自然に使う");
     }
     expect(say).toHaveBeenCalledWith("#rukalun", "カレーの話だねD！");
+  });
+
+  it("自分を尋ねる発言でrequest.userName主体のlocalメモを採用する", async () => {
+    const memoryPath = path.join(ensureTempDir(), "self-reference-local.json");
+    fs.writeFileSync(
+      memoryPath,
+      JSON.stringify({
+        viewer: "社会人",
+        __meta: {
+          viewer: {
+            kind: "semantic",
+            status: "active",
+            sourceUser: "viewer",
+            createdAt: "2026-07-10T10:00:00.000Z",
+            updatedAt: "2026-07-10T10:00:00.000Z",
+          },
+        },
+      }),
+      "utf8"
+    );
+    const { bot } = makeBot({
+      chatAiMemoryEnabled: true,
+      chatAiMemoryStore: "json",
+      chatAiMemoryPath: memoryPath,
+      chatAiCooldownSeconds: 0,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ response: "社会人だと覚えてるD！" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 私って社会人だっけ？",
+      100
+    );
+
+    const ollamaCall = fetchSpy.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    const prompt = JSON.parse(ollamaCall?.[1]?.body as string).prompt as string;
+    expect(prompt).toContain("viewer: 社会人");
   });
 
   it("uses sqlite mention memory as the primary store for Ollama context", async () => {
@@ -766,6 +811,61 @@ describe("Bot mention chat", () => {
       "AIメンション会話mem0メモを適用: items=1, chars=11"
     );
     expect(say).toHaveBeenCalledWith("#rukalun", "カレーだねD！");
+  });
+
+  it("自分を尋ねる発言でrequest.userName主体のmem0メモを採用する", async () => {
+    const memoryPath = path.join(ensureTempDir(), "self-reference-mem0.json");
+    fs.writeFileSync(memoryPath, "{}", "utf8");
+    const { bot } = makeBot({
+      chatAiMemoryEnabled: true,
+      chatAiMemoryStore: "json",
+      chatAiMemoryPath: memoryPath,
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiMem0TimeoutMs: 1000,
+      chatAiCooldownSeconds: 0,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input) => {
+        if (String(input) === "http://mem0:8888/search") {
+          return new Response(
+            JSON.stringify({
+              results: [
+                {
+                  memory: "viewer: 社会人",
+                  metadata: { key: "viewer" },
+                  score: 0.92,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(
+          JSON.stringify({ response: "社会人だと覚えてるD！" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    );
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 私って社会人だっけ？",
+      100
+    );
+
+    const mem0Call = fetchSpy.mock.calls.find(
+      ([input]) => String(input) === "http://mem0:8888/search"
+    );
+    expect(JSON.parse(mem0Call?.[1]?.body as string).query).toBe(
+      "私って社会人だっけ？"
+    );
+    const ollamaCall = fetchSpy.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    const prompt = JSON.parse(ollamaCall?.[1]?.body as string).prompt as string;
+    expect(prompt).toContain("viewer: 社会人");
   });
 
   it("removes mem0 memory lines already present in the local reference memory", async () => {
@@ -1485,8 +1585,8 @@ describe("Bot mention chat", () => {
       chatAiMem0ApiKey: "context-secret-key",
     });
     const infoSpy = vi.spyOn(logger, "info");
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () => new Response(
         JSON.stringify({
           response: "分かったよ！",
           total_duration: 1_500_000_000,
@@ -1612,7 +1712,7 @@ describe("Bot mention chat", () => {
     expect(new Set(performanceRequestIds)).toEqual(new Set([contextRequestId]));
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "今夜は何が食べたい？一緒に考えよう♪"
+      "今夜は何が食べたい？一緒に考えよう"
     );
   });
 
@@ -1789,6 +1889,45 @@ describe("Bot mention chat", () => {
     );
   });
 
+  it("does not retry a failed initial search in the same request", async () => {
+    const { bot, say } = makeBot({
+      chatAiSearchEnabled: true,
+      chatAiSearchEndpoint: "https://api.duckduckgo.com/",
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input) => {
+        const url = String(input);
+        if (url.startsWith("https://api.duckduckgo.com/")) {
+          throw new Error("search unavailable");
+        }
+        return new Response(
+          JSON.stringify({ response: "それはちょっと分からないD！" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    );
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun TwitchConについて教えて",
+      100
+    );
+
+    const searchCalls = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).startsWith("https://api.duckduckgo.com/")
+    );
+    const ollamaCalls = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    expect(searchCalls).toHaveLength(1);
+    expect(ollamaCalls).toHaveLength(1);
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "それはちょっと分からないD！"
+    );
+  });
+
   it("logs when a search-like mention is skipped because external search is disabled", async () => {
     const { bot, say } = makeBot({
       chatAiSearchEnabled: false,
@@ -1822,10 +1961,12 @@ describe("Bot mention chat", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       if (url.startsWith("https://api.duckduckgo.com/")) {
+        const bytes = Buffer.from("{}", "utf8");
         return {
           ok: true,
           headers: { get: () => null },
-          arrayBuffer: async () => Buffer.from("{}", "utf8").buffer,
+          arrayBuffer: async () =>
+            bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
         } as Response;
       }
 

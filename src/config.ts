@@ -15,6 +15,7 @@ const DEFAULT_CLIP_SEARCH_PUBLISH_REPO_DIR = path.resolve(
   "RukalunPage"
 );
 const DEFAULT_CHAT_AI_TIMEOUT_MS = 8_000;
+const DEFAULT_CHAT_AI_CONTEXT_LENGTH = 4_096;
 const DEFAULT_CHAT_AI_TIMEOUT_FALLBACK_REPLY =
   "今ちょっとAIが混み合ってるD！";
 const DEFAULT_CHAT_AI_PREWARM_INTERVAL_SECONDS = 600;
@@ -38,6 +39,7 @@ const DEFAULT_CHAT_AI_MEMORY_PROMOTION_MIN_OBSERVATIONS = 2;
 const DEFAULT_CHAT_AI_MEM0_TIMEOUT_MS = 1_200;
 const DEFAULT_CHAT_AI_MEM0_MAX_RESULTS = 3;
 const DEFAULT_CHAT_AI_MEM0_MAX_CHARS = 600;
+const DEFAULT_CHAT_AI_MEM0_MIN_SCORE = 0.5;
 const DEFAULT_CHAT_AI_SEARCH_ENDPOINT = "https://api.duckduckgo.com/";
 const DEFAULT_CHAT_AI_SEARCH_PROVIDER = "duckduckgo";
 const DEFAULT_CHAT_AI_SEARCH_TIMEOUT_MS = 2_500;
@@ -64,6 +66,31 @@ function parseOptionalEnabledFlag(raw: string | undefined): boolean | null {
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
   const parsed = parseInt(raw ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseBoundedInt(
+  raw: string | undefined,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed >= min && parsed <= max
+    ? parsed
+    : fallback;
+}
+
+function parseBoundedNumber(
+  raw: string | undefined,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= min && parsed <= max
+    ? parsed
+    : fallback;
 }
 
 function toEnvFlag(enabled: boolean): string {
@@ -132,6 +159,7 @@ export class Config {
   readonly chatAiTimeoutMs: number;
   readonly chatAiTimeoutFallbackReply: string;
   readonly chatAiKeepAlive: string;
+  readonly chatAiContextLength: number;
   readonly chatAiPrewarmEnabled: boolean;
   readonly chatAiPrewarmIntervalSeconds: number;
   readonly chatAiPrewarmTimeoutMs: number;
@@ -164,6 +192,7 @@ export class Config {
   readonly chatAiMemoryMaxChars: number;
   readonly chatAiMemoryPromotionMinObservations: number;
   readonly chatAiMemoryWriterUsers: string[];
+  readonly chatAiMemoryRelevanceFilterEnabled: boolean;
   readonly chatAiImplicitMemoryEnabled: boolean;
   readonly chatAiMem0Enabled: boolean;
   readonly chatAiMem0Endpoint: string;
@@ -174,6 +203,9 @@ export class Config {
   readonly chatAiMem0TimeoutMs: number;
   readonly chatAiMem0MaxResults: number;
   readonly chatAiMem0MaxChars: number;
+  readonly chatAiMem0MinScore: number;
+  readonly chatAiMem0RecallGateEnabled: boolean;
+  readonly chatAiMem0AllowMissingScore: boolean;
   readonly chatAiSearchEnabled: boolean;
   readonly chatAiSearchProvider: ChatAiSearchProvider;
   readonly chatAiSearchEndpoint: string;
@@ -308,6 +340,12 @@ export class Config {
         ? DEFAULT_CHAT_AI_TIMEOUT_FALLBACK_REPLY
         : env["CHAT_AI_TIMEOUT_FALLBACK_REPLY"].trim();
     this.chatAiKeepAlive = env["CHAT_AI_KEEP_ALIVE"]?.trim() || "30m";
+    this.chatAiContextLength = parseBoundedInt(
+      env["CHAT_AI_CONTEXT_LENGTH"],
+      DEFAULT_CHAT_AI_CONTEXT_LENGTH,
+      512,
+      8_192
+    );
     this.chatAiPrewarmEnabled = parseEnabledFlag(
       env["CHAT_AI_PREWARM_ENABLED"] ?? "0"
     );
@@ -425,6 +463,9 @@ export class Config {
       env["CHAT_AI_MEMORY_WRITER_USERS"],
       [this.loginChannel]
     );
+    this.chatAiMemoryRelevanceFilterEnabled = parseEnabledFlag(
+      env["CHAT_AI_MEMORY_RELEVANCE_FILTER_ENABLED"] ?? "true"
+    );
     this.chatAiSearchEnabled = parseEnabledFlag(
       env["CHAT_AI_SEARCH_ENABLED"] ?? "0"
     );
@@ -477,6 +518,18 @@ export class Config {
     this.chatAiMem0MaxChars = parsePositiveInt(
       env["CHAT_AI_MEM0_MAX_CHARS"],
       DEFAULT_CHAT_AI_MEM0_MAX_CHARS
+    );
+    this.chatAiMem0MinScore = parseBoundedNumber(
+      env["CHAT_AI_MEM0_MIN_SCORE"],
+      DEFAULT_CHAT_AI_MEM0_MIN_SCORE,
+      0,
+      1
+    );
+    this.chatAiMem0RecallGateEnabled = parseEnabledFlag(
+      env["CHAT_AI_MEM0_RECALL_GATE_ENABLED"] ?? "true"
+    );
+    this.chatAiMem0AllowMissingScore = parseEnabledFlag(
+      env["CHAT_AI_MEM0_ALLOW_MISSING_SCORE"] ?? "false"
     );
     this.chatAiAutoLearnEnabled = parseEnabledFlag(
       env["CHAT_AI_AUTO_LEARN_ENABLED"] ?? "0"

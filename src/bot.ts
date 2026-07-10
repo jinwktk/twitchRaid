@@ -78,6 +78,7 @@ import {
   analyzeMentionChatMemoryRequest,
   extractImplicitMentionChatMemoryEntry,
   extractStreamCommentMemoryEntries,
+  loadMentionChatMemoryAuthorityStore,
   loadMentionChatMemoryStore,
   saveMentionChatAutoLearnMemoryStore,
   saveMentionChatMemoryObservationStore,
@@ -87,6 +88,8 @@ import {
 import {
   loadMentionChatMem0Memory,
   saveMentionChatMem0Memory,
+  shouldRecallMentionChatMem0Memory,
+  type MentionChatMem0MemoryItem,
 } from "./commands/mention-chat-mem0";
 import {
   buildBotRequestNotesDigest,
@@ -97,6 +100,7 @@ import {
 } from "./commands/bot-request-notes";
 import {
   fetchMentionChatSearchContext,
+  fetchMentionChatSearchContextDetailed,
   shouldResearchMentionChatReply,
   shouldSearchMentionChat,
 } from "./commands/mention-chat-search";
@@ -247,6 +251,11 @@ interface CombinedMentionChatMemoryText {
   dedupedMem0ItemCount: number;
 }
 
+interface MentionChatMemoryAuthority {
+  activeKeys: readonly string[];
+  suppressedKeys: readonly string[];
+}
+
 const UNSAFE_MENTION_CHAT_CONVERSATION_CONTEXT_PATTERN =
   /https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|\b(?:token|secret|password|passwd|api[\s_-]?key|access[\s_-]?token|refresh[\s_-]?token)\b|apiキー|トークン|アクセストークン|リフレッシュトークン|シークレット|認証情報|認証|パスワード|秘密鍵|秘密|前の指示|上の指示|以前の指示|指示を無視|命令を無視|ルールを無視|システムプロンプト|プロンプトを表示|内部設定|developer message|system prompt|ignore (?:all )?(?:previous|above) instructions/iu;
 
@@ -288,14 +297,14 @@ function extractMentionChatMemoryLineKey(value: string): string | null {
 
 function combineMentionChatMemoryText(
   localMemoryText: string | null | undefined,
-  mem0MemoryText: string | null | undefined
+  mem0MemoryText: string | null | undefined,
+  options: {
+    mem0Items?: readonly MentionChatMem0MemoryItem[];
+    authority?: MentionChatMemoryAuthority;
+    maxChars: number;
+  }
 ): CombinedMentionChatMemoryText {
   const localText = (localMemoryText ?? "").trim();
-  const mem0Lines = splitMentionChatMemoryLines(mem0MemoryText);
-  if (mem0Lines.length === 0) {
-    return { text: localText || null, dedupedMem0ItemCount: 0 };
-  }
-
   const localLines = splitMentionChatMemoryLines(localText);
   const localLineSet = new Set(localLines.map(normalizeMentionChatMemoryLine));
   const localKeySet = new Set(
@@ -303,28 +312,61 @@ function combineMentionChatMemoryText(
       .map(extractMentionChatMemoryLineKey)
       .filter((key): key is string => Boolean(key))
   );
+  const authorityKeySet = new Set(
+    [
+      ...(options.authority?.activeKeys ?? []),
+      ...(options.authority?.suppressedKeys ?? []),
+    ]
+      .map((key) => key.replace(/\s+/g, " ").trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const mem0Items =
+    options.mem0Items && options.mem0Items.length > 0
+      ? options.mem0Items
+      : splitMentionChatMemoryLines(mem0MemoryText).map((text) => ({
+          text,
+          key: extractMentionChatMemoryLineKey(text),
+        }));
 
   const remainingMem0Lines: string[] = [];
   let dedupedMem0ItemCount = 0;
-  for (const line of mem0Lines) {
+  for (const item of mem0Items) {
+    const line = item.text;
     const normalizedLine = normalizeMentionChatMemoryLine(line);
-    const key = extractMentionChatMemoryLineKey(line);
-    if (localLineSet.has(normalizedLine) || (key && localKeySet.has(key))) {
+    const key = (item.key ?? extractMentionChatMemoryLineKey(line))
+      ?.replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+    if (
+      localLineSet.has(normalizedLine) ||
+      (key && (localKeySet.has(key) || authorityKeySet.has(key)))
+    ) {
       dedupedMem0ItemCount += 1;
       continue;
     }
     remainingMem0Lines.push(line);
   }
 
-  const parts = [
-    localText || null,
-    remainingMem0Lines.length > 0
-      ? `mem0メモ:\n${remainingMem0Lines.join("\n")}`
-      : null,
-  ].filter((text): text is string => Boolean(text));
+  const maxChars = Math.max(0, Math.floor(options.maxChars));
+  const selectedLines: string[] = [];
+  const tryAppend = (lines: readonly string[]): boolean => {
+    const candidate = [...selectedLines, ...lines].join("\n");
+    if (candidate.length > maxChars) return false;
+    selectedLines.push(...lines);
+    return true;
+  };
+  for (const line of localLines) {
+    if (!tryAppend([line])) break;
+  }
+  let hasMem0Header = false;
+  for (const line of remainingMem0Lines) {
+    const lines = hasMem0Header ? [line] : ["mem0メモ:", line];
+    if (!tryAppend(lines)) break;
+    hasMem0Header = true;
+  }
 
   return {
-    text: parts.length > 0 ? parts.join("\n") : null,
+    text: selectedLines.length > 0 ? selectedLines.join("\n") : null,
     dedupedMem0ItemCount,
   };
 }
@@ -449,6 +491,7 @@ export class Bot {
     MentionChatConversationHistoryEntry[]
   >();
   private readonly streamCommentMemoryMem0Dedup = new Map<string, number>();
+  private mentionChatRequestSequence = 0;
   private lastMentionChatAttemptAt = 0;
   private lastChatAiPrewarmAt = 0;
   private chatAiPrewarmInFlight = false;
@@ -1244,6 +1287,11 @@ export class Bot {
     this.mentionChatConversationHistory.set(key, nextEntries);
   }
 
+  private _nextMentionChatRequestId(): string {
+    this.mentionChatRequestSequence += 1;
+    return `mention-${Date.now()}-${this.mentionChatRequestSequence}`;
+  }
+
   private async _processMentionChatRequest(
     request: MentionChatRequest,
     now: number,
@@ -1293,40 +1341,106 @@ export class Bot {
         );
         return;
       }
+      const requestId = this._nextMentionChatRequestId();
+      const contextStartedAt = Date.now();
+      const memoryEnabled = this.config.chatAiMemoryEnabled ?? false;
+      const memoryStore = this.config.chatAiMemoryStore ?? "json";
+      const memoryMaxChars = this.config.chatAiMemoryMaxChars ?? 600;
       const memory = loadMentionChatMemoryStore({
-        enabled: this.config.chatAiMemoryEnabled ?? false,
+        enabled: memoryEnabled,
         store: this.config.chatAiMemoryStore ?? "json",
         jsonPath: this.config.chatAiMemoryPath ?? "",
         sqlitePath: this.config.chatAiMemoryDbPath ?? "",
         maxItems: this.config.chatAiMemoryMaxItems ?? 8,
-        maxChars: this.config.chatAiMemoryMaxChars ?? 600,
+        maxChars: memoryMaxChars,
         queryText: request.prompt,
+        subjectAliases: [request.userName],
+        relevanceFilterEnabled:
+          this.config.chatAiMemoryRelevanceFilterEnabled ?? true,
       });
       if (memory.text) {
         logger.info(
           `AIメンション会話メモを適用: store=${this.config.chatAiMemoryStore ?? "json"}, items=${memory.itemCount}, chars=${memory.charCount}`
         );
       }
-      const mem0Memory = await loadMentionChatMem0Memory({
-        enabled:
-          (this.config.chatAiMemoryEnabled ?? false) &&
-          this._isMentionChatMem0Enabled(),
-        apiKey: this.config.chatAiMem0ApiKey ?? "",
-        endpoint: this.config.chatAiMem0Endpoint ?? "",
+      const authority = memoryEnabled
+        ? loadMentionChatMemoryAuthorityStore({
+            store: memoryStore,
+            jsonPath: this.config.chatAiMemoryPath ?? "",
+            sqlitePath: this.config.chatAiMemoryDbPath ?? "",
+          })
+        : { activeKeys: [], suppressedKeys: [] };
+      const mem0Enabled = memoryEnabled && this._isMentionChatMem0Enabled();
+      const mem0Requested =
+        mem0Enabled &&
+        shouldRecallMentionChatMem0Memory(
+          request.prompt,
+          this.config.chatAiMem0RecallGateEnabled ?? true
+        );
+      const mem0StartedAt = Date.now();
+      const mem0Promise = mem0Requested
+        ? loadMentionChatMem0Memory({
+            enabled: true,
+            apiKey: this.config.chatAiMem0ApiKey ?? "",
+            endpoint: this.config.chatAiMem0Endpoint ?? "",
+            queryText: request.prompt,
+            userId: this.config.chatAiMem0UserId ?? this.config.loginChannel,
+            agentId: this.config.chatAiMem0AgentId ?? "twitchRaid",
+            appId: this.config.chatAiMem0AppId ?? "twitchRaid",
+            timeoutMs: this.config.chatAiMem0TimeoutMs ?? 1_200,
+            maxItems: this.config.chatAiMem0MaxResults ?? 3,
+            maxChars: this.config.chatAiMem0MaxChars ?? 600,
+            minScore: this.config.chatAiMem0MinScore ?? 0.5,
+            allowMissingScore:
+              this.config.chatAiMem0AllowMissingScore ?? false,
+            subjectAliases: [request.userName],
+          }).then((result) => ({
+            result,
+            elapsedMs: Math.max(0, Date.now() - mem0StartedAt),
+          }))
+        : Promise.resolve({
+            result: null,
+            elapsedMs: 0,
+          });
+      const searchEnabled = this.config.chatAiSearchEnabled ?? false;
+      const searchCandidate = shouldSearchMentionChat(request.prompt);
+      const searchStartedAt = Date.now();
+      const searchPromise = fetchMentionChatSearchContextDetailed({
+        enabled: searchEnabled,
+        provider: this.config.chatAiSearchProvider ?? "duckduckgo",
+        endpoint:
+          this.config.chatAiSearchEndpoint ?? "https://api.duckduckgo.com/",
+        engines: this.config.chatAiSearchEngines ?? "",
         queryText: request.prompt,
-        userId: this.config.chatAiMem0UserId ?? this.config.loginChannel,
-        agentId: this.config.chatAiMem0AgentId ?? "twitchRaid",
-        appId: this.config.chatAiMem0AppId ?? "twitchRaid",
-        timeoutMs: this.config.chatAiMem0TimeoutMs ?? 1_200,
-        maxItems: this.config.chatAiMem0MaxResults ?? 3,
-        maxChars: this.config.chatAiMem0MaxChars ?? 600,
-      });
-      if (mem0Memory.text) {
+        timeoutMs: this.config.chatAiSearchTimeoutMs ?? 2_500,
+        maxQueryChars: this.config.chatAiSearchMaxQueryChars ?? 120,
+        maxResponseBytes: this.config.chatAiSearchMaxResponseBytes ?? 65_536,
+        maxResults: this.config.chatAiSearchMaxResults ?? 3,
+      }).then((result) => ({
+        result,
+        elapsedMs: Math.max(0, Date.now() - searchStartedAt),
+      }));
+      const [mem0Outcome, searchOutcome] = await Promise.all([
+        mem0Promise,
+        searchPromise,
+      ]);
+      const mem0Memory = mem0Outcome.result;
+      const mem0Reason = mem0Requested
+        ? (mem0Memory?.reason ?? "failed")
+        : mem0Enabled
+          ? "recall_gate"
+          : "disabled";
+      const searchContext = searchOutcome.result.context;
+      logger.info(
+        `AIメンション会話コンテキスト準備: requestId=${requestId}, localItems=${memory.itemCount}, mem0Requested=${mem0Requested}, mem0Reason=${mem0Reason}, mem0Ms=${mem0Outcome.elapsedMs}, searchReason=${searchOutcome.result.reason}, searchResults=${searchContext?.resultCount ?? 0}, searchMs=${searchOutcome.elapsedMs}, totalMs=${Math.max(0, Date.now() - contextStartedAt)}`
+      );
+      if (mem0Memory?.text) {
         logger.info(
           `AIメンション会話mem0メモを適用: items=${mem0Memory.itemCount}, chars=${mem0Memory.charCount}`
         );
       } else if (
-        this._isMentionChatMem0Enabled() &&
+        mem0Requested &&
+        mem0Memory &&
         mem0Memory.reason !== "disabled" &&
         mem0Memory.reason !== "empty"
       ) {
@@ -1336,7 +1450,12 @@ export class Bot {
       }
       const combinedMemory = combineMentionChatMemoryText(
         memory.text,
-        mem0Memory.text
+        mem0Memory?.text,
+        {
+          mem0Items: mem0Memory?.items,
+          authority,
+          maxChars: memoryMaxChars,
+        }
       );
       if (combinedMemory.dedupedMem0ItemCount > 0) {
         logger.info(
@@ -1354,31 +1473,15 @@ export class Bot {
           `AIメンション会話履歴を適用: items=${conversationHistory.itemCount}, chars=${conversationHistory.charCount}`
         );
       }
-      const searchEnabled = this.config.chatAiSearchEnabled ?? false;
-      const searchCandidate = shouldSearchMentionChat(request.prompt);
-      const searchContext = await fetchMentionChatSearchContext({
-        enabled: searchEnabled,
-        provider: this.config.chatAiSearchProvider ?? "duckduckgo",
-        endpoint:
-          this.config.chatAiSearchEndpoint ?? "https://api.duckduckgo.com/",
-        engines: this.config.chatAiSearchEngines ?? "",
-        queryText: request.prompt,
-        timeoutMs: this.config.chatAiSearchTimeoutMs ?? 2_500,
-        maxQueryChars: this.config.chatAiSearchMaxQueryChars ?? 120,
-        maxResponseBytes: this.config.chatAiSearchMaxResponseBytes ?? 65_536,
-        maxResults: this.config.chatAiSearchMaxResults ?? 3,
-      });
       if (searchContext) {
         logger.info(
           `AIメンション会話外部検索を適用: results=${searchContext.resultCount}`
         );
       } else if (searchCandidate) {
         logger.info(
-          `AIメンション会話外部検索は未適用: reason=${
-            searchEnabled ? "no_result_or_failed" : "disabled"
-          }`
+          `AIメンション会話外部検索は未適用: reason=${searchOutcome.result.reason}`
         );
-        if (searchEnabled) {
+        if (searchOutcome.result.reason === "no_result") {
           const replyWithEmote = appendContextualChatReplyEmote(
             MENTION_CHAT_SEARCH_NO_RESULT_REPLY,
             this.config.chatReplyEmotes,
@@ -1409,6 +1512,8 @@ export class Bot {
         timeoutMs: this.config.chatAiTimeoutMs ?? 8_000,
         timeoutFallbackReply: this.config.chatAiTimeoutFallbackReply,
         keepAlive: this.config.chatAiKeepAlive ?? "30m",
+        contextLength: this.config.chatAiContextLength ?? 4096,
+        requestId,
         maxResponseChars:
           this.config.chatAiMaxResponseChars ??
           DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS,
@@ -1428,6 +1533,7 @@ export class Bot {
         generatedReply?.source === "generated" &&
         !searchContext &&
         searchEnabled &&
+        searchOutcome.result.reason !== "failed" &&
         shouldResearchMentionChatReply(generatedReply.reply)
       ) {
         const researchSearchContext = await fetchMentionChatSearchContext({
@@ -1455,6 +1561,8 @@ export class Bot {
             timeoutMs: this.config.chatAiTimeoutMs ?? 8_000,
             timeoutFallbackReply: this.config.chatAiTimeoutFallbackReply,
             keepAlive: this.config.chatAiKeepAlive ?? "30m",
+            contextLength: this.config.chatAiContextLength ?? 4096,
+            requestId,
             maxResponseChars:
               this.config.chatAiMaxResponseChars ??
               DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS,

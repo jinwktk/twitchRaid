@@ -321,6 +321,7 @@ describe("loadMentionChatMemory", () => {
       "るっかの好きなゲーム": "FF14",
       口調: "短くD",
       "viewerの職業": "社会人",
+      呼び方: "にめいや",
     });
     const load = (queryText: string) =>
       loadMentionChatMemory({
@@ -343,6 +344,8 @@ describe("loadMentionChatMemory", () => {
     expect(load("viewerって社会人なの？").text).toBe(
       "viewerの職業: 社会人"
     );
+    expect(load("なんて呼べばいい？").text).toBe("呼び方: にめいや");
+    expect(load("名前は？").text).toBe("呼び方: にめいや");
   });
 
   it("keeps explicit subjects isolated while allowing subjectless topic memory", () => {
@@ -365,6 +368,85 @@ describe("loadMentionChatMemory", () => {
     );
     expect(result.itemCount).toBe(2);
     expect(result.text).not.toContain("bobの好物");
+  });
+
+  it("maps first-person questions only to the current subject alias", () => {
+    const filePath = writeMemoryFile({
+      viewer: "社会人",
+      bob: "学生",
+    });
+
+    const result = loadMentionChatMemory({
+      enabled: true,
+      filePath,
+      maxItems: 8,
+      maxChars: 600,
+      queryText: "私って社会人だっけ？",
+      subjectAliases: ["viewer"],
+    });
+
+    expect(result.text).toBe("viewer: 社会人");
+    expect(result.text).not.toContain("bob");
+
+    const profile = loadMentionChatMemory({
+      enabled: true,
+      filePath,
+      maxItems: 8,
+      maxChars: 600,
+      queryText: "私について何を覚えてる？",
+      subjectAliases: ["viewer"],
+    });
+    expect(profile.text).toBe("viewer: 社会人");
+  });
+
+  it("isolates explicit subjects across every semantic topic alias", () => {
+    const filePath = writeMemoryFile({
+      "aliceの食べ物": "いちご",
+      "bobの食べ物": "カレー",
+      "aliceのゲーム": "FF14",
+      "bobのゲーム": "Apex",
+      "aliceのしゃべり方": "短く",
+      "bobのしゃべり方": "丁寧",
+      "aliceの呼び方": "アリス",
+      "bobの呼び方": "ボブ",
+    });
+    const cases = [
+      ["aliceの好きな食べ物は？", "aliceの食べ物: いちご", "bobの食べ物"],
+      ["aliceの好きなゲームは？", "aliceのゲーム: FF14", "bobのゲーム"],
+      ["aliceの話し方は？", "aliceのしゃべり方: 短く", "bobのしゃべり方"],
+      ["aliceの名前は？", "aliceの呼び方: アリス", "bobの呼び方"],
+    ] as const;
+
+    for (const [queryText, expected, rejected] of cases) {
+      const result = loadMentionChatMemory({
+        enabled: true,
+        filePath,
+        maxItems: 8,
+        maxChars: 600,
+        queryText,
+      });
+      expect(result.text, queryText).toBe(expected);
+      expect(result.text, queryText).not.toContain(rejected);
+    }
+  });
+
+  it("対象者名ではない「食の好み」は主体未指定メモとして残す", () => {
+    const filePath = writeMemoryFile({
+      "食の好み": "カレーが好き",
+      "aliceの好物": "いちご",
+    });
+
+    const result = loadMentionChatMemory({
+      enabled: true,
+      filePath,
+      maxItems: 8,
+      maxChars: 600,
+      queryText: "好きな食べ物は？",
+    });
+
+    expect(result.text).toBe("食の好み: カレーが好き");
+    expect(result.itemCount).toBe(1);
+    expect(result.text).not.toContain("aliceの好物");
   });
 
   it("restores the legacy ranked result when the relevance filter kill switch is off", () => {
@@ -673,6 +755,11 @@ describe("auto-learn mention chat memory", () => {
           sourceUser: "rukalun",
           createdAt: "2026-06-20T12:01:00.000Z",
           updatedAt: "2026-06-20T12:01:00.000Z",
+        },
+      },
+      __tombstones: {
+        one: {
+          deletedAt: "2026-06-20T12:01:00.000Z",
         },
       },
     });
@@ -1453,6 +1540,62 @@ describe("mention chat memory store", () => {
         };
         expect(persisted.__tombstones).not.toHaveProperty("削除済みの好物");
       }
+    }
+  );
+
+  it.each(["json", "sqlite"] as const)(
+    "%sのmaxItems追い出しkeyをauthorityの抑止対象に残す",
+    (store) => {
+      const dir = createTempDir();
+      const jsonPath = path.join(dir, "chat-ai-memory.json");
+      const sqlitePath = path.join(dir, "chat-ai-memory.sqlite");
+
+      expect(
+        upsertMentionChatMemoryEntryStore({
+          store,
+          jsonPath,
+          sqlitePath,
+          key: "viewerの好物",
+          value: "カレー",
+          kind: "semantic",
+          status: "active",
+          sourceUser: "admin",
+          maxItems: 1,
+          now: () => "2026-07-10T12:00:00.000Z",
+        })
+      ).toMatchObject({ saved: true });
+      expect(
+        upsertMentionChatMemoryEntryStore({
+          store,
+          jsonPath,
+          sqlitePath,
+          key: "viewerの職業",
+          value: "社会人",
+          kind: "semantic",
+          status: "active",
+          sourceUser: "admin",
+          maxItems: 1,
+          now: () => "2026-07-10T12:01:00.000Z",
+        })
+      ).toMatchObject({ saved: true });
+
+      const authority = loadMentionChatMemoryAuthorityStore({
+        store,
+        jsonPath,
+        sqlitePath,
+      });
+      expect(authority.activeKeys).toEqual(["viewerの職業"]);
+      expect(authority.suppressedKeys).toContain("viewerの好物");
+      expect(
+        listMentionChatMemoryEntriesStore({
+          store,
+          jsonPath,
+          sqlitePath,
+          status: "all",
+          queryText: "",
+          limit: 20,
+        }).entries.map((entry) => entry.key)
+      ).toEqual(["viewerの職業"]);
     }
   );
 

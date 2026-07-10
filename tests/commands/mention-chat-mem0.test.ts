@@ -147,6 +147,10 @@ describe("mention chat mem0 OSS integration", () => {
       text: "好物はカレー\n口調は短くD",
       itemCount: 2,
       charCount: 13,
+      items: [
+        { text: "好物はカレー", key: null },
+        { text: "口調は短くD", key: null },
+      ],
       reason: "found",
     });
   });
@@ -184,6 +188,10 @@ describe("mention chat mem0 OSS integration", () => {
       text: expectedText,
       itemCount: 2,
       charCount: expectedText.length,
+      items: [
+        { text: "boundary: 採用", key: "boundary" },
+        { text: "high: 採用", key: "high" },
+      ],
       reason: "found",
     });
     expect(JSON.parse(fetchImpl.mock.calls[0][1].body as string)).toMatchObject({
@@ -250,6 +258,7 @@ describe("mention chat mem0 OSS integration", () => {
       text: "好物: カレー",
       itemCount: 1,
       charCount: "好物: カレー".length,
+      items: [{ text: "好物: カレー", key: "好物" }],
       reason: "found",
     });
   });
@@ -366,6 +375,85 @@ describe("mention chat mem0 OSS integration", () => {
       "ラーメンが好き",
     ]);
     expect(result.text).not.toContain("カレーが好き");
+  });
+
+  it("maps first-person questions only to the current mem0 subject alias", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        results: [
+          { memory: "viewer: 社会人", metadata: { key: "viewer" }, score: 0.92 },
+          { memory: "bob: 学生", metadata: { key: "bob" }, score: 0.91 },
+        ],
+      })
+    );
+
+    const result = await loadMentionChatMem0Memory({
+      enabled: true,
+      endpoint: "http://mem0:8888",
+      queryText: "私って社会人だっけ？",
+      subjectAliases: ["viewer"],
+      userId: "rukalun",
+      timeoutMs: 1000,
+      maxItems: 5,
+      maxChars: 300,
+      minScore: 0.5,
+      fetchImpl,
+    });
+
+    expect(result.text).toBe("viewer: 社会人");
+    expect(result.text).not.toContain("bob");
+
+    const profile = await loadMentionChatMem0Memory({
+      enabled: true,
+      endpoint: "http://mem0:8888",
+      queryText: "私について何を覚えてる？",
+      subjectAliases: ["viewer"],
+      userId: "rukalun",
+      timeoutMs: 1000,
+      maxItems: 5,
+      maxChars: 300,
+      minScore: 0.5,
+      fetchImpl,
+    });
+    expect(profile.text).toBe("viewer: 社会人");
+  });
+
+  it("isolates mem0 subjects across every semantic topic alias", async () => {
+    const results = [
+      { memory: "aliceの食べ物: いちご", score: 0.95 },
+      { memory: "bobの食べ物: カレー", score: 0.94 },
+      { memory: "aliceのゲーム: FF14", score: 0.93 },
+      { memory: "bobのゲーム: Apex", score: 0.92 },
+      { memory: "aliceのしゃべり方: 短く", score: 0.91 },
+      { memory: "bobのしゃべり方: 丁寧", score: 0.9 },
+      { memory: "aliceの呼び方: アリス", score: 0.89 },
+      { memory: "bobの呼び方: ボブ", score: 0.88 },
+    ];
+    const fetchImpl = vi.fn().mockImplementation(async () =>
+      jsonResponse({ results })
+    );
+    const cases = [
+      ["aliceの好きな食べ物は？", "aliceの食べ物: いちご", "bobの食べ物"],
+      ["aliceの好きなゲームは？", "aliceのゲーム: FF14", "bobのゲーム"],
+      ["aliceの話し方は？", "aliceのしゃべり方: 短く", "bobのしゃべり方"],
+      ["aliceの名前は？", "aliceの呼び方: アリス", "bobの呼び方"],
+    ] as const;
+
+    for (const [queryText, expected, rejected] of cases) {
+      const result = await loadMentionChatMem0Memory({
+        enabled: true,
+        endpoint: "http://mem0:8888",
+        queryText,
+        userId: "rukalun",
+        timeoutMs: 1000,
+        maxItems: 8,
+        maxChars: 600,
+        minScore: 0.5,
+        fetchImpl,
+      });
+      expect(result.text, queryText).toContain(expected);
+      expect(result.text, queryText).not.toContain(rejected);
+    }
   });
 
   it("adds extracted memory to a self-host Mem0 OSS endpoint", async () => {

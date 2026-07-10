@@ -235,8 +235,10 @@ describe("Bot periodic recommendations", () => {
     expect(JSON.parse(fetchSpy.mock.calls[0]?.[1]?.body as string)).toMatchObject({
       model: "qwen3.5:9b",
       keep_alive: "30m",
-      options: { num_predict: 1 },
     });
+    const body = JSON.parse(fetchSpy.mock.calls[0]?.[1]?.body as string);
+    expect(body).not.toHaveProperty("prompt");
+    expect(body).not.toHaveProperty("options");
 
     await vi.advanceTimersByTimeAsync(9 * 60 * 1000);
     expect(fetchSpy).toHaveBeenCalledTimes(1);

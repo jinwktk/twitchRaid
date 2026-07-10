@@ -652,6 +652,18 @@ describe("generateMentionChatReply", () => {
         done_reason: { unsafe: true },
       },
     ],
+    [
+      "overflow",
+      {
+        total_duration: Number.MAX_VALUE,
+        load_duration: Number.MAX_VALUE,
+        prompt_eval_count: Number.MAX_VALUE,
+        prompt_eval_duration: Number.MAX_VALUE,
+        eval_count: Number.MAX_VALUE,
+        eval_duration: Number.MAX_VALUE,
+        done_reason: { unsafe: true },
+      },
+    ],
   ])("keeps a normal reply when Ollama metrics are %s", async (scenario, metrics) => {
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
     infoSpy.mockClear();
@@ -1025,6 +1037,7 @@ describe("generateMentionChatReply", () => {
         channel: "#rukalun",
         userName: "viewer",
         promptText: "今日の夜ご飯はなにがいい？",
+        requestId: "mention-repair-failure-1",
         fetchImpl,
       });
 
@@ -1032,6 +1045,9 @@ describe("generateMentionChatReply", () => {
       expect(fetchImpl).toHaveBeenCalledTimes(2);
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining("reason=english_word_repair_failed")
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("requestId=mention-repair-failure-1")
       );
     } finally {
       warnSpy.mockRestore();
@@ -1180,6 +1196,7 @@ describe("generateMentionChatReply", () => {
       channel: "#rukalun",
       userName: "viewer",
       promptText: "hello",
+      requestId: "mention-failure-1",
     };
 
     await expect(
@@ -1291,7 +1308,7 @@ describe("generateMentionChatReply", () => {
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining(
-        '⚠️ AIメンション会話生成失敗: reason=http_error, status=500, model="qwen2.5:7b", image=false, prompt="hello", elapsedMs='
+        '⚠️ AIメンション会話生成失敗: reason=http_error, requestId=mention-failure-1, status=500, model="qwen2.5:7b", image=false, prompt="hello", elapsedMs='
       )
     );
     expect(warnSpy).toHaveBeenCalledWith(
@@ -1299,7 +1316,7 @@ describe("generateMentionChatReply", () => {
     );
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining(
-        '⚠️ AIメンション会話生成失敗: reason=http_error, status=503, model="qwen2.5:7b", image=false, prompt="この画面のゲームは何ですか？", elapsedMs='
+        '⚠️ AIメンション会話生成失敗: reason=http_error, requestId=mention-failure-1, status=503, model="qwen2.5:7b", image=false, prompt="この画面のゲームは何ですか？", elapsedMs='
       )
     );
     expect(warnSpy).toHaveBeenCalledWith(
@@ -1307,7 +1324,7 @@ describe("generateMentionChatReply", () => {
     );
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining(
-        '⚠️ AIメンション会話生成失敗: reason=http_error, status=502, model="qwen2.5:7b", image=false, prompt="hello", elapsedMs='
+        '⚠️ AIメンション会話生成失敗: reason=http_error, requestId=mention-failure-1, status=502, model="qwen2.5:7b", image=false, prompt="hello", elapsedMs='
       )
     );
     expect(warnSpy).toHaveBeenCalledWith(
@@ -1322,12 +1339,19 @@ describe("generateMentionChatReply", () => {
       )
     );
     expect(warnSpy).toHaveBeenCalledWith(
-      "⚠️ AIメンション会話生成失敗: reason=invalid_response, responseType=number"
+      "⚠️ AIメンション会話生成失敗: reason=invalid_response, requestId=mention-failure-1, responseType=number"
     );
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("⚠️ AIメンション会話生成失敗: reason=policy_rejected")
     );
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('raw=""'));
+    const failureMessages = warnSpy.mock.calls
+      .map(([message]) => String(message))
+      .filter((message) => message.includes("AIメンション会話生成失敗"));
+    expect(failureMessages.length).toBeGreaterThan(0);
+    for (const message of failureMessages) {
+      expect(message).toContain("requestId=mention-failure-1");
+    }
   });
 
   it("returns a fallback reply and logs diagnostics when Ollama times out", async () => {
@@ -1348,6 +1372,7 @@ describe("generateMentionChatReply", () => {
         channel: "#rukalun",
         userName: "viewer",
         promptText: "こんにちは",
+        requestId: "mention-timeout-1",
         timeoutFallbackReply: "今ちょっとAIが混み合ってるD！",
         fetchImpl: vi.fn().mockRejectedValue(timeoutError),
       });
@@ -1355,8 +1380,11 @@ describe("generateMentionChatReply", () => {
       expect(reply).toBe("今ちょっとAIが混み合ってるD！");
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          '⚠️ AIメンション会話生成失敗: reason=timeout, model="qwen3.5:9b", image=false, prompt="こんにちは", timeoutMs=3000'
+          '⚠️ AIメンション会話生成失敗: reason=timeout, requestId=mention-timeout-1, model="qwen3.5:9b", image=false, prompt="こんにちは", timeoutMs=3000'
         )
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("requestId=mention-timeout-1")
       );
     } finally {
       warnSpy.mockRestore();

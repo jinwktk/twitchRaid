@@ -62,14 +62,8 @@ export async function prewarmOllamaGenerateModel({
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model: trimmedModel,
-        prompt: "ping",
         stream: false,
-        think: false,
         keep_alive: keepAlive,
-        options: {
-          temperature: 0,
-          num_predict: 1,
-        },
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });

@@ -19,6 +19,18 @@ export interface FetchMentionChatSearchContextOptions {
   fetchImpl?: typeof fetch;
 }
 
+export type MentionChatSearchFetchReason =
+  | "found"
+  | "disabled"
+  | "not_candidate"
+  | "no_result"
+  | "failed";
+
+export interface MentionChatSearchFetchResult {
+  context: MentionChatSearchContext | null;
+  reason: MentionChatSearchFetchReason;
+}
+
 interface SearchResult {
   title: string;
   snippet: string;
@@ -328,11 +340,19 @@ function compactForRelevance(value: string): string {
 function hasExactQueryResult(results: SearchResult[], query: string): boolean {
   const compactQuery = compactForRelevance(query);
   if (compactQuery.length < 3) return true;
-  return results.some((result) =>
-    compactForRelevance(
+  const queryTerms = query
+    .split(/\s+/u)
+    .map(compactForRelevance)
+    .filter(Boolean);
+  return results.some((result) => {
+    const compactResult = compactForRelevance(
       `${result.title} ${result.snippet} ${result.url ?? ""}`
-    ).includes(compactQuery)
-  );
+    );
+    return (
+      compactResult.includes(compactQuery) ||
+      queryTerms.every((term) => compactResult.includes(term))
+    );
+  });
 }
 
 async function fetchWikipediaSummaryResult({
@@ -384,7 +404,7 @@ function formatSearchContext(results: SearchResult[]): string {
   return lines.join("\n");
 }
 
-export async function fetchMentionChatSearchContext({
+export async function fetchMentionChatSearchContextDetailed({
   enabled,
   provider = "duckduckgo",
   endpoint,
@@ -396,7 +416,7 @@ export async function fetchMentionChatSearchContext({
   maxResponseBytes,
   maxResults,
   fetchImpl = fetch,
-}: FetchMentionChatSearchContextOptions): Promise<MentionChatSearchContext | null> {
+}: FetchMentionChatSearchContextOptions): Promise<MentionChatSearchFetchResult> {
   const query = singleLine(queryText);
   const searchQuery = normalizeSearchQuery(query);
   if (
@@ -405,29 +425,37 @@ export async function fetchMentionChatSearchContext({
     timeoutMs <= 0 ||
     maxQueryChars <= 0 ||
     maxResponseBytes <= 0 ||
-    maxResults <= 0 ||
+    maxResults <= 0
+  ) {
+    return { context: null, reason: "disabled" };
+  }
+  if (
     (!force && !shouldSearchMentionChat(query)) ||
     hasUnsafeExternalQueryContent(query) ||
     isUnsafeExternalQuery(searchQuery, maxQueryChars)
   ) {
-    return null;
+    return { context: null, reason: "not_candidate" };
   }
 
   const url = buildSearchUrl(endpoint, searchQuery, provider, engines);
-  if (!url) return null;
+  if (!url) return { context: null, reason: "failed" };
 
   try {
     const response = await fetchImpl(url, {
       headers: { accept: "application/json" },
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!response.ok) return null;
+    if (!response.ok) return { context: null, reason: "failed" };
 
     const contentLength = response.headers?.get("content-length");
-    if (contentLength && Number(contentLength) > maxResponseBytes) return null;
+    if (contentLength && Number(contentLength) > maxResponseBytes) {
+      return { context: null, reason: "failed" };
+    }
 
     const bytes = Buffer.from(await response.arrayBuffer());
-    if (bytes.length > maxResponseBytes) return null;
+    if (bytes.length > maxResponseBytes) {
+      return { context: null, reason: "failed" };
+    }
 
     const body = JSON.parse(bytes.toString("utf8")) as unknown;
     const results = extractResults(body).slice(0, maxResults);
@@ -443,18 +471,35 @@ export async function fetchMentionChatSearchContext({
       });
       if (wikipediaResult) {
         return {
-          text: formatSearchContext([wikipediaResult]),
-          resultCount: 1,
+          context: {
+            text: formatSearchContext([wikipediaResult]),
+            resultCount: 1,
+          },
+          reason: "found",
         };
       }
+      return {
+        context: null,
+        reason: "no_result",
+      };
     }
-    if (results.length === 0) return null;
+    if (results.length === 0) return { context: null, reason: "no_result" };
 
     return {
-      text: formatSearchContext(results),
-      resultCount: results.length,
+      context: {
+        text: formatSearchContext(results),
+        resultCount: results.length,
+      },
+      reason: "found",
     };
   } catch {
-    return null;
+    return { context: null, reason: "failed" };
   }
+}
+
+export async function fetchMentionChatSearchContext(
+  options: FetchMentionChatSearchContextOptions
+): Promise<MentionChatSearchContext | null> {
+  const result = await fetchMentionChatSearchContextDetailed(options);
+  return result.context;
 }

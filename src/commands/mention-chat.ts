@@ -13,6 +13,7 @@ export interface GenerateMentionChatReplyOptions {
   timeoutMs: number;
   timeoutFallbackReply?: string | null;
   keepAlive?: string;
+  contextLength?: number;
   maxResponseChars: number;
   channel: string;
   userName: string;
@@ -24,6 +25,7 @@ export interface GenerateMentionChatReplyOptions {
   searchContextText?: string | null;
   streamImageBase64?: string | null;
   promptReplyLogEnabled?: boolean;
+  requestId?: string;
   fetchImpl?: typeof fetch;
 }
 
@@ -50,12 +52,20 @@ export interface FormatGeneratedMentionChatReplyOptions {
 
 interface OllamaGenerateResponse {
   response?: unknown;
+  total_duration?: unknown;
+  load_duration?: unknown;
+  prompt_eval_count?: unknown;
+  prompt_eval_duration?: unknown;
+  eval_count?: unknown;
+  eval_duration?: unknown;
+  done_reason?: unknown;
 }
 
 type BuildMentionChatPromptOptions = GenerateMentionChatReplyOptions;
 
 const DEFAULT_OLLAMA_TEMPERATURE = 0.4;
 const DEFAULT_OLLAMA_NUM_PREDICT = 220;
+const DEFAULT_OLLAMA_CONTEXT_LENGTH = 4_096;
 const DEFAULT_TIMEOUT_FALLBACK_REPLY = "今ちょっとAIが混み合ってるD！";
 const PROMPT_TEXT_LIMIT = 500;
 const LOG_TEXT_LIMIT = 160;
@@ -486,6 +496,86 @@ function buildOllamaGenerateUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/api/generate`;
 }
 
+function normalizeOllamaContextLength(value: number | undefined): number {
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 512 &&
+    value <= 8_192
+    ? value
+    : DEFAULT_OLLAMA_CONTEXT_LENGTH;
+}
+
+function normalizePerformanceRequestId(value: string | undefined): string {
+  const normalized = singleLine(value ?? "")
+    .replace(/[^A-Za-z0-9._:-]/gu, "_")
+    .slice(0, 80);
+  return normalized || "n/a";
+}
+
+function readNonNegativeMetric(value: unknown): number | null {
+  return typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= Number.MAX_SAFE_INTEGER
+    ? value
+    : null;
+}
+
+function formatPerformanceNumber(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "n/a";
+  const rounded = Math.round(value * 1_000) / 1_000;
+  if (!Number.isFinite(rounded)) return "n/a";
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+}
+
+function formatDurationMs(value: unknown): string {
+  const duration = readNonNegativeMetric(value);
+  return formatPerformanceNumber(
+    duration === null ? null : duration / 1_000_000
+  );
+}
+
+function formatCount(value: unknown): string {
+  return formatPerformanceNumber(readNonNegativeMetric(value));
+}
+
+function formatDoneReason(value: unknown): string {
+  if (typeof value !== "string") return "n/a";
+  const normalized = singleLine(value)
+    .replace(/[^A-Za-z0-9._:-]/gu, "_")
+    .slice(0, 40);
+  return normalized || "n/a";
+}
+
+function logOllamaPerformance(
+  body: OllamaGenerateResponse,
+  requestId: string | undefined,
+  httpElapsedMs: number,
+  phase: "generate" | "repair"
+): void {
+  const evalCount = readNonNegativeMetric(body.eval_count);
+  const evalDuration = readNonNegativeMetric(body.eval_duration);
+  const tokensPerSecond =
+    evalCount !== null && evalDuration !== null && evalDuration > 0
+      ? evalCount / (evalDuration / 1_000_000_000)
+      : null;
+  logger.info(
+    `AIメンション会話Ollama性能: ${[
+      `phase=${phase}`,
+      `requestId=${normalizePerformanceRequestId(requestId)}`,
+      `totalMs=${formatDurationMs(body.total_duration)}`,
+      `loadMs=${formatDurationMs(body.load_duration)}`,
+      `promptTokens=${formatCount(body.prompt_eval_count)}`,
+      `promptEvalMs=${formatDurationMs(body.prompt_eval_duration)}`,
+      `evalTokens=${formatCount(body.eval_count)}`,
+      `evalMs=${formatDurationMs(body.eval_duration)}`,
+      `tokensPerSecond=${formatPerformanceNumber(tokensPerSecond)}`,
+      `doneReason=${formatDoneReason(body.done_reason)}`,
+      `httpElapsedMs=${Math.max(0, Math.round(httpElapsedMs))}`,
+    ].join(", ")}`
+  );
+}
+
 function normalizeRequesterDisplayName(
   userName: string,
   userDisplayName: string | null | undefined
@@ -683,26 +773,31 @@ async function repairEnglishWordMentionChatReply({
   model,
   timeoutMs,
   keepAlive,
+  contextLength,
   maxResponseChars,
   promptText,
   rejectedReply,
   allowedLatinTokens,
   userName,
   userDisplayName,
+  requestId,
   fetchImpl,
 }: {
   baseUrl: string;
   model: string;
   timeoutMs: number;
   keepAlive?: string;
+  contextLength: number;
   maxResponseChars: number;
   promptText: string;
   rejectedReply: string;
   allowedLatinTokens?: readonly string[];
   userName: string;
   userDisplayName?: string | null;
+  requestId?: string;
   fetchImpl: typeof fetch;
 }): Promise<string | null> {
+  const httpStartedAt = Date.now();
   const response = await fetchImpl(buildOllamaGenerateUrl(baseUrl), {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -716,6 +811,7 @@ async function repairEnglishWordMentionChatReply({
       options: {
         temperature: 0.1,
         num_predict: DEFAULT_OLLAMA_NUM_PREDICT,
+        num_ctx: normalizeOllamaContextLength(contextLength),
       },
     }),
     signal: AbortSignal.timeout(timeoutMs),
@@ -723,6 +819,12 @@ async function repairEnglishWordMentionChatReply({
   if (!response.ok) return null;
 
   const body = (await response.json()) as OllamaGenerateResponse;
+  logOllamaPerformance(
+    body,
+    requestId,
+    Math.max(0, Date.now() - httpStartedAt),
+    "repair"
+  );
   if (typeof body.response !== "string") return null;
   return formatGeneratedMentionChatReply(
     preferRequesterDisplayNameInReply(
@@ -744,6 +846,7 @@ export async function generateMentionChatReplyDetailed({
   timeoutMs,
   timeoutFallbackReply,
   keepAlive,
+  contextLength,
   maxResponseChars,
   channel,
   userName,
@@ -754,6 +857,7 @@ export async function generateMentionChatReplyDetailed({
   conversationHistoryText,
   searchContextText,
   promptReplyLogEnabled,
+  requestId,
   fetchImpl = fetch,
 }: GenerateMentionChatReplyOptions): Promise<GenerateMentionChatReplyResult | null> {
   const trimmedModel = model.trim();
@@ -774,6 +878,7 @@ export async function generateMentionChatReplyDetailed({
   }
   if (immediateReply) return { reply: immediateReply.reply, source: "fixed" };
   const startedAt = Date.now();
+  const logRequestId = normalizePerformanceRequestId(requestId);
   let diagnosticPrompt: string | null = null;
 
   try {
@@ -783,6 +888,7 @@ export async function generateMentionChatReplyDetailed({
       model,
       timeoutMs,
       keepAlive,
+      contextLength,
       maxResponseChars,
       channel,
       userName,
@@ -806,8 +912,10 @@ export async function generateMentionChatReplyDetailed({
       options: {
         temperature: DEFAULT_OLLAMA_TEMPERATURE,
         num_predict: DEFAULT_OLLAMA_NUM_PREDICT,
+        num_ctx: normalizeOllamaContextLength(contextLength),
       },
     };
+    const httpStartedAt = Date.now();
     const response = await fetchImpl(buildOllamaGenerateUrl(baseUrl), {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -819,7 +927,7 @@ export async function generateMentionChatReplyDetailed({
       const detail = await readHttpErrorDetail(response);
       const elapsedMs = Math.max(0, Date.now() - startedAt);
       logger.warn(
-        `⚠️ AIメンション会話生成失敗: reason=http_error, status=${response.status}, model=${formatMentionChatLogValue(trimmedModel)}, image=false, prompt=${formatMentionChatLogValue(logPromptText)}, elapsedMs=${elapsedMs}, detail=${formatMentionChatLogValue(detail)}`
+        `⚠️ AIメンション会話生成失敗: reason=http_error, requestId=${logRequestId}, status=${response.status}, model=${formatMentionChatLogValue(trimmedModel)}, image=false, prompt=${formatMentionChatLogValue(logPromptText)}, elapsedMs=${elapsedMs}, detail=${formatMentionChatLogValue(detail)}`
       );
       logPromptFailureIfEnabled(
         promptReplyLogEnabled,
@@ -831,9 +939,15 @@ export async function generateMentionChatReplyDetailed({
     }
 
     const body = (await response.json()) as OllamaGenerateResponse;
+    logOllamaPerformance(
+      body,
+      requestId,
+      Math.max(0, Date.now() - httpStartedAt),
+      "generate"
+    );
     if (typeof body.response !== "string") {
       logger.warn(
-        `⚠️ AIメンション会話生成失敗: reason=invalid_response, responseType=${typeof body.response}`
+        `⚠️ AIメンション会話生成失敗: reason=invalid_response, requestId=${logRequestId}, responseType=${typeof body.response}`
       );
       logPromptFailureIfEnabled(
         promptReplyLogEnabled,
@@ -866,19 +980,21 @@ export async function generateMentionChatReplyDetailed({
       )
     ) {
       logger.warn(
-        `⚠️ AIメンション会話生成返信を日本語へ修正します: reason=english_word, prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}`
+        `⚠️ AIメンション会話生成返信を日本語へ修正します: reason=english_word, requestId=${logRequestId}, prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}`
       );
       const repairedReply = await repairEnglishWordMentionChatReply({
         baseUrl,
         model: trimmedModel,
         timeoutMs,
         keepAlive,
+        contextLength: normalizeOllamaContextLength(contextLength),
         maxResponseChars,
         promptText,
         rejectedReply: body.response,
         allowedLatinTokens,
         userName,
         userDisplayName,
+        requestId,
         fetchImpl,
       });
       if (repairedReply) {
@@ -890,7 +1006,7 @@ export async function generateMentionChatReplyDetailed({
         return { reply: repairedReply, source: "generated" };
       }
       logger.warn(
-        `⚠️ AIメンション会話生成失敗: reason=english_word_repair_failed, prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}`
+        `⚠️ AIメンション会話生成失敗: reason=english_word_repair_failed, requestId=${logRequestId}, prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}`
       );
       logPromptFailureIfEnabled(
         promptReplyLogEnabled,
@@ -902,7 +1018,7 @@ export async function generateMentionChatReplyDetailed({
     if (!reply) {
       if (matchOutcomeFallback) {
         logger.warn(
-          `⚠️ AIメンション会話は勝敗質問フォールバック: prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}, fallback=${formatMentionChatLogValue(matchOutcomeFallback)}`
+          `⚠️ AIメンション会話は勝敗質問フォールバック: requestId=${logRequestId}, prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}, fallback=${formatMentionChatLogValue(matchOutcomeFallback)}`
         );
         logPromptAndReplyIfEnabled(
           promptReplyLogEnabled,
@@ -915,7 +1031,7 @@ export async function generateMentionChatReplyDetailed({
         };
       }
       logger.warn(
-        `⚠️ AIメンション会話生成失敗: reason=policy_rejected, prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}`
+        `⚠️ AIメンション会話生成失敗: reason=policy_rejected, requestId=${logRequestId}, prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}`
       );
       logPromptFailureIfEnabled(
         promptReplyLogEnabled,
@@ -929,7 +1045,7 @@ export async function generateMentionChatReplyDetailed({
       (isLowInformationReply(reply) || isGenericMatchOutcomeReply(reply))
     ) {
       logger.warn(
-        `⚠️ AIメンション会話は勝敗質問フォールバック: prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}, fallback=${formatMentionChatLogValue(matchOutcomeFallback)}`
+        `⚠️ AIメンション会話は勝敗質問フォールバック: requestId=${logRequestId}, prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}, fallback=${formatMentionChatLogValue(matchOutcomeFallback)}`
       );
       logPromptAndReplyIfEnabled(
         promptReplyLogEnabled,
@@ -948,7 +1064,7 @@ export async function generateMentionChatReplyDetailed({
     if (isTimeoutError(e)) {
       const elapsedMs = Math.max(0, Date.now() - startedAt);
       logger.warn(
-        `⚠️ AIメンション会話生成失敗: reason=timeout, model=${formatMentionChatLogValue(trimmedModel)}, image=false, prompt=${formatMentionChatLogValue(logPromptText)}, timeoutMs=${timeoutMs}, elapsedMs=${elapsedMs}, error=${formatMentionChatLogValue(message)}`
+        `⚠️ AIメンション会話生成失敗: reason=timeout, requestId=${logRequestId}, model=${formatMentionChatLogValue(trimmedModel)}, image=false, prompt=${formatMentionChatLogValue(logPromptText)}, timeoutMs=${timeoutMs}, elapsedMs=${elapsedMs}, error=${formatMentionChatLogValue(message)}`
       );
       const fallbackReply = formatGeneratedMentionChatReply(
         timeoutFallbackReply ?? DEFAULT_TIMEOUT_FALLBACK_REPLY,
@@ -964,7 +1080,9 @@ export async function generateMentionChatReplyDetailed({
         ? { reply: fallbackReply, source: "timeout_fallback" }
         : null;
     }
-    logger.warn(`⚠️ AIメンション会話生成失敗: reason=exception, error=${message}`);
+    logger.warn(
+      `⚠️ AIメンション会話生成失敗: reason=exception, requestId=${logRequestId}, error=${message}`
+    );
     logPromptFailureIfEnabled(
       promptReplyLogEnabled,
       diagnosticPrompt,
