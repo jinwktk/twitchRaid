@@ -206,6 +206,8 @@ export class Config {
   readonly chatAiMem0MinScore: number;
   readonly chatAiMem0RecallGateEnabled: boolean;
   readonly chatAiMem0AllowMissingScore: boolean;
+  readonly chatAiMem0EmbedPrewarmEnabled: boolean;
+  readonly chatAiMem0EmbedModel: string;
   readonly chatAiSearchEnabled: boolean;
   readonly chatAiSearchProvider: ChatAiSearchProvider;
   readonly chatAiSearchEndpoint: string;
@@ -531,6 +533,11 @@ export class Config {
     this.chatAiMem0AllowMissingScore = parseEnabledFlag(
       env["CHAT_AI_MEM0_ALLOW_MISSING_SCORE"] ?? "false"
     );
+    this.chatAiMem0EmbedPrewarmEnabled = parseEnabledFlag(
+      env["CHAT_AI_MEM0_EMBED_PREWARM_ENABLED"] ?? "false"
+    );
+    this.chatAiMem0EmbedModel =
+      env["CHAT_AI_MEM0_EMBED_MODEL"]?.trim() || "";
     this.chatAiAutoLearnEnabled = parseEnabledFlag(
       env["CHAT_AI_AUTO_LEARN_ENABLED"] ?? "0"
     );

@@ -73,7 +73,10 @@ import {
   generateMentionChatReplyDetailed,
   resolveMentionChatImmediateReply,
 } from "./commands/mention-chat";
-import { prewarmOllamaGenerateModel } from "./commands/ollama-prewarm";
+import {
+  prewarmOllamaEmbedModel,
+  prewarmOllamaGenerateModel,
+} from "./commands/ollama-prewarm";
 import {
   analyzeMentionChatMemoryRequest,
   extractImplicitMentionChatMemoryEntry,
@@ -2448,13 +2451,22 @@ export class Bot {
     this.chatAiPrewarmInFlight = true;
     try {
       const model = this.config.chatAiModel;
-      const result = await prewarmOllamaGenerateModel({
+      const embedModel = this.config.chatAiMem0EmbedModel ?? "";
+      const generatePrewarm = prewarmOllamaGenerateModel({
         enabled: true,
         baseUrl: this.config.chatAiBaseUrl ?? this.config.ollamaBaseUrl,
         model,
         timeoutMs: this.config.chatAiPrewarmTimeoutMs ?? 90_000,
         keepAlive: this.config.chatAiKeepAlive ?? "30m",
       });
+      const embedPrewarm = prewarmOllamaEmbedModel({
+        enabled: this.config.chatAiMem0EmbedPrewarmEnabled ?? false,
+        baseUrl: this.config.chatAiBaseUrl ?? this.config.ollamaBaseUrl,
+        model: embedModel,
+        timeoutMs: this.config.chatAiPrewarmTimeoutMs ?? 90_000,
+      });
+
+      const result = await generatePrewarm;
       this.lastChatAiPrewarmAt = Date.now() / 1000;
       if (result.status === "warmed") {
         logger.info(
@@ -2463,6 +2475,17 @@ export class Bot {
       } else if (result.status === "failed") {
         logger.warn(
           `AIメンション会話モデルprewarm失敗: trigger=${trigger}, reason=${result.reason}, model=${formatMentionChatLogValue(model)}, timeoutMs=${this.config.chatAiPrewarmTimeoutMs ?? 90_000}, elapsedMs=${result.elapsedMs}, detail=${formatMentionChatLogValue(result.detail)}`
+        );
+      }
+
+      const embedResult = await embedPrewarm;
+      if (embedResult.status === "warmed") {
+        logger.info(
+          `AIメンション会話mem0埋め込みモデルprewarm完了: trigger=${trigger}, model=${formatMentionChatLogValue(embedModel)}, elapsedMs=${embedResult.elapsedMs}`
+        );
+      } else if (embedResult.status === "failed") {
+        logger.warn(
+          `AIメンション会話mem0埋め込みモデルprewarm失敗: trigger=${trigger}, reason=${embedResult.reason}, model=${formatMentionChatLogValue(embedModel)}, timeoutMs=${this.config.chatAiPrewarmTimeoutMs ?? 90_000}, elapsedMs=${embedResult.elapsedMs}, detail=${formatMentionChatLogValue(embedResult.detail)}`
         );
       }
     } finally {

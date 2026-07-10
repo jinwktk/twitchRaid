@@ -26,8 +26,20 @@ export interface PrewarmOllamaGenerateModelOptions {
   fetchImpl?: typeof fetch;
 }
 
+export interface PrewarmOllamaEmbedModelOptions {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  timeoutMs: number;
+  fetchImpl?: typeof fetch;
+}
+
 function buildOllamaGenerateUrl(baseUrl: string): string {
   return new URL("/api/generate", baseUrl).toString();
+}
+
+function buildOllamaEmbedUrl(baseUrl: string): string {
+  return new URL("/api/embed", baseUrl).toString();
 }
 
 async function readErrorDetail(response: Response): Promise<string> {
@@ -64,6 +76,50 @@ export async function prewarmOllamaGenerateModel({
         model: trimmedModel,
         stream: false,
         keep_alive: keepAlive,
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const elapsedMs = Math.max(0, Date.now() - startedAt);
+    if (!response.ok) {
+      const detail = await readErrorDetail(response);
+      return {
+        status: "failed",
+        reason: "http_error",
+        elapsedMs,
+        detail: detail || `http ${response.status}`,
+      };
+    }
+    await response.json();
+    return { status: "warmed", elapsedMs };
+  } catch (error) {
+    return {
+      status: "failed",
+      reason: "error",
+      elapsedMs: Math.max(0, Date.now() - startedAt),
+      detail: errorMessage(error),
+    };
+  }
+}
+
+export async function prewarmOllamaEmbedModel({
+  enabled,
+  baseUrl,
+  model,
+  timeoutMs,
+  fetchImpl = fetch,
+}: PrewarmOllamaEmbedModelOptions): Promise<OllamaPrewarmResult> {
+  const trimmedModel = model.trim();
+  if (!enabled) return { status: "skipped", reason: "disabled" };
+  if (!trimmedModel) return { status: "skipped", reason: "missing_model" };
+
+  const startedAt = Date.now();
+  try {
+    const response = await fetchImpl(buildOllamaEmbedUrl(baseUrl), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: trimmedModel,
+        input: "warmup",
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });
