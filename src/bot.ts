@@ -2540,7 +2540,7 @@ export class Bot {
           enabled: true,
           endpoint: this.config.chatAiMem0Endpoint ?? "",
           apiKey: this.config.chatAiMem0ApiKey ?? "",
-          queryText: "起動時ウォームアップ確認",
+          queryText: "好きな食べ物なんだっけ？",
           userId: this.config.chatAiMem0UserId ?? this.config.loginChannel,
           agentId: this.config.chatAiMem0AgentId ?? "twitchRaid",
           timeoutMs,
