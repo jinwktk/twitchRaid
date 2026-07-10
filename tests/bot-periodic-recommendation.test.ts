@@ -403,7 +403,7 @@ describe("Bot periodic recommendations", () => {
       "X-API-Key": "test-key",
     });
     expect(JSON.parse(fetchSpy.mock.calls[3]?.[1]?.body as string)).toEqual({
-      query: "起動時ウォームアップ確認",
+      query: "好きな食べ物なんだっけ？",
       filters: {
         user_id: "rukalun",
         agent_id: "twitchRaid",
