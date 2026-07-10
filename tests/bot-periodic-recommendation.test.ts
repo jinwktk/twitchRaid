@@ -4,6 +4,7 @@ import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Config } from "../src/config";
 import { Bot } from "../src/bot";
+import logger from "../src/utils/logger";
 import {
   buildBotRequestNotesDigest,
   extractBotRequestNote,
@@ -397,6 +398,10 @@ describe("Bot periodic recommendations", () => {
     expect(String(fetchSpy.mock.calls[3]?.[0])).toBe(
       "http://mem0:8888/search"
     );
+    expect(fetchSpy.mock.calls[3]?.[1]?.headers).toMatchObject({
+      "Content-Type": "application/json",
+      "X-API-Key": "test-key",
+    });
     expect(JSON.parse(fetchSpy.mock.calls[3]?.[1]?.body as string)).toEqual({
       query: "起動時ウォームアップ確認",
       filters: {
@@ -412,6 +417,15 @@ describe("Bot periodic recommendations", () => {
 
     await vi.advanceTimersByTimeAsync(90 * 1000);
     expect(fetchSpy).toHaveBeenCalledTimes(6);
+    expect(String(fetchSpy.mock.calls[4]?.[0])).toBe(
+      "http://ollama:11434/api/generate"
+    );
+    expect(JSON.parse(fetchSpy.mock.calls[4]?.[1]?.body as string)).not.toHaveProperty(
+      "prompt"
+    );
+    expect(String(fetchSpy.mock.calls[5]?.[0])).toBe(
+      "http://ollama:11434/api/embed"
+    );
     expect(
       fetchSpy.mock.calls.filter(
         ([input]) => String(input) === "http://mem0:8888/search"
@@ -539,6 +553,55 @@ describe("Bot periodic recommendations", () => {
     );
   });
 
+  it("does not start embedding or mem0 search when the startup prime returns HTTP 500", async () => {
+    const config = {
+      ...makeConfig(),
+      chatAiEnabled: true,
+      chatAiBaseUrl: "http://ollama:11434",
+      chatAiModel: "qwen3.5:9b",
+      chatAiKeepAlive: "30m",
+      chatAiPrewarmEnabled: true,
+      chatAiPrewarmPrimeEnabled: true,
+      chatAiPrewarmTimeoutMs: 180_000,
+      chatAiMem0EmbedPrewarmEnabled: true,
+      chatAiMem0EmbedModel: "nomic-embed-text",
+      chatAiMem0SearchPrewarmEnabled: true,
+      chatAiMemoryEnabled: true,
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiContextLength: 4096,
+      chatAiMaxResponseChars: 500,
+    } as Config;
+    const bot = new Bot(config) as unknown as Bot & {
+      clipCacheStore: { close: () => void };
+      _prewarmChatAiModel: (trigger: "startup" | "interval") => Promise<void>;
+    };
+    activeBot = bot;
+    let generateCalls = 0;
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => {
+        generateCalls += 1;
+        if (generateCalls === 2) {
+          return new Response("prime failed", {
+            status: 500,
+            headers: { "content-type": "text/plain" },
+          });
+        }
+        return new Response(JSON.stringify({ response: "" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
+
+    await bot._prewarmChatAiModel("startup");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchSpy.mock.calls[1]?.[1]?.body as string)).toHaveProperty(
+      "prompt"
+    );
+  });
+
   it("does not start mem0 search when the embedding prewarm fails", async () => {
     const config = {
       ...makeConfig(),
@@ -587,6 +650,76 @@ describe("Bot periodic recommendations", () => {
         ([input]) => String(input) === "http://mem0:8888/search"
       )
     ).toHaveLength(0);
+  });
+
+  it("fails open without leaking secrets when the startup mem0 search returns HTTP 500", async () => {
+    const config = {
+      ...makeConfig(),
+      chatAiEnabled: true,
+      chatAiBaseUrl: "http://ollama:11434",
+      chatAiModel: "qwen3.5:9b",
+      chatAiKeepAlive: "30m",
+      chatAiPrewarmEnabled: true,
+      chatAiPrewarmPrimeEnabled: true,
+      chatAiPrewarmTimeoutMs: 180_000,
+      chatAiMem0EmbedPrewarmEnabled: true,
+      chatAiMem0EmbedModel: "nomic-embed-text",
+      chatAiMem0SearchPrewarmEnabled: true,
+      chatAiMemoryEnabled: true,
+      chatAiMem0Enabled: true,
+      chatAiMem0Endpoint: "http://mem0:8888",
+      chatAiMem0ApiKey: "startup-secret-key",
+      chatAiMem0UserId: "rukalun",
+      chatAiMem0AgentId: "twitchRaid",
+      chatAiContextLength: 4096,
+      chatAiMaxResponseChars: 500,
+    } as Config;
+    const bot = new Bot(config) as unknown as Bot & {
+      chatClient: { say: ReturnType<typeof vi.fn> };
+      clipCacheStore: { close: () => void };
+      _prewarmChatAiModel: (trigger: "startup" | "interval") => Promise<void>;
+    };
+    activeBot = bot;
+    const say = vi.fn();
+    bot.chatClient = { say };
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => logger);
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input, init) => {
+        if (String(input) === "http://mem0:8888/search") {
+          expect(init?.headers).toMatchObject({
+            "X-API-Key": "startup-secret-key",
+          });
+          return new Response("startup-secret-response-body", {
+            status: 500,
+            headers: { "content-type": "text/plain" },
+          });
+        }
+        if (String(input).endsWith("/api/embed")) {
+          return new Response(JSON.stringify({ embeddings: [[0.1]] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        const body = JSON.parse(init?.body as string);
+        return new Response(JSON.stringify({ response: body.prompt ? "D" : "" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
+
+    await expect(bot._prewarmChatAiModel("startup")).resolves.toBeUndefined();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    expect(say).not.toHaveBeenCalled();
+    const logs = [...infoSpy.mock.calls, ...warnSpy.mock.calls]
+      .flat()
+      .map(String)
+      .join("\n");
+    expect(logs).toContain("AIメンション会話mem0検索prewarm失敗");
+    expect(logs).not.toContain("startup-secret-key");
+    expect(logs).not.toContain("startup-secret-response-body");
   });
 
   it("writes a bot request note digest file by default without posting to Discord", async () => {
