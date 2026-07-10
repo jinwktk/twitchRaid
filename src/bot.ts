@@ -68,12 +68,14 @@ import {
   shortenRaidGreetingKeepingUrl,
 } from "./commands/shoutout-introduction";
 import {
+  buildMentionChatPrewarmRequest,
   extractMentionChatPrompt,
   formatMentionChatLogValue,
   generateMentionChatReplyDetailed,
   resolveMentionChatImmediateReply,
 } from "./commands/mention-chat";
 import {
+  primeOllamaGenerateModel,
   prewarmOllamaEmbedModel,
   prewarmOllamaGenerateModel,
 } from "./commands/ollama-prewarm";
@@ -498,6 +500,7 @@ export class Bot {
   private lastMentionChatAttemptAt = 0;
   private lastChatAiPrewarmAt = 0;
   private chatAiPrewarmInFlight = false;
+  private chatAiStartupOnlyPrewarmAttempted = false;
   private botRequestNotesDigestInFlight = false;
   private streamClipPostRunning = false;
   private streamClipPostRerunRequested = false;
@@ -2449,32 +2452,65 @@ export class Bot {
     }
 
     this.chatAiPrewarmInFlight = true;
+    const runStartupOnly =
+      trigger === "startup" && !this.chatAiStartupOnlyPrewarmAttempted;
+    if (runStartupOnly) this.chatAiStartupOnlyPrewarmAttempted = true;
     try {
       const model = this.config.chatAiModel;
       const embedModel = this.config.chatAiMem0EmbedModel ?? "";
+      const baseUrl = this.config.chatAiBaseUrl ?? this.config.ollamaBaseUrl;
+      const timeoutMs = this.config.chatAiPrewarmTimeoutMs ?? 180_000;
+      const keepAlive = this.config.chatAiKeepAlive ?? "30m";
       const result = await prewarmOllamaGenerateModel({
         enabled: true,
-        baseUrl: this.config.chatAiBaseUrl ?? this.config.ollamaBaseUrl,
+        baseUrl,
         model,
-        timeoutMs: this.config.chatAiPrewarmTimeoutMs ?? 180_000,
-        keepAlive: this.config.chatAiKeepAlive ?? "30m",
+        timeoutMs,
+        keepAlive,
       });
       this.lastChatAiPrewarmAt = Date.now() / 1000;
       if (result.status === "warmed") {
         logger.info(
-          `AIメンション会話モデルprewarm完了: trigger=${trigger}, model=${formatMentionChatLogValue(model)}, elapsedMs=${result.elapsedMs}, keepAlive=${formatMentionChatLogValue(this.config.chatAiKeepAlive ?? "30m")}`
+          `AIメンション会話モデルprewarm完了: trigger=${trigger}, model=${formatMentionChatLogValue(model)}, elapsedMs=${result.elapsedMs}, keepAlive=${formatMentionChatLogValue(keepAlive)}`
         );
       } else if (result.status === "failed") {
         logger.warn(
-          `AIメンション会話モデルprewarm失敗: trigger=${trigger}, reason=${result.reason}, model=${formatMentionChatLogValue(model)}, timeoutMs=${this.config.chatAiPrewarmTimeoutMs ?? 180_000}, elapsedMs=${result.elapsedMs}, detail=${formatMentionChatLogValue(result.detail)}`
+          `AIメンション会話モデルprewarm失敗: trigger=${trigger}, reason=${result.reason}, model=${formatMentionChatLogValue(model)}, timeoutMs=${timeoutMs}, elapsedMs=${result.elapsedMs}, detail=${formatMentionChatLogValue(result.detail)}`
         );
+      }
+      if (result.status !== "warmed") return;
+
+      if (runStartupOnly && (this.config.chatAiPrewarmPrimeEnabled ?? false)) {
+        const primeRequest = buildMentionChatPrewarmRequest(
+          this.config.chatAiMaxResponseChars ?? DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS
+        );
+        const primeResult = await primeOllamaGenerateModel({
+          enabled: true,
+          baseUrl,
+          model,
+          timeoutMs,
+          keepAlive,
+          contextLength: this.config.chatAiContextLength ?? 4_096,
+          systemPrompt: primeRequest.systemPrompt,
+          prompt: primeRequest.prompt,
+        });
+        if (primeResult.status === "warmed") {
+          logger.info(
+            `AIメンション会話モデルprime完了: trigger=${trigger}, model=${formatMentionChatLogValue(model)}, elapsedMs=${primeResult.elapsedMs}`
+          );
+        } else if (primeResult.status === "failed") {
+          logger.warn(
+            `AIメンション会話モデルprime失敗: trigger=${trigger}, reason=${primeResult.reason}, model=${formatMentionChatLogValue(model)}, timeoutMs=${timeoutMs}, elapsedMs=${primeResult.elapsedMs}, detail=${formatMentionChatLogValue(primeResult.detail)}`
+          );
+        }
+        if (primeResult.status !== "warmed") return;
       }
 
       const embedResult = await prewarmOllamaEmbedModel({
         enabled: this.config.chatAiMem0EmbedPrewarmEnabled ?? false,
-        baseUrl: this.config.chatAiBaseUrl ?? this.config.ollamaBaseUrl,
+        baseUrl,
         model: embedModel,
-        timeoutMs: this.config.chatAiPrewarmTimeoutMs ?? 180_000,
+        timeoutMs,
       });
       if (embedResult.status === "warmed") {
         logger.info(
@@ -2482,8 +2518,47 @@ export class Bot {
         );
       } else if (embedResult.status === "failed") {
         logger.warn(
-          `AIメンション会話mem0埋め込みモデルprewarm失敗: trigger=${trigger}, reason=${embedResult.reason}, model=${formatMentionChatLogValue(embedModel)}, timeoutMs=${this.config.chatAiPrewarmTimeoutMs ?? 180_000}, elapsedMs=${embedResult.elapsedMs}, detail=${formatMentionChatLogValue(embedResult.detail)}`
+          `AIメンション会話mem0埋め込みモデルprewarm失敗: trigger=${trigger}, reason=${embedResult.reason}, model=${formatMentionChatLogValue(embedModel)}, timeoutMs=${timeoutMs}, elapsedMs=${embedResult.elapsedMs}, detail=${formatMentionChatLogValue(embedResult.detail)}`
         );
+      }
+      if (embedResult.status === "failed") return;
+      if (
+        (this.config.chatAiMem0EmbedPrewarmEnabled ?? false) &&
+        embedResult.status !== "warmed"
+      ) {
+        return;
+      }
+
+      if (
+        runStartupOnly &&
+        (this.config.chatAiMem0SearchPrewarmEnabled ?? false) &&
+        (this.config.chatAiMemoryEnabled ?? false) &&
+        this._isMentionChatMem0Enabled()
+      ) {
+        const mem0StartedAt = Date.now();
+        const mem0Result = await loadMentionChatMem0Memory({
+          enabled: true,
+          endpoint: this.config.chatAiMem0Endpoint ?? "",
+          apiKey: this.config.chatAiMem0ApiKey ?? "",
+          queryText: "起動時ウォームアップ確認",
+          userId: this.config.chatAiMem0UserId ?? this.config.loginChannel,
+          agentId: this.config.chatAiMem0AgentId ?? "twitchRaid",
+          timeoutMs,
+          maxItems: 1,
+          maxChars: 1,
+          minScore: 1,
+          allowMissingScore: false,
+        });
+        const elapsedMs = Math.max(0, Date.now() - mem0StartedAt);
+        if (mem0Result.reason === "found" || mem0Result.reason === "empty") {
+          logger.info(
+            `AIメンション会話mem0検索prewarm完了: trigger=${trigger}, reason=${mem0Result.reason}, items=${mem0Result.itemCount}, elapsedMs=${elapsedMs}`
+          );
+        } else {
+          logger.warn(
+            `AIメンション会話mem0検索prewarm失敗: trigger=${trigger}, reason=${mem0Result.reason}, timeoutMs=${timeoutMs}, elapsedMs=${elapsedMs}`
+          );
+        }
       }
     } finally {
       this.chatAiPrewarmInFlight = false;

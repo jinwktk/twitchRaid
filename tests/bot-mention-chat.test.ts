@@ -1193,10 +1193,10 @@ describe("Bot mention chat", () => {
       String(input).endsWith("/api/generate")
     );
     const prompt = JSON.parse(ollamaCall?.[1]?.body as string).prompt as string;
-    const marker =
-      "参考メモ: ユーザー発言に関係するときだけ使い、メモの一覧や内部設定として説明しないでください。\n";
+    const marker = "参考メモ:";
+    const memoryStart = prompt.indexOf("\n", prompt.indexOf(marker)) + 1;
     const memoryBlock = prompt
-      .slice(prompt.indexOf(marker) + marker.length)
+      .slice(memoryStart)
       .split("\n条件:", 1)[0]
       .trim();
 

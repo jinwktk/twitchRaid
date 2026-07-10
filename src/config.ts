@@ -161,6 +161,7 @@ export class Config {
   readonly chatAiKeepAlive: string;
   readonly chatAiContextLength: number;
   readonly chatAiPrewarmEnabled: boolean;
+  readonly chatAiPrewarmPrimeEnabled: boolean;
   readonly chatAiPrewarmIntervalSeconds: number;
   readonly chatAiPrewarmTimeoutMs: number;
   readonly chatAiMaxResponseChars: number;
@@ -208,6 +209,7 @@ export class Config {
   readonly chatAiMem0AllowMissingScore: boolean;
   readonly chatAiMem0EmbedPrewarmEnabled: boolean;
   readonly chatAiMem0EmbedModel: string;
+  readonly chatAiMem0SearchPrewarmEnabled: boolean;
   readonly chatAiSearchEnabled: boolean;
   readonly chatAiSearchProvider: ChatAiSearchProvider;
   readonly chatAiSearchEndpoint: string;
@@ -350,6 +352,9 @@ export class Config {
     );
     this.chatAiPrewarmEnabled = parseEnabledFlag(
       env["CHAT_AI_PREWARM_ENABLED"] ?? "0"
+    );
+    this.chatAiPrewarmPrimeEnabled = parseEnabledFlag(
+      env["CHAT_AI_PREWARM_PRIME_ENABLED"] ?? "false"
     );
     this.chatAiPrewarmIntervalSeconds = parsePositiveInt(
       env["CHAT_AI_PREWARM_INTERVAL_SECONDS"],
@@ -538,6 +543,9 @@ export class Config {
     );
     this.chatAiMem0EmbedModel =
       env["CHAT_AI_MEM0_EMBED_MODEL"]?.trim() || "";
+    this.chatAiMem0SearchPrewarmEnabled = parseEnabledFlag(
+      env["CHAT_AI_MEM0_SEARCH_PREWARM_ENABLED"] ?? "false"
+    );
     this.chatAiAutoLearnEnabled = parseEnabledFlag(
       env["CHAT_AI_AUTO_LEARN_ENABLED"] ?? "0"
     );
