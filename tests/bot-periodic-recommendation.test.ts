@@ -250,7 +250,7 @@ describe("Bot periodic recommendations", () => {
     expect(say).not.toHaveBeenCalled();
   });
 
-  it("prewarms the mem0 embedding model immediately and on the chat prewarm interval", async () => {
+  it("prewarms the mem0 embedding model after the chat model and on the same interval", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-10T14:20:00.000Z"));
     const config = {
@@ -276,28 +276,53 @@ describe("Bot periodic recommendations", () => {
     const say = vi.fn().mockResolvedValue(undefined);
     bot.chatClient = { say };
     bot.streamLive = false;
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
-      async (input) =>
-        new Response(
-          String(input).endsWith("/api/embed")
-            ? JSON.stringify({ embeddings: [[0.1]] })
-            : JSON.stringify({ response: "" }),
-          {
+    let resolveStartupGenerate!: (response: Response) => void;
+    const startupGenerate = new Promise<Response>((resolve) => {
+      resolveStartupGenerate = resolve;
+    });
+    let generateCalls = 0;
+    let resolveEmbedStarted!: () => void;
+    const embedStarted = new Promise<void>((resolve) => {
+      resolveEmbedStarted = resolve;
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        if (String(input).endsWith("/api/embed")) {
+          resolveEmbedStarted();
+          return new Response(JSON.stringify({ embeddings: [[0.1]] }), {
             status: 200,
             headers: { "content-type": "application/json" },
-          }
-        )
-    );
+          });
+        }
+        generateCalls += 1;
+        if (generateCalls === 1) return startupGenerate;
+        return new Response(JSON.stringify({ response: "" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
 
     bot._startKeepAlive();
     await Promise.resolve();
-    await Promise.resolve();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
+      "http://ollama:11434/api/generate"
+    );
+
+    resolveStartupGenerate(
+      new Response(JSON.stringify({ response: "" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    await embedStarted;
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
-      "http://ollama:11434/api/generate",
-      "http://ollama:11434/api/embed",
-    ]);
+    expect(String(fetchSpy.mock.calls[1]?.[0])).toBe(
+      "http://ollama:11434/api/embed"
+    );
     expect(JSON.parse(fetchSpy.mock.calls[1]?.[1]?.body as string)).toEqual({
       model: "nomic-embed-text",
       input: "warmup",

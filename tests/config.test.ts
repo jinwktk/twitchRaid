@@ -425,7 +425,7 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiContextLength).toBe(4096);
     expect(config.chatAiPrewarmEnabled).toBe(false);
     expect(config.chatAiPrewarmIntervalSeconds).toBe(600);
-    expect(config.chatAiPrewarmTimeoutMs).toBe(90000);
+    expect(config.chatAiPrewarmTimeoutMs).toBe(180000);
     expect(config.chatAiMaxResponseChars).toBe(500);
     expect(config.chatAiConversationHistoryEnabled).toBe(true);
     expect(config.chatAiConversationHistoryMaxMessages).toBe(6);
