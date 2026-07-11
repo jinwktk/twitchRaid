@@ -93,7 +93,7 @@ describe("discord webhook helpers", () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 201,
-      json: async () => ({ id: "thread-id" }),
+      json: async () => ({ id: "message-id" }),
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -118,7 +118,29 @@ describe("discord webhook helpers", () => {
         }),
       })
     );
-    expect(thread).toEqual({ id: "thread-id" });
+    expect(thread).toEqual({ id: "message-id" });
+  });
+
+  it("rejects a created message thread whose id differs from its source message", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({ id: "different-thread-id" }, 201)
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createDiscordThreadFromMessage({
+        botToken: "secret",
+        channelId: "channel-id",
+        messageId: "message-id",
+        name: "配信まとめ",
+      })
+    ).rejects.toMatchObject({
+      name: "DiscordApiRequestError",
+      operation: "thread_create",
+      reason: "invalid_response",
+      status: 201,
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("recovers an existing thread attached to the start message", async () => {
@@ -135,7 +157,7 @@ describe("discord webhook helpers", () => {
         json: async () => ({
           id: "message-id",
           channel_id: "channel-id",
-          thread: { id: "existing-thread-id" },
+          thread: { id: "message-id" },
         }),
       });
     vi.stubGlobal("fetch", fetchMock);
@@ -158,8 +180,51 @@ describe("discord webhook helpers", () => {
         },
       })
     );
-    expect(thread).toEqual({ id: "existing-thread-id" });
+    expect(thread).toEqual({ id: "message-id" });
   });
+
+  it.each([
+    {
+      label: "message id",
+      responseMessageId: "different-message-id",
+      responseThreadId: "message-id",
+    },
+    {
+      label: "thread id",
+      responseMessageId: "message-id",
+      responseThreadId: "different-thread-id",
+    },
+  ])(
+    "rejects recovered thread data with a mismatched $label",
+    async ({ responseMessageId, responseThreadId }) => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ message: "create failed" }, 500))
+        .mockResolvedValueOnce(
+          jsonResponse({
+            id: responseMessageId,
+            channel_id: "channel-id",
+            thread: { id: responseThreadId },
+          })
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        createDiscordThreadFromMessage({
+          botToken: "secret",
+          channelId: "channel-id",
+          messageId: "message-id",
+          name: "配信まとめ",
+        })
+      ).rejects.toMatchObject({
+        name: "DiscordApiRequestError",
+        operation: "thread_create",
+        reason: "invalid_response",
+        status: 200,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    }
+  );
 
   it("preserves retry-after when Discord rate-limits thread creation", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
@@ -193,6 +258,129 @@ describe("discord webhook helpers", () => {
       "thread-create-body-secret"
     );
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("propagates a recovery GET rate limit using its response-body retry delay", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ message: "create failed" }, 500))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          { retry_after: 4.25, sentinel: "recovery-body-secret" },
+          429,
+          { "Retry-After": "1.5" }
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let caught: unknown;
+    try {
+      await createDiscordThreadFromMessage({
+        botToken: "bot-secret-token",
+        channelId: "channel-id",
+        messageId: "message-id",
+        name: "配信まとめ",
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(DiscordApiRequestError);
+    expect(caught).toMatchObject({
+      operation: "thread_create",
+      reason: "rate_limited",
+      status: 429,
+      retryAfterMs: 4250,
+    });
+    expect(`${String(caught)}\n${JSON.stringify(caught)}`).not.toContain(
+      "recovery-body-secret"
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("bounds a stalled thread-create POST with a 15-second abort signal", async () => {
+    vi.useFakeTimers();
+    let postSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn(
+      (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          postSignal = init?.signal ?? undefined;
+          postSignal?.addEventListener("abort", () => {
+            reject(new DOMException("aborted", "AbortError"));
+          });
+        })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const settled = createDiscordThreadFromMessage({
+      botToken: "secret",
+      channelId: "channel-id",
+      messageId: "message-id",
+      name: "配信まとめ",
+    }).catch((error: unknown) => error);
+    await Promise.resolve();
+
+    expect(postSignal).toBeInstanceOf(AbortSignal);
+    expect(postSignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(DISCORD_HISTORY_LOOKUP_TIMEOUT_MS - 1);
+    expect(postSignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(settled).resolves.toMatchObject({
+      name: "DiscordApiRequestError",
+      operation: "thread_create",
+      reason: "request_failed",
+    });
+    expect(postSignal?.aborted).toBe(true);
+  });
+
+  it("uses one 15-second abort budget for thread creation and recovery GET", async () => {
+    vi.useFakeTimers();
+    let postSignal: AbortSignal | undefined;
+    let recoverySignal: AbortSignal | undefined;
+    const fetchMock = vi.fn(
+      (_input: string | URL | Request, init?: RequestInit) => {
+        if (!postSignal) {
+          postSignal = init?.signal ?? undefined;
+          return new Promise<Response>((resolve) => {
+            setTimeout(
+              () => resolve(jsonResponse({ message: "create failed" }, 500)),
+              10_000
+            );
+          });
+        }
+
+        recoverySignal = init?.signal ?? undefined;
+        return new Promise<Response>((_resolve, reject) => {
+          recoverySignal?.addEventListener("abort", () => {
+            reject(new DOMException("aborted", "AbortError"));
+          });
+        });
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const settled = createDiscordThreadFromMessage({
+      botToken: "secret",
+      channelId: "channel-id",
+      messageId: "message-id",
+      name: "配信まとめ",
+    }).catch((error: unknown) => error);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(postSignal).toBeInstanceOf(AbortSignal);
+    expect(recoverySignal).toBe(postSignal);
+    expect(recoverySignal?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(recoverySignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(settled).resolves.toMatchObject({
+      name: "DiscordApiRequestError",
+      operation: "thread_create",
+      reason: "request_failed",
+    });
+    expect(recoverySignal?.aborted).toBe(true);
   });
 
   it("bounds a stalled Discord history lookup with one abort signal", async () => {
@@ -553,6 +741,40 @@ describe("discord webhook helpers", () => {
       status: 403,
     });
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("bounds a stalled bot message POST with a 15-second abort signal", async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn(
+      (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          requestSignal = init?.signal ?? undefined;
+          requestSignal?.addEventListener("abort", () => {
+            reject(new DOMException("aborted", "AbortError"));
+          });
+        })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const settled = sendDiscordBotMessage({
+      botToken: "secret",
+      channelId: "channel-id",
+      content: "summary",
+    }).catch((error: unknown) => error);
+    await Promise.resolve();
+
+    expect(requestSignal).toBeInstanceOf(AbortSignal);
+    expect(requestSignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(DISCORD_HISTORY_LOOKUP_TIMEOUT_MS - 1);
+    expect(requestSignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(settled).resolves.toMatchObject({
+      name: "DiscordApiRequestError",
+      operation: "bot_message",
+      reason: "request_failed",
+    });
+    expect(requestSignal?.aborted).toBe(true);
   });
 
   it("sends a Discord message with a bot token", async () => {

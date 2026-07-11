@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DiscordApiRequestError } from "../../src/notifications/discord-webhook";
 import {
+  buildStreamSummaryThreadName,
   ensureStreamSummaryStartThread,
   formatStreamSummary,
   mergeStreamStartThreadResult,
@@ -298,6 +299,104 @@ describe("stream summary", () => {
     expect(sendWebhook).not.toHaveBeenCalled();
     expect(createThread).not.toHaveBeenCalled();
     expect(persistStartMessage).not.toHaveBeenCalled();
+  });
+
+  it("recovers a trimmed-title orphan after an ambiguous bot response without reposting", async () => {
+    const rawTitle = "  回変り金み  ";
+    const normalizedTitle = rawTitle.trim();
+    const startPayload = {
+      content: "@everyone",
+      embeds: [
+        {
+          title: normalizedTitle,
+          url: state.streamUrl,
+        },
+      ],
+    };
+    const sendBotMessage = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("network response was lost"))
+      .mockResolvedValueOnce({
+        id: "duplicate-start-message-id",
+        channelId: "channel-id",
+      });
+    const sendWebhook = vi.fn();
+    const findHistory = vi.fn(
+      async ({ expectedEmbedTitle }: { expectedEmbedTitle: string }) =>
+        expectedEmbedTitle === normalizedTitle
+          ? { startMessageId: "orphan-start-message-id" }
+          : null
+    );
+    const createThread = vi.fn().mockResolvedValue({
+      id: "orphan-start-message-id",
+    });
+    const persistStartMessage = vi.fn();
+
+    await expect(
+      startStreamSummaryThread({
+        webhookUrl: "https://discord.com/api/webhooks/123/token",
+        botToken: "bot-token",
+        channelId: "channel-id",
+        title: rawTitle,
+        message: startPayload,
+        sendBotMessage,
+        sendWebhook,
+        createThread,
+        persistStartMessage,
+      })
+    ).rejects.toThrow("network response was lost");
+
+    const recovered = await ensureStreamSummaryStartThread({
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+      botToken: "bot-token",
+      channelId: "channel-id",
+      title: rawTitle,
+      message: startPayload,
+      state: {
+        ...state,
+        status: "active",
+        title: rawTitle,
+      },
+      findHistory,
+      sendBotMessage,
+      sendWebhook,
+      createThread,
+      persistStartMessage,
+    });
+
+    expect(findHistory).toHaveBeenCalledWith({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      expectedThreadName: `配信まとめ - ${normalizedTitle}`,
+      expectedEmbedTitle: normalizedTitle,
+      expectedStreamUrl: state.streamUrl,
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+    });
+    expect(sendBotMessage).toHaveBeenCalledTimes(1);
+    expect(sendWebhook).not.toHaveBeenCalled();
+    expect(persistStartMessage).toHaveBeenCalledOnce();
+    expect(persistStartMessage).toHaveBeenCalledWith("orphan-start-message-id");
+    expect(createThread).toHaveBeenCalledWith({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      messageId: "orphan-start-message-id",
+      name: `配信まとめ - ${normalizedTitle}`,
+    });
+    expect(recovered).toEqual({
+      startMessageId: "orphan-start-message-id",
+      threadId: "orphan-start-message-id",
+      postedStartNotification: false,
+    });
+  });
+
+  it("truncates stream summary thread names by Unicode code point", () => {
+    const prefix = "配信まとめ - ";
+    const title = `${"a".repeat(91)}😀${"b".repeat(20)}`;
+    const threadName = buildStreamSummaryThreadName(title);
+
+    expect(threadName).toBe(`${prefix}${"a".repeat(91)}😀`);
+    expect(Array.from(threadName)).toHaveLength(100);
+    expect(() => encodeURIComponent(threadName)).not.toThrow();
   });
 
   it("propagates a typed thread-create failure after the start id is persisted", async () => {
