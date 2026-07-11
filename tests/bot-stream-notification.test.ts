@@ -9,9 +9,10 @@ import {
   type DiscordWebhookPayload,
 } from "../src/notifications/discord-webhook";
 import { Bot } from "../src/bot";
-import type {
-  EnsureStreamSummaryStartThreadOptions,
-  StartStreamSummaryThreadResult,
+import {
+  buildStreamSummaryThreadName,
+  type EnsureStreamSummaryStartThreadOptions,
+  type StartStreamSummaryThreadResult,
 } from "../src/streams/stream-summary";
 import logger from "../src/utils/logger";
 
@@ -268,6 +269,68 @@ describe("Bot stream start notification", () => {
     expect(saved.status).toBe("pending");
     expect(saved.summaryMessageId).toBeUndefined();
     expect(saved.postedClipIds).toEqual([]);
+  });
+
+  it("uses the Unicode-safe thread name for a webhook-only ending summary", async () => {
+    const title = `${"a".repeat(91)}😀${"b".repeat(20)}`;
+    const expectedThreadName = buildStreamSummaryThreadName(title);
+    const config = {
+      ...makeConfig(),
+      discordWebhookUrl: "https://discord.com/api/webhooks/123/token",
+      discordSummaryWebhookThreadEnabled: true,
+    };
+    fs.mkdirSync(path.dirname(config.streamSummaryStatePath), { recursive: true });
+    fs.writeFileSync(
+      config.streamSummaryStatePath,
+      `${JSON.stringify({
+        status: "pending",
+        streamId: "stream-emoji-title",
+        title,
+        gameName: "Just Chatting",
+        startedAt: "2026-06-01T10:00:00.000Z",
+        endedAt: "2026-06-01T11:00:00.000Z",
+        streamUrl: "https://www.twitch.tv/rukalun",
+        commentCount: 10,
+        raidCount: 0,
+        postedClipIds: [],
+      })}\n`
+    );
+
+    const bot = new Bot(config) as unknown as Bot & {
+      clipCacheStore: {
+        close: () => void;
+        listClipsCreatedBetween: ReturnType<typeof vi.fn>;
+      };
+      _ensureCurrentStreamSummaryThread: ReturnType<typeof vi.fn>;
+      _finalizeAndPostStreamSummary: (endedAt: string) => Promise<void>;
+    };
+    activeBot = bot;
+    bot.clipCacheStore.listClipsCreatedBetween = vi.fn().mockReturnValue([]);
+    bot._ensureCurrentStreamSummaryThread = vi.fn().mockResolvedValue(null);
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "summary-message-id",
+          channel_id: "thread-id",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await bot._finalizeAndPostStreamSummary("2026-06-01T11:00:00.000Z");
+
+    expect(Array.from(expectedThreadName)).toHaveLength(100);
+    expect(() => encodeURIComponent(expectedThreadName)).not.toThrow();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const request = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(request.body))).toEqual(
+      expect.objectContaining({ thread_name: expectedThreadName })
+    );
   });
 
   it("shares one thread-recovery attempt for the same channel and thread name", async () => {
