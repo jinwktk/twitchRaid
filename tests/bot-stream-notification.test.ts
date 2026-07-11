@@ -4,6 +4,7 @@ import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Config } from "../src/config";
 import {
+  DiscordApiRequestError,
   DiscordHistoryLookupError,
   type DiscordWebhookPayload,
 } from "../src/notifications/discord-webhook";
@@ -429,6 +430,52 @@ describe("Bot stream start notification", () => {
     expect(bot._ensureStreamStartSummaryThreadOnce).toHaveBeenCalledTimes(2);
   });
 
+  it("applies the same 429 backoff to thread-creation failures after saving the start id", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T00:00:00.000Z"));
+    const config = {
+      ...makeConfig(),
+      discordBotToken: "bot-token",
+      discordSummaryChannelId: "channel-id",
+    };
+    const bot = new Bot(config) as unknown as {
+      clipCacheStore: { close: () => void };
+      _ensureStreamStartSummaryThread: (
+        title: string,
+        message: DiscordWebhookPayload
+      ) => Promise<StartStreamSummaryThreadResult>;
+      _ensureStreamStartSummaryThreadOnce: ReturnType<typeof vi.fn>;
+    };
+    activeBot = bot as unknown as Bot & {
+      clipCacheStore: { close: () => void };
+    };
+    bot._ensureStreamStartSummaryThreadOnce = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new DiscordApiRequestError("thread_create", "rate_limited", {
+          status: 429,
+          retryAfterMs: 120_000,
+        })
+      )
+      .mockResolvedValue({ threadId: "thread-id" });
+
+    await bot._ensureStreamStartSummaryThread("同じ配信タイトル", {
+      content: "start",
+    });
+    await bot._ensureStreamStartSummaryThread("同じ配信タイトル", {
+      content: "start",
+    });
+    expect(bot._ensureStreamStartSummaryThreadOnce).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date("2026-07-11T00:02:00.000Z"));
+    await expect(
+      bot._ensureStreamStartSummaryThread("同じ配信タイトル", {
+        content: "start",
+      })
+    ).resolves.toMatchObject({ threadId: "thread-id" });
+    expect(bot._ensureStreamStartSummaryThreadOnce).toHaveBeenCalledTimes(2);
+  });
+
   it("uses capped exponential backoff for non-rate-limit recovery failures", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-11T00:00:00.000Z"));
@@ -540,6 +587,60 @@ describe("Bot stream start notification", () => {
       status: "pending",
       commentCount: 9,
       startMessageId: "start-message-id",
+    });
+  });
+
+  it("does not overwrite newer manual start and thread ids when an older recovery finishes", async () => {
+    const config = {
+      ...makeConfig(),
+      discordBotToken: "bot-token",
+      discordSummaryChannelId: "channel-id",
+    };
+    const bot = new Bot(config) as unknown as {
+      clipCacheStore: { close: () => void };
+      streamSummaryStateStore: {
+        save: (state: unknown) => void;
+        load: () => Record<string, unknown> | null;
+      };
+      _ensureStreamStartSummaryThreadOnce: (
+        title: string,
+        message: DiscordWebhookPayload
+      ) => Promise<StartStreamSummaryThreadResult>;
+      streamSummaryThreadEnsurer: ReturnType<typeof vi.fn>;
+    };
+    activeBot = bot as unknown as Bot & {
+      clipCacheStore: { close: () => void };
+    };
+    bot.streamSummaryStateStore.save({
+      status: "active",
+      streamId: "stream-1",
+      title: "同じ配信タイトル",
+      gameName: "Just Chatting",
+      startedAt: "2026-07-11T00:00:00.000Z",
+      streamUrl: "https://www.twitch.tv/rukalun",
+      commentCount: 1,
+      raidCount: 0,
+      postedClipIds: [],
+    });
+    bot.streamSummaryThreadEnsurer = vi.fn(async () => {
+      bot.streamSummaryStateStore.save({
+        ...bot.streamSummaryStateStore.load(),
+        startMessageId: "manual-start-message-id",
+        threadId: "manual-thread-id",
+      });
+      return {
+        startMessageId: "automatic-start-message-id",
+        threadId: "automatic-thread-id",
+      };
+    });
+
+    await bot._ensureStreamStartSummaryThreadOnce("同じ配信タイトル", {
+      content: "start",
+    });
+
+    expect(bot.streamSummaryStateStore.load()).toMatchObject({
+      startMessageId: "manual-start-message-id",
+      threadId: "manual-thread-id",
     });
   });
 

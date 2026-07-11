@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   closeDiscordThread,
   createDiscordThreadFromMessage,
+  DiscordApiRequestError,
   DiscordHistoryLookupError,
+  DISCORD_HISTORY_LOOKUP_TIMEOUT_MS,
   executeDiscordWebhook,
   findDiscordStreamSummaryHistory,
   sendDiscordBotMessage,
@@ -32,6 +34,7 @@ function historyOptions() {
 
 describe("discord webhook helpers", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -156,6 +159,69 @@ describe("discord webhook helpers", () => {
       })
     );
     expect(thread).toEqual({ id: "existing-thread-id" });
+  });
+
+  it("preserves retry-after when Discord rate-limits thread creation", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(
+        { retry_after: 2.5, sentinel: "thread-create-body-secret" },
+        429
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let caught: unknown;
+    try {
+      await createDiscordThreadFromMessage({
+        botToken: "bot-secret-token",
+        channelId: "channel-id",
+        messageId: "message-id",
+        name: "配信まとめ",
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(DiscordApiRequestError);
+    expect(caught).toMatchObject({
+      operation: "thread_create",
+      reason: "rate_limited",
+      status: 429,
+      retryAfterMs: 2500,
+    });
+    expect(`${String(caught)}\n${JSON.stringify(caught)}`).not.toContain(
+      "thread-create-body-secret"
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("bounds a stalled Discord history lookup with one abort signal", async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn(
+      (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          requestSignal = init?.signal ?? undefined;
+          requestSignal?.addEventListener("abort", () => {
+            reject(new DOMException("aborted", "AbortError"));
+          });
+        })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const settled = findDiscordStreamSummaryHistory(historyOptions()).catch(
+      (error: unknown) => error
+    );
+    await Promise.resolve();
+
+    expect(requestSignal).toBeInstanceOf(AbortSignal);
+    expect(requestSignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(DISCORD_HISTORY_LOOKUP_TIMEOUT_MS);
+    await expect(settled).resolves.toMatchObject({
+      name: "DiscordHistoryLookupError",
+      reason: "request_failed",
+    });
+    expect(requestSignal?.aborted).toBe(true);
   });
 
   it("searches active and all public archived pages before reusing the newest valid same-title thread", async () => {
@@ -396,11 +462,7 @@ describe("discord webhook helpers", () => {
   });
 
   it("rejects when the message-history page cap prevents proving that no match exists", async () => {
-    const fullPage = Array.from({ length: 100 }, (_, index) => ({
-      id: String(1000 - index),
-      author: { id: "other-bot" },
-      embeds: [],
-    }));
+    let messagePage = 0;
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       if (url.endsWith("/channels/channel-id")) {
@@ -416,7 +478,15 @@ describe("discord webhook helpers", () => {
         return jsonResponse({ id: "bot-id" });
       }
       if (url.includes("/channels/channel-id/messages?")) {
-        return jsonResponse(fullPage);
+        const newestId = 100_000 - messagePage * 100;
+        messagePage += 1;
+        return jsonResponse(
+          Array.from({ length: 100 }, (_, index) => ({
+            id: String(newestId - index),
+            author: { id: "other-bot" },
+            embeds: [],
+          }))
+        );
       }
       throw new Error(`unexpected request: ${url}`);
     });
@@ -429,6 +499,31 @@ describe("discord webhook helpers", () => {
       reason: "pagination_incomplete",
     });
     expect(fetchMock).toHaveBeenCalledTimes(24);
+  });
+
+  it("rejects immediately when Discord message pagination stops advancing", async () => {
+    const repeatedPage = Array.from({ length: 100 }, (_, index) => ({
+      id: String(1000 - index),
+      author: { id: "other-bot" },
+      embeds: [],
+    }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ guild_id: "guild-id" }))
+      .mockResolvedValueOnce(jsonResponse({ threads: [] }))
+      .mockResolvedValueOnce(jsonResponse({ threads: [], has_more: false }))
+      .mockResolvedValueOnce(jsonResponse({ id: "bot-id" }))
+      .mockResolvedValueOnce(jsonResponse(repeatedPage))
+      .mockResolvedValueOnce(jsonResponse(repeatedPage));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      findDiscordStreamSummaryHistory(historyOptions())
+    ).rejects.toMatchObject({
+      name: "DiscordHistoryLookupError",
+      reason: "pagination_incomplete",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it("fails closed when a matching thread starter request fails", async () => {

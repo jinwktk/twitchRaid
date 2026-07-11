@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DiscordApiRequestError } from "../../src/notifications/discord-webhook";
 import {
   ensureStreamSummaryStartThread,
   formatStreamSummary,
@@ -226,7 +227,11 @@ describe("stream summary", () => {
   it("falls back to webhook when bot start notification is rejected", async () => {
     const sendBotMessage = vi
       .fn()
-      .mockRejectedValue(new Error("Discord bot message failed: 403"));
+      .mockRejectedValue(
+        new DiscordApiRequestError("bot_message", "request_failed", {
+          status: 403,
+        })
+      );
     const sendWebhook = vi
       .fn()
       .mockResolvedValue({ id: "webhook-message-id", channelId: "webhook-channel" });
@@ -263,6 +268,68 @@ describe("stream summary", () => {
       threadId: "webhook-thread-id",
       postedStartNotification: true,
     });
+  });
+
+  it("does not post a webhook duplicate when the bot message outcome is ambiguous", async () => {
+    const sendBotMessage = vi
+      .fn()
+      .mockRejectedValue(new TypeError("network response was lost"));
+    const sendWebhook = vi.fn().mockResolvedValue({
+      id: "duplicate-webhook-message-id",
+      channelId: "channel-id",
+    });
+    const createThread = vi.fn();
+    const persistStartMessage = vi.fn();
+
+    await expect(
+      startStreamSummaryThread({
+        webhookUrl: "https://discord.com/api/webhooks/123/token",
+        botToken: "bot-token",
+        channelId: "channel-id",
+        title: "回変り金み",
+        message: "回変り金み",
+        sendBotMessage,
+        sendWebhook,
+        createThread,
+        persistStartMessage,
+      })
+    ).rejects.toThrow("network response was lost");
+
+    expect(sendWebhook).not.toHaveBeenCalled();
+    expect(createThread).not.toHaveBeenCalled();
+    expect(persistStartMessage).not.toHaveBeenCalled();
+  });
+
+  it("propagates a typed thread-create failure after the start id is persisted", async () => {
+    const sendBotMessage = vi.fn().mockResolvedValue({
+      id: "start-message-id",
+      channelId: "channel-id",
+    });
+    const createThread = vi.fn().mockRejectedValue(
+      new DiscordApiRequestError("thread_create", "rate_limited", {
+        status: 429,
+        retryAfterMs: 120_000,
+      })
+    );
+    const persistStartMessage = vi.fn();
+
+    await expect(
+      startStreamSummaryThread({
+        botToken: "bot-token",
+        channelId: "channel-id",
+        title: "回変り金み",
+        message: "回変り金み",
+        sendBotMessage,
+        createThread,
+        persistStartMessage,
+      })
+    ).rejects.toMatchObject({
+      operation: "thread_create",
+      status: 429,
+      retryAfterMs: 120_000,
+    });
+    expect(persistStartMessage).toHaveBeenCalledWith("start-message-id");
+    expect(createThread).toHaveBeenCalledOnce();
   });
 
   it("reuses an exact same-title thread found in Discord history without posting", async () => {
