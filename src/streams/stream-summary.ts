@@ -1,6 +1,8 @@
 import {
   createDiscordThreadFromMessage,
+  DiscordApiRequestError,
   executeDiscordWebhook,
+  findDiscordStreamSummaryHistory,
   sendDiscordBotMessage,
   type CloseDiscordThreadOptions,
   type DiscordMessagePayload,
@@ -42,6 +44,12 @@ type CreateThread = (options: {
 
 type CloseThread = (options: CloseDiscordThreadOptions) => Promise<void>;
 
+type FindHistory = typeof findDiscordStreamSummaryHistory;
+
+type PersistStartMessage = (
+  startMessageId: string
+) => void | Promise<void>;
+
 export interface PostStreamSummaryOptions {
   webhookUrl?: string;
   botToken?: string;
@@ -80,6 +88,7 @@ export interface StartStreamSummaryThreadOptions {
   sendWebhook?: SendWebhook;
   sendBotMessage?: SendBotMessage;
   createThread?: CreateThread;
+  persistStartMessage?: PersistStartMessage;
 }
 
 export interface StartStreamSummaryThreadResult {
@@ -96,6 +105,7 @@ export interface EnsureStreamSummaryStartThreadOptions
   extends StartStreamSummaryThreadOptions {
   state: StreamSummaryState;
   allowStartNotificationRepost?: boolean;
+  findHistory?: FindHistory;
 }
 
 export function mergeStreamStartThreadResult(
@@ -214,7 +224,7 @@ export async function postStreamSummary({
         botToken,
         channelId,
         messageId: summaryMessageId,
-        name: buildThreadName(state.title),
+        name: buildStreamSummaryThreadName(state.title),
       });
       threadId = thread.id;
       persist();
@@ -318,11 +328,11 @@ export async function startStreamSummaryThread({
   sendWebhook = executeDiscordWebhook,
   sendBotMessage = sendDiscordBotMessage,
   createThread = createDiscordThreadFromMessage,
+  persistStartMessage,
 }: StartStreamSummaryThreadOptions): Promise<StartStreamSummaryThreadResult> {
   const payload = toDiscordMessagePayload(message);
   let startMessage: DiscordWebhookMessage | null = null;
   let threadId: string | undefined;
-  let postedWithBot = false;
 
   if (botToken && channelId) {
     try {
@@ -331,9 +341,12 @@ export async function startStreamSummaryThread({
         channelId,
         ...payload,
       });
-      postedWithBot = true;
     } catch (error) {
-      if (!webhookUrl) throw error;
+      const isConfirmedBotMessageRejection =
+        error instanceof DiscordApiRequestError &&
+        error.operation === "bot_message" &&
+        error.status === 403;
+      if (!webhookUrl || !isConfirmedBotMessageRejection) throw error;
       startMessage = await sendWebhook(webhookUrl, payload, { wait: true });
     }
   } else if (webhookThreadName) {
@@ -354,18 +367,18 @@ export async function startStreamSummaryThread({
     startMessage = await sendWebhook(webhookUrl, payload, { wait: true });
   }
 
-  if (!threadId && botToken && channelId && startMessage?.id && postedWithBot) {
-    try {
-      const thread = await createThread({
-        botToken,
-        channelId,
-        messageId: startMessage.id,
-        name: buildThreadName(title),
-      });
-      threadId = thread.id;
-    } catch {
-      threadId = undefined;
-    }
+  if (startMessage?.id) {
+    await persistStartMessage?.(startMessage.id);
+  }
+
+  if (!threadId && botToken && channelId && startMessage?.id) {
+    const thread = await createThread({
+      botToken,
+      channelId,
+      messageId: startMessage.id,
+      name: buildStreamSummaryThreadName(title),
+    });
+    threadId = thread.id;
   }
 
   return {
@@ -387,6 +400,8 @@ export async function ensureStreamSummaryStartThread({
   sendWebhook = executeDiscordWebhook,
   sendBotMessage = sendDiscordBotMessage,
   createThread = createDiscordThreadFromMessage,
+  persistStartMessage,
+  findHistory = findDiscordStreamSummaryHistory,
 }: EnsureStreamSummaryStartThreadOptions): Promise<StartStreamSummaryThreadResult> {
   if (state.threadId) {
     return {
@@ -404,10 +419,11 @@ export async function ensureStreamSummaryStartThread({
           botToken,
           channelId,
           messageId: state.startMessageId,
-          name: buildThreadName(title),
+          name: buildStreamSummaryThreadName(title),
         });
         threadId = thread.id;
-      } catch {
+      } catch (error) {
+        if (!isMissingDiscordStartMessage(error)) throw error;
         threadId = undefined;
       }
     }
@@ -419,17 +435,51 @@ export async function ensureStreamSummaryStartThread({
         postedStartNotification: false,
       };
     }
+  }
 
-    if (!allowStartNotificationRepost) {
+  if (botToken && channelId) {
+    const startPayload = toDiscordMessagePayload(message);
+    const startEmbed = startPayload.embeds?.[0];
+    const recovered = await findHistory({
+      botToken,
+      channelId,
+      expectedThreadName: buildStreamSummaryThreadName(title),
+      expectedEmbedTitle: startEmbed?.title ?? (title.trim() || "配信開始"),
+      expectedStreamUrl: startEmbed?.url ?? state.streamUrl,
+      webhookUrl,
+    });
+
+    if (recovered?.threadId) {
       return {
-        startMessageId: state.startMessageId,
+        startMessageId: recovered.startMessageId,
+        threadId: recovered.threadId,
+        postedStartNotification: false,
+      };
+    }
+
+    if (recovered?.startMessageId) {
+      await persistStartMessage?.(recovered.startMessageId);
+
+      const thread = await createThread({
+        botToken,
+        channelId,
+        messageId: recovered.startMessageId,
+        name: buildStreamSummaryThreadName(title),
+      });
+
+      return {
+        startMessageId: recovered.startMessageId,
+        threadId: thread.id,
         postedStartNotification: false,
       };
     }
   }
 
   if (!allowStartNotificationRepost) {
-    return { postedStartNotification: false };
+    return {
+      startMessageId: state.startMessageId,
+      postedStartNotification: false,
+    };
   }
 
   return startStreamSummaryThread({
@@ -442,6 +492,7 @@ export async function ensureStreamSummaryStartThread({
     sendWebhook,
     sendBotMessage,
     createThread,
+    persistStartMessage,
   });
 }
 
@@ -449,6 +500,15 @@ function toDiscordMessagePayload(
   message: string | DiscordMessagePayload
 ): DiscordMessagePayload {
   return typeof message === "string" ? { content: message } : message;
+}
+
+function isMissingDiscordStartMessage(error: unknown): boolean {
+  return (
+    error instanceof DiscordApiRequestError &&
+    error.operation === "thread_create" &&
+    error.reason === "request_failed" &&
+    error.status === 404
+  );
 }
 
 async function sendInitialSummaryMessage(
@@ -566,9 +626,9 @@ async function sendSummaryMessage({
   );
 }
 
-function buildThreadName(title: string): string {
+export function buildStreamSummaryThreadName(title: string): string {
   const safeTitle = title.trim() || "配信";
-  return `配信まとめ - ${safeTitle}`.slice(0, 100);
+  return Array.from(`配信まとめ - ${safeTitle}`).slice(0, 100).join("");
 }
 
 function formatDuration(startedAt: string, endedAt?: string): string {

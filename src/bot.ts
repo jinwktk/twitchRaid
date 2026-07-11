@@ -5,6 +5,8 @@ import { DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS, type Config } from "./config";
 import logger from "./utils/logger";
 import { StreamTitleNotifier } from "./notifications/stream-notifications";
 import {
+  DiscordApiRequestError,
+  DiscordHistoryLookupError,
   executeDiscordWebhook,
   sendDiscordBotMessage,
   type DiscordWebhookPayload,
@@ -26,11 +28,13 @@ import {
 } from "./streams/stream-summary-state-store";
 import { StreamSummaryCountBuffer } from "./streams/stream-summary-count-buffer";
 import {
+  buildStreamSummaryThreadName,
   ensureStreamSummaryStartThread,
   mergeStreamStartThreadResult,
   postStreamSummaryClips,
   postStreamSummary,
   startStreamSummaryThread,
+  type EnsureStreamSummaryStartThreadOptions,
   type StartStreamSummaryThreadResult,
 } from "./streams/stream-summary";
 import {
@@ -143,6 +147,8 @@ import { restartProcess } from "./utils/process-restart";
 
 const MANGA_DELETE_DELAY_SECONDS = 10;
 const DEFAULT_MENTION_CHAT_COOLDOWN_SECONDS = 5;
+const STREAM_SUMMARY_THREAD_RETRY_INITIAL_MS = 60_000;
+const STREAM_SUMMARY_THREAD_RETRY_MAX_MS = 15 * 60_000;
 const MENTION_CHAT_SKIP_PROMPT_LIMIT = 80;
 const CHAT_AI_COMMAND_USAGE = "⚠️ 使い方: !chat <メッセージ>";
 const YOUTUBE_CHANNEL_URL = "https://is.gd/rukalunyt";
@@ -228,6 +234,15 @@ interface MentionChatRequest {
   alias: string;
   prompt: string;
 }
+
+interface StreamSummaryThreadRetryState {
+  failureCount: number;
+  nextRetryAt: number;
+}
+
+type StreamSummaryThreadEnsurer = (
+  options: EnsureStreamSummaryStartThreadOptions
+) => Promise<StartStreamSummaryThreadResult>;
 
 interface MentionChatInput {
   channel: string;
@@ -502,6 +517,17 @@ export class Bot {
   private chatAiPrewarmInFlight = false;
   private chatAiStartupOnlyPrewarmAttempted = false;
   private botRequestNotesDigestInFlight = false;
+  private readonly streamSummaryThreadEnsureInFlight = new Map<
+    string,
+    Promise<StartStreamSummaryThreadResult>
+  >();
+  private readonly streamSummaryThreadRetryState = new Map<
+    string,
+    StreamSummaryThreadRetryState
+  >();
+  private readonly streamSummaryManualForceInFlightKeys = new Set<string>();
+  private streamSummaryThreadEnsurer: StreamSummaryThreadEnsurer =
+    ensureStreamSummaryStartThread;
   private streamClipPostRunning = false;
   private streamClipPostRerunRequested = false;
   private streamClipPostRerunAt: Date | null = null;
@@ -2800,12 +2826,92 @@ export class Bot {
       await this._ensureStreamStartSummaryThread(
         stream.title,
         message,
-        { allowStartNotificationRepost: false }
+        { allowStartNotificationRepost: true }
       );
     }
   }
 
-  private async _ensureStreamStartSummaryThread(
+  private _ensureStreamStartSummaryThread(
+    title: string,
+    message: DiscordWebhookPayload,
+    options: { allowStartNotificationRepost?: boolean } = {}
+  ): Promise<StartStreamSummaryThreadResult> {
+    if (!this._canPostDiscordSummary()) return Promise.resolve({});
+
+    const key = this._streamSummaryThreadEnsureKey(title);
+    const inFlight = this.streamSummaryThreadEnsureInFlight.get(key);
+    if (inFlight) return inFlight;
+
+    const retryState = this.streamSummaryThreadRetryState.get(key);
+    if (retryState && Date.now() < retryState.nextRetryAt) {
+      return Promise.resolve({});
+    }
+
+    const attempt = this._ensureStreamStartSummaryThreadOnce(
+      title,
+      message,
+      options
+    ).then(
+      (started) => {
+        this.streamSummaryThreadRetryState.delete(key);
+        return started;
+      },
+      (error: unknown) => {
+        this._recordStreamSummaryThreadRetry(key, error);
+        return {};
+      }
+    );
+
+    const trackedAttempt = attempt.finally(() => {
+      if (this.streamSummaryThreadEnsureInFlight.get(key) === trackedAttempt) {
+        this.streamSummaryThreadEnsureInFlight.delete(key);
+      }
+    });
+    this.streamSummaryThreadEnsureInFlight.set(key, trackedAttempt);
+    return trackedAttempt;
+  }
+
+  private _streamSummaryThreadEnsureKey(title: string): string {
+    return JSON.stringify([
+      this.config.discordSummaryChannelId || "",
+      buildStreamSummaryThreadName(title),
+    ]);
+  }
+
+  private _recordStreamSummaryThreadRetry(key: string, error: unknown): void {
+    const previousFailureCount =
+      this.streamSummaryThreadRetryState.get(key)?.failureCount ?? 0;
+    const failureCount = previousFailureCount + 1;
+    const discordError =
+      error instanceof DiscordHistoryLookupError ||
+      error instanceof DiscordApiRequestError
+        ? error
+        : null;
+    const rateLimitRetryAfterMs =
+      discordError?.status === 429 &&
+      typeof discordError.retryAfterMs === "number" &&
+      Number.isFinite(discordError.retryAfterMs) &&
+      discordError.retryAfterMs >= 0
+        ? discordError.retryAfterMs
+        : undefined;
+    const retryDelayMs =
+      rateLimitRetryAfterMs !== undefined
+        ? Math.ceil(rateLimitRetryAfterMs)
+        : Math.min(
+            STREAM_SUMMARY_THREAD_RETRY_INITIAL_MS *
+              2 ** Math.max(0, failureCount - 1),
+            STREAM_SUMMARY_THREAD_RETRY_MAX_MS
+          );
+    this.streamSummaryThreadRetryState.set(key, {
+      failureCount,
+      nextRetryAt: Date.now() + retryDelayMs,
+    });
+    logger.warn(
+      `⚠️ 配信まとめスレッド復旧を再試行待ちにしました: reason=${discordError?.reason ?? "unexpected_failure"}, status=${discordError?.status ?? "none"}, retryAfterMs=${retryDelayMs}`
+    );
+  }
+
+  private async _ensureStreamStartSummaryThreadOnce(
     title: string,
     message: DiscordWebhookPayload,
     options: { allowStartNotificationRepost?: boolean } = {}
@@ -2815,28 +2921,160 @@ export class Bot {
     const state = this.streamSummaryStateStore.load();
     if (!state || state.status === "posted") return {};
 
-    const started = await ensureStreamSummaryStartThread({
+    let persistedStartMessageId: string | undefined;
+    const started = await this.streamSummaryThreadEnsurer({
       webhookUrl: this.config.discordWebhookUrl || undefined,
       botToken: this.config.discordBotToken || undefined,
       channelId: this.config.discordSummaryChannelId || undefined,
       webhookThreadName: this.config.discordSummaryWebhookThreadEnabled
-        ? `配信まとめ - ${title}`.slice(0, 100)
+        ? buildStreamSummaryThreadName(title)
         : undefined,
       title,
       message,
       state,
       allowStartNotificationRepost: options.allowStartNotificationRepost,
+      persistStartMessage: (startMessageId) => {
+        this._persistStreamSummaryStartMessage(
+          state.streamId,
+          startMessageId,
+          {
+            expectedIds: {
+              startMessageId: state.startMessageId,
+              threadId: state.threadId,
+            },
+          }
+        );
+        persistedStartMessageId = startMessageId;
+      },
     });
 
     if (!started.startMessageId && !started.threadId) return started;
 
+    const latest = this.streamSummaryStateStore.load();
+    if (!latest || latest.streamId !== state.streamId) {
+      logger.warn(
+        `⚠️ 配信まとめスレッド情報の競合を検出し、旧配信の結果を破棄しました: streamId=${state.streamId}`
+      );
+      return {};
+    }
+
+    const stillOwnsInitialIds =
+      latest.startMessageId === state.startMessageId &&
+      latest.threadId === state.threadId;
+    const stillOwnsPersistedStart =
+      persistedStartMessageId !== undefined &&
+      latest.startMessageId === persistedStartMessageId &&
+      (latest.threadId === undefined || latest.threadId === started.threadId);
+    if (
+      latest.status === "posted" ||
+      (!stillOwnsInitialIds && !stillOwnsPersistedStart)
+    ) {
+      logger.warn(
+        `⚠️ 配信まとめスレッド情報の競合を検出し、最新stateを維持しました: streamId=${state.streamId}, startMessageId=${latest.startMessageId ?? "none"}, threadId=${latest.threadId ?? "none"}`
+      );
+      return {
+        startMessageId: latest.startMessageId,
+        threadId: latest.threadId,
+        postedStartNotification: false,
+      };
+    }
+
     this.streamSummaryStateStore.save(
-      mergeStreamStartThreadResult(state, started)
+      mergeStreamStartThreadResult(latest, started)
     );
+
+    if (
+      !started.postedStartNotification &&
+      (started.startMessageId !== state.startMessageId ||
+        started.threadId !== state.threadId)
+    ) {
+      logger.info(
+        `✅ 配信まとめスレッド情報を復旧しました: streamId=${state.streamId}, startMessageId=${started.startMessageId ?? "none"}, threadId=${started.threadId ?? "none"}`
+      );
+    }
     return started;
   }
 
+  private _persistStreamSummaryStartMessage(
+    expectedStreamId: string,
+    startMessageId: string,
+    options: {
+      preferStartedThread?: boolean;
+      expectedIds?: {
+        startMessageId?: string;
+        threadId?: string;
+      };
+    } = {}
+  ): void {
+    const latest = this.streamSummaryStateStore.load();
+    if (
+      !latest ||
+      latest.status === "posted" ||
+      latest.streamId !== expectedStreamId
+    ) {
+      throw new Error(
+        "Active stream summary state changed before start message persistence"
+      );
+    }
+
+    if (
+      options.expectedIds &&
+      (latest.startMessageId !== options.expectedIds.startMessageId ||
+        latest.threadId !== options.expectedIds.threadId)
+    ) {
+      throw new Error(
+        "Active stream summary start ids changed before start message persistence"
+      );
+    }
+
+    this.streamSummaryStateStore.save(
+      mergeStreamStartThreadResult(
+        latest,
+        { startMessageId },
+        { preferStartedThread: options.preferStartedThread }
+      )
+    );
+  }
+
   private async _forceStreamStartSummaryThread(
+    title: string,
+    message: DiscordWebhookPayload
+  ): Promise<StartStreamSummaryThreadResult> {
+    const key = this._streamSummaryThreadEnsureKey(title);
+    while (true) {
+      const inFlight = this.streamSummaryThreadEnsureInFlight.get(key);
+      if (!inFlight) break;
+      if (this.streamSummaryManualForceInFlightKeys.has(key)) return inFlight;
+      await inFlight;
+    }
+
+    const forceAttempt = this._forceStreamStartSummaryThreadOnce(
+      title,
+      message
+    ).then(
+      (started) => {
+        this.streamSummaryThreadRetryState.delete(key);
+        return started;
+      },
+      (error: unknown) => {
+        this._recordStreamSummaryThreadRetry(key, error);
+        throw error;
+      }
+    );
+    const trackedForceAttempt = forceAttempt.finally(() => {
+      if (
+        this.streamSummaryThreadEnsureInFlight.get(key) === trackedForceAttempt
+      ) {
+        this.streamSummaryThreadEnsureInFlight.delete(key);
+        this.streamSummaryManualForceInFlightKeys.delete(key);
+      }
+    });
+    this.streamSummaryManualForceInFlightKeys.add(key);
+    this.streamSummaryThreadEnsureInFlight.set(key, trackedForceAttempt);
+    return trackedForceAttempt;
+  }
+
+  private async _forceStreamStartSummaryThreadOnce(
     title: string,
     message: DiscordWebhookPayload
   ): Promise<StartStreamSummaryThreadResult> {
@@ -2849,23 +3087,60 @@ export class Bot {
       throw new Error("Active stream summary state is not available");
     }
 
+    let persistedStartMessageId: string | undefined;
     const started = await startStreamSummaryThread({
       webhookUrl: this.config.discordWebhookUrl || undefined,
       botToken: this.config.discordBotToken || undefined,
       channelId: this.config.discordSummaryChannelId || undefined,
       webhookThreadName: this.config.discordSummaryWebhookThreadEnabled
-        ? `配信まとめ - ${title}`.slice(0, 100)
+        ? buildStreamSummaryThreadName(title)
         : undefined,
       title,
       message,
+      persistStartMessage: (startMessageId) => {
+        this._persistStreamSummaryStartMessage(state.streamId, startMessageId, {
+          preferStartedThread: true,
+          expectedIds: {
+            startMessageId: state.startMessageId,
+            threadId: state.threadId,
+          },
+        });
+        persistedStartMessageId = startMessageId;
+      },
     });
 
     if (!started.startMessageId && !started.threadId) {
       throw new Error("Discord start notification did not return message or thread id");
     }
 
+    const latest = this.streamSummaryStateStore.load();
+    if (!latest || latest.streamId !== state.streamId) {
+      throw new Error("Active stream summary state changed before thread persistence");
+    }
+    const stillOwnsInitialIds =
+      latest.startMessageId === state.startMessageId &&
+      latest.threadId === state.threadId;
+    const stillOwnsPersistedStart =
+      persistedStartMessageId !== undefined &&
+      latest.startMessageId === persistedStartMessageId &&
+      (latest.threadId === undefined || latest.threadId === started.threadId);
+    if (
+      latest.status === "posted" ||
+      (!stillOwnsInitialIds && !stillOwnsPersistedStart)
+    ) {
+      logger.warn(
+        `⚠️ 手動配信開始通知の保存競合を検出し、最新stateを維持しました: streamId=${state.streamId}, startMessageId=${latest.startMessageId ?? "none"}, threadId=${latest.threadId ?? "none"}`
+      );
+      return {
+        startMessageId: latest.startMessageId,
+        threadId: latest.threadId,
+        postedStartNotification: false,
+      };
+    }
     this.streamSummaryStateStore.save(
-      mergeStreamStartThreadResult(state, started, { preferStartedThread: true })
+      mergeStreamStartThreadResult(latest, started, {
+        preferStartedThread: true,
+      })
     );
     return started;
   }
@@ -2897,7 +3172,7 @@ export class Bot {
         gameName: state.gameName,
         streamUrl: state.streamUrl,
       }),
-      { allowStartNotificationRepost: false }
+      { allowStartNotificationRepost: true }
     );
 
     const current = this.streamSummaryStateStore.load();
@@ -3051,7 +3326,7 @@ export class Bot {
         botToken: this.config.discordBotToken || undefined,
         channelId: this.config.discordSummaryChannelId || undefined,
         webhookThreadName: this.config.discordSummaryWebhookThreadEnabled
-          ? `配信まとめ - ${pending.title}`.slice(0, 100)
+          ? buildStreamSummaryThreadName(pending.title)
           : undefined,
         requireExistingThread,
         state: ensuredPending,

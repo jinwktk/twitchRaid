@@ -103,8 +103,17 @@ Qdrantは `/home/mlove/dokploy/mem0/qdrant` を永続化し、公開portは持�
 - Network: `dokploy-network`
 - `dokploy-network`: overlay, attachable, subnet `10.0.1.0/24`
 - Restart policy: Swarm service側は `Condition=any`, `Delay=5s`
-- Update policy: `start-first`, `FailureAction=rollback`
+- Update policy: `stop-first`, `FailureAction=rollback`
+- Rollback policy: `stop-first`
+- 配信まとめスレッド保証はprocess内single-flightを使うため、replicaは1のままにし、更新・rollbackとも旧新processが重ならない `stop-first` をDokploy DBとSwarm serviceの両方へ永続設定する。`start-first` へ戻すと同名配信の新規開始通知・thread作成がdeploy境界で二重化し得る
 - Placement: `node.role==manager`
+
+## 2026-07-11 配信まとめthread重複防止のrollout境界
+
+- `streamId=316151050737` の未投稿state復旧時、Discord側には同じ配信タイトルの既存threadが残っていた。Botはactive/public archived threadと親message履歴を完全走査し、同名threadまたは自Bot・設定Webhookのorphan開始通知を再利用する
+- 履歴を完全取得できたno-match時だけ新規開始通知とthreadを作る。429、権限、通信、15秒timeout、pagination不完了ではfail-closedでbackoffし、Discordへ新規書き込みしない
+- Bot API POSTの成否が不明なnetwork/5xx/不正応答ではWebhookへ即fallbackせず、次回履歴走査でorphanを回収する。確定403だけWebhookへfallbackする
+- `updateConfigSwarm` / `rollbackConfigSwarm` と実serviceのOrderをともに `stop-first` に保つ。変更前は対象application IDと該当2カラムだけをmode 600の一時ファイルへ退避し、秘密値を含むapplication全行やservice spec全体を画面へ出さない
 
 ## 2026-06-20 Dokploy registry修正
 
