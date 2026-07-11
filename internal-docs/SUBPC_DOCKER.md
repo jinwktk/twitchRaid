@@ -88,9 +88,9 @@ Qdrantは `/home/mlove/dokploy/mem0/qdrant` を永続化し、公開portは持�
 
 ## Botサービス
 - Service: `twitch-raid-apcz9n`
-- Image: `localhost:5050/twitch-raid-apcz9n:local`
-- Deployment digest: `sha256:d95e3b9734a1605fed4b723d308b613fb67ce0b286b14f8932aa67f4fec3b513`
-- Revision label: `1a496cdfd4dbe5b1979d742fa4bff8e093d4175d`
+- Image: `localhost:5050/twitch-raid-apcz9n:366db8f`
+- Deployment digest: `sha256:c7fe800c7a3630f2a46b301b626fb016dc15e96b1d73675d503e53069b6c1b58`
+- Revision label: `366db8fcec7a410bc0a36e78738d0fb21637f737`
 - Entrypoint: `docker-entrypoint.sh`
 - Command: `node dist/index.js`
 - Working dir: `/app`
@@ -114,6 +114,17 @@ Qdrantは `/home/mlove/dokploy/mem0/qdrant` を永続化し、公開portは持�
 - 履歴を完全取得できたno-match時だけ新規開始通知とthreadを作る。429、権限、通信、15秒timeout、pagination不完了ではfail-closedでbackoffし、Discordへ新規書き込みしない
 - Bot API POSTの成否が不明なnetwork/5xx/不正応答ではWebhookへ即fallbackせず、次回履歴走査でorphanを回収する。確定403だけWebhookへfallbackする
 - `updateConfigSwarm` / `rollbackConfigSwarm` と実serviceのOrderをともに `stop-first` に保つ。変更前は対象application IDと該当2カラムだけをmode 600の一時ファイルへ退避し、秘密値を含むapplication全行やservice spec全体を画面へ出さない
+
+反映結果:
+
+- Dokploy DB変更前バックアップ: `/tmp/twitchraid-update-order-before-20260711T045454Z.csv`、mode 600。退避項目はapplication ID、replicas、update/rollback configだけ
+- Dokploy DB: `replicas=1`、update/rollbackとも `Order=stop-first`
+- Swarm service: image `localhost:5050/twitch-raid-apcz9n:366db8f`、`1/1`、update completed、update/rollbackとも `stop-first`
+- 旧container終了 `2026-07-11T04:57:32.199546847Z`、新container開始 `2026-07-11T04:57:32.829277020Z`。約630msの停止間隔があり旧新process overlapなし
+- image revision label `366db8fcec7a410bc0a36e78738d0fb21637f737`、digest `sha256:c7fe800c7a3630f2a46b301b626fb016dc15e96b1d73675d503e53069b6c1b58`
+- 起動後、既存thread/start message `1525135703984443514` を復旧し、終了まとめmessage `1525365421887324160` を同threadへ投稿。stateは `posted`、新しい同タイトル開始通知0、新規thread0
+- 新container restart 0、起動後WARN/ERROR/FATAL 0、配信まとめ保証/未作成/backoff警告0。Bot/Ollama/mem0/Qdrant/SearXNGは全て `1/1`
+- 初回buildはWindows credential helper参照エラーでbase image取得前に停止。空の一時 `DOCKER_CONFIG` でclean build/pushを完了し、`/tmp/twitchraid-build-366db8f-*` と `/tmp/docker-nocreds-366db8f-*` は絶対path検証後に削除、残存0
 
 ## 2026-06-20 Dokploy registry修正
 
