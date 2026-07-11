@@ -3,8 +3,15 @@ import os from "os";
 import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Config } from "../src/config";
-import type { DiscordWebhookPayload } from "../src/notifications/discord-webhook";
+import {
+  DiscordHistoryLookupError,
+  type DiscordWebhookPayload,
+} from "../src/notifications/discord-webhook";
 import { Bot } from "../src/bot";
+import type {
+  EnsureStreamSummaryStartThreadOptions,
+  StartStreamSummaryThreadResult,
+} from "../src/streams/stream-summary";
 import logger from "../src/utils/logger";
 
 let tmpDir: string | null = null;
@@ -66,6 +73,7 @@ function makeConfig(): Config {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   activeBot?.clipCacheStore.close();
@@ -236,18 +244,303 @@ describe("Bot stream start notification", () => {
         views: 1,
       },
     ]);
-    const fetchMock = vi.fn();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response("{}", { status: 500 }));
     vi.stubGlobal("fetch", fetchMock);
 
     await bot._finalizeAndPostStreamSummary("2026-06-01T11:00:00.000Z");
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://discord.com/api/v10/channels/channel-id",
+      expect.objectContaining({ method: "GET" })
+    );
+    expect(
+      fetchMock.mock.calls.some(([, init]) =>
+        ["POST", "PATCH"].includes(String(init?.method ?? "GET"))
+      )
+    ).toBe(false);
     const saved = JSON.parse(
       fs.readFileSync(config.streamSummaryStatePath, "utf8")
     ) as { status: string; summaryMessageId?: string; postedClipIds: string[] };
     expect(saved.status).toBe("pending");
     expect(saved.summaryMessageId).toBeUndefined();
     expect(saved.postedClipIds).toEqual([]);
+  });
+
+  it("shares one thread-recovery attempt for the same channel and thread name", async () => {
+    const config = {
+      ...makeConfig(),
+      discordBotToken: "bot-token",
+      discordSummaryChannelId: "channel-id",
+    };
+    const bot = new Bot(config) as unknown as {
+      clipCacheStore: { close: () => void };
+      streamSummaryStateStore: { save: (state: unknown) => void };
+      _ensureStreamStartSummaryThread: (
+        title: string,
+        message: DiscordWebhookPayload
+      ) => Promise<StartStreamSummaryThreadResult>;
+      _ensureStreamStartSummaryThreadOnce: ReturnType<typeof vi.fn>;
+    };
+    activeBot = bot as unknown as Bot & {
+      clipCacheStore: { close: () => void };
+    };
+    bot.streamSummaryStateStore.save({
+      status: "active",
+      streamId: "stream-1",
+      title: "同じ配信タイトル",
+      gameName: "Just Chatting",
+      startedAt: "2026-07-11T00:00:00.000Z",
+      streamUrl: "https://www.twitch.tv/rukalun",
+      commentCount: 0,
+      raidCount: 0,
+      postedClipIds: [],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("{}", { status: 500 }))
+    );
+
+    let resolveAttempt:
+      | ((result: StartStreamSummaryThreadResult) => void)
+      | undefined;
+    const attempt = new Promise<StartStreamSummaryThreadResult>((resolve) => {
+      resolveAttempt = resolve;
+    });
+    bot._ensureStreamStartSummaryThreadOnce = vi.fn().mockReturnValue(attempt);
+
+    const first = bot._ensureStreamStartSummaryThread("同じ配信タイトル", {
+      content: "start",
+    });
+    const second = bot._ensureStreamStartSummaryThread("同じ配信タイトル", {
+      content: "start",
+    });
+    const settled = Promise.allSettled([first, second]);
+
+    expect(bot._ensureStreamStartSummaryThreadOnce).toHaveBeenCalledTimes(1);
+    resolveAttempt?.({
+      startMessageId: "start-message-id",
+      threadId: "thread-id",
+    });
+
+    await expect(first).resolves.toMatchObject({ threadId: "thread-id" });
+    await expect(second).resolves.toMatchObject({ threadId: "thread-id" });
+    await settled;
+  });
+
+  it("runs thread recovery independently for different expected thread names", async () => {
+    const config = {
+      ...makeConfig(),
+      discordBotToken: "bot-token",
+      discordSummaryChannelId: "channel-id",
+    };
+    const bot = new Bot(config) as unknown as {
+      clipCacheStore: { close: () => void };
+      _ensureStreamStartSummaryThread: (
+        title: string,
+        message: DiscordWebhookPayload
+      ) => Promise<StartStreamSummaryThreadResult>;
+      _ensureStreamStartSummaryThreadOnce: ReturnType<typeof vi.fn>;
+    };
+    activeBot = bot as unknown as Bot & {
+      clipCacheStore: { close: () => void };
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("{}", { status: 500 }))
+    );
+
+    const resolvers = new Map<
+      string,
+      (result: StartStreamSummaryThreadResult) => void
+    >();
+    bot._ensureStreamStartSummaryThreadOnce = vi.fn((title: string) =>
+      new Promise<StartStreamSummaryThreadResult>((resolve) => {
+        resolvers.set(title, resolve);
+      })
+    );
+
+    const first = bot._ensureStreamStartSummaryThread("タイトルA", {
+      content: "start-a",
+    });
+    const second = bot._ensureStreamStartSummaryThread("タイトルB", {
+      content: "start-b",
+    });
+    const settled = Promise.allSettled([first, second]);
+
+    expect(bot._ensureStreamStartSummaryThreadOnce).toHaveBeenCalledTimes(2);
+    resolvers.get("タイトルA")?.({ threadId: "thread-a" });
+    resolvers.get("タイトルB")?.({ threadId: "thread-b" });
+
+    await expect(first).resolves.toMatchObject({ threadId: "thread-a" });
+    await expect(second).resolves.toMatchObject({ threadId: "thread-b" });
+    await settled;
+  });
+
+  it("honors Discord 429 retry-after and performs zero recovery calls during backoff", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T00:00:00.000Z"));
+    const config = {
+      ...makeConfig(),
+      discordBotToken: "bot-token",
+      discordSummaryChannelId: "channel-id",
+    };
+    const bot = new Bot(config) as unknown as {
+      clipCacheStore: { close: () => void };
+      _ensureStreamStartSummaryThread: (
+        title: string,
+        message: DiscordWebhookPayload
+      ) => Promise<StartStreamSummaryThreadResult>;
+      _ensureStreamStartSummaryThreadOnce: ReturnType<typeof vi.fn>;
+    };
+    activeBot = bot as unknown as Bot & {
+      clipCacheStore: { close: () => void };
+    };
+    bot._ensureStreamStartSummaryThreadOnce = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new DiscordHistoryLookupError("rate_limited", {
+          status: 429,
+          retryAfterMs: 120_000,
+        })
+      )
+      .mockResolvedValue({ threadId: "thread-id" });
+
+    await expect(
+      bot._ensureStreamStartSummaryThread("同じ配信タイトル", { content: "start" })
+    ).resolves.toEqual({});
+    await bot._ensureStreamStartSummaryThread("同じ配信タイトル", {
+      content: "start",
+    });
+    expect(bot._ensureStreamStartSummaryThreadOnce).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date("2026-07-11T00:01:59.999Z"));
+    await bot._ensureStreamStartSummaryThread("同じ配信タイトル", {
+      content: "start",
+    });
+    expect(bot._ensureStreamStartSummaryThreadOnce).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date("2026-07-11T00:02:00.000Z"));
+    await expect(
+      bot._ensureStreamStartSummaryThread("同じ配信タイトル", { content: "start" })
+    ).resolves.toMatchObject({ threadId: "thread-id" });
+    expect(bot._ensureStreamStartSummaryThreadOnce).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses capped exponential backoff for non-rate-limit recovery failures", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T00:00:00.000Z"));
+    const config = {
+      ...makeConfig(),
+      discordBotToken: "bot-token",
+      discordSummaryChannelId: "channel-id",
+    };
+    const bot = new Bot(config) as unknown as {
+      clipCacheStore: { close: () => void };
+      _ensureStreamStartSummaryThread: (
+        title: string,
+        message: DiscordWebhookPayload
+      ) => Promise<StartStreamSummaryThreadResult>;
+      _ensureStreamStartSummaryThreadOnce: ReturnType<typeof vi.fn>;
+    };
+    activeBot = bot as unknown as Bot & {
+      clipCacheStore: { close: () => void };
+    };
+    bot._ensureStreamStartSummaryThreadOnce = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("first failure"))
+      .mockRejectedValueOnce(new Error("second failure"))
+      .mockResolvedValue({ threadId: "thread-id" });
+
+    await bot._ensureStreamStartSummaryThread("同じ配信タイトル", {
+      content: "start",
+    });
+    vi.setSystemTime(new Date("2026-07-11T00:00:59.999Z"));
+    await bot._ensureStreamStartSummaryThread("同じ配信タイトル", {
+      content: "start",
+    });
+    expect(bot._ensureStreamStartSummaryThreadOnce).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date("2026-07-11T00:01:00.000Z"));
+    await bot._ensureStreamStartSummaryThread("同じ配信タイトル", {
+      content: "start",
+    });
+    expect(bot._ensureStreamStartSummaryThreadOnce).toHaveBeenCalledTimes(2);
+
+    vi.setSystemTime(new Date("2026-07-11T00:02:59.999Z"));
+    await bot._ensureStreamStartSummaryThread("同じ配信タイトル", {
+      content: "start",
+    });
+    expect(bot._ensureStreamStartSummaryThreadOnce).toHaveBeenCalledTimes(2);
+
+    vi.setSystemTime(new Date("2026-07-11T00:03:00.000Z"));
+    await expect(
+      bot._ensureStreamStartSummaryThread("同じ配信タイトル", { content: "start" })
+    ).resolves.toMatchObject({ threadId: "thread-id" });
+    expect(bot._ensureStreamStartSummaryThreadOnce).toHaveBeenCalledTimes(3);
+  });
+
+  it("persists a recovered start message immediately without overwriting newer state fields", async () => {
+    const config = {
+      ...makeConfig(),
+      discordBotToken: "bot-token",
+      discordSummaryChannelId: "channel-id",
+    };
+    const bot = new Bot(config) as unknown as {
+      clipCacheStore: { close: () => void };
+      streamSummaryStateStore: {
+        save: (state: unknown) => void;
+        load: () => Record<string, unknown> | null;
+      };
+      _ensureStreamStartSummaryThreadOnce: (
+        title: string,
+        message: DiscordWebhookPayload
+      ) => Promise<StartStreamSummaryThreadResult>;
+      streamSummaryThreadEnsurer: ReturnType<typeof vi.fn>;
+    };
+    activeBot = bot as unknown as Bot & {
+      clipCacheStore: { close: () => void };
+    };
+    bot.streamSummaryStateStore.save({
+      status: "active",
+      streamId: "stream-1",
+      title: "同じ配信タイトル",
+      gameName: "Just Chatting",
+      startedAt: "2026-07-11T00:00:00.000Z",
+      streamUrl: "https://www.twitch.tv/rukalun",
+      commentCount: 1,
+      raidCount: 0,
+      postedClipIds: [],
+    });
+    bot.streamSummaryThreadEnsurer = vi.fn(
+      async (options: EnsureStreamSummaryStartThreadOptions) => {
+        bot.streamSummaryStateStore.save({
+          ...bot.streamSummaryStateStore.load(),
+          status: "pending",
+          commentCount: 9,
+        });
+        await options.persistStartMessage?.("start-message-id");
+        expect(bot.streamSummaryStateStore.load()).toMatchObject({
+          status: "pending",
+          commentCount: 9,
+          startMessageId: "start-message-id",
+        });
+        throw new Error("simulated crash before thread creation");
+      }
+    );
+
+    await expect(
+      bot._ensureStreamStartSummaryThreadOnce("同じ配信タイトル", {
+        content: "start",
+      })
+    ).rejects.toThrow("simulated crash before thread creation");
+    expect(bot.streamSummaryStateStore.load()).toMatchObject({
+      status: "pending",
+      commentCount: 9,
+      startMessageId: "start-message-id",
+    });
   });
 
   it("serializes live clip posting so concurrent triggers do not duplicate a clip", async () => {

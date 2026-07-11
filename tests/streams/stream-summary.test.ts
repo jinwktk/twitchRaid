@@ -123,6 +123,74 @@ describe("stream summary", () => {
     });
   });
 
+  it("persists a new start message before attempting to create its thread", async () => {
+    let releasePersist: (() => void) | undefined;
+    const persistBlocked = new Promise<void>((resolve) => {
+      releasePersist = resolve;
+    });
+    const events: string[] = [];
+    const sendBotMessage = vi.fn().mockResolvedValue({
+      id: "start-message-id",
+      channelId: "channel-id",
+    });
+    const persistStartMessage = vi.fn(async (messageId: string) => {
+      events.push(`persist:${messageId}`);
+      await persistBlocked;
+      events.push("persisted");
+    });
+    const createThread = vi.fn(async ({ messageId }: { messageId: string }) => {
+      events.push(`create:${messageId}`);
+      return { id: "thread-id" };
+    });
+
+    const pending = startStreamSummaryThread({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      title: "回変り金み",
+      message: "回変り金み",
+      sendBotMessage,
+      createThread,
+      persistStartMessage,
+    });
+
+    await vi.waitFor(() =>
+      expect(persistStartMessage).toHaveBeenCalledWith("start-message-id")
+    );
+    expect(createThread).not.toHaveBeenCalled();
+
+    releasePersist?.();
+    await expect(pending).resolves.toMatchObject({ threadId: "thread-id" });
+    expect(events).toEqual([
+      "persist:start-message-id",
+      "persisted",
+      "create:start-message-id",
+    ]);
+  });
+
+  it("does not create a thread when persisting the new start message fails", async () => {
+    const sendBotMessage = vi.fn().mockResolvedValue({
+      id: "start-message-id",
+      channelId: "channel-id",
+    });
+    const createThread = vi.fn();
+    const persistStartMessage = vi
+      .fn()
+      .mockRejectedValue(new Error("state persistence failed"));
+
+    await expect(
+      startStreamSummaryThread({
+        botToken: "bot-token",
+        channelId: "channel-id",
+        title: "回変り金み",
+        message: "回変り金み",
+        sendBotMessage,
+        createThread,
+        persistStartMessage,
+      })
+    ).rejects.toThrow("state persistence failed");
+    expect(createThread).not.toHaveBeenCalled();
+  });
+
   it("starts a thread from an embed stream-start notification", async () => {
     const sendBotMessage = vi
       .fn()
@@ -162,7 +230,8 @@ describe("stream summary", () => {
     const sendWebhook = vi
       .fn()
       .mockResolvedValue({ id: "webhook-message-id", channelId: "webhook-channel" });
-    const createThread = vi.fn();
+    const createThread = vi.fn().mockResolvedValue({ id: "webhook-thread-id" });
+    const persistStartMessage = vi.fn();
 
     const started = await startStreamSummaryThread({
       webhookUrl: "https://discord.com/api/webhooks/123/token",
@@ -173,6 +242,7 @@ describe("stream summary", () => {
       sendBotMessage,
       sendWebhook,
       createThread,
+      persistStartMessage,
     });
 
     expect(sendBotMessage).toHaveBeenCalledOnce();
@@ -181,12 +251,152 @@ describe("stream summary", () => {
       { content: "回変り金み" },
       { wait: true }
     );
-    expect(createThread).not.toHaveBeenCalled();
+    expect(persistStartMessage).toHaveBeenCalledWith("webhook-message-id");
+    expect(createThread).toHaveBeenCalledWith({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      messageId: "webhook-message-id",
+      name: "配信まとめ - 回変り金み",
+    });
     expect(started).toEqual({
       startMessageId: "webhook-message-id",
-      threadId: undefined,
+      threadId: "webhook-thread-id",
       postedStartNotification: true,
     });
+  });
+
+  it("reuses an exact same-title thread found in Discord history without posting", async () => {
+    const findHistory = vi.fn().mockResolvedValue({
+      startMessageId: "history-start-message-id",
+      threadId: "history-thread-id",
+    });
+    const sendBotMessage = vi.fn();
+    const sendWebhook = vi.fn();
+    const createThread = vi.fn();
+
+    const started = await ensureStreamSummaryStartThread({
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+      botToken: "bot-token",
+      channelId: "channel-id",
+      title: "回変り金み",
+      message: "回変り金み",
+      state: { ...state, status: "active" },
+      findHistory,
+      sendBotMessage,
+      sendWebhook,
+      createThread,
+    });
+
+    expect(findHistory).toHaveBeenCalledWith({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      expectedThreadName: "配信まとめ - 回変り金み",
+      expectedEmbedTitle: "回変り金み",
+      expectedStreamUrl: "https://www.twitch.tv/rukalun",
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+    });
+    expect(sendBotMessage).not.toHaveBeenCalled();
+    expect(sendWebhook).not.toHaveBeenCalled();
+    expect(createThread).not.toHaveBeenCalled();
+    expect(started).toEqual({
+      startMessageId: "history-start-message-id",
+      threadId: "history-thread-id",
+      postedStartNotification: false,
+    });
+  });
+
+  it("creates a thread from an exact orphan start notification found in history", async () => {
+    const findHistory = vi
+      .fn()
+      .mockResolvedValue({ startMessageId: "orphan-start-message-id" });
+    const sendBotMessage = vi.fn();
+    const createThread = vi.fn().mockResolvedValue({ id: "recovered-thread-id" });
+    const persistStartMessage = vi.fn();
+
+    const started = await ensureStreamSummaryStartThread({
+      webhookUrl: "https://discord.com/api/webhooks/123/token",
+      botToken: "bot-token",
+      channelId: "channel-id",
+      title: "回変り金み",
+      message: "回変り金み",
+      state: { ...state, status: "active" },
+      findHistory,
+      sendBotMessage,
+      createThread,
+      persistStartMessage,
+    });
+
+    expect(persistStartMessage).toHaveBeenCalledWith("orphan-start-message-id");
+    expect(createThread).toHaveBeenCalledWith({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      messageId: "orphan-start-message-id",
+      name: "配信まとめ - 回変り金み",
+    });
+    expect(sendBotMessage).not.toHaveBeenCalled();
+    expect(started).toEqual({
+      startMessageId: "orphan-start-message-id",
+      threadId: "recovered-thread-id",
+      postedStartNotification: false,
+    });
+  });
+
+  it("posts a new start notification only after a complete history scan finds no match", async () => {
+    const events: string[] = [];
+    const findHistory = vi.fn(async () => {
+      events.push("history");
+      return null;
+    });
+    const sendBotMessage = vi.fn(async () => {
+      events.push("send");
+      return { id: "new-start-message-id", channelId: "channel-id" };
+    });
+    const createThread = vi.fn().mockResolvedValue({ id: "new-thread-id" });
+
+    const started = await ensureStreamSummaryStartThread({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      title: "回変り金み",
+      message: "回変り金み",
+      state: { ...state, status: "active" },
+      findHistory,
+      sendBotMessage,
+      createThread,
+    });
+
+    expect(events).toEqual(["history", "send"]);
+    expect(started).toMatchObject({
+      startMessageId: "new-start-message-id",
+      threadId: "new-thread-id",
+      postedStartNotification: true,
+    });
+  });
+
+  it("fails closed without Discord writes when the history scan is incomplete", async () => {
+    const findHistory = vi
+      .fn()
+      .mockRejectedValue(new Error("Discord history lookup incomplete"));
+    const sendBotMessage = vi.fn();
+    const sendWebhook = vi.fn();
+    const createThread = vi.fn();
+
+    await expect(
+      ensureStreamSummaryStartThread({
+        webhookUrl: "https://discord.com/api/webhooks/123/token",
+        botToken: "bot-token",
+        channelId: "channel-id",
+        title: "回変り金み",
+        message: "回変り金み",
+        state: { ...state, status: "active" },
+        findHistory,
+        sendBotMessage,
+        sendWebhook,
+        createThread,
+      })
+    ).rejects.toThrow("Discord history lookup incomplete");
+    expect(sendBotMessage).not.toHaveBeenCalled();
+    expect(sendWebhook).not.toHaveBeenCalled();
+    expect(createThread).not.toHaveBeenCalled();
   });
 
   it("creates a missing start thread from a saved start notification message", async () => {
@@ -230,6 +440,7 @@ describe("stream summary", () => {
       .fn()
       .mockRejectedValueOnce(new Error("Discord thread creation failed: 404"))
       .mockResolvedValueOnce({ id: "replacement-thread-id" });
+    const findHistory = vi.fn().mockResolvedValue(null);
 
     const started = await ensureStreamSummaryStartThread({
       botToken: "bot-token",
@@ -243,6 +454,7 @@ describe("stream summary", () => {
       },
       sendBotMessage,
       createThread,
+      findHistory,
     });
 
     expect(createThread).toHaveBeenNthCalledWith(1, {
@@ -269,11 +481,68 @@ describe("stream summary", () => {
     });
   });
 
+  it("keeps a newly posted start id when thread creation fails and retries that message without reposting", async () => {
+    const sendBotMessage = vi.fn().mockResolvedValue({
+      id: "start-message-id",
+      channelId: "channel-id",
+    });
+    const findHistory = vi.fn().mockResolvedValue(null);
+    const createThread = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Discord thread creation failed: 500"))
+      .mockResolvedValueOnce({ id: "thread-id" });
+    const persistStartMessage = vi.fn();
+
+    const first = await ensureStreamSummaryStartThread({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      title: "回変り金み",
+      message: "回変り金み",
+      state: { ...state, status: "active" },
+      findHistory,
+      sendBotMessage,
+      createThread,
+      persistStartMessage,
+    });
+
+    expect(first).toEqual({
+      startMessageId: "start-message-id",
+      threadId: undefined,
+      postedStartNotification: true,
+    });
+    expect(persistStartMessage).toHaveBeenCalledWith("start-message-id");
+
+    const second = await ensureStreamSummaryStartThread({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      title: "回変り金み",
+      message: "回変り金み",
+      state: {
+        ...state,
+        status: "active",
+        startMessageId: first.startMessageId,
+      },
+      findHistory,
+      sendBotMessage,
+      createThread,
+      persistStartMessage,
+    });
+
+    expect(sendBotMessage).toHaveBeenCalledTimes(1);
+    expect(findHistory).toHaveBeenCalledTimes(1);
+    expect(second).toEqual({
+      startMessageId: "start-message-id",
+      threadId: "thread-id",
+      postedStartNotification: false,
+    });
+  });
+
   it("does not post a replacement start notification when reposting is disabled", async () => {
     const sendBotMessage = vi.fn();
     const createThread = vi
       .fn()
       .mockRejectedValueOnce(new Error("Discord thread creation failed: 404"));
+    const findHistory = vi.fn().mockResolvedValue(null);
 
     const started = await ensureStreamSummaryStartThread({
       botToken: "bot-token",
@@ -288,6 +557,7 @@ describe("stream summary", () => {
       allowStartNotificationRepost: false,
       sendBotMessage,
       createThread,
+      findHistory,
     });
 
     expect(createThread).toHaveBeenCalledOnce();
@@ -297,6 +567,7 @@ describe("stream summary", () => {
       messageId: "stale-start-message-id",
       name: "配信まとめ - 回変り金み",
     });
+    expect(findHistory).toHaveBeenCalledOnce();
     expect(sendBotMessage).not.toHaveBeenCalled();
     expect(started).toEqual({
       startMessageId: "stale-start-message-id",
@@ -309,6 +580,7 @@ describe("stream summary", () => {
     const sendBotMessage = vi.fn();
     const sendWebhook = vi.fn();
     const createThread = vi.fn();
+    const findHistory = vi.fn().mockResolvedValue(null);
 
     const started = await ensureStreamSummaryStartThread({
       webhookUrl: "https://discord.com/api/webhooks/123/token",
@@ -324,17 +596,20 @@ describe("stream summary", () => {
       sendBotMessage,
       sendWebhook,
       createThread,
+      findHistory,
     });
 
     expect(sendBotMessage).not.toHaveBeenCalled();
     expect(sendWebhook).not.toHaveBeenCalled();
     expect(createThread).not.toHaveBeenCalled();
+    expect(findHistory).toHaveBeenCalledOnce();
     expect(started).toEqual({ postedStartNotification: false });
   });
 
   it("does not duplicate start notifications when the start thread already exists", async () => {
     const sendWebhook = vi.fn();
     const createThread = vi.fn();
+    const findHistory = vi.fn();
 
     const started = await ensureStreamSummaryStartThread({
       webhookUrl: "https://discord.com/api/webhooks/123/token",
@@ -350,10 +625,12 @@ describe("stream summary", () => {
       },
       sendWebhook,
       createThread,
+      findHistory,
     });
 
     expect(sendWebhook).not.toHaveBeenCalled();
     expect(createThread).not.toHaveBeenCalled();
+    expect(findHistory).not.toHaveBeenCalled();
     expect(started).toEqual({
       startMessageId: "start-message-id",
       threadId: "thread-id",
