@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import logger from "../../src/utils/logger";
 import {
   buildMentionChatPrewarmRequest,
+  createMentionChatMatcher,
   extractMentionChatPrompt,
   formatGeneratedMentionChatReply,
   generateMentionChatReply,
@@ -12,6 +13,20 @@ import {
 const HTTP_ERROR_DETAIL_MAX_BYTES_FOR_TEST = 4096;
 
 describe("extractMentionChatPrompt", () => {
+  it("reuses a compiled matcher without changing alias detection or prompt removal", () => {
+    const matcher = createMentionChatMatcher(["rukalun", "rukalun_bot"]);
+
+    expect(matcher.extract("今日は @rukalun_bot どう？ @rukalun")).toEqual({
+      alias: "rukalun",
+      prompt: "今日は どう？",
+    });
+    expect(matcher.extract("＠rukalun_bot こんにちは")).toEqual({
+      alias: "rukalun_bot",
+      prompt: "こんにちは",
+    });
+    expect(matcher.extract("@rukalun_bot2 こんにちは")).toBeNull();
+  });
+
   it("detects bot mention aliases and extracts prompt text", () => {
     expect(
       extractMentionChatPrompt("@rukalun_bot こんにちは", [

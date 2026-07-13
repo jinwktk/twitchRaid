@@ -50,6 +50,7 @@ npm run pm2:logs    # ログ確認
 ```bash
 npm start           # ビルド済みを実行
 npm run dev         # ts-nodeで開発実行
+npm run perf:hot-paths # メンション検出・コメント風速・Clip SQLite選択の性能回帰を検証
 npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生成
 # 本番反映例: node scripts/export-clip-search-data.mjs --out C:\Users\mlove\Documents\GitHub\RukalunPage\clip-search-data.json
 # 必要時: node scripts/export-clip-search-data.mjs --enrich-from-twitch
@@ -373,6 +374,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-07-13**: 通常チャットのBotメンション検出、コメント風速のスライディング窓、Clip SQLiteランダム選択を同一条件で比較する `npm run perf:hot-paths` を追加した。合格条件は、メンション検出5倍以上、20万件高流量コメント風速20倍以上、5万件Clipランダム選択2倍以上、作成者絞込5倍以上、Clip検索の性能劣化なし、かつ選択結果と対象回帰テストが完全一致すること。実装前のREDではcompiled matcher未実装、候補順複合index未実装を確認した。
 - **2026-07-11**: `streamId=316151050737, startMessageId=none` のまま配信まとめスレッドを保証できなかった事象を調査し、直前配信終了38秒後に同じタイトル・別streamIdで始まった配信に対して、Discord側には同名スレッドが既に存在することを確認した。state IDだけでなくDiscordのactive/public archivedスレッドと開始通知履歴を厳格に走査し、完全一致スレッドまたはorphan開始通知を再利用し、完全なno-match時だけ新規作成する回帰テストを追加した。履歴不完全時のfail-closed、Webhook起点メッセージのスレッド化、message ID先行永続化、同一key single-flight、429/指数backoffも契約化した
 - **2026-07-11**: 初回code reviewの `REQUEST CHANGES / BLOCK` で、Bot POST応答喪失時の即Webhook fallback、thread作成429のbackoff欠落、履歴GETの無期限待機、cursor非進行時の最大page連打、手動/自動state競合、本番Swarm `start-first` overlapを検出した。追加TDDで、確定403だけのfallback、曖昧失敗後のorphan回収、thread作成typed error、15秒lookup timeout、cursor循環検出、最新手動ID保護を固定し、deploy前にDokploy/Swarmをreplica 1・`stop-first`へ永続化する
 - **2026-07-11**: 最終cleanup/code reviewで、本番typed errorとgeneric fixtureのずれ、message起点thread ID不一致の許容、thread作成失敗後GETのtimeout/429欠落、raw titleとtrim済みEmbed titleのずれ、絵文字を分断するUTF-16切詰めを検出した。追加TDD後、保存済みIDのtyped 404だけ履歴復旧へ進め、source message/thread IDの完全一致、Bot/thread API共通15秒budget、実payload Embed identity、全経路のcode-point-safe thread名へ統一した。最終検証は対象78件、全体581件、Mem0 6件、build/lint、UltraQA dynamic E2E Cycle 3、ai-slop CLEAR、code review APPROVE/CLEAR

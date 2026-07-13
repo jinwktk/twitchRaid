@@ -392,4 +392,46 @@ describe("ClipCacheStore", () => {
       thumbnail_url: "https://clips-media-assets2.twitch.tv/details-preview-480x272.jpg",
     });
   });
+
+  it("uses covering candidate-order indexes for random clip selection", () => {
+    const db = new DatabaseSync(path.join(tmpDir, "clips.sqlite"), {
+      readOnly: true,
+    });
+    try {
+      const indexColumns = (indexName: string): string[] =>
+        (
+          db.prepare(`PRAGMA index_info(${indexName})`).all() as Array<{
+            name: string;
+          }>
+        ).map((column) => column.name);
+
+      expect(indexColumns("idx_clip_cache_available_created_at_id")).toEqual([
+        "unavailable_at",
+        "created_at",
+        "id",
+      ]);
+      expect(
+        indexColumns("idx_clip_cache_creator_id_available_created_at_id")
+      ).toEqual(["creator_id", "unavailable_at", "created_at", "id"]);
+      expect(
+        indexColumns("idx_clip_cache_creator_name_available_created_at_id")
+      ).toEqual([
+        "creator_name_lower",
+        "unavailable_at",
+        "created_at",
+        "id",
+      ]);
+
+      const indexNames = (
+        db.prepare("PRAGMA index_list(clip_cache)").all() as Array<{
+          name: string;
+        }>
+      ).map((index) => index.name);
+      expect(indexNames).not.toContain("idx_clip_cache_available_created_at");
+      expect(indexNames).not.toContain("idx_clip_cache_creator_id");
+      expect(indexNames).not.toContain("idx_clip_cache_creator_name");
+    } finally {
+      db.close();
+    }
+  });
 });

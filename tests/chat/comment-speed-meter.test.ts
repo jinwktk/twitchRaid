@@ -35,6 +35,17 @@ describe("CommentSpeedMeter", () => {
       meter.record(BASE_TIME + 50);  // 39秒前 → ウィンドウ内
       expect(meter.count(BASE_TIME + 89)).toBe(2);
     });
+
+    it("keeps exact window boundaries after a high-volume rolling workload", () => {
+      const highVolumeMeter = new CommentSpeedMeter(60);
+      for (let index = 0; index < 200_000; index += 1) {
+        highVolumeMeter.record(index / 1_000);
+      }
+
+      expect(highVolumeMeter.count(199.999)).toBe(60_001);
+      expect(highVolumeMeter.count(260)).toBe(0);
+      expect(highVolumeMeter.totalCount()).toBe(200_000);
+    });
   });
 
   describe("totalCount", () => {
