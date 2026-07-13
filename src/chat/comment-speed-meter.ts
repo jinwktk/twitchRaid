@@ -4,6 +4,7 @@
 export class CommentSpeedMeter {
   private readonly windowSeconds: number;
   private timestamps: number[] = [];
+  private timestampHead = 0;
   private _totalCount = 0;
   private _streamStartedAt: number | null = null;
 
@@ -20,12 +21,14 @@ export class CommentSpeedMeter {
     this._streamStartedAt = timestamp;
     this._totalCount = 0;
     this.timestamps = [];
+    this.timestampHead = 0;
   }
 
   resetStream(): void {
     this._streamStartedAt = null;
     this._totalCount = 0;
     this.timestamps = [];
+    this.timestampHead = 0;
   }
 
   ensureStreamStarted(timestamp: number): void {
@@ -42,7 +45,7 @@ export class CommentSpeedMeter {
 
   count(currentTime: number): number {
     this._prune(currentTime);
-    return this.timestamps.length;
+    return this.timestamps.length - this.timestampHead;
   }
 
   ratePerMinute(currentTime: number): number {
@@ -67,8 +70,24 @@ export class CommentSpeedMeter {
 
   private _prune(currentTime: number): void {
     const cutoff = currentTime - this.windowSeconds;
-    while (this.timestamps.length > 0 && this.timestamps[0] < cutoff) {
-      this.timestamps.shift();
+    while (
+      this.timestampHead < this.timestamps.length &&
+      this.timestamps[this.timestampHead] < cutoff
+    ) {
+      this.timestampHead += 1;
+    }
+
+    if (this.timestampHead === this.timestamps.length) {
+      this.timestamps = [];
+      this.timestampHead = 0;
+      return;
+    }
+    if (
+      this.timestampHead >= 1_024 &&
+      this.timestampHead * 2 >= this.timestamps.length
+    ) {
+      this.timestamps = this.timestamps.slice(this.timestampHead);
+      this.timestampHead = 0;
     }
   }
 }

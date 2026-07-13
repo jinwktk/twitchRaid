@@ -533,7 +533,7 @@ export class ClipCacheStore {
 
     const where = `WHERE ${filters.join(" AND ")}`;
     const countRow = this.db
-      .prepare(`SELECT COUNT(*) AS count FROM clip_cache ${where}`)
+      .prepare(`SELECT COUNT(*) AS count FROM clip_cache NOT INDEXED ${where}`)
       .get(...params) as unknown as CountRow;
 
     if (countRow.count === 0) return null;
@@ -547,7 +547,7 @@ export class ClipCacheStore {
       .prepare(
         `
         SELECT *
-        FROM clip_cache
+        FROM clip_cache NOT INDEXED
         ${where}
         ORDER BY created_at DESC, id ASC
         LIMIT 1 OFFSET ?
@@ -575,10 +575,6 @@ export class ClipCacheStore {
         updated_at TEXT NOT NULL
       );
 
-      CREATE INDEX IF NOT EXISTS idx_clip_cache_creator_id
-        ON clip_cache (creator_id);
-      CREATE INDEX IF NOT EXISTS idx_clip_cache_creator_name
-        ON clip_cache (creator_name_lower);
       CREATE INDEX IF NOT EXISTS idx_clip_cache_created_at
         ON clip_cache (created_at);
 
@@ -613,8 +609,21 @@ export class ClipCacheStore {
     this.addColumnIfMissing("clip_cache", "game_name", "TEXT");
     this.addColumnIfMissing("clip_cache", "thumbnail_url", "TEXT");
     this.db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_clip_cache_available_created_at
-        ON clip_cache (unavailable_at, created_at);
+      CREATE INDEX IF NOT EXISTS idx_clip_cache_available_created_at_id
+        ON clip_cache (unavailable_at, created_at DESC, id ASC);
+      CREATE INDEX IF NOT EXISTS idx_clip_cache_creator_id_available_created_at_id
+        ON clip_cache (creator_id, unavailable_at, created_at DESC, id ASC);
+      CREATE INDEX IF NOT EXISTS idx_clip_cache_creator_name_available_created_at_id
+        ON clip_cache (
+          creator_name_lower,
+          unavailable_at,
+          created_at DESC,
+          id ASC
+        );
+
+      DROP INDEX IF EXISTS idx_clip_cache_available_created_at;
+      DROP INDEX IF EXISTS idx_clip_cache_creator_id;
+      DROP INDEX IF EXISTS idx_clip_cache_creator_name;
     `);
   }
 

@@ -6,6 +6,10 @@ export interface MentionChatMatch {
   prompt: string;
 }
 
+export interface MentionChatMatcher {
+  extract(text: string): MentionChatMatch | null;
+}
+
 export interface GenerateMentionChatReplyOptions {
   enabled: boolean;
   baseUrl: string;
@@ -637,16 +641,11 @@ function mentionPattern(alias: string): RegExp {
   );
 }
 
-function removeMentionAliases(text: string, aliases: string[]): string {
-  let result = text;
-  for (const alias of aliases) {
-    const pattern = new RegExp(
-      `(^|[^${MENTION_NAME_CHAR_CLASS}])[@＠]${escapeRegExp(alias)}(?![${MENTION_NAME_CHAR_CLASS}])`,
-      "giu"
-    );
-    result = result.replace(pattern, (_match, prefix: string) => prefix);
-  }
-  return singleLine(result);
+function compiledMentionRemovalPattern(alias: string): RegExp {
+  return new RegExp(
+    `(^|[^${MENTION_NAME_CHAR_CLASS}])[@＠]${escapeRegExp(alias)}(?![${MENTION_NAME_CHAR_CLASS}])`,
+    "giu"
+  );
 }
 
 function buildMentionChatPrompt(options: BuildMentionChatPromptOptions): string {
@@ -757,20 +756,36 @@ export function resolveMentionChatAliases(
   return [...new Set(source.map(normalizeName).filter(Boolean))];
 }
 
+export function createMentionChatMatcher(aliases: string[]): MentionChatMatcher {
+  const normalizedAliases = resolveMentionChatAliases(aliases, "");
+  const detectors = normalizedAliases.map((alias) => ({
+    alias,
+    pattern: mentionPattern(alias),
+  }));
+  const removers = normalizedAliases.map((alias) =>
+    compiledMentionRemovalPattern(alias)
+  );
+
+  return {
+    extract(text: string): MentionChatMatch | null {
+      const detected = detectors.find(({ pattern }) => pattern.test(text));
+      if (!detected) return null;
+
+      let prompt = text;
+      for (const pattern of removers) {
+        pattern.lastIndex = 0;
+        prompt = prompt.replace(pattern, (_match, prefix: string) => prefix);
+      }
+      return { alias: detected.alias, prompt: singleLine(prompt) };
+    },
+  };
+}
+
 export function extractMentionChatPrompt(
   text: string,
   aliases: string[]
 ): MentionChatMatch | null {
-  const normalizedAliases = resolveMentionChatAliases(aliases, "");
-  const alias = normalizedAliases.find((candidate) =>
-    mentionPattern(candidate).test(text)
-  );
-  if (!alias) return null;
-
-  return {
-    alias,
-    prompt: removeMentionAliases(text, normalizedAliases),
-  };
+  return createMentionChatMatcher(aliases).extract(text);
 }
 
 export function formatGeneratedMentionChatReply(

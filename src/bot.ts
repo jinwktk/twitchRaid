@@ -73,10 +73,11 @@ import {
 } from "./commands/shoutout-introduction";
 import {
   buildMentionChatPrewarmRequest,
-  extractMentionChatPrompt,
+  createMentionChatMatcher,
   formatMentionChatLogValue,
   generateMentionChatReplyDetailed,
   resolveMentionChatImmediateReply,
+  type MentionChatMatcher,
 } from "./commands/mention-chat";
 import {
   primeOllamaGenerateModel,
@@ -495,6 +496,7 @@ export class Bot {
   private readonly recastNotifiers: Record<string, ClipRecastNotifier>;
   private readonly commandCooldownState: CommandCooldownState;
   private readonly commentSpeedMeter: CommentSpeedMeter;
+  private readonly mentionChatMatcher: MentionChatMatcher;
   private readonly clipCacheStore: ClipCacheStore;
   private readonly streamSummaryStateStore: StreamSummaryStateStore;
   private readonly streamSummaryCountBuffer: StreamSummaryCountBuffer<StreamSummaryState>;
@@ -566,6 +568,9 @@ export class Bot {
       myclip: config.lastMyclipTime,
     });
     this.commentSpeedMeter = new CommentSpeedMeter(60);
+    this.mentionChatMatcher = createMentionChatMatcher(
+      config.chatAiBotAliases ?? [config.loginChannel]
+    );
     this.clipCacheStore = new ClipCacheStore(config.clipCacheDbPath);
     this.clipSearchDataPublisher = config.clipSearchAutoPublishEnabled
       ? new ClipSearchDataPublisher({
@@ -795,10 +800,7 @@ export class Bot {
     now: number,
     userDisplayName?: string | null
   ): Promise<boolean> {
-    const match = extractMentionChatPrompt(
-      text,
-      this.config.chatAiBotAliases ?? [this.config.loginChannel]
-    );
+    const match = this.mentionChatMatcher.extract(text);
     if (!match) return false;
     this._scheduleBotRequestNoteSave(user, match.prompt);
     if (!(this.config.chatAiEnabled ?? false)) return true;

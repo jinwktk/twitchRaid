@@ -422,6 +422,36 @@ describe("ClipCacheStore", () => {
         "id",
       ]);
 
+      const indexOrder = (indexName: string) =>
+        (
+          db.prepare(`PRAGMA index_xinfo(${indexName})`).all() as Array<{
+            name: string | null;
+            key: number;
+            desc: number;
+          }>
+        )
+          .filter((column) => column.key === 1)
+          .map((column) => ({ name: column.name, desc: column.desc }));
+      expect(indexOrder("idx_clip_cache_available_created_at_id")).toEqual([
+        { name: "unavailable_at", desc: 0 },
+        { name: "created_at", desc: 1 },
+        { name: "id", desc: 0 },
+      ]);
+
+      const queryPlan = (sql: string): string[] =>
+        (
+          db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all() as Array<{
+            detail: string;
+          }>
+        ).map((row) => row.detail);
+      for (const sql of [
+        "SELECT * FROM clip_cache WHERE unavailable_at IS NULL ORDER BY created_at DESC, id ASC LIMIT 1 OFFSET 10",
+        "SELECT * FROM clip_cache WHERE creator_id = 'creator' AND unavailable_at IS NULL ORDER BY created_at DESC, id ASC LIMIT 1 OFFSET 10",
+        "SELECT * FROM clip_cache WHERE creator_name_lower = 'viewer' AND unavailable_at IS NULL ORDER BY created_at DESC, id ASC LIMIT 1 OFFSET 10",
+      ]) {
+        expect(queryPlan(sql).join("\n")).not.toContain("USE TEMP B-TREE");
+      }
+
       const indexNames = (
         db.prepare("PRAGMA index_list(clip_cache)").all() as Array<{
           name: string;
