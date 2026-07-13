@@ -578,3 +578,13 @@ internal-docs/
 - **2026-03-22**: TypeScript移植 + PM2管理対応（v2.0）
 - **2026-03-22**: 仕様ドキュメント作成（docs/ディレクトリに4ファイル追加）
 - **2026-03-21**: パフォーマンスチューニング＆コードレビュー修正
+
+## AIエージェント設定
+
+Matt Pocock Skills のプロジェクト設定を `docs/agents/` に保存しています。
+
+- Issue管理: GitHub Issues（外部PRは自動トリアージ対象外）
+- トリアージ: `needs-triage` などの既定5ラベル
+- ドメイン文書: 単一コンテキスト構成
+
+詳細は `docs/agents/issue-tracker.md`、`docs/agents/triage-labels.md`、`docs/agents/domain.md` を参照してください。
