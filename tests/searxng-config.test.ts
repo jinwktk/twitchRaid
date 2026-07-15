@@ -107,4 +107,34 @@ describe("SearXNG self-hosting config", () => {
     );
     expect(script).toContain("Start-Sleep -Seconds $RestartDelaySeconds");
   });
+
+  it("resolves the default refresh script after PowerShell initializes PSScriptRoot", () => {
+    const script = fs
+      .readFileSync(
+        path.join(
+          repoRoot,
+          "ops/sub-ai-services/keep-wsl-dokploy-alive.ps1"
+        ),
+        "utf8"
+      )
+      .replace(/\r\n?/gu, "\n");
+    const paramEndIndex = script.indexOf("\n)\n");
+    const refreshResolutionIndex = script.indexOf(
+      '$RefreshScript = Join-Path $PSScriptRoot "refresh_wsl_dokploy_portproxy.ps1"'
+    );
+
+    expect(paramEndIndex).toBeGreaterThan(-1);
+    expect(script.slice(0, paramEndIndex)).not.toContain("$PSScriptRoot");
+    expect(refreshResolutionIndex).toBeGreaterThan(paramEndIndex);
+  });
+
+  it("benchmarks SearXNG with reverse-proxy client headers", () => {
+    const benchmark = fs.readFileSync(
+      path.join(repoRoot, "scripts/benchmark-sub-ai-services-remote.sh"),
+      "utf8"
+    );
+
+    expect(benchmark).toContain('"X-Forwarded-For": "127.0.0.1"');
+    expect(benchmark).toContain('"X-Real-IP": "127.0.0.1"');
+  });
 });

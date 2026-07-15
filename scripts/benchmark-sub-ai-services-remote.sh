@@ -211,9 +211,15 @@ async function main() {
   searxngUrl.searchParams.set("language", "ja-JP");
   searxngUrl.searchParams.set("safesearch", "1");
   searxngUrl.searchParams.set("engines", "bing");
-  await fetchJson(searxngUrl, undefined, 10_000);
+  const searxngInit = {
+    headers: {
+      "X-Forwarded-For": "127.0.0.1",
+      "X-Real-IP": "127.0.0.1",
+    },
+  };
+  await fetchJson(searxngUrl, searxngInit, 10_000);
   const searxng = await measure(async () => {
-    const body = await fetchJson(searxngUrl, undefined, 10_000);
+    const body = await fetchJson(searxngUrl, searxngInit, 10_000);
     if (
       !Array.isArray(body.results) ||
       body.results.length === 0 ||

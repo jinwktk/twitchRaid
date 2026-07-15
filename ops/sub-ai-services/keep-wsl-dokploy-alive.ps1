@@ -1,13 +1,17 @@
 [CmdletBinding()]
 param(
     [string]$Distribution = "Ubuntu-Backup",
-    [string]$RefreshScript = (Join-Path $PSScriptRoot "refresh_wsl_dokploy_portproxy.ps1"),
+    [string]$RefreshScript = "",
     [string]$LogFile = "E:\GitHub\BotManager\logs\dokploy-wsl-keepalive.log",
     [ValidateRange(1, 300)]
     [int]$RestartDelaySeconds = 5
 )
 
 $ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrWhiteSpace($RefreshScript)) {
+    $RefreshScript = Join-Path $PSScriptRoot "refresh_wsl_dokploy_portproxy.ps1"
+}
 
 function Write-Log {
     param([Parameter(Mandatory)][string]$Message)
