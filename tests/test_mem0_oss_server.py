@@ -42,6 +42,47 @@ class FakeMemory:
         return [{"id": "mem-1", "memory": "好物: ラーメン", "score": 0.8}]
 
 
+def test_initializes_mem0_before_accepting_requests(monkeypatch):
+    app_module = load_app_module()
+    initialized = []
+    fake_memory = FakeMemory()
+    monkeypatch.setattr(
+        app_module,
+        "get_memory",
+        lambda: initialized.append("ready") or fake_memory,
+    )
+
+    with TestClient(app_module.app) as client:
+        response = client.get("/healthz")
+
+    assert response.status_code == 200
+    assert initialized == ["ready"]
+
+
+def test_retries_mem0_initialization_on_request_after_startup_failure(monkeypatch):
+    app_module = load_app_module()
+    fake_memory = FakeMemory()
+    attempts = []
+
+    def initialize_memory():
+        attempts.append("attempt")
+        if len(attempts) == 1:
+            raise RuntimeError("startup dependency unavailable")
+        return fake_memory
+
+    monkeypatch.setattr(app_module, "get_memory", initialize_memory)
+    monkeypatch.setattr(app_module, "_api_key", lambda: "")
+
+    with TestClient(app_module.app) as client:
+        response = client.post(
+            "/search",
+            json={"query": "好きな食べ物は？", "user_id": "rukalun"},
+        )
+
+    assert response.status_code == 200
+    assert len(attempts) == 2
+
+
 def test_delete_memory_by_id(monkeypatch):
     app_module = load_app_module()
     fake_memory = FakeMemory()

@@ -29,6 +29,7 @@ ui:
 
 outgoing:
   request_timeout: 8.0
+  keepalive_expiry: 300.0
 
 engines:
   - name: google

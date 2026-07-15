@@ -1,5 +1,6 @@
 import logging
 import os
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from typing import Any
 
@@ -139,7 +140,22 @@ class SearchRequest(BaseModel):
     threshold: float | None = None
 
 
-app = FastAPI(title="twitchRaid Mem0 OSS REST", version="1.0.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    try:
+        get_memory()
+    except Exception:
+        logger.exception(
+            "mem0 startup initialization failed; retrying on the first API request"
+        )
+    yield
+
+
+app = FastAPI(
+    title="twitchRaid Mem0 OSS REST",
+    version="1.0.0",
+    lifespan=lifespan,
+)
 
 
 @app.get("/healthz")

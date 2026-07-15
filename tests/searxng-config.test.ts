@@ -33,6 +33,16 @@ describe("SearXNG self-hosting config", () => {
     expect(compose).toContain("OLLAMA_KEEP_ALIVE: 30m");
     expect(compose).toContain('OLLAMA_NUM_PARALLEL: "1"');
     expect(compose).toContain('OLLAMA_CONTEXT_LENGTH: "4096"');
+    expect(compose).toContain('OLLAMA_MAX_LOADED_MODELS: "2"');
+    expect(compose).toContain('OLLAMA_FLASH_ATTENTION: "1"');
+    expect(compose).toContain(
+      "/home/mlove/dokploy/ollama:/root/.ollama"
+    );
+    expect(compose).toContain(
+      "/home/mlove/dokploy/huggingface:/root/.cache/huggingface"
+    );
+    expect(compose).not.toContain("/mnt/c/Users/mlove/.ollama");
+    expect(compose).not.toContain("/mnt/c/Users/mlove/.cache/huggingface");
     expect(compose).toContain("aliases:");
     expect(compose).toContain("- searxng");
     expect(compose).toContain("- mem0");
@@ -62,5 +72,39 @@ describe("SearXNG self-hosting config", () => {
     expect(settings).toContain("- duckduckgo");
     expect(settings).toContain("- bing");
     expect(settings).toContain("disabled: false");
+    expect(settings).toContain("keepalive_expiry: 300.0");
+  });
+
+  it("keeps WSL and Docker alive even when portproxy refresh fails", () => {
+    const scriptPath = path.join(
+      repoRoot,
+      "ops/sub-ai-services/keep-wsl-dokploy-alive.ps1"
+    );
+
+    expect(fs.existsSync(scriptPath)).toBe(true);
+
+    const script = fs.readFileSync(scriptPath, "utf8");
+    const writeLogIndex = script.indexOf("function Write-Log");
+    const writeLogTryIndex = script.indexOf("try", writeLogIndex);
+    const addContentIndex = script.indexOf("Add-Content", writeLogIndex);
+    const writeLogCatchIndex = script.indexOf("catch", addContentIndex);
+    const keepaliveIndex = script.indexOf("while ($true)");
+    const refreshIndex = script.indexOf("& $RefreshScript");
+    const catchIndex = script.indexOf("catch", refreshIndex);
+    const wslIndex = script.indexOf("& wsl.exe", catchIndex);
+
+    expect(writeLogTryIndex).toBeGreaterThan(writeLogIndex);
+    expect(addContentIndex).toBeGreaterThan(writeLogTryIndex);
+    expect(writeLogCatchIndex).toBeGreaterThan(addContentIndex);
+    expect(keepaliveIndex).toBeGreaterThan(-1);
+    expect(refreshIndex).toBeGreaterThan(keepaliveIndex);
+    expect(refreshIndex).toBeGreaterThan(-1);
+    expect(catchIndex).toBeGreaterThan(refreshIndex);
+    expect(wslIndex).toBeGreaterThan(catchIndex);
+    expect(script).toContain("continuing WSL keepalive");
+    expect(script).toContain(
+      "systemctl start docker && systemctl is-active --quiet docker && while true; do sleep 3600; done"
+    );
+    expect(script).toContain("Start-Sleep -Seconds $RestartDelaySeconds");
   });
 });
