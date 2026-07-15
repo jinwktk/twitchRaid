@@ -1,4 +1,4 @@
-import { config as dotenvConfig } from "dotenv";
+import { config as dotenvConfig, parse as dotenvParse } from "dotenv";
 import fs from "fs";
 import path from "path";
 import { updateEnvFile } from "./utils/env-store";
@@ -103,6 +103,21 @@ function parseNameList(raw: string | undefined, fallback: string[]): string[] {
     .split(",")
     .map((u) => u.trim().replace(/^[@＠]+/, "").toLowerCase())
     .filter(Boolean);
+}
+
+function restorePackedDokployEnvironment(
+  processEnv: NodeJS.ProcessEnv
+): NodeJS.ProcessEnv {
+  const packedClientId = processEnv["TWITCH_CLIENT_ID"];
+  if (!packedClientId?.includes("\\n")) return processEnv;
+
+  const [clientId, ...packedLines] = packedClientId.split("\\n");
+  const restored = dotenvParse(packedLines.join("\n"));
+  return {
+    ...restored,
+    ...processEnv,
+    TWITCH_CLIENT_ID: clientId,
+  };
 }
 
 function parseChatAiSearchProvider(
@@ -266,7 +281,7 @@ export class Config {
         ? {}
         : dotenvConfig({ path: this.envFile, processEnv: {} }).parsed ?? {};
     const env = {
-      ...process.env,
+      ...restorePackedDokployEnvironment(process.env),
       ...parsedEnv,
       ...runtimeEnv,
     };

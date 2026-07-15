@@ -25,6 +25,7 @@ npm run pm2:logs    # ログ確認
 - mem0検索・保存はfail-open運用。2026-07-02時点のサブPC本番は `CHAT_AI_MEM0_TIMEOUT_MS=6000`。以前の `2000` ではOllama `nomic-embed-text` のcold loadや保存処理が約3秒かかった時にBot側だけ `reason=failed` になることがあった。会話本体は継続するが、頻発する場合はembeddingモデルのプリウォーム/常駐を検討する
 - 2026-06-20以降のサブPC本番はPM2ではなくDokploy管理。コンテナでは `.env` ファイルが無い場合があるため、DokployのEnvironment Variablesから渡る `process.env` も設定値として読む
 - Dokployで `.env` が無い場合、Twitch token refresh後の更新値は既定で `/app/data/runtime.env` に保存し、次回起動時はDokploy環境変数より優先して読む。保存先を明示したい場合は `TWITCH_RUNTIME_ENV_FILE=/app/data/runtime.env` のように設定する
+- DokployのEnvironment Variablesが誤って `TWITCH_CLIENT_ID` 1項目へ文字列 `\n` 区切りで連結された場合も、Botは起動時に個別キーへ復元して読む。正しく独立して設定された環境変数と `runtime.env` は連結ブロックより優先する。これは再発時の安全策であり、Dokploy DBとSwarm service側も1行1キーへ正規化して運用する
 - Dokploy運用では `GIT_AUTO_UPDATE_ENABLED=false` を設定し、コンテナ内の自己 `git pull` / 定期再起動監視を止める。更新はDokployのデプロイで反映する
 - `.github/workflows/deploy.yml` は旧PM2運用向けの手動workflowとして残し、main pushでは起動しない。Dokploy移行後の本番反映はDokploy/Swarmサービス側で確認する
 - サブPCのDokploy用ローカルregistryは `127.0.0.1:5050`。twitchRaidのDokployアプリ `dockerImage` は `localhost:5050/twitch-raid-apcz9n:local` を使う。`127.0.0.1:5000` は現在registryではないため、`localhost:5000/twitch-raid-apcz9n:local` のままだとDokployのpullが `not found` で失敗する
@@ -377,6 +378,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-07-15**: Dokployの永続envで約60行分の設定が `TWITCH_CLIENT_ID` 1項目へ文字列 `\n` 連結され、`nyme_ia` が `MANGA_ADMIN_USERS` から外れた実効値になり、broadcaster IDとOAuth client情報も欠落していたため、`!mangaon` の管理者判定とmanga返信の10秒後削除が同時に動かなくなった。`Config` で連結ブロックを個別キーへ復元し、独立envと `runtime.env` を優先する回帰テストを追加した。Bot dispatcherでは `nyme_ia` の `!mangaon`、Bot API返信ID取得、9.999秒時点未削除、10秒時点削除を統合テストで固定した。本番のDokploy DB/Swarm envも90個の独立キーへ正規化してmangaをONへ戻し、OAuth HTTP 200、送信/削除スコープ有効、接続成功、起動後ERROR 0を確認した
 - **2026-07-13**: 性能最適化commit `c4a10b3` をサブPCのSwarm service `twitch-raid-apcz9n` へ反映した。クリーンbuildした `localhost:5050/twitch-raid-apcz9n:c4a10b3` / `:local` はdigest `sha256:45835d8d36951f66e47564d213f8bc2d392b3d982bbd528e9944433d7f439c6c`。本番Clip DBは2,802件（利用可能2,782件）で3つの候補順複合indexとcovering index利用を確認し、200回平均は全件3.04ms、作成者ID絞込2.70ms、検索5.63msだった。反映後はservice 1/1、revision一致、restart 0、WARN/ERROR 0、Bot起動・Twitchログイン・Clip全期間同期完了、prewarm失敗0を確認した。
 - **2026-07-13**: 性能評価器で固定した通常チャット/コメント風速/Clip選択を動作不変で最適化した。Bot起動時にメンションaliasの検出・除去Regexを1回だけcompileして全通常コメントで再利用し、コメント風速は期限切れごとの `Array.shift()` をhead index付き配列へ変更した。Clip SQLiteは `unavailable_at / creator / created_at DESC / id ASC` の候補順複合indexへ移行し、先頭wildcard検索は新indexによる不利な走査を避ける。旧実装と同じ公開APIをbatch交互実行した独立計測では、メンション検出24.71〜29.65倍、高流量コメント窓113.00〜138.80倍、通常100件/秒2.26〜3.12倍、5万件Clip全体6.66〜6.93倍、作成者絞込21.68〜22.38倍、検索1.07〜1.26倍。500件upsertは複合index維持により旧比0.84倍（約16%低下）、5万件DBの初回migrationは約240ms、active page容量は約16.6MB→20.7MBになるが、読み取りホットパスを最優先する意図的なトレードオフとした。duplicate/NULL日時、乱数3種、履歴partial/all fallback、creator ID/名前/併用、検索履歴の17互換比較とindex方向/実行計画を検証し、対象89件、全体44ファイル584件、Mem0 6件、build/lint、独立レビュー `APPROVE / CLEAR` が通過した。
 - **2026-07-13**: 通常チャットのBotメンション検出、コメント風速のスライディング窓、Clip SQLiteランダム選択を同一条件で比較する `npm run perf:hot-paths` を追加した。合格条件は、メンション検出5倍以上、20万件高流量コメント風速20倍以上、5万件Clipランダム選択2倍以上、作成者絞込5倍以上、Clip検索の性能劣化なし、かつ選択結果と対象回帰テストが完全一致すること。実装前のREDではcompiled matcher未実装、候補順複合index未実装を確認した。

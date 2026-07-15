@@ -62,6 +62,54 @@ describe("Config", () => {
     }
   });
 
+  it("restores a Dokploy environment block packed into TWITCH_CLIENT_ID", () => {
+    const keys = [
+      "TWITCH_CLIENT_ID",
+      "TWITCH_ACCESS_TOKEN",
+      "TWITCH_REFRESH_TOKEN",
+      "TWITCH_SECRET_TOKEN",
+      "TWITCH_BROADCASTER_ID",
+      "TWITCH_MODERATOR_ID",
+      "TWITCH_RUNTIME_ENV_FILE",
+      "MANGA_COMMAND_ENABLED",
+      "MANGA_ADMIN_USERS",
+    ];
+    const previous = new Map(keys.map((key) => [key, process.env[key]]));
+
+    try {
+      for (const key of keys) delete process.env[key];
+      process.env.TWITCH_CLIENT_ID = [
+        "packed-client",
+        "TWITCH_ACCESS_TOKEN=packed-access",
+        "TWITCH_REFRESH_TOKEN=packed-refresh",
+        "TWITCH_SECRET_TOKEN=packed-secret",
+        "TWITCH_BROADCASTER_ID=packed-broadcaster",
+        "TWITCH_MODERATOR_ID=packed-moderator",
+        "MANGA_COMMAND_ENABLED=true",
+        "MANGA_ADMIN_USERS=rukalun,nyme_ia",
+      ].join("\\n");
+
+      const config = new Config(path.join(os.tmpdir(), "missing-packed.env"));
+
+      expect(config.twitchClientId).toBe("packed-client");
+      expect(config.twitchAccessToken).toBe("packed-access");
+      expect(config.twitchRefreshToken).toBe("packed-refresh");
+      expect(config.twitchSecretToken).toBe("packed-secret");
+      expect(config.twitchBroadcasterId).toBe("packed-broadcaster");
+      expect(config.twitchModeratorId).toBe("packed-moderator");
+      expect(config.mangaCommandEnabled).toBe(true);
+      expect(config.mangaAdminUsers).toEqual(["rukalun", "nyme_ia"]);
+    } finally {
+      for (const [key, value] of previous) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+  });
+
   it("loads mutable runtime tokens ahead of process.env and writes updates there", () => {
     const runtimeEnvPath = writeEnvFile(`
 TWITCH_ACCESS_TOKEN=persisted-access

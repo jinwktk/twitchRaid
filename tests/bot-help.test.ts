@@ -10,6 +10,7 @@ let tmpDir: string | null = null;
 type HelpTestBot = Bot & {
   chatClient: { say: ReturnType<typeof vi.fn> };
   apiClient: {
+    asUser?: ReturnType<typeof vi.fn>;
     clips?: {
       getClipsForBroadcasterPaginated?: ReturnType<typeof vi.fn>;
     };
@@ -23,6 +24,7 @@ type HelpTestBot = Bot & {
       getStreamByUserName?: ReturnType<typeof vi.fn>;
     };
   };
+  botUserId: string;
   clipCacheStore: {
     saveClips: (clips: unknown[]) => number;
     close: () => void;
@@ -53,7 +55,7 @@ function iterableVideos(videos: FakeVideo[]): AsyncIterable<FakeVideo> {
   };
 }
 
-function makeConfig(): Config {
+function makeConfig(overrides: Partial<Config> = {}): Config {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "twitch-raid-help-"));
   return {
     envFile: path.join(tmpDir, ".env"),
@@ -101,21 +103,26 @@ function makeConfig(): Config {
     updateLastStreamTitle: vi.fn(),
     updateMangaCommandEnabled: vi.fn(),
     getLastStreamTitle: vi.fn(() => ""),
+    ...overrides,
   } as unknown as Config;
 }
 
-function makeBot(): {
+function makeBot(overrides: Partial<Config> = {}): {
   bot: HelpTestBot;
   say: ReturnType<typeof vi.fn>;
+  config: Config;
 } {
-  const bot = new Bot(makeConfig()) as unknown as HelpTestBot;
+  const config = makeConfig(overrides);
+  const bot = new Bot(config) as unknown as HelpTestBot;
   const say = vi.fn().mockResolvedValue(undefined);
   bot.chatClient = { say };
   activeBot = bot;
-  return { bot, say };
+  return { bot, say, config };
 }
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
   activeBot?.clipCacheStore.close();
   activeBot = null;
 
@@ -416,6 +423,62 @@ describe("Bot help command", () => {
       "⚠️ `streamnotify` は管理者のみ実行できます。",
       "⚠️ 現在配信中ではないため、配信通知は送信しませんでした。",
     ]);
+  });
+
+  it("lets nyme_ia enable manga and deletes the manga reply after 10 seconds", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        text: async () =>
+          '<a href="/maniax/work/=/product_id/RJ123456.html">作品A</a>',
+      })
+    );
+
+    const { bot, say, config } = makeBot({
+      mangaCommandEnabled: false,
+      mangaAdminUsers: ["rukalun", "nyme_ia"],
+    });
+    config.updateMangaCommandEnabled = vi.fn((enabled: boolean) => {
+      config.mangaCommandEnabled = enabled;
+    });
+    const sendChatMessage = vi.fn().mockResolvedValue({ id: "manga-message-id" });
+    const deleteChatMessages = vi.fn().mockResolvedValue(undefined);
+    const asUser = vi.fn(async (_userId, callback) =>
+      callback({
+        chat: { sendChatMessage },
+        moderation: { deleteChatMessages },
+      })
+    );
+    bot.botUserId = "bot-user-id";
+    bot.apiClient = { asUser };
+    const message = {
+      userInfo: { isMod: false, isBroadcaster: false },
+    };
+
+    await bot._handleCommand("#rukalun", "nyme_ia", "!mangaon", message);
+    await bot._handleCommand("#rukalun", "nyme_ia", "!manga", message);
+
+    expect(config.updateMangaCommandEnabled).toHaveBeenCalledWith(true);
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "✅ `manga` コマンドをONにしました。"
+    );
+    expect(sendChatMessage).toHaveBeenCalledWith(
+      "broadcaster-id",
+      "今日のおすすめ漫画：作品A"
+    );
+    expect(deleteChatMessages).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(deleteChatMessages).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(deleteChatMessages).toHaveBeenCalledWith(
+      "broadcaster-id",
+      "manga-message-id"
+    );
   });
 
   it("sends a random game suggestion from streamed VOD games", async () => {
