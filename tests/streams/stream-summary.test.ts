@@ -538,6 +538,44 @@ describe("stream summary", () => {
     });
   });
 
+  it("rechecks the live-state gate after history before posting a new start notification", async () => {
+    const events: string[] = [];
+    const findHistory = vi.fn(async () => {
+      events.push("history");
+      return null;
+    });
+    const canPostStartNotification = vi.fn(() => {
+      events.push("gate");
+      return false;
+    });
+    const sendBotMessage = vi.fn(async () => {
+      events.push("send");
+      return { id: "new-start-message-id", channelId: "channel-id" };
+    });
+    const createThread = vi.fn();
+
+    const started = await ensureStreamSummaryStartThread({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      title: "終了済み配信",
+      message: "終了済み配信",
+      state: { ...state, status: "active" },
+      allowStartNotificationRepost: true,
+      canPostStartNotification,
+      findHistory,
+      sendBotMessage,
+      createThread,
+    });
+
+    expect(events).toEqual(["history", "gate"]);
+    expect(sendBotMessage).not.toHaveBeenCalled();
+    expect(createThread).not.toHaveBeenCalled();
+    expect(started).toEqual({
+      startMessageId: undefined,
+      postedStartNotification: false,
+    });
+  });
+
   it("fails closed without Discord writes when the history scan is incomplete", async () => {
     const findHistory = vi
       .fn()

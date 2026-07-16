@@ -213,14 +213,15 @@ SQLiteストアへ初回移行できるJSON例:
 - `DISCORD_BOT_TOKEN` と `DISCORD_SUMMARY_CHANNEL_ID` がある場合、配信開始通知メッセージからDiscordスレッドを作成し、そのスレッドIDを保存する
 - 同一タイトルで開始通知がスキップされた再起動・連続配信ケースでは、保存済み `startMessageId` を最優先し、無い場合はDiscordのactive/public archivedスレッドを全ページ確認する。親チャンネルと完全一致スレッド名が一致し、開始メッセージID・thread ID・候補thread IDがすべて同じ最新スレッドだけを再利用する。thread名は絵文字のsurrogate pairを分断しないcode point単位で最大100文字へ切り詰める
 - 同名スレッドが無い場合は親チャンネルのメッセージ履歴を新しい順に確認し、Embed内の配信タイトルとTwitch URLが完全一致し、投稿者が現在のBotまたは設定済みWebhookで、まだスレッドが無い開始通知だけを再利用する。他Bot・他Webhook・部分一致・既にスレッド付きの投稿は使わない
-- スレッド一覧と開始通知履歴を最後まで正常取得して一致が無い場合だけ、新しい開始通知を1通投稿してスレッドを作る。Discord 429では `retry_after` を尊重し、それ以外の失敗は60秒から最大15分まで指数backoffする。同一チャンネル・同一スレッド名の同時保証処理は1回へ集約し、backoff中のDiscord API呼び出しは行わない
+- 配信開始を実際に検知した直後の開始処理と、配信中のClip投稿前に行う開始通知再試行では、スレッド一覧と開始通知履歴を最後まで正常取得して一致が無い場合に新しい開始通知を1通投稿してスレッドを作る。配信終了処理へ入った後は履歴上の既存スレッド／orphan開始通知の再利用だけを行い、完全no-matchでも開始通知を自動再送しない。Discord 429では `retry_after` を尊重し、それ以外の失敗は60秒から最大15分まで指数backoffする。同一チャンネル・同一スレッド名の同時保証処理は1回へ集約し、backoff中のDiscord API呼び出しは行わない
+- 履歴走査中に配信終了へ変わる競合を防ぐため、新規開始通知のPOST直前に最新stateが同じstream IDの `active` であることを再確認する。既に `pending` または別配信へ変わっていれば、配信中に開始したin-flight再試行でも新規投稿を中止する
 - Discord履歴走査には全体15秒のtimeoutを設ける。archived timestampまたはmessage Snowflakeのcursorが進まない場合は20pageを連打せず直ちに不完了とし、no-matchや新規作成へ進まない
 - 新しい開始通知のmessage IDはスレッド作成前にstateへ保存する。スレッド作成やプロセスが途中で失敗しても、次回は同じmessage IDまたは履歴上のorphan開始通知から再試行し、開始通知を重複投稿しない
 - Bot APIの開始通知POSTが403で確実に拒否された時だけWebhookへfallbackする。network/5xx/成功応答のID欠損など投稿成否が曖昧な失敗では同じ呼出内にWebhookを追加せず、backoff後の履歴走査で自Botのorphanを回収する
 - `!streamnotify` で手動送信した場合は、新しく送った通知投稿の `startMessageId` / `threadId` を既存stateより優先し、その通知投稿から作成したスレッドへ以後のクリップと終了まとめを集約する
 - 直近クリップ同期は1分ごとに実行し、既定では過去6時間分を取り直す。配信中に新規クリップを検知したら未投稿分だけ配信まとめスレッドへ投稿して `postedClipIds` に保存する
-- クリップ検知時に `threadId` が無い場合は、保存済み `startMessageId`、Discord同名スレッド、orphan開始通知の順で復旧する。保存済みmessageのthread作成が確定404なら古いIDとして履歴検索へ進み、500・429・通信失敗・予期しない例外は新規作成せずbackoffする。履歴の完全走査が成功して一致が無い時だけ新規作成し、履歴取得・スレッド作成に失敗した時は警告ログとstateを残して再試行する
-- 開始通知そのものを再送したい場合は、管理者が `!streamnotify` を使って明示的に手動送信する
+- 配信中のクリップ検知時に `threadId` が無い場合は、保存済み `startMessageId`、Discord同名スレッド、orphan開始通知の順で復旧する。保存済みmessageのthread作成が確定404なら古いIDとして履歴検索へ進み、500・429・通信失敗・予期しない例外はbackoffする。配信中の履歴完全no-matchでは開始時の失敗を再試行するため新しい開始通知を1通作成できるが、終了処理へ入った後は新規作成しない
+- 開始通知をすぐ明示的に再送したい場合は、配信中に管理者が `!streamnotify` を実行する
 - 新しい開始通知が投稿されたが `threadId` が返らなかった場合は、古い `threadId` を保持せずクリアする。これにより、存在しない/古いスレッドへ投稿済み扱いで `postedClipIds` だけ進むことを防ぐ
 - 配信終了検知時に「配信終了まとめ」をDiscordへ投稿し、配信時間、ゲーム、コメント数、Raid数、クリップ数、ハイライト候補を表示
 - まとめ投稿前に配信時間帯のクリップを最終同期し、active/pendingどちらの状態でも開始通知起点のスレッド保証を通してから、未投稿クリップと終了まとめを投稿する
@@ -378,6 +379,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-07-16**: 22:40の配信開始時にDiscord履歴APIが429となって開始通知を作れず、02:56の配信終了後もpendingまとめのスレッド復旧が開始通知の新規作成を許したため、429が解けた09:40に終了済み配信の開始通知と終了まとめが連続投稿された。本番stateの開始・終了時刻、Discord message Snowflake、Botログを突き合わせて再現し、配信中の429解除後再試行は維持したまま、active stateの終了処理とpending再試行では既存スレッド／orphanの再利用だけに限定した。履歴走査中に配信が終了するin-flight競合も送信直前の最新state gateで中止し、終了後に開始通知を新規作成しないactive／pending／競合回帰テストを追加した
 - **2026-07-15**: Dokployの永続envで約60行分の設定が `TWITCH_CLIENT_ID` 1項目へ文字列 `\n` 連結され、`nyme_ia` が `MANGA_ADMIN_USERS` から外れた実効値になり、broadcaster IDとOAuth client情報も欠落していたため、`!mangaon` の管理者判定とmanga返信の10秒後削除が同時に動かなくなった。`Config` で連結ブロックを個別キーへ復元し、独立envと `runtime.env` を優先する回帰テストを追加した。Bot dispatcherでは `nyme_ia` の `!mangaon`、Bot API返信ID取得、9.999秒時点未削除、10秒時点削除を統合テストで固定した。本番のDokploy DB/Swarm envも90個の独立キーへ正規化してmangaをONへ戻し、OAuth HTTP 200、送信/削除スコープ有効、接続成功、起動後ERROR 0を確認した
 - **2026-07-15**: SUB AI Servicesの実測ボトルネックを改善した。Ollama約29.0GBとWhisper/SBVITS2共有Hugging Face cache約6.6GBを `/mnt/c` からWSL ext4へ同一バイト数・ファイル数で先行移行し、`OLLAMA_MAX_LOADED_MODELS=2` / `OLLAMA_FLASH_ATTENTION=1`、SearXNG接続再利用300秒、mem0起動時初期化を反映した。Windows Scheduled Taskは、portproxy失敗で常駐を止めない追跡スクリプトへ切り替え、PowerShell 5.1でparam既定値内の `$PSScriptRoot` が空になる実機不具合も回帰テスト付きで修正した。commit `48da5e5` のmem0 image digestは `sha256:cd3be6ece41455174fa9d24324ed9669d1075f6f3452a8fd1faf1952e4ec2f12`。コールドqwen空preloadは80.2秒から50.0秒へ37.6%短縮し、20回連続p95は生成1601.35→556.40ms、embed 163.83→34.84ms、mem0 132.33→40.67ms、SearXNG 818.30→254.24ms。固定回答、768次元embed、mem0 score閾値、検索結果を全件検証し、6サービス1/1、qwen/nomic同時常駐、task不変、restart/error 0、実チャット送信・mem0書込み0を確認した
 - **2026-07-13**: 性能最適化commit `c4a10b3` をサブPCのSwarm service `twitch-raid-apcz9n` へ反映した。クリーンbuildした `localhost:5050/twitch-raid-apcz9n:c4a10b3` / `:local` はdigest `sha256:45835d8d36951f66e47564d213f8bc2d392b3d982bbd528e9944433d7f439c6c`。本番Clip DBは2,802件（利用可能2,782件）で3つの候補順複合indexとcovering index利用を確認し、200回平均は全件3.04ms、作成者ID絞込2.70ms、検索5.63msだった。反映後はservice 1/1、revision一致、restart 0、WARN/ERROR 0、Bot起動・Twitchログイン・Clip全期間同期完了、prewarm失敗0を確認した。

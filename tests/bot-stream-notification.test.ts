@@ -13,6 +13,7 @@ import {
   buildStreamSummaryThreadName,
   type EnsureStreamSummaryStartThreadOptions,
   type StartStreamSummaryThreadResult,
+  type StreamSummaryState,
 } from "../src/streams/stream-summary";
 import logger from "../src/utils/logger";
 
@@ -132,6 +133,9 @@ describe("Bot stream start notification", () => {
     const payload = bot._ensureStreamStartSummaryThread.mock.calls[0][1] as
       | DiscordWebhookPayload
       | undefined;
+    expect(bot._ensureStreamStartSummaryThread.mock.calls[0][2]).toEqual({
+      allowStartNotificationRepost: true,
+    });
     expect(payload?.embeds?.[0]?.image?.url).toBe(
       "https://static-cdn.jtvnw.net/previews-ttv/live_user_rukalun-1280x720.jpg?stream_id=stream-123"
     );
@@ -269,6 +273,235 @@ describe("Bot stream start notification", () => {
     expect(saved.status).toBe("pending");
     expect(saved.summaryMessageId).toBeUndefined();
     expect(saved.postedClipIds).toEqual([]);
+  });
+
+  it.each([
+    { status: "active" as const, endedAt: undefined },
+    {
+      status: "pending" as const,
+      endedAt: "2026-07-15T17:56:28.239Z",
+    },
+  ])(
+    "does not create a late start notification while finalizing an ended summary from $status state",
+    async ({ status, endedAt }) => {
+      const config = {
+        ...makeConfig(),
+        discordBotToken: "bot-token",
+        discordSummaryChannelId: "channel-id",
+      };
+      fs.mkdirSync(path.dirname(config.streamSummaryStatePath), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        config.streamSummaryStatePath,
+        `${JSON.stringify({
+          status,
+          streamId: "stream-ended-without-thread",
+          title: "終了済み配信",
+          gameName: "7 Days to Die",
+          startedAt: "2026-07-15T13:39:16.000Z",
+          ...(endedAt ? { endedAt } : {}),
+          streamUrl: "https://www.twitch.tv/rukalun",
+          commentCount: 1,
+          raidCount: 1,
+          postedClipIds: [],
+        })}\n`
+      );
+
+      const bot = new Bot(config) as unknown as Bot & {
+        clipCacheStore: {
+          close: () => void;
+          listClipsCreatedBetween: ReturnType<typeof vi.fn>;
+        };
+        streamSummaryThreadEnsurer: ReturnType<typeof vi.fn>;
+        _finalizeAndPostStreamSummary: (endedAt: string) => Promise<void>;
+      };
+      activeBot = bot;
+      bot.clipCacheStore.listClipsCreatedBetween = vi.fn().mockReturnValue([]);
+      const lateStartPost = vi.fn();
+      bot.streamSummaryThreadEnsurer = vi.fn(
+        async (options: EnsureStreamSummaryStartThreadOptions) => {
+          if (options.allowStartNotificationRepost !== false) {
+            lateStartPost();
+            return {
+              startMessageId: "late-start-message-id",
+              threadId: "late-start-message-id",
+              postedStartNotification: true,
+            };
+          }
+          return {};
+        }
+      );
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: "summary-message-id",
+            channel_id: "late-start-message-id",
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await bot._finalizeAndPostStreamSummary("2026-07-15T17:56:28.239Z");
+
+      expect(lateStartPost).not.toHaveBeenCalled();
+      expect(bot.streamSummaryThreadEnsurer).toHaveBeenCalledWith(
+        expect.objectContaining({ allowStartNotificationRepost: false })
+      );
+      const saved = JSON.parse(
+        fs.readFileSync(config.streamSummaryStatePath, "utf8")
+      ) as {
+        status: string;
+        startMessageId?: string;
+        threadId?: string;
+      };
+      expect(saved).toMatchObject({ status: "pending" });
+      expect(saved.startMessageId).toBeUndefined();
+      expect(saved.threadId).toBeUndefined();
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it("keeps automatic start notification retry enabled while the stream is active", async () => {
+    const config = {
+      ...makeConfig(),
+      discordBotToken: "bot-token",
+      discordSummaryChannelId: "channel-id",
+    };
+    const bot = new Bot(config) as unknown as Bot & {
+      clipCacheStore: { close: () => void };
+      streamSummaryStateStore: {
+        save: (state: StreamSummaryState) => void;
+      };
+      streamSummaryThreadEnsurer: ReturnType<typeof vi.fn>;
+      _ensureCurrentStreamSummaryThread: (
+        state: StreamSummaryState
+      ) => Promise<StreamSummaryState | null>;
+    };
+    activeBot = bot;
+    const state: StreamSummaryState = {
+      status: "active",
+      streamId: "stream-live-without-thread",
+      title: "配信中",
+      gameName: "7 Days to Die",
+      startedAt: "2026-07-15T13:39:16.000Z",
+      streamUrl: "https://www.twitch.tv/rukalun",
+      commentCount: 1,
+      raidCount: 1,
+      postedClipIds: [],
+    };
+    bot.streamSummaryStateStore.save(state);
+    bot.streamSummaryThreadEnsurer = vi.fn().mockResolvedValue({});
+
+    await bot._ensureCurrentStreamSummaryThread(state);
+
+    expect(bot.streamSummaryThreadEnsurer).toHaveBeenCalledWith(
+      expect.objectContaining({ allowStartNotificationRepost: true })
+    );
+  });
+
+  it("cancels an in-flight live start notification retry after the stream ends", async () => {
+    const config = {
+      ...makeConfig(),
+      discordBotToken: "bot-token",
+      discordSummaryChannelId: "channel-id",
+    };
+    const bot = new Bot(config) as unknown as Bot & {
+      clipCacheStore: {
+        close: () => void;
+        listClipsCreatedBetween: ReturnType<typeof vi.fn>;
+      };
+      streamSummaryStateStore: {
+        save: (state: StreamSummaryState) => void;
+        load: () => StreamSummaryState | null;
+      };
+      streamSummaryThreadEnsurer: ReturnType<typeof vi.fn>;
+      _ensureCurrentStreamSummaryThread: (
+        state: StreamSummaryState
+      ) => Promise<StreamSummaryState | null>;
+      _finalizeAndPostStreamSummary: (endedAt: string) => Promise<void>;
+    };
+    activeBot = bot;
+    const state: StreamSummaryState = {
+      status: "active",
+      streamId: "stream-ending-during-recovery",
+      title: "終了直前の配信",
+      gameName: "7 Days to Die",
+      startedAt: "2026-07-15T13:39:16.000Z",
+      streamUrl: "https://www.twitch.tv/rukalun",
+      commentCount: 1,
+      raidCount: 1,
+      postedClipIds: [],
+    };
+    bot.streamSummaryStateStore.save(state);
+    bot.clipCacheStore.listClipsCreatedBetween = vi.fn().mockReturnValue([]);
+
+    let markRecoveryStarted!: () => void;
+    const recoveryStarted = new Promise<void>((resolve) => {
+      markRecoveryStarted = resolve;
+    });
+    let releaseRecovery!: () => void;
+    const recoveryPaused = new Promise<void>((resolve) => {
+      releaseRecovery = resolve;
+    });
+    const lateStartPost = vi.fn();
+    bot.streamSummaryThreadEnsurer = vi.fn(
+      async (
+        rawOptions: EnsureStreamSummaryStartThreadOptions & {
+          canPostStartNotification?: () => boolean | Promise<boolean>;
+        }
+      ) => {
+        markRecoveryStarted();
+        await recoveryPaused;
+        if (
+          !rawOptions.canPostStartNotification ||
+          (await rawOptions.canPostStartNotification())
+        ) {
+          lateStartPost();
+          return {
+            startMessageId: "late-start-message-id",
+            threadId: "late-start-message-id",
+            postedStartNotification: true,
+          };
+        }
+        return {};
+      }
+    );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "summary-message-id",
+          channel_id: "late-start-message-id",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const liveRecovery = bot._ensureCurrentStreamSummaryThread(state);
+    await recoveryStarted;
+    const finalize = bot._finalizeAndPostStreamSummary(
+      "2026-07-15T17:56:28.239Z"
+    );
+    await vi.waitFor(() => {
+      expect(bot.streamSummaryStateStore.load()?.status).toBe("pending");
+    });
+    releaseRecovery();
+    await Promise.all([liveRecovery, finalize]);
+
+    expect(lateStartPost).not.toHaveBeenCalled();
+    const saved = bot.streamSummaryStateStore.load();
+    expect(saved).toMatchObject({ status: "pending" });
+    expect(saved?.startMessageId).toBeUndefined();
+    expect(saved?.threadId).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("uses the Unicode-safe thread name for a webhook-only ending summary", async () => {

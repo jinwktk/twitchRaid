@@ -2814,7 +2814,8 @@ export class Bot {
       async (message) => {
         const started = await this._ensureStreamStartSummaryThread(
           stream.title,
-          message
+          message,
+          { allowStartNotificationRepost: true }
         );
         this._logStreamStartNotificationPreview(stream.title, message, started);
       }
@@ -2935,6 +2936,12 @@ export class Bot {
       message,
       state,
       allowStartNotificationRepost: options.allowStartNotificationRepost,
+      canPostStartNotification: () => {
+        const latest = this.streamSummaryStateStore.load();
+        return Boolean(
+          latest && latest.status === "active" && latest.streamId === state.streamId
+        );
+      },
       persistStartMessage: (startMessageId) => {
         this._persistStreamSummaryStartMessage(
           state.streamId,
@@ -3174,7 +3181,7 @@ export class Bot {
         gameName: state.gameName,
         streamUrl: state.streamUrl,
       }),
-      { allowStartNotificationRepost: true }
+      { allowStartNotificationRepost: state.status === "active" }
     );
 
     const current = this.streamSummaryStateStore.load();
@@ -3302,7 +3309,7 @@ export class Bot {
         start: new Date(current.startedAt),
         end: new Date(finalEndedAt),
       });
-      if (current.status === "active") {
+      if (current.status === "active" && current.threadId) {
         await this._postNewStreamClipsToSummaryThread(new Date(finalEndedAt));
       }
 

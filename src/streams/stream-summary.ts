@@ -105,6 +105,7 @@ export interface EnsureStreamSummaryStartThreadOptions
   extends StartStreamSummaryThreadOptions {
   state: StreamSummaryState;
   allowStartNotificationRepost?: boolean;
+  canPostStartNotification?: () => boolean | Promise<boolean>;
   findHistory?: FindHistory;
 }
 
@@ -397,6 +398,7 @@ export async function ensureStreamSummaryStartThread({
   message,
   state,
   allowStartNotificationRepost = true,
+  canPostStartNotification,
   sendWebhook = executeDiscordWebhook,
   sendBotMessage = sendDiscordBotMessage,
   createThread = createDiscordThreadFromMessage,
@@ -475,7 +477,10 @@ export async function ensureStreamSummaryStartThread({
     }
   }
 
-  if (!allowStartNotificationRepost) {
+  if (
+    !allowStartNotificationRepost ||
+    (canPostStartNotification && !(await canPostStartNotification()))
+  ) {
     return {
       startMessageId: state.startMessageId,
       postedStartNotification: false,
