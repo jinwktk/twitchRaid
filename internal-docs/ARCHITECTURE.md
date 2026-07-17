@@ -39,8 +39,10 @@ src/index.ts
 
 ```text
 配信開始検知
+  -> Twitch EventSub WebSocketのstream.onlineを主経路にする
+  -> 接続断・購読失敗時は60秒ごとのHelix確認で補完する
   -> data/stream-summary-state.json に active state保存
-  -> Discordへ開始通知投稿
+  -> 新しいstream IDの初回だけDiscord履歴走査より先に開始通知投稿
   -> 開始通知メッセージからスレッド作成
   -> startMessageId / threadId保存
 
@@ -61,7 +63,7 @@ src/index.ts
 - TypeScript版の内部仕様書は `internal-docs/twitchraid-bot-zukan.html` を正本にする。公開Clip検索画面の正本は `RukalunPage` リポジトリに置き、twitchRaid側の `docs/` は旧URL互換リダイレクトだけにする。
 - Discord投稿はBot API優先。403などで失敗し、Webhook URLがある場合はWebhookへフォールバックする。
 - `!streamnotify` は新しい開始通知の `startMessageId` / `threadId` を既存stateより優先する。
-- 自動スレッド保証処理は、保存済み `startMessageId` からのスレッド作成だけを行い、開始通知を再投稿しない。通知を再送する場合は `!streamnotify` で明示する。
+- 新しいstream IDを初めてstateへ保存した開始検知では、Discord履歴APIの429で開始通知が遅れないよう、履歴走査より先に開始通知を送る。送信結果が不明な再試行、既存active stateの復旧、Clip/終了まとめ経路ではDiscord履歴を先に照合し、終了済みstateからは新しい開始通知を送らない。明示的な強制再送は `!streamnotify` を使う。
 - 新しい開始通知に `threadId` が無い場合、古い `threadId` は保持しない。
 - 通常コメントによる配信まとめコメント数更新は30秒デバウンスし、Raid/停止/配信終了時は即時flushする。
 - Raid shoutoutは `ShoutoutQueue` で直列化し、429時は2分後に同一対象を再実行する。

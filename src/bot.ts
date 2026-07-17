@@ -1,6 +1,7 @@
 import { ChatClient, ChatMessage } from "@twurple/chat";
 import { ApiClient } from "@twurple/api";
 import { RefreshingAuthProvider } from "@twurple/auth";
+import { EventSubWsListener } from "@twurple/eventsub-ws";
 import { DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS, type Config } from "./config";
 import logger from "./utils/logger";
 import { StreamTitleNotifier } from "./notifications/stream-notifications";
@@ -150,6 +151,7 @@ const MANGA_DELETE_DELAY_SECONDS = 10;
 const DEFAULT_MENTION_CHAT_COOLDOWN_SECONDS = 5;
 const STREAM_SUMMARY_THREAD_RETRY_INITIAL_MS = 60_000;
 const STREAM_SUMMARY_THREAD_RETRY_MAX_MS = 15 * 60_000;
+const STREAM_STATUS_POLL_INTERVAL_MS = 60_000;
 const MENTION_CHAT_SKIP_PROMPT_LIMIT = 80;
 const CHAT_AI_COMMAND_USAGE = "⚠️ 使い方: !chat <メッセージ>";
 const YOUTUBE_CHANNEL_URL = "https://is.gd/rukalunyt";
@@ -530,6 +532,12 @@ export class Bot {
   private readonly streamSummaryManualForceInFlightKeys = new Set<string>();
   private streamSummaryThreadEnsurer: StreamSummaryThreadEnsurer =
     ensureStreamSummaryStartThread;
+  private streamEventSubListenerFactory = (apiClient: ApiClient) =>
+    new EventSubWsListener({ apiClient });
+  private streamEventSubListener: EventSubWsListener | null = null;
+  private streamStatusCheckInFlight: Promise<void> | null = null;
+  private streamStatusCheckRerunRequested = false;
+  private streamStatusErrorCount = 0;
   private streamClipPostRunning = false;
   private streamClipPostRerunRequested = false;
   private streamClipPostRerunAt: Date | null = null;
@@ -701,6 +709,8 @@ export class Bot {
   async stop(): Promise<void> {
     if (this.keepAliveTimer) clearInterval(this.keepAliveTimer);
     if (this.streamMonitorTimer) clearInterval(this.streamMonitorTimer);
+    this.streamEventSubListener?.stop();
+    this.streamEventSubListener = null;
     if (this.commentSaveTimer) clearTimeout(this.commentSaveTimer);
     // 停止前にコメント状態を即座に保存
     this._flushCommentState();
@@ -2682,66 +2692,130 @@ export class Bot {
   private _startStreamMonitor(): void {
     if (this.streamMonitorTimer) clearInterval(this.streamMonitorTimer);
 
-    let errorCount = 0;
-    const maxErrors = 5;
+    this._startStreamEventSub();
+    void this._checkStreamStatus();
+    this.streamMonitorTimer = setInterval(
+      () => void this._checkStreamStatus(),
+      STREAM_STATUS_POLL_INTERVAL_MS
+    );
+  }
 
-    const checkStreamStatus = async () => {
-      try {
-        const stream = await this.apiClient.streams.getStreamByUserName(
-          this.config.loginChannel
+  private _startStreamEventSub(): void {
+    if (this.streamEventSubListener) return;
+
+    const broadcasterId = (this.config.twitchBroadcasterId ?? "").trim();
+    if (!broadcasterId) {
+      logger.warn("⚠️ Twitch broadcaster ID未設定のため、配信検知は60秒ポーリングで継続します。");
+      return;
+    }
+
+    try {
+      const listener = this.streamEventSubListenerFactory(this.apiClient);
+      listener.onStreamOnline(broadcasterId, () => {
+        logger.info("⚡ Twitch EventSubで配信開始を受信しました。");
+        void this._checkStreamStatus();
+      });
+      listener.onStreamOffline(broadcasterId, () => {
+        logger.info("⚡ Twitch EventSubで配信終了を受信しました。");
+        void this._checkStreamStatus();
+      });
+      listener.onSubscriptionCreateFailure((_subscription, error) => {
+        logger.warn(
+          `⚠️ Twitch EventSub購読作成に失敗しました。60秒ポーリングで継続します: ${error.name}`
         );
+      });
+      listener.onRevoke((_subscription, status) => {
+        logger.warn(
+          `⚠️ Twitch EventSub購読が無効化されました。60秒ポーリングで継続します: status=${status}`
+        );
+      });
+      listener.start();
+      this.streamEventSubListener = listener;
+      logger.info("✅ Twitch EventSub配信開始・終了監視を開始しました。");
+    } catch (error) {
+      logger.warn(
+        `⚠️ Twitch EventSub監視を開始できませんでした。60秒ポーリングで継続します: ${error instanceof Error ? error.name : "unknown_error"}`
+      );
+    }
+  }
 
-        if (stream) {
-          if (!this.streamLive) {
-            logger.info(`🎥 配信が開始されました！タイトル: ${stream.title}`);
-            await this._handleStreamStarted(stream);
-            this.streamLive = true;
-            await this._notifyStreamStartedOnDiscord(stream);
-            await this._postNewStreamClipsToSummaryThread();
-          }
+  private _checkStreamStatus(): Promise<void> {
+    if (this.streamStatusCheckInFlight) {
+      this.streamStatusCheckRerunRequested = true;
+      return this.streamStatusCheckInFlight;
+    }
 
-          if (this.commentSpeedMeter.streamStartedAt() === null) {
-            const startedAt = stream.startDate.getTime() / 1000;
-            this.commentSpeedMeter.ensureStreamStarted(startedAt);
-            saveCommentState(
-              this.config.envFile,
-              this.commentSpeedMeter.totalCount(),
-              startedAt
-            );
-          }
-        } else {
-          const summaryState = this.streamSummaryStateStore.load();
-          if (this.streamLive || (summaryState && summaryState.status !== "posted")) {
-            logger.info("📢 配信が終了しました！");
-            this._flushStreamSummaryCounts();
-            await this._finalizeAndPostStreamSummary(new Date().toISOString());
-            this.commentSpeedMeter.resetStream();
-            saveCommentState(this.config.envFile, 0, 0);
-            this.streamLive = false;
-          }
-          await this.clipCacheSynchronizer?.runDailyReconcileIfDue();
+    const attempt = (async () => {
+      do {
+        this.streamStatusCheckRerunRequested = false;
+        await this._checkStreamStatusOnce();
+      } while (this.streamStatusCheckRerunRequested);
+    })();
+    const trackedAttempt = attempt.finally(() => {
+      if (this.streamStatusCheckInFlight === trackedAttempt) {
+        this.streamStatusCheckInFlight = null;
+      }
+    });
+    this.streamStatusCheckInFlight = trackedAttempt;
+    return trackedAttempt;
+  }
+
+  private async _checkStreamStatusOnce(): Promise<void> {
+    const maxErrors = 5;
+    try {
+      const stream = await this.apiClient.streams.getStreamByUserName(
+        this.config.loginChannel
+      );
+
+      if (stream) {
+        if (!this.streamLive) {
+          logger.info(`🎥 配信が開始されました！タイトル: ${stream.title}`);
+          const newlyDetectedStream = await this._handleStreamStarted(stream);
+          this.streamLive = true;
+          await this._notifyStreamStartedOnDiscord(stream, {
+            newlyDetectedStream,
+          });
+          await this._postNewStreamClipsToSummaryThread();
         }
 
-        errorCount = 0;
-      } catch (e) {
-        errorCount++;
-        logger.error(
-          `⚠️ 配信状態チェックエラー (${errorCount}/${maxErrors}): ${e}`
-        );
+        if (this.commentSpeedMeter.streamStartedAt() === null) {
+          const startedAt = stream.startDate.getTime() / 1000;
+          this.commentSpeedMeter.ensureStreamStarted(startedAt);
+          saveCommentState(
+            this.config.envFile,
+            this.commentSpeedMeter.totalCount(),
+            startedAt
+          );
+        }
+      } else {
+        const summaryState = this.streamSummaryStateStore.load();
+        if (this.streamLive || (summaryState && summaryState.status !== "posted")) {
+          logger.info("📢 配信が終了しました！");
+          this._flushStreamSummaryCounts();
+          await this._finalizeAndPostStreamSummary(new Date().toISOString());
+          this.commentSpeedMeter.resetStream();
+          saveCommentState(this.config.envFile, 0, 0);
+          this.streamLive = false;
+        }
+        await this.clipCacheSynchronizer?.runDailyReconcileIfDue();
+      }
 
-        if (errorCount >= maxErrors) {
-          logger.warn("🔄 エラーが続くため、トークンを自動更新します...");
-          const newToken = await refreshAccessTokenAdvanced(this.config);
-          if (newToken) {
-            errorCount = 0;
-            logger.info("✅ トークン更新完了。監視を継続します。");
-          }
+      this.streamStatusErrorCount = 0;
+    } catch (error) {
+      this.streamStatusErrorCount++;
+      logger.error(
+        `⚠️ 配信状態チェックエラー (${this.streamStatusErrorCount}/${maxErrors}): ${error}`
+      );
+
+      if (this.streamStatusErrorCount >= maxErrors) {
+        logger.warn("🔄 エラーが続くため、トークンを自動更新します...");
+        const newToken = await refreshAccessTokenAdvanced(this.config);
+        if (newToken) {
+          this.streamStatusErrorCount = 0;
+          logger.info("✅ トークン更新完了。監視を継続します。");
         }
       }
-    };
-
-    void checkStreamStatus();
-    this.streamMonitorTimer = setInterval(checkStreamStatus, 180_000); // 180秒ごと
+    }
   }
 
   private async _handleStreamStarted(stream: {
@@ -2749,7 +2823,7 @@ export class Bot {
     title: string;
     gameName?: string;
     startDate: Date;
-  }): Promise<void> {
+  }): Promise<boolean> {
     const existing = this.streamSummaryStateStore.load();
     if (existing && existing.status !== "posted" && existing.streamId !== stream.id) {
       await this._finalizeAndPostStreamSummary(new Date().toISOString());
@@ -2774,7 +2848,7 @@ export class Bot {
         raidCount: 0,
         postedClipIds: [],
       });
-      return;
+      return true;
     }
 
     if (!this.streamLive) {
@@ -2785,6 +2859,7 @@ export class Bot {
       this.commentSpeedMeter.totalCount(),
       existing.raidCount
     );
+    return false;
   }
 
   private async _postManualStreamStartNotification(
@@ -2808,14 +2883,19 @@ export class Bot {
     thumbnailUrl?: string;
     getThumbnailUrl?: (width: number, height: number) => string;
     startDate?: Date;
-  }): Promise<void> {
+  }, options: { newlyDetectedStream?: boolean } = {}): Promise<void> {
+    let notificationAttempted = false;
     await this.streamNotifier.notifyIfNeeded(
       this._streamNotificationDetails(stream),
       async (message) => {
+        notificationAttempted = true;
         const started = await this._ensureStreamStartSummaryThread(
           stream.title,
           message,
-          { allowStartNotificationRepost: true }
+          {
+            allowStartNotificationRepost: true,
+            postStartNotificationImmediately: options.newlyDetectedStream === true,
+          }
         );
         this._logStreamStartNotificationPreview(stream.title, message, started);
       }
@@ -2829,7 +2909,11 @@ export class Bot {
       await this._ensureStreamStartSummaryThread(
         stream.title,
         message,
-        { allowStartNotificationRepost: true }
+        {
+          allowStartNotificationRepost: true,
+          postStartNotificationImmediately:
+            options.newlyDetectedStream === true && !notificationAttempted,
+        }
       );
     }
   }
@@ -2837,7 +2921,10 @@ export class Bot {
   private _ensureStreamStartSummaryThread(
     title: string,
     message: DiscordWebhookPayload,
-    options: { allowStartNotificationRepost?: boolean } = {}
+    options: {
+      allowStartNotificationRepost?: boolean;
+      postStartNotificationImmediately?: boolean;
+    } = {}
   ): Promise<StartStreamSummaryThreadResult> {
     if (!this._canPostDiscordSummary()) return Promise.resolve({});
 
@@ -2917,7 +3004,10 @@ export class Bot {
   private async _ensureStreamStartSummaryThreadOnce(
     title: string,
     message: DiscordWebhookPayload,
-    options: { allowStartNotificationRepost?: boolean } = {}
+    options: {
+      allowStartNotificationRepost?: boolean;
+      postStartNotificationImmediately?: boolean;
+    } = {}
   ): Promise<StartStreamSummaryThreadResult> {
     if (!this._canPostDiscordSummary()) return {};
 
@@ -2936,6 +3026,7 @@ export class Bot {
       message,
       state,
       allowStartNotificationRepost: options.allowStartNotificationRepost,
+      postStartNotificationImmediately: options.postStartNotificationImmediately,
       canPostStartNotification: () => {
         const latest = this.streamSummaryStateStore.load();
         return Boolean(

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { DiscordApiRequestError } from "../../src/notifications/discord-webhook";
+import {
+  DiscordApiRequestError,
+  DiscordHistoryLookupError,
+} from "../../src/notifications/discord-webhook";
 import {
   buildStreamSummaryThreadName,
   ensureStreamSummaryStartThread,
@@ -532,6 +535,51 @@ describe("stream summary", () => {
 
     expect(events).toEqual(["history", "send"]);
     expect(started).toMatchObject({
+      startMessageId: "new-start-message-id",
+      threadId: "new-thread-id",
+      postedStartNotification: true,
+    });
+  });
+
+  it("posts a newly detected stream before history lookup so Discord history rate limits cannot delay it", async () => {
+    const events: string[] = [];
+    const findHistory = vi.fn(async () => {
+      events.push("history");
+      throw new DiscordHistoryLookupError("rate_limited", {
+        status: 429,
+        retryAfterMs: 300,
+      });
+    });
+    const canPostStartNotification = vi.fn(() => {
+      events.push("gate");
+      return true;
+    });
+    const sendBotMessage = vi.fn(async () => {
+      events.push("send");
+      return { id: "new-start-message-id", channelId: "channel-id" };
+    });
+    const createThread = vi.fn(async () => {
+      events.push("thread");
+      return { id: "new-thread-id" };
+    });
+
+    const started = await ensureStreamSummaryStartThread({
+      botToken: "bot-token",
+      channelId: "channel-id",
+      title: "新規配信",
+      message: "新規配信",
+      state: { ...state, status: "active" },
+      allowStartNotificationRepost: true,
+      postStartNotificationImmediately: true,
+      canPostStartNotification,
+      findHistory,
+      sendBotMessage,
+      createThread,
+    });
+
+    expect(events).toEqual(["gate", "send", "thread"]);
+    expect(findHistory).not.toHaveBeenCalled();
+    expect(started).toEqual({
       startMessageId: "new-start-message-id",
       threadId: "new-thread-id",
       postedStartNotification: true,

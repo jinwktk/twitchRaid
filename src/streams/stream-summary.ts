@@ -105,6 +105,7 @@ export interface EnsureStreamSummaryStartThreadOptions
   extends StartStreamSummaryThreadOptions {
   state: StreamSummaryState;
   allowStartNotificationRepost?: boolean;
+  postStartNotificationImmediately?: boolean;
   canPostStartNotification?: () => boolean | Promise<boolean>;
   findHistory?: FindHistory;
 }
@@ -398,6 +399,7 @@ export async function ensureStreamSummaryStartThread({
   message,
   state,
   allowStartNotificationRepost = true,
+  postStartNotificationImmediately = false,
   canPostStartNotification,
   sendWebhook = executeDiscordWebhook,
   sendBotMessage = sendDiscordBotMessage,
@@ -405,6 +407,23 @@ export async function ensureStreamSummaryStartThread({
   persistStartMessage,
   findHistory = findDiscordStreamSummaryHistory,
 }: EnsureStreamSummaryStartThreadOptions): Promise<StartStreamSummaryThreadResult> {
+  const mayPostStartNotification = async (): Promise<boolean> =>
+    allowStartNotificationRepost &&
+    (!canPostStartNotification || (await canPostStartNotification()));
+  const postStartNotification = (): Promise<StartStreamSummaryThreadResult> =>
+    startStreamSummaryThread({
+      webhookUrl,
+      botToken,
+      channelId,
+      webhookThreadName,
+      title,
+      message,
+      sendWebhook,
+      sendBotMessage,
+      createThread,
+      persistStartMessage,
+    });
+
   if (state.threadId) {
     return {
       startMessageId: state.startMessageId,
@@ -437,6 +456,14 @@ export async function ensureStreamSummaryStartThread({
         postedStartNotification: false,
       };
     }
+  }
+
+  if (
+    postStartNotificationImmediately &&
+    !state.startMessageId &&
+    (await mayPostStartNotification())
+  ) {
+    return postStartNotification();
   }
 
   if (botToken && channelId) {
@@ -477,28 +504,14 @@ export async function ensureStreamSummaryStartThread({
     }
   }
 
-  if (
-    !allowStartNotificationRepost ||
-    (canPostStartNotification && !(await canPostStartNotification()))
-  ) {
+  if (!(await mayPostStartNotification())) {
     return {
       startMessageId: state.startMessageId,
       postedStartNotification: false,
     };
   }
 
-  return startStreamSummaryThread({
-    webhookUrl,
-    botToken,
-    channelId,
-    webhookThreadName,
-    title,
-    message,
-    sendWebhook,
-    sendBotMessage,
-    createThread,
-    persistStartMessage,
-  });
+  return postStartNotification();
 }
 
 function toDiscordMessagePayload(

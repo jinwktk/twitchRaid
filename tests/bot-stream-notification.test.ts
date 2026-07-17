@@ -94,6 +94,71 @@ afterEach(() => {
 });
 
 describe("Bot stream start notification", () => {
+  it("handles EventSub stream-online immediately and keeps a 60-second polling fallback", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-18T00:00:00.000Z"));
+    const stream = {
+      id: "stream-eventsub",
+      title: "EventSub配信",
+      gameName: "Just Chatting",
+      startDate: new Date("2026-07-18T00:00:00.000Z"),
+    };
+    const getStreamByUserName = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(stream);
+    let onlineHandler: (() => void) | undefined;
+    const listener = {
+      onStreamOnline: vi.fn((_userId: string, handler: () => void) => {
+        onlineHandler = handler;
+      }),
+      onStreamOffline: vi.fn(),
+      onSubscriptionCreateFailure: vi.fn(),
+      onRevoke: vi.fn(),
+      start: vi.fn(),
+      stop: vi.fn(),
+    };
+    const bot = new Bot(makeConfig()) as unknown as Bot & {
+      apiClient: { streams: { getStreamByUserName: typeof getStreamByUserName } };
+      clipCacheStore: { close: () => void };
+      streamEventSubListenerFactory: ReturnType<typeof vi.fn>;
+      _handleStreamStarted: ReturnType<typeof vi.fn>;
+      _notifyStreamStartedOnDiscord: ReturnType<typeof vi.fn>;
+      _postNewStreamClipsToSummaryThread: ReturnType<typeof vi.fn>;
+      _startStreamMonitor: () => void;
+    };
+    activeBot = bot;
+    bot.apiClient = { streams: { getStreamByUserName } };
+    bot.streamEventSubListenerFactory = vi.fn(() => listener);
+    bot._handleStreamStarted = vi.fn().mockResolvedValue(true);
+    bot._notifyStreamStartedOnDiscord = vi.fn().mockResolvedValue(undefined);
+    bot._postNewStreamClipsToSummaryThread = vi.fn().mockResolvedValue(undefined);
+
+    bot._startStreamMonitor();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(bot.streamEventSubListenerFactory).toHaveBeenCalledOnce();
+    expect(listener.onStreamOnline).toHaveBeenCalledWith(
+      "broadcaster-id",
+      expect.any(Function)
+    );
+    expect(listener.start).toHaveBeenCalledOnce();
+    expect(getStreamByUserName).toHaveBeenCalledTimes(1);
+
+    onlineHandler?.();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(getStreamByUserName).toHaveBeenCalledTimes(2);
+    expect(bot._notifyStreamStartedOnDiscord).toHaveBeenCalledWith(stream, {
+      newlyDetectedStream: true,
+    });
+
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(getStreamByUserName).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(getStreamByUserName).toHaveBeenCalledTimes(3);
+  });
+
   it("passes stream identity into the Discord preview image URL", async () => {
     const bot = new Bot(makeConfig()) as unknown as Bot & {
       clipCacheStore: { close: () => void };
@@ -106,7 +171,7 @@ describe("Bot stream start notification", () => {
         viewers?: number;
         thumbnailUrl?: string;
         startDate: Date;
-      }) => Promise<void>;
+      }, options?: { newlyDetectedStream?: boolean }) => Promise<void>;
     };
     activeBot = bot;
     const infoSpy = vi
@@ -118,16 +183,19 @@ describe("Bot stream start notification", () => {
       postedStartNotification: true,
     });
 
-    await bot._notifyStreamStartedOnDiscord({
-      id: "stream-123",
-      title: "配信タイトル",
-      userDisplayName: "るかるん",
-      gameName: "Just Chatting",
-      viewers: 7,
-      thumbnailUrl:
-        "https://static-cdn.jtvnw.net/previews-ttv/live_user_rukalun-1280x720.jpg",
-      startDate: new Date("2026-06-06T01:05:28.000Z"),
-    });
+    await bot._notifyStreamStartedOnDiscord(
+      {
+        id: "stream-123",
+        title: "配信タイトル",
+        userDisplayName: "るかるん",
+        gameName: "Just Chatting",
+        viewers: 7,
+        thumbnailUrl:
+          "https://static-cdn.jtvnw.net/previews-ttv/live_user_rukalun-1280x720.jpg",
+        startDate: new Date("2026-06-06T01:05:28.000Z"),
+      },
+      { newlyDetectedStream: true }
+    );
 
     expect(bot._ensureStreamStartSummaryThread).toHaveBeenCalledOnce();
     const payload = bot._ensureStreamStartSummaryThread.mock.calls[0][1] as
@@ -135,6 +203,7 @@ describe("Bot stream start notification", () => {
       | undefined;
     expect(bot._ensureStreamStartSummaryThread.mock.calls[0][2]).toEqual({
       allowStartNotificationRepost: true,
+      postStartNotificationImmediately: true,
     });
     expect(payload?.embeds?.[0]?.image?.url).toBe(
       "https://static-cdn.jtvnw.net/previews-ttv/live_user_rukalun-1280x720.jpg?stream_id=stream-123"

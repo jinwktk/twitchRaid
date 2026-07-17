@@ -8,7 +8,7 @@
 |---|---|---|
 | Runtime | Node.js 22.5+ | `node:sqlite` を使うため必須 |
 | Language | TypeScript 5.7 | Bot本体 |
-| Twitch | `@twurple/api` / `@twurple/auth` / `@twurple/chat` | ChatClient、Helix API、RefreshingAuthProvider |
+| Twitch | `@twurple/api` / `@twurple/auth` / `@twurple/chat` / `@twurple/eventsub-ws` | ChatClient、Helix API、RefreshingAuthProvider、配信開始・終了EventSub |
 | 永続化 | `node:sqlite` | Clipキャッシュ、表示履歴、同期状態 |
 | 設定 | `dotenv` | `.env` 読み込み |
 | ログ | `winston` / `winston-daily-rotate-file` | 日次ローテーションログ |

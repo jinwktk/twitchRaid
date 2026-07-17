@@ -760,7 +760,7 @@
           <tbody>
             <tr>
               <td>配信開始通知</td>
-              <td>180秒ごとにライブ状態を確認し、<code>@everyone</code> とEmbedでタイトル、ゲーム、視聴者数、配信プレビュー、Twitch URLをDiscordへ送る。</td>
+              <td>Twitch EventSubで配信開始を即時検知し、<code>@everyone</code> とEmbedでタイトル、ゲーム、視聴者数、配信プレビュー、Twitch URLをDiscordへ送る。EventSub障害時は60秒ごとのHelix確認で補完する。</td>
               <td><code>LAST_STREAM_TITLE</code>、<code>startMessageId</code>、<code>threadId</code></td>
             </tr>
             <tr>
@@ -838,7 +838,7 @@
             <g font-size="15">
               <rect x="60" y="90" width="150" height="72" rx="10" fill="#f0ecff" stroke="#b8a8ff" />
               <text x="135" y="122" text-anchor="middle" font-weight="800" fill="#39218f">配信検知</text>
-              <text x="135" y="145" text-anchor="middle" fill="#39218f">180秒ごと</text>
+              <text x="135" y="145" text-anchor="middle" fill="#39218f">EventSub即時</text>
 
               <rect x="260" y="90" width="150" height="72" rx="10" fill="#fff8d8" stroke="#e0c158" />
               <text x="335" y="122" text-anchor="middle" font-weight="800" fill="#7c5d00">state保存</text>
