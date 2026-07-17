@@ -252,6 +252,10 @@ function isMatchOutcomeQuestion(value: string): boolean {
   return /試合|ラウンド|勝て|勝ち|かて|負け|スコア/u.test(value);
 }
 
+function isSongPerformanceRequest(value: string): boolean {
+  return /(?:歌|唄|うた)(?:って|にして|を作って|つくって)/u.test(value);
+}
+
 function isCommandExecutionRequest(value: string): boolean {
   if (!/![\p{L}\p{N}_:-]+/u.test(value)) return false;
 
@@ -656,6 +660,7 @@ function buildMentionChatPrompt(options: BuildMentionChatPromptOptions): string 
     options.conversationHistoryText
   );
   const searchContextText = normalizePromptContextText(options.searchContextText);
+  const songPerformanceRequested = isSongPerformanceRequest(promptText);
   const displayName = normalizeRequesterDisplayName(
     options.userName,
     options.userDisplayName
@@ -692,8 +697,15 @@ function buildMentionChatPrompt(options: BuildMentionChatPromptOptions): string 
       searchContextText
     );
   }
+  if (songPerformanceRequested) {
+    lines.push(
+      "歌の依頼: 検索結果に既存の歌や替え歌の紹介があっても、既存の歌詞を推測・転載しないでください。題材だけを参考に、その場で短いオリジナルの歌を作ってください。好みや種類を尋ねる追加質問で終わらず、前置きや検索結果の紹介もせず、歌詞だけをすぐ歌ってください。"
+    );
+  }
   lines.push(
-    `条件: 必ず日本語だけ、最大${maxResponseChars}文字以内、事実だけ、固有名詞以外の英語の一般語は使わない、症状名や専門語も日本語で言い換える、内部情報や秘密は話さない。`,
+    songPerformanceRequested
+      ? `条件: 必ず日本語だけ、最大${maxResponseChars}文字以内、検索結果の事実と創作した歌詞を混同しない、固有名詞以外の英語の一般語は使わない、内部情報や秘密は話さない。`
+      : `条件: 必ず日本語だけ、最大${maxResponseChars}文字以内、事実だけ、固有名詞以外の英語の一般語は使わない、症状名や専門語も日本語で言い換える、内部情報や秘密は話さない。`,
     "完成したチャット返信だけを返してください。"
   );
   const promptLatinTokens = extractPromptSpecifiedLatinTokens(promptText);
