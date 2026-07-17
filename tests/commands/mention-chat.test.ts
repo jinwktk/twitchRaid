@@ -293,7 +293,7 @@ describe("generateMentionChatReply", () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        response: "♪森を歩けばくまさんこんにちは、今日も仲良く遊ぼうD！",
+        response: "【歌】森を歩けばくまさんこんにちは、今日も仲良く遊ぼうD！",
       }),
     });
 
@@ -317,7 +317,51 @@ describe("generateMentionChatReply", () => {
     expect(body.prompt).toContain("既存の歌詞を推測・転載しない");
     expect(body.prompt).toContain("追加質問で終わらず");
     expect(body.prompt).toContain("歌詞だけをすぐ歌ってください");
-    expect(reply).toBe("森を歩けばくまさんこんにちは、今日も仲良く遊ぼうD！");
+    expect(reply).toBe("【歌】森を歩けばくまさんこんにちは、今日も仲良く遊ぼうD！");
+  });
+
+  it("repairs a song request reply that asks for more preferences instead of writing lyrics", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          response:
+            "にめいやちゃん、明るい曲作りって素敵だね！どんな雰囲気の曲がいいのか、もう少し詳しく教えてもらえると嬉しいな。リクエスト待ってるね！",
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          response:
+            "【歌】るっかの笑顔がきらきら光るよ、みんなと一緒に明るく進もうD！",
+        }),
+      });
+
+    const result = await generateMentionChatReplyDetailed({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "gemma4:e4b-it-qat",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 500,
+      channel: "#rukalun",
+      userName: "nyme_ia",
+      userDisplayName: "にめいや",
+      promptText: "明るい感じでるっかの曲を作って",
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const firstBody = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
+    const repairBody = JSON.parse(fetchImpl.mock.calls[1][1].body as string);
+    expect(firstBody.prompt).toContain("【歌】");
+    expect(repairBody.prompt).toContain("追加質問で終わったため不合格");
+    expect(repairBody.prompt).toContain("【歌】");
+    expect(result).toEqual({
+      reply: "【歌】るっかの笑顔がきらきら光るよ、みんなと一緒に明るく進もうD！",
+      source: "generated",
+    });
   });
 
   it("adds conversation history to the Ollama prompt as non-instruction context", async () => {

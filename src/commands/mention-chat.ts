@@ -89,6 +89,7 @@ const MENTION_NAME_CHAR_CLASS = "\\p{L}\\p{N}_";
 const MATCH_OUTCOME_FALLBACK_REPLY =
   "画面は見えてないから断定できないけど、まだいけそうD！";
 const COMMAND_EXECUTION_REFUSAL_REPLY = "コマンドは実行できないD！";
+const SONG_REPLY_PREFIX = "【歌】";
 const RUKALUN_RESIDENCE_REFUSAL_REPLY =
   "住んでる場所は個人情報だから答えられないD！";
 const HEALTH_CONCERN_SUPPORT_REPLY =
@@ -253,7 +254,20 @@ function isMatchOutcomeQuestion(value: string): boolean {
 }
 
 function isSongPerformanceRequest(value: string): boolean {
-  return /(?:歌|唄|うた)(?:って|にして|を作って|つくって)/u.test(value);
+  return /(?:歌って|唄って|うたって)|(?:歌|唄|うた|曲|歌詞)(?:を)?(?:作って|つくって|書いて|かいて|にして)/u.test(
+    value
+  );
+}
+
+function isCompliantSongPerformanceReply(value: string | null): boolean {
+  if (!value) return false;
+  const normalized = singleLine(value);
+  if (!normalized.startsWith(SONG_REPLY_PREFIX)) return false;
+  const lyrics = normalized.slice(SONG_REPLY_PREFIX.length).trim();
+  if (!lyrics) return false;
+  return !/(?:どんな|何か|もう少し|詳しく).{0,30}(?:教えて|聞かせて)|リクエスト(?:を)?待って|好み(?:かな|ですか)/u.test(
+    lyrics
+  );
 }
 
 function isCommandExecutionRequest(value: string): boolean {
@@ -569,7 +583,7 @@ function logOllamaPerformance(
   body: OllamaGenerateResponse,
   requestId: string | undefined,
   httpElapsedMs: number,
-  phase: "generate" | "repair"
+  phase: "generate" | "repair" | "song_repair"
 ): void {
   const evalCount = readNonNegativeMetric(body.eval_count);
   const evalDuration = readNonNegativeMetric(body.eval_duration);
@@ -699,7 +713,7 @@ function buildMentionChatPrompt(options: BuildMentionChatPromptOptions): string 
   }
   if (songPerformanceRequested) {
     lines.push(
-      "歌の依頼: 検索結果に既存の歌や替え歌の紹介があっても、既存の歌詞を推測・転載しないでください。題材だけを参考に、その場で短いオリジナルの歌を作ってください。好みや種類を尋ねる追加質問で終わらず、前置きや検索結果の紹介もせず、歌詞だけをすぐ歌ってください。"
+      `歌の依頼: 検索結果に既存の歌や替え歌の紹介があっても、既存の歌詞を推測・転載しないでください。題材だけを参考に、その場で短いオリジナルの歌を作ってください。好みや種類を尋ねる追加質問で終わらず、前置きや検索結果の紹介もせず、返信の先頭を必ず「${SONG_REPLY_PREFIX}」にして、その直後から歌詞だけをすぐ歌ってください。`
     );
   }
   lines.push(
@@ -758,6 +772,26 @@ function buildMentionChatRepairPrompt({
     );
   }
   return lines.join("\n");
+}
+
+function buildSongPerformanceRepairPrompt({
+  promptText,
+  rejectedReply,
+  maxResponseChars,
+}: {
+  promptText: string;
+  rejectedReply: string;
+  maxResponseChars: number;
+}): string {
+  return [
+    "前の返信は歌や曲を作らず、説明または追加質問で終わったため不合格です。",
+    "ユーザーへ質問を返さず、指定された内容で今すぐ短いオリジナル歌詞を作ってください。",
+    `返信は必ず「${SONG_REPLY_PREFIX}」から始め、その直後から歌詞だけを書いてください。前置き、感想、括弧書き、検索結果の紹介は禁止です。`,
+    `必ず日本語だけ、最大${Math.max(1, Math.floor(maxResponseChars))}文字以内にしてください。`,
+    `ユーザーの発言: ${shorten(singleLine(promptText), PROMPT_TEXT_LIMIT)}`,
+    `不合格の返信: ${shorten(singleLine(rejectedReply), PROMPT_TEXT_LIMIT)}`,
+    "完成したチャット返信だけを返してください。",
+  ].join("\n");
 }
 
 export function resolveMentionChatAliases(
@@ -891,6 +925,79 @@ async function repairEnglishWordMentionChatReply({
   );
 }
 
+async function repairSongPerformanceReply({
+  baseUrl,
+  model,
+  timeoutMs,
+  keepAlive,
+  contextLength,
+  maxResponseChars,
+  promptText,
+  rejectedReply,
+  allowedLatinTokens,
+  userName,
+  userDisplayName,
+  requestId,
+  fetchImpl,
+}: {
+  baseUrl: string;
+  model: string;
+  timeoutMs: number;
+  keepAlive?: string;
+  contextLength: number;
+  maxResponseChars: number;
+  promptText: string;
+  rejectedReply: string;
+  allowedLatinTokens?: readonly string[];
+  userName: string;
+  userDisplayName?: string | null;
+  requestId?: string;
+  fetchImpl: typeof fetch;
+}): Promise<string | null> {
+  const httpStartedAt = Date.now();
+  const response = await fetchImpl(buildOllamaGenerateUrl(baseUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      model,
+      system: MENTION_CHAT_SYSTEM_PROMPT,
+      prompt: buildSongPerformanceRepairPrompt({
+        promptText,
+        rejectedReply,
+        maxResponseChars,
+      }),
+      stream: false,
+      think: false,
+      keep_alive: keepAlive,
+      options: {
+        temperature: 0.1,
+        num_predict: DEFAULT_OLLAMA_NUM_PREDICT,
+        num_ctx: normalizeOllamaContextLength(contextLength),
+      },
+    }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok) return null;
+
+  const body = (await response.json()) as OllamaGenerateResponse;
+  logOllamaPerformance(
+    body,
+    requestId,
+    Math.max(0, Date.now() - httpStartedAt),
+    "song_repair"
+  );
+  if (typeof body.response !== "string") return null;
+  return formatGeneratedMentionChatReply(
+    preferRequesterDisplayNameInReply(
+      body.response,
+      userName,
+      userDisplayName
+    ),
+    maxResponseChars,
+    { allowedLatinTokens }
+  );
+}
+
 export async function generateMentionChatReplyDetailed({
   enabled,
   baseUrl,
@@ -921,6 +1028,7 @@ export async function generateMentionChatReplyDetailed({
     ...extractPromptSpecifiedLatinTokens(promptText),
   ];
   const allowedLatinTokenSet = buildAllowedLatinTokenSet(allowedLatinTokens);
+  const songPerformanceRequested = isSongPerformanceRequest(promptText);
   const immediateReply = resolveMentionChatImmediateReply(promptText);
   if (immediateReply?.reason === "command_execution") {
     logger.warn(
@@ -1019,6 +1127,44 @@ export async function generateMentionChatReplyDetailed({
       maxResponseChars,
       { allowedLatinTokens }
     );
+    if (songPerformanceRequested && !isCompliantSongPerformanceReply(reply)) {
+      logger.warn(
+        `⚠️ AIメンション会話の歌唱返信を再生成します: reason=song_not_performed, requestId=${logRequestId}, prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}`
+      );
+      const repairedReply = await repairSongPerformanceReply({
+        baseUrl,
+        model: trimmedModel,
+        timeoutMs,
+        keepAlive,
+        contextLength: normalizeOllamaContextLength(contextLength),
+        maxResponseChars,
+        promptText,
+        rejectedReply: body.response,
+        allowedLatinTokens,
+        userName,
+        userDisplayName,
+        requestId,
+        fetchImpl,
+      });
+      if (repairedReply && isCompliantSongPerformanceReply(repairedReply)) {
+        logPromptAndReplyIfEnabled(
+          promptReplyLogEnabled,
+          diagnosticPrompt,
+          repairedReply
+        );
+        return { reply: repairedReply, source: "generated" };
+      }
+      logger.warn(
+        `⚠️ AIメンション会話生成失敗: reason=song_repair_failed, requestId=${logRequestId}, prompt=${formatMentionChatLogValue(logPromptText)}`
+      );
+      logPromptFailureIfEnabled(
+        promptReplyLogEnabled,
+        diagnosticPrompt,
+        "song_repair_failed",
+        { detail: repairedReply ? "reply_not_song" : "reply_empty" }
+      );
+      return null;
+    }
     const matchOutcomeFallback =
       isMatchOutcomeQuestion(promptText)
         ? MATCH_OUTCOME_FALLBACK_REPLY
