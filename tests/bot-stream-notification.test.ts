@@ -114,12 +114,21 @@ describe("Bot stream start notification", () => {
       }),
       onStreamOffline: vi.fn(),
       onSubscriptionCreateFailure: vi.fn(),
+      onSubscriptionCreateSuccess: vi.fn(),
       onRevoke: vi.fn(),
       start: vi.fn(),
       stop: vi.fn(),
     };
     const bot = new Bot(makeConfig()) as unknown as Bot & {
       apiClient: { streams: { getStreamByUserName: typeof getStreamByUserName } };
+      authProvider: {
+        clientId: string;
+        getCurrentScopesForUser: ReturnType<typeof vi.fn>;
+        getAccessTokenForUser: ReturnType<typeof vi.fn>;
+        getAnyAccessToken: ReturnType<typeof vi.fn>;
+        refreshAccessTokenForUser: ReturnType<typeof vi.fn>;
+      };
+      botUserId: string;
       clipCacheStore: { close: () => void };
       streamEventSubListenerFactory: ReturnType<typeof vi.fn>;
       _handleStreamStarted: ReturnType<typeof vi.fn>;
@@ -129,6 +138,14 @@ describe("Bot stream start notification", () => {
     };
     activeBot = bot;
     bot.apiClient = { streams: { getStreamByUserName } };
+    bot.botUserId = "bot-user-id";
+    bot.authProvider = {
+      clientId: "client-id",
+      getCurrentScopesForUser: vi.fn(() => []),
+      getAccessTokenForUser: vi.fn(),
+      getAnyAccessToken: vi.fn(),
+      refreshAccessTokenForUser: vi.fn(),
+    };
     bot.streamEventSubListenerFactory = vi.fn(() => listener);
     bot._handleStreamStarted = vi.fn().mockResolvedValue(true);
     bot._notifyStreamStartedOnDiscord = vi.fn().mockResolvedValue(undefined);

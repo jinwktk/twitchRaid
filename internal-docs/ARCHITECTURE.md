@@ -40,6 +40,7 @@ src/index.ts
 ```text
 配信開始検知
   -> Twitch EventSub WebSocketのstream.onlineを主経路にする
+  -> 配信者ID条件の購読へBotユーザートークンを供給・更新する認証adapterを使う
   -> 接続断・購読失敗時は60秒ごとのHelix確認で補完する
   -> data/stream-summary-state.json に active state保存
   -> 新しいstream IDの初回だけDiscord履歴走査より先に開始通知投稿

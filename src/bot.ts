@@ -28,6 +28,7 @@ import {
   type StreamSummaryState,
 } from "./streams/stream-summary-state-store";
 import { StreamSummaryCountBuffer } from "./streams/stream-summary-count-buffer";
+import { createEventSubAuthProvider } from "./streams/eventsub-auth-provider";
 import {
   buildStreamSummaryThreadName,
   ensureStreamSummaryStartThread,
@@ -2710,7 +2711,13 @@ export class Bot {
     }
 
     try {
-      const listener = this.streamEventSubListenerFactory(this.apiClient);
+      const eventSubApiClient = new ApiClient({
+        authProvider: createEventSubAuthProvider(
+          this.authProvider,
+          this.botUserId
+        ),
+      });
+      const listener = this.streamEventSubListenerFactory(eventSubApiClient);
       listener.onStreamOnline(broadcasterId, () => {
         logger.info("⚡ Twitch EventSubで配信開始を受信しました。");
         void this._checkStreamStatus();
@@ -2723,6 +2730,9 @@ export class Bot {
         logger.warn(
           `⚠️ Twitch EventSub購読作成に失敗しました。60秒ポーリングで継続します: ${error.name}`
         );
+      });
+      listener.onSubscriptionCreateSuccess((subscription) => {
+        logger.info(`✅ Twitch EventSub購読作成成功: id=${subscription.id}`);
       });
       listener.onRevoke((_subscription, status) => {
         logger.warn(
