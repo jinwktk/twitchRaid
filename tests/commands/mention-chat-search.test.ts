@@ -132,6 +132,41 @@ describe("mention chat external search", () => {
     expect(result?.text).toContain("https://www.twitch.tv/rukalun");
   });
 
+  it("searches the subject when an explicit search request is followed by another action", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        query: "森のくまさんの替え歌",
+        results: [
+          {
+            title: "森のくまさんの替え歌まとめ",
+            content: "森のくまさんを元にした替え歌を紹介する記事。",
+            url: "https://example.test/parody",
+            engine: "bing",
+          },
+        ],
+      })
+    );
+
+    const result = await fetchMentionChatSearchContext({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search?language=all&safesearch=0",
+      engines: "bing",
+      queryText: "森のくまさんの替え歌を調べて、うたって",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 2,
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const url = new URL(String(fetchImpl.mock.calls[0][0]));
+    expect(url.searchParams.get("q")).toBe("森のくまさんの替え歌");
+    expect(result?.resultCount).toBe(1);
+    expect(result?.text).toContain("森のくまさんの替え歌まとめ");
+  });
+
   it("falls back to Japanese Wikipedia when SearXNG has no usable result", async () => {
     const fetchImpl = vi.fn().mockImplementation(async (input) => {
       const url = String(input);

@@ -154,6 +154,12 @@ function normalizeSearchQuery(value: string): string {
       .replace(/[「」『』【】（）()[\]{}]/g, " ")
       .replace(/[、。！？!?]+$/gu, "")
   );
+  query = singleLine(
+    query.replace(
+      /^(.+?(?:を|について)?(?:検索|調べて|調べ|ググって|ググる)(?:ください|して)?)[、,].+$/iu,
+      "$1"
+    )
+  );
 
   const suffixes = [
     /(?:を|について)?(?:検索|調べて|調べ|ググって|ググる)(?:ください|して)?$/iu,
