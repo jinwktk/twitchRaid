@@ -123,7 +123,7 @@ services:
       MEM0_COLLECTION_NAME: twitchraid_memories
       MEM0_EMBEDDING_DIMS: "768"
       MEM0_OLLAMA_BASE_URL: http://sub-ai_ollama:11434
-      MEM0_LLM_MODEL: qwen3.5:9b
+      MEM0_LLM_MODEL: gemma4:e4b-it-qat
       MEM0_EMBEDDER_MODEL: nomic-embed-text:latest
       MEM0_INFER_DEFAULT: "false"
       MEM0_HISTORY_DB_PATH: /app/history/history.db

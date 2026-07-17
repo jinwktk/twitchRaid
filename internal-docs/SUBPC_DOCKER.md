@@ -53,6 +53,14 @@
 
 結論として、Ollama Docker化でGPUが見えなくなったわけではない。SUB AI Servicesが同じ8GB GPUを共有し、Whisper/SBVITS2/OllamaがGPUを使える状態でVRAMがほぼ埋まっているため、`qwen3.5:9b` のcold load時に一部CPU offloadとロード待ちが発生し、Bot側の `CHAT_AI_TIMEOUT_MS=45000` に到達しやすい。
 
+### 2026-07-17 Gemma 4本番切替
+
+- AI会話・Raid・共通Ollamaモデルを `gemma4:e4b-it-qat` へ統一し、mem0の `MEM0_LLM_MODEL` も同じ値へ揃えた。埋め込みは `nomic-embed-text:latest` のまま。
+- `ollama ps` はGemma約3.0GB・100% GPU・context 4096、nomic約323MB・100% GPUの2件だけを表示し、Qwenは非常駐。`nvidia-smi` は8192MiB中6192MiB使用・1798MiB空きだった。
+- Bot再起動時のGemma prewarmは13.9秒、続くnomic prewarmは2.1秒、mem0検索prewarmは181msで完了した。
+- `npm run perf:sub-ai-services` の切替後20回評価4セットは生成p95 751.51〜770.54ms。6サービス1/1、task不変、restart/error 0で、評価前にBotの3モデル設定とmem0のLLM/embed/infer設定が本番契約どおりかもfail-closedで検証する。
+- Qwenモデルは緊急rollback用に削除せず保持する。Gemmaのread-only canaryでは画面のない配信内容とRaid感想を補う既知の捏造傾向が再現しているため、モデル稼働とは別にprompt/回帰テストで抑止する。
+
 ### GPU利用プロセス対応
 
 2026-06-20 22:17 JST時点の `nvidia-smi` では、GPU使用量は約 `7576MiB / 8192MiB`、プロセス一覧には `/python3.10` が2本、`/llama-server`、`/Xwayland` が見えた。WSL2 + NVIDIA環境ではプロセス別GPU Memoryが `N/A` になり、PIDもコンテナ内PID寄りに表示されるため、Dockerの `docker top` とコンテナ内 `ps` で対応付けた。
@@ -206,10 +214,14 @@ CLIP_SEARCH_PUBLISH_REMOTE=origin
 CLIP_SEARCH_PUBLISH_BRANCH=main
 CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS=300000
 OLLAMA_BASE_URL=http://192.168.0.99:11434
+OLLAMA_MODEL=gemma4:e4b-it-qat
 OLLAMA_SHOUTOUT_ENABLED=true
+OLLAMA_SHOUTOUT_MODEL=gemma4:e4b-it-qat
 OLLAMA_SHOUTOUT_TIMEOUT_MS=30000
 OLLAMA_SHOUTOUT_KEEP_ALIVE=30m
+CHAT_AI_MODEL=gemma4:e4b-it-qat
 CHAT_AI_KEEP_ALIVE=30m
+CHAT_AI_CONTEXT_LENGTH=4096
 CHAT_AI_TIMEOUT_MS=45000
 CHAT_AI_STREAM_IMAGE_ENABLED=false
 CHAT_AI_VISION_MODEL=gemma3:4b
@@ -233,6 +245,8 @@ DISCORD_SUMMARY_CHANNEL_ID=438258034825887744
 ```
 
 `CHAT_AI_VISION_MODEL` は過去の画像質問設定として残る場合があるが、現行BotはAIメンション会話で配信画像を取得せず、Ollama payloadへ `images` を送らない。
+
+SUB AI Services側は `MEM0_LLM_MODEL=gemma4:e4b-it-qat`、`MEM0_EMBEDDER_MODEL=nomic-embed-text:latest`、`MEM0_INFER_DEFAULT=false`。通常のBot保存は明示的に `infer:false` を送る。
 
 ## 同等条件でのテスト方針
 

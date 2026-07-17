@@ -28,6 +28,16 @@ verify_running_containers() {
   done
 }
 
+verify_service_env() {
+  local service="$1"
+  local expected="$2"
+  local env_name="${expected%%=*}"
+  if ! docker service inspect "$service" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' | grep -Fqx "$expected"; then
+    echo "service $service setting $env_name does not match production contract" >&2
+    exit 26
+  fi
+}
+
 for service in "${services[@]}"; do
   replicas=$(docker service ls --format '{{.Name}} {{.Replicas}}' | awk -v name="$service" '$1 == name { print $2 }')
   if [ "$replicas" != "1/1" ]; then
@@ -36,6 +46,9 @@ for service in "${services[@]}"; do
   fi
 done
 
+verify_service_env sub-ai_mem0 "MEM0_LLM_MODEL=gemma4:e4b-it-qat"
+verify_service_env sub-ai_mem0 "MEM0_EMBEDDER_MODEL=nomic-embed-text:latest"
+verify_service_env sub-ai_mem0 "MEM0_INFER_DEFAULT=false"
 verify_running_containers
 tasks_before=$(task_snapshot)
 
@@ -51,16 +64,19 @@ const { performance } = require("node:perf_hooks");
 const ollamaBaseUrl = "http://sub-ai_ollama:11434";
 const mem0BaseUrl = "http://mem0:8888";
 const searxngUrl = new URL("http://searxng:8080/search");
-const model = process.env.CHAT_AI_MODEL || "qwen3.5:9b";
+const model = process.env.CHAT_AI_MODEL || "gemma4:e4b-it-qat";
 const embedModel = process.env.CHAT_AI_MEM0_EMBED_MODEL || "nomic-embed-text:latest";
 const apiKey = process.env.CHAT_AI_MEM0_API_KEY || "";
 
 function verifyEffectiveBotConfig() {
   const required = new Map([
     ["CHAT_AI_ENABLED", "true"],
+    ["CHAT_AI_MODEL", "gemma4:e4b-it-qat"],
     ["CHAT_AI_BASE_URL", ollamaBaseUrl],
     ["OLLAMA_BASE_URL", ollamaBaseUrl],
+    ["OLLAMA_MODEL", "gemma4:e4b-it-qat"],
     ["OLLAMA_SHOUTOUT_ENABLED", "true"],
+    ["OLLAMA_SHOUTOUT_MODEL", "gemma4:e4b-it-qat"],
     ["CHAT_AI_MEMORY_ENABLED", "true"],
     ["CHAT_AI_MEMORY_STORE", "sqlite"],
     ["CHAT_AI_MEM0_ENABLED", "true"],

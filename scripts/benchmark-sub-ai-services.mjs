@@ -87,10 +87,10 @@ if (!outputLine) throw new Error("SUB AI benchmark returned no result");
 
 const result = JSON.parse(outputLine);
 const baselineP95Ms = {
-  generate: 1_601.35,
-  embed: 163.83,
-  mem0: 132.33,
-  searxng: 818.3,
+  generate: 770.54,
+  embed: 32.49,
+  mem0: 40.38,
+  searxng: 372.83,
 };
 const limits = {
   generateP95Ms: baselineP95Ms.generate * 1.1,

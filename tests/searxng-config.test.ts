@@ -28,6 +28,7 @@ describe("SearXNG self-hosting config", () => {
     );
     expect(compose).toContain("QDRANT__TELEMETRY_DISABLED: \"true\"");
     expect(compose).toContain("MEM0_OLLAMA_BASE_URL: http://sub-ai_ollama:11434");
+    expect(compose).toContain("MEM0_LLM_MODEL: gemma4:e4b-it-qat");
     expect(compose).toContain("MEM0_EMBEDDER_MODEL: nomic-embed-text:latest");
     expect(compose).toContain("MEM0_INFER_DEFAULT: \"false\"");
     expect(compose).toContain("OLLAMA_KEEP_ALIVE: 30m");
@@ -136,5 +137,38 @@ describe("SearXNG self-hosting config", () => {
 
     expect(benchmark).toContain('"X-Forwarded-For": "127.0.0.1"');
     expect(benchmark).toContain('"X-Real-IP": "127.0.0.1"');
+    expect(benchmark).toContain(
+      'process.env.CHAT_AI_MODEL || "gemma4:e4b-it-qat"'
+    );
+    expect(benchmark).toContain(
+      '["CHAT_AI_MODEL", "gemma4:e4b-it-qat"]'
+    );
+    expect(benchmark).toContain(
+      '["OLLAMA_MODEL", "gemma4:e4b-it-qat"]'
+    );
+    expect(benchmark).toContain(
+      '["OLLAMA_SHOUTOUT_MODEL", "gemma4:e4b-it-qat"]'
+    );
+    expect(benchmark).toContain(
+      'verify_service_env sub-ai_mem0 "MEM0_LLM_MODEL=gemma4:e4b-it-qat"'
+    );
+    expect(benchmark).toContain(
+      'verify_service_env sub-ai_mem0 "MEM0_EMBEDDER_MODEL=nomic-embed-text:latest"'
+    );
+    expect(benchmark).toContain(
+      'verify_service_env sub-ai_mem0 "MEM0_INFER_DEFAULT=false"'
+    );
+  });
+
+  it("keeps the SUB AI performance gate aligned with the Gemma production baseline", () => {
+    const benchmark = fs.readFileSync(
+      path.join(repoRoot, "scripts/benchmark-sub-ai-services.mjs"),
+      "utf8"
+    );
+
+    expect(benchmark).toContain("generate: 770.54");
+    expect(benchmark).toContain("embed: 32.49");
+    expect(benchmark).toContain("mem0: 40.38");
+    expect(benchmark).toContain("searxng: 372.83");
   });
 });
