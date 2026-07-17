@@ -135,10 +135,10 @@ describe("mention chat external search", () => {
   it("searches the subject when an explicit search request is followed by another action", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({
-        query: "森のくまさんの替え歌",
+        query: "森のくまさん 替え歌",
         results: [
           {
-            title: "森のくまさんの替え歌まとめ",
+            title: "森のくまさん替え歌",
             content: "森のくまさんを元にした替え歌を紹介する記事。",
             url: "https://example.test/parody",
             engine: "bing",
@@ -162,9 +162,9 @@ describe("mention chat external search", () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const url = new URL(String(fetchImpl.mock.calls[0][0]));
-    expect(url.searchParams.get("q")).toBe("森のくまさんの替え歌");
+    expect(url.searchParams.get("q")).toBe("森のくまさん 替え歌");
     expect(result?.resultCount).toBe(1);
-    expect(result?.text).toContain("森のくまさんの替え歌まとめ");
+    expect(result?.text).toContain("森のくまさん替え歌");
   });
 
   it("falls back to Japanese Wikipedia when SearXNG has no usable result", async () => {

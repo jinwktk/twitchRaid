@@ -181,6 +181,7 @@ function normalizeSearchQuery(value: string): string {
     }
     query = singleLine(query.replace(/[、。！？!?]+$/gu, ""));
   }
+  query = singleLine(query.replace(/の(?=替え歌(?:$|\s))/gu, " "));
 
   return applyKnownSearchAliases(query);
 }
