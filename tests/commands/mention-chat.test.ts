@@ -421,36 +421,51 @@ describe("generateMentionChatReply", () => {
       conversationHistoryText:
         "ユーザー viewer: AとBなにがすき？\nるっかるん: Bがすきだよ！",
       promptReplyLogEnabled: true,
+      requestId: "mention-diagnostic-history",
       fetchImpl,
     });
 
     const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
     expect(body.prompt).toContain("AとBなにがすき？");
     expect(result?.source).toBe("generated");
-    const successMessages = logSpy.mock.calls
-      .filter(([level]) => level === "success")
+    const successCalls = logSpy.mock.calls.filter(([level]) => level === "success");
+    const consoleSuccessMessages = successCalls
+      .filter((call) => !(call.at(2) as { fileOnly?: boolean } | undefined)?.fileOnly)
       .map(([, message]) => String(message));
-    expect(successMessages[0]).toMatch(
-      /^AIメンション会話プロンプト\/Success: promptLines=\d+ replyLines=\d+$/
+    const fileSuccessMessages = successCalls
+      .filter((call) => (call.at(2) as { fileOnly?: boolean } | undefined)?.fileOnly)
+      .map(([, message]) => String(message));
+    expect(consoleSuccessMessages).toEqual([
+      "AI会話診断: requestId=mention-diagnostic-history, result=success, context=history",
+      "質問: どんなところがすきなの？",
+      "回答: Bの話として続けるD！",
+    ]);
+    expect(consoleSuccessMessages.join(" ")).not.toContain("直近会話");
+    expect(consoleSuccessMessages.join(" ")).not.toContain("AとBなにがすき？");
+    expect(fileSuccessMessages[0]).toMatch(
+      /^AIメンション会話プロンプト\/Success: requestId=mention-diagnostic-history promptLines=\d+ replyLines=\d+$/
     );
-    expect(successMessages).toContain(
+    expect(fileSuccessMessages).toContain(
       "AIメンション会話プロンプト/Success reply[1/1]: Bの話として続けるD！"
     );
     expect(logSpy).toHaveBeenCalledWith(
       "success",
       expect.stringContaining(
         "直近会話: 次の内容はこのチャンネル内の直近User/Bot会話です。"
-      )
+      ),
+      { fileOnly: true }
     );
     expect(logSpy).toHaveBeenCalledWith(
       "success",
-      expect.stringContaining("AとBなにがすき？")
+      expect.stringContaining("AとBなにがすき？"),
+      { fileOnly: true }
     );
     expect(logSpy).toHaveBeenCalledWith(
       "success",
-      expect.stringContaining("Bがすきだよ！")
+      expect.stringContaining("Bがすきだよ！"),
+      { fileOnly: true }
     );
-    for (const message of successMessages) {
+    for (const message of [...consoleSuccessMessages, ...fileSuccessMessages]) {
       expect(message).not.toContain("本文はログに出しません");
       expect(message).not.toContain("\n");
       expect(message).not.toContain("\\n");
@@ -624,25 +639,34 @@ describe("generateMentionChatReply", () => {
       promptText: "好きな食べ物なんだっけ？",
       memoryText: "好物: カレー",
       promptReplyLogEnabled: true,
+      requestId: "mention-diagnostic-memory",
       fetchImpl,
     });
 
     const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
-    const successMessages = logSpy.mock.calls
-      .filter(([level]) => level === "success")
+    const successCalls = logSpy.mock.calls.filter(([level]) => level === "success");
+    const consoleSuccessMessages = successCalls
+      .filter((call) => !(call.at(2) as { fileOnly?: boolean } | undefined)?.fileOnly)
+      .map(([, message]) => String(message));
+    const fileSuccessMessages = successCalls
+      .filter((call) => (call.at(2) as { fileOnly?: boolean } | undefined)?.fileOnly)
       .map(([, message]) => String(message));
     expect(reply).toBe("カレーの話も覚えてるD！");
     expect(body.prompt).toContain("好物: カレー");
-    expect(successMessages[0]).toMatch(
-      /^AIメンション会話プロンプト\/Success: promptLines=\d+ replyLines=1$/
+    expect(consoleSuccessMessages).toEqual([
+      "AI会話診断: requestId=mention-diagnostic-memory, result=success, context=memory",
+      "質問: 好きな食べ物なんだっけ？",
+      "回答: カレーの話も覚えてるD！",
+    ]);
+    expect(consoleSuccessMessages.join(" ")).not.toContain("好物: カレー");
+    expect(fileSuccessMessages[0]).toMatch(
+      /^AIメンション会話プロンプト\/Success: requestId=mention-diagnostic-memory promptLines=\d+ replyLines=1$/
     );
-    expect(successMessages.some((message) => message.includes("好物: カレー"))).toBe(
-      true
-    );
-    expect(successMessages).toContain(
+    expect(fileSuccessMessages.some((message) => message.includes("好物: カレー"))).toBe(true);
+    expect(fileSuccessMessages).toContain(
       "AIメンション会話プロンプト/Success reply[1/1]: カレーの話も覚えてるD！"
     );
-    for (const message of successMessages) {
+    for (const message of [...consoleSuccessMessages, ...fileSuccessMessages]) {
       expect(message).not.toContain("\n");
       expect(message).not.toContain("\\n");
     }
@@ -1526,23 +1550,33 @@ describe("generateMentionChatReply", () => {
           "ユーザー listener: カレーの話をしてる\nるっかるん: カレーいいねD！",
         timeoutFallbackReply: "今ちょっとAIが混み合ってるD！",
         promptReplyLogEnabled: true,
+        requestId: "mention-timeout-diagnostic",
         fetchImpl,
       });
 
       const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
-      const infoMessages = infoSpy.mock.calls.map(([message]) => String(message));
+      const consoleInfoMessages = infoSpy.mock.calls
+        .filter((call) => !(call.at(1) as { fileOnly?: boolean } | undefined)?.fileOnly)
+        .map(([message]) => String(message));
+      const fileInfoMessages = infoSpy.mock.calls
+        .filter((call) => (call.at(1) as { fileOnly?: boolean } | undefined)?.fileOnly)
+        .map(([message]) => String(message));
       expect(reply).toBe("今ちょっとAIが混み合ってるD！");
       expect(body.prompt).toContain("好物: カレー");
-      expect(infoMessages[0]).toMatch(
-        /^AIメンション会話プロンプト\/失敗: reason=timeout promptLines=\d+ fallbackLines=1 detailLines=0$/
+      expect(consoleInfoMessages).toEqual([
+        "AI会話診断: requestId=mention-timeout-diagnostic, result=failed, reason=timeout, context=memory|history, fallback=true, detail=false",
+        "質問: どう思う？",
+        "フォールバック: 今ちょっとAIが混み合ってるD！",
+      ]);
+      expect(consoleInfoMessages.join(" ")).not.toContain("好物: カレー");
+      expect(fileInfoMessages[0]).toMatch(
+        /^AIメンション会話プロンプト\/失敗: requestId=mention-timeout-diagnostic reason=timeout promptLines=\d+ fallbackLines=1 detailLines=0$/
       );
-      expect(infoMessages.some((message) => message.includes("好物: カレー"))).toBe(
-        true
-      );
-      expect(infoMessages).toContain(
+      expect(fileInfoMessages.some((message) => message.includes("好物: カレー"))).toBe(true);
+      expect(fileInfoMessages).toContain(
         "AIメンション会話プロンプト/失敗 fallback[1/1]: 今ちょっとAIが混み合ってるD！"
       );
-      for (const message of infoMessages) {
+      for (const message of [...consoleInfoMessages, ...fileInfoMessages]) {
         expect(message).not.toContain("\n");
         expect(message).not.toContain("\\n");
       }

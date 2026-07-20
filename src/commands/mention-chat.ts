@@ -10,6 +10,11 @@ export interface MentionChatMatcher {
   extract(text: string): MentionChatMatch | null;
 }
 
+export type MentionChatDiagnosticConsoleMode =
+  | "immediate"
+  | "deferred"
+  | "file_only";
+
 export interface GenerateMentionChatReplyOptions {
   enabled: boolean;
   baseUrl: string;
@@ -29,6 +34,7 @@ export interface GenerateMentionChatReplyOptions {
   searchContextText?: string | null;
   streamImageBase64?: string | null;
   promptReplyLogEnabled?: boolean;
+  promptReplyConsoleLogMode?: MentionChatDiagnosticConsoleMode;
   requestId?: string;
   fetchImpl?: typeof fetch;
 }
@@ -379,26 +385,96 @@ function formatDiagnosticLogLine(
   return `${prefix} ${label}[${index + 1}/${total}]: ${line}`;
 }
 
+interface MentionChatDiagnosticSummary {
+  requestId: string;
+  promptText: string;
+  memoryText?: string | null;
+  conversationHistoryText?: string | null;
+  searchContextText?: string | null;
+  consoleMode: MentionChatDiagnosticConsoleMode;
+}
+
+function formatDiagnosticContext(summary: MentionChatDiagnosticSummary): string {
+  const contextSources = [
+    summary.memoryText?.trim() ? "memory" : null,
+    summary.conversationHistoryText?.trim() ? "history" : null,
+    summary.searchContextText?.trim() ? "search" : null,
+  ].filter((source): source is string => source !== null);
+  return contextSources.length > 0 ? contextSources.join("|") : "none";
+}
+
+function formatDiagnosticConsoleValue(value: string): string {
+  return shorten(singleLine(value), LOG_TEXT_LIMIT);
+}
+
+export function logMentionChatSuccessDiagnosticSummary({
+  requestId,
+  promptText,
+  reply,
+  memoryText,
+  conversationHistoryText,
+  searchContextText,
+}: {
+  requestId?: string;
+  promptText: string;
+  reply: string;
+  memoryText?: string | null;
+  conversationHistoryText?: string | null;
+  searchContextText?: string | null;
+}): void {
+  const summary: MentionChatDiagnosticSummary = {
+    requestId: normalizePerformanceRequestId(requestId),
+    promptText,
+    memoryText,
+    conversationHistoryText,
+    searchContextText,
+    consoleMode: "immediate",
+  };
+  logger.log(
+    "success",
+    `AI会話診断: requestId=${summary.requestId}, result=success, context=${formatDiagnosticContext(summary)}`
+  );
+  logger.log("success", `質問: ${formatDiagnosticConsoleValue(promptText)}`);
+  logger.log("success", `回答: ${formatDiagnosticConsoleValue(reply)}`);
+}
+
 function logPromptAndReplyIfEnabled(
   enabled: boolean | undefined,
   prompt: string,
-  reply: string
+  reply: string,
+  summary: MentionChatDiagnosticSummary
 ): void {
   if (!enabled) return;
   const prefix = "AIメンション会話プロンプト/Success";
   const promptLines = splitDiagnosticLogLines(prompt);
   const replyLines = splitDiagnosticLogLines(reply);
-  logger.log("success", `${prefix}: promptLines=${promptLines.length} replyLines=${replyLines.length}`);
+  if (summary.consoleMode === "immediate") {
+    logMentionChatSuccessDiagnosticSummary({
+      requestId: summary.requestId,
+      promptText: summary.promptText,
+      reply,
+      memoryText: summary.memoryText,
+      conversationHistoryText: summary.conversationHistoryText,
+      searchContextText: summary.searchContextText,
+    });
+  }
+  logger.log(
+    "success",
+    `${prefix}: requestId=${summary.requestId} promptLines=${promptLines.length} replyLines=${replyLines.length}`,
+    { fileOnly: true }
+  );
   promptLines.forEach((line, index) => {
     logger.log(
       "success",
-      formatDiagnosticLogLine(prefix, "prompt", line, index, promptLines.length)
+      formatDiagnosticLogLine(prefix, "prompt", line, index, promptLines.length),
+      { fileOnly: true }
     );
   });
   replyLines.forEach((line, index) => {
     logger.log(
       "success",
-      formatDiagnosticLogLine(prefix, "reply", line, index, replyLines.length)
+      formatDiagnosticLogLine(prefix, "reply", line, index, replyLines.length),
+      { fileOnly: true }
     );
   });
 }
@@ -407,6 +483,7 @@ function logPromptFailureIfEnabled(
   enabled: boolean | undefined,
   prompt: string | null | undefined,
   reason: string,
+  summary: MentionChatDiagnosticSummary,
   options: { fallbackReply?: string | null; detail?: string | null } = {}
 ): void {
   if (!enabled || !prompt) return;
@@ -416,19 +493,39 @@ function logPromptFailureIfEnabled(
     ? splitDiagnosticLogLines(options.fallbackReply)
     : [];
   const detailLines = options.detail ? splitDiagnosticLogLines(options.detail) : [];
+  if (summary.consoleMode !== "file_only") {
+    logger.info(
+      `AI会話診断: requestId=${summary.requestId}, result=failed, reason=${reason}, context=${formatDiagnosticContext(summary)}, fallback=${fallbackLines.length > 0}, detail=${detailLines.length > 0}`
+    );
+    logger.info(`質問: ${formatDiagnosticConsoleValue(summary.promptText)}`);
+    if (options.fallbackReply) {
+      logger.info(`フォールバック: ${formatDiagnosticConsoleValue(options.fallbackReply)}`);
+    }
+    if (options.detail) {
+      logger.info(`詳細: ${formatDiagnosticConsoleValue(options.detail)}`);
+    }
+  }
   logger.info(
-    `${prefix}: reason=${reason} promptLines=${promptLines.length} fallbackLines=${fallbackLines.length} detailLines=${detailLines.length}`
+    `${prefix}: requestId=${summary.requestId} reason=${reason} promptLines=${promptLines.length} fallbackLines=${fallbackLines.length} detailLines=${detailLines.length}`,
+    { fileOnly: true }
   );
   promptLines.forEach((line, index) => {
-    logger.info(formatDiagnosticLogLine(prefix, "prompt", line, index, promptLines.length));
+    logger.info(
+      formatDiagnosticLogLine(prefix, "prompt", line, index, promptLines.length),
+      { fileOnly: true }
+    );
   });
   fallbackLines.forEach((line, index) => {
     logger.info(
-      formatDiagnosticLogLine(prefix, "fallback", line, index, fallbackLines.length)
+      formatDiagnosticLogLine(prefix, "fallback", line, index, fallbackLines.length),
+      { fileOnly: true }
     );
   });
   detailLines.forEach((line, index) => {
-    logger.info(formatDiagnosticLogLine(prefix, "detail", line, index, detailLines.length));
+    logger.info(
+      formatDiagnosticLogLine(prefix, "detail", line, index, detailLines.length),
+      { fileOnly: true }
+    );
   });
 }
 
@@ -1016,6 +1113,7 @@ export async function generateMentionChatReplyDetailed({
   conversationHistoryText,
   searchContextText,
   promptReplyLogEnabled,
+  promptReplyConsoleLogMode,
   requestId,
   fetchImpl = fetch,
 }: GenerateMentionChatReplyOptions): Promise<GenerateMentionChatReplyResult | null> {
@@ -1039,6 +1137,14 @@ export async function generateMentionChatReplyDetailed({
   if (immediateReply) return { reply: immediateReply.reply, source: "fixed" };
   const startedAt = Date.now();
   const logRequestId = normalizePerformanceRequestId(requestId);
+  const diagnosticSummary: MentionChatDiagnosticSummary = {
+    requestId: logRequestId,
+    promptText: logPromptText,
+    memoryText,
+    conversationHistoryText,
+    searchContextText,
+    consoleMode: promptReplyConsoleLogMode ?? "immediate",
+  };
   let diagnosticPrompt: string | null = null;
 
   try {
@@ -1093,6 +1199,7 @@ export async function generateMentionChatReplyDetailed({
         promptReplyLogEnabled,
         diagnosticPrompt,
         "http_error",
+        diagnosticSummary,
         { detail: `status=${response.status}, detail=${detail}` }
       );
       return null;
@@ -1113,6 +1220,7 @@ export async function generateMentionChatReplyDetailed({
         promptReplyLogEnabled,
         diagnosticPrompt,
         "invalid_response",
+        diagnosticSummary,
         { detail: `responseType=${typeof body.response}` }
       );
       return null;
@@ -1150,7 +1258,8 @@ export async function generateMentionChatReplyDetailed({
         logPromptAndReplyIfEnabled(
           promptReplyLogEnabled,
           diagnosticPrompt,
-          repairedReply
+          repairedReply,
+          diagnosticSummary
         );
         return { reply: repairedReply, source: "generated" };
       }
@@ -1161,6 +1270,7 @@ export async function generateMentionChatReplyDetailed({
         promptReplyLogEnabled,
         diagnosticPrompt,
         "song_repair_failed",
+        diagnosticSummary,
         { detail: repairedReply ? "reply_not_song" : "reply_empty" }
       );
       return null;
@@ -1199,7 +1309,8 @@ export async function generateMentionChatReplyDetailed({
         logPromptAndReplyIfEnabled(
           promptReplyLogEnabled,
           diagnosticPrompt,
-          repairedReply
+          repairedReply,
+          diagnosticSummary
         );
         return { reply: repairedReply, source: "generated" };
       }
@@ -1209,7 +1320,8 @@ export async function generateMentionChatReplyDetailed({
       logPromptFailureIfEnabled(
         promptReplyLogEnabled,
         diagnosticPrompt,
-        "english_word_repair_failed"
+        "english_word_repair_failed",
+        diagnosticSummary
       );
       return null;
     }
@@ -1221,7 +1333,8 @@ export async function generateMentionChatReplyDetailed({
         logPromptAndReplyIfEnabled(
           promptReplyLogEnabled,
           diagnosticPrompt,
-          matchOutcomeFallback
+          matchOutcomeFallback,
+          diagnosticSummary
         );
         return {
           reply: matchOutcomeFallback,
@@ -1234,7 +1347,8 @@ export async function generateMentionChatReplyDetailed({
       logPromptFailureIfEnabled(
         promptReplyLogEnabled,
         diagnosticPrompt,
-        "policy_rejected"
+        "policy_rejected",
+        diagnosticSummary
       );
       return null;
     }
@@ -1248,14 +1362,20 @@ export async function generateMentionChatReplyDetailed({
       logPromptAndReplyIfEnabled(
         promptReplyLogEnabled,
         diagnosticPrompt,
-        matchOutcomeFallback
+        matchOutcomeFallback,
+        diagnosticSummary
       );
       return {
         reply: matchOutcomeFallback,
         source: "match_outcome_fallback",
       };
     }
-    logPromptAndReplyIfEnabled(promptReplyLogEnabled, diagnosticPrompt, reply);
+    logPromptAndReplyIfEnabled(
+      promptReplyLogEnabled,
+      diagnosticPrompt,
+      reply,
+      diagnosticSummary
+    );
     return { reply, source: "generated" };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -1272,6 +1392,7 @@ export async function generateMentionChatReplyDetailed({
         promptReplyLogEnabled,
         diagnosticPrompt,
         "timeout",
+        diagnosticSummary,
         { fallbackReply }
       );
       return fallbackReply
@@ -1285,6 +1406,7 @@ export async function generateMentionChatReplyDetailed({
       promptReplyLogEnabled,
       diagnosticPrompt,
       "exception",
+      diagnosticSummary,
       { detail: redactDiagnosticText(message) }
     );
     return null;

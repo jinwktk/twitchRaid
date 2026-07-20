@@ -78,6 +78,7 @@ import {
   createMentionChatMatcher,
   formatMentionChatLogValue,
   generateMentionChatReplyDetailed,
+  logMentionChatSuccessDiagnosticSummary,
   resolveMentionChatImmediateReply,
   type MentionChatMatcher,
 } from "./commands/mention-chat";
@@ -1615,6 +1616,9 @@ export class Bot {
       const promptLogValue = isMentionChatMemoryRequest(request.prompt)
         ? MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE
         : request.prompt;
+      const promptReplyLogEnabled =
+        this.config.chatAiPromptReplyLogEnabled ?? false;
+      let selectedSearchContextText = searchContext?.text;
       let generatedReply = await generateMentionChatReplyDetailed({
         enabled: true,
         baseUrl: this.config.chatAiBaseUrl ?? this.config.ollamaBaseUrl,
@@ -1636,7 +1640,8 @@ export class Bot {
         conversationHistoryText: conversationHistory?.text,
         searchContextText: searchContext?.text,
         streamImageBase64,
-        promptReplyLogEnabled: this.config.chatAiPromptReplyLogEnabled ?? false,
+        promptReplyLogEnabled,
+        promptReplyConsoleLogMode: "deferred",
       });
 
       if (
@@ -1686,12 +1691,13 @@ export class Bot {
             conversationHistoryText: conversationHistory?.text,
             searchContextText: researchSearchContext.text,
             streamImageBase64,
-            promptReplyLogEnabled:
-              this.config.chatAiPromptReplyLogEnabled ?? false,
+            promptReplyLogEnabled,
+            promptReplyConsoleLogMode: "file_only",
           });
 
           if (researchedReply?.source === "generated") {
             generatedReply = researchedReply;
+            selectedSearchContextText = researchSearchContext.text;
           }
         } else {
           logger.info(
@@ -1707,6 +1713,20 @@ export class Bot {
         return;
       }
       const reply = generatedReply.reply;
+      const successDiagnosticLogged =
+        promptReplyLogEnabled &&
+        (generatedReply.source === "generated" ||
+          generatedReply.source === "match_outcome_fallback");
+      if (successDiagnosticLogged) {
+        logMentionChatSuccessDiagnosticSummary({
+          requestId,
+          promptText: promptLogValue,
+          reply,
+          memoryText: combinedMemoryText,
+          conversationHistoryText: conversationHistory?.text,
+          searchContextText: selectedSearchContextText,
+        });
+      }
 
       const replyWithEmote = appendContextualChatReplyEmote(
         reply,
@@ -1716,9 +1736,18 @@ export class Bot {
           promptText: request.prompt,
         }
       );
-      logger.info(
-        `AIメンション会話応答: user=${request.userName}, alias=${request.alias}, model=${model}, image=${Boolean(streamImageBase64)}, prompt=${formatMentionChatLogValue(promptLogValue)}, reply=${formatMentionChatLogValue(replyWithEmote)}`
-      );
+      const promptReplyDiagnosticsLogged =
+        successDiagnosticLogged ||
+        (promptReplyLogEnabled && generatedReply.source === "timeout_fallback");
+      if (promptReplyDiagnosticsLogged) {
+        logger.info(
+          `AIメンション会話応答: requestId=${requestId}, user=${request.userName}, alias=${request.alias}, model=${model}, source=${generatedReply.source}, image=${Boolean(streamImageBase64)}, replyChars=${replyWithEmote.length}`
+        );
+      } else {
+        logger.info(
+          `AIメンション会話応答: user=${request.userName}, alias=${request.alias}, model=${model}, image=${Boolean(streamImageBase64)}, prompt=${formatMentionChatLogValue(promptLogValue)}, reply=${formatMentionChatLogValue(replyWithEmote)}`
+        );
+      }
       await this.chatClient.say(request.channel, replyWithEmote);
       logger.info(
         `✅ AIメンション会話を送信: user=${request.userName}, alias=${request.alias}`

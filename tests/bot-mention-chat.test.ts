@@ -244,6 +244,29 @@ describe("Bot mention chat", () => {
     );
   });
 
+  it("logs only send-boundary metadata after successful prompt diagnostics", async () => {
+    const { bot, say } = makeBot({
+      chatAiPromptReplyLogEnabled: true,
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "こんにちはD！" }),
+    } as Response);
+
+    await bot._handleCommand("#rukalun", "viewer", "!chat こんにちは", {});
+
+    expect(say).toHaveBeenCalledWith("#rukalun", "こんにちはD！");
+    const responseLogs = infoSpy.mock.calls
+      .map(([message]) => String(message))
+      .filter((message) => message.startsWith("AIメンション会話応答:"));
+    expect(responseLogs).toHaveLength(1);
+    expect(responseLogs[0]).toMatch(
+      /^AIメンション会話応答: requestId=mention-\d+-\d+, user=viewer, alias=!chat, model=qwen2\.5:7b, source=generated, image=false, replyChars=7$/
+    );
+    expect(responseLogs[0]).not.toContain("こんにちは");
+  });
+
   it("passes Twitch display names to AI mention replies for user-facing callouts", async () => {
     const { bot, say } = makeBot({ chatAiCooldownSeconds: 0 });
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
@@ -1235,6 +1258,7 @@ describe("Bot mention chat", () => {
       chatAiSearchEnabled: true,
       chatAiSearchEndpoint: "https://api.duckduckgo.com/",
       chatAiCooldownSeconds: 0,
+      chatAiPromptReplyLogEnabled: true,
     });
     const infoSpy = vi.spyOn(logger, "info");
     const fetchSpy = vi.spyOn(globalThis, "fetch");
@@ -1258,6 +1282,11 @@ describe("Bot mention chat", () => {
       expect(say).toHaveBeenCalledWith(
         "#rukalun",
         "住んでる場所は個人情報だから答えられないD！"
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'AIメンション会話応答: user=viewer, alias=!chat, model=qwen2.5:7b, image=false, prompt="るっかるんって何歳？", reply="43歳だよD！"'
+        )
       );
       for (const call of infoSpy.mock.calls) {
         expect(call[0]).not.toContain("AIメンション会話メモを適用");
@@ -1829,8 +1858,10 @@ describe("Bot mention chat", () => {
     const { bot, say } = makeBot({
       chatAiSearchEnabled: true,
       chatAiSearchEndpoint: "https://api.duckduckgo.com/",
+      chatAiPromptReplyLogEnabled: true,
     });
     const infoSpy = vi.spyOn(logger, "info");
+    const logSpy = vi.spyOn(logger, "log");
     const ollamaResponses = [
       "それはちょっと分からないD！",
       "るか吉はおみくじの最上位枠で、出現率は0.01%だよD！",
@@ -1887,6 +1918,101 @@ describe("Bot mention chat", () => {
       "#rukalun",
       "るか吉はおみくじの最上位枠で、出現率は0.01%だよD！"
     );
+    const consoleDiagnosticLogs = logSpy.mock.calls
+      .filter(
+        ([level, , options]) =>
+          level === "success" && options?.fileOnly !== true
+      )
+      .map(([, message]) => String(message));
+    expect(consoleDiagnosticLogs).toHaveLength(3);
+    expect(consoleDiagnosticLogs[0]).toMatch(
+      /^AI会話診断: requestId=mention-\d+-\d+, result=success, context=search$/
+    );
+    expect(consoleDiagnosticLogs).toContain("質問: るか吉は何パーセント？");
+    expect(consoleDiagnosticLogs).toContain(
+      "回答: るか吉はおみくじの最上位枠で、出現率は0.01%だよD！"
+    );
+    expect(consoleDiagnosticLogs.join(" ")).not.toContain(
+      "それはちょっと分からないD！"
+    );
+  });
+
+  it("does not show an unsent fallback when research regeneration times out", async () => {
+    const { bot, say } = makeBot({
+      chatAiSearchEnabled: true,
+      chatAiSearchEndpoint: "https://api.duckduckgo.com/",
+      chatAiPromptReplyLogEnabled: true,
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const logSpy = vi.spyOn(logger, "log");
+    let ollamaCallCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.startsWith("https://api.duckduckgo.com/")) {
+        const bytes = Buffer.from(
+          JSON.stringify({
+            Heading: "るか吉",
+            AbstractText: "るか吉はおみくじの最上位枠。",
+            AbstractURL: "https://example.test/rukakichi",
+          }),
+          "utf8"
+        );
+        return {
+          ok: true,
+          headers: { get: () => null },
+          arrayBuffer: async () =>
+            bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        } as Response;
+      }
+
+      ollamaCallCount += 1;
+      if (ollamaCallCount === 2) {
+        throw new DOMException(
+          "The operation was aborted due to timeout",
+          "TimeoutError"
+        );
+      }
+      return {
+        ok: true,
+        json: async () => ({ response: "それはちょっと分からないD！" }),
+      } as Response;
+    });
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun るか吉は何パーセント？",
+      100
+    );
+
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "それはちょっと分からないD！"
+    );
+    const consoleDiagnosticLogs = logSpy.mock.calls
+      .filter(
+        ([level, , options]) =>
+          level === "success" && options?.fileOnly !== true
+      )
+      .map(([, message]) => String(message));
+    expect(consoleDiagnosticLogs).toHaveLength(3);
+    expect(consoleDiagnosticLogs[0]).toMatch(
+      /^AI会話診断: requestId=mention-\d+-\d+, result=success, context=none$/
+    );
+    expect(consoleDiagnosticLogs).toContain(
+      "回答: それはちょっと分からないD！"
+    );
+    const consoleInfoLogs = infoSpy.mock.calls
+      .filter(([, options]) => options?.fileOnly !== true)
+      .map(([message]) => String(message));
+    expect(consoleInfoLogs.join(" ")).not.toContain("フォールバック:");
+    expect(
+      infoSpy.mock.calls.some(
+        ([message, options]) =>
+          options?.fileOnly === true &&
+          String(message).includes("fallback[1/1]")
+      )
+    ).toBe(true);
   });
 
   it("does not retry a failed initial search in the same request", async () => {
@@ -1956,6 +2082,7 @@ describe("Bot mention chat", () => {
     const { bot, say } = makeBot({
       chatAiSearchEnabled: true,
       chatAiSearchEndpoint: "https://api.duckduckgo.com/",
+      chatAiPromptReplyLogEnabled: true,
     });
     const infoSpy = vi.spyOn(logger, "info");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -1993,6 +2120,11 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
       "ごめん、検索結果がなくて分からないD！"
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'prompt="レゲエパンチについて調べて", reply="ごめん、検索結果がなくて分からないD！"'
+      )
     );
   });
 
@@ -3061,24 +3193,49 @@ describe("Bot mention chat", () => {
 
     const secondBody = JSON.parse(fetchSpy.mock.calls[1][1].body as string);
     expect(secondBody.prompt).toContain("AとBなにがすき？");
-    const diagnosticLogs = logSpy.mock.calls
-      .filter(([level]) => level === "success")
-      .map(([, message]) => String(message))
-      .filter((message) => message.includes("AIメンション会話プロンプト/Success"));
-    expect(diagnosticLogs.at(0)).toMatch(
-      /^AIメンション会話プロンプト\/Success: promptLines=\d+ replyLines=1$/
-    );
-    expect(diagnosticLogs.some((message) => message.includes("直近会話"))).toBe(true);
+    const consoleDiagnosticLogs = logSpy.mock.calls
+      .filter(([level, , options]) =>
+        level === "success" && options?.fileOnly !== true
+      )
+      .map(([, message]) => String(message));
     expect(
-      diagnosticLogs.some((message) => message.includes("AとBなにがすき？"))
+      consoleDiagnosticLogs.some((message) =>
+        /^AI会話診断: requestId=mention-\d+-\d+, result=success, context=/.test(
+          message
+        )
+      )
     ).toBe(true);
-    expect(diagnosticLogs.some((message) => message.includes("Bがすきだよ！"))).toBe(
+    expect(consoleDiagnosticLogs).toContain("質問: どんなところがすきなの？");
+    expect(consoleDiagnosticLogs).toContain("回答: まっすぐなところが好きD！");
+    expect(
+      consoleDiagnosticLogs.some((message) =>
+        message.includes("AIメンション会話プロンプト/Success")
+      )
+    ).toBe(false);
+
+    const fileDiagnosticLogs = logSpy.mock.calls
+      .filter(
+        ([level, , options]) =>
+          level === "success" && options?.fileOnly === true
+      )
+      .map(([, message]) => String(message))
+      .filter((message) =>
+        message.includes("AIメンション会話プロンプト/Success")
+      );
+    expect(fileDiagnosticLogs.at(0)).toMatch(
+      /^AIメンション会話プロンプト\/Success: requestId=mention-\d+-\d+ promptLines=\d+ replyLines=1$/
+    );
+    expect(fileDiagnosticLogs.some((message) => message.includes("直近会話"))).toBe(true);
+    expect(
+      fileDiagnosticLogs.some((message) => message.includes("AとBなにがすき？"))
+    ).toBe(true);
+    expect(fileDiagnosticLogs.some((message) => message.includes("Bがすきだよ！"))).toBe(
       true
     );
-    expect(diagnosticLogs).toContain(
+    expect(fileDiagnosticLogs).toContain(
       "AIメンション会話プロンプト/Success reply[1/1]: まっすぐなところが好きD！"
     );
-    for (const diagnosticLog of diagnosticLogs) {
+    for (const diagnosticLog of fileDiagnosticLogs) {
       expect(diagnosticLog).not.toContain("本文はログに出しません");
       expect(diagnosticLog).not.toContain("\n");
       expect(diagnosticLog).not.toContain("\\n");
