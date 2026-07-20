@@ -167,6 +167,38 @@ describe("mention chat external search", () => {
     expect(result?.text).toContain("森のくまさん替え歌");
   });
 
+  it("does not treat two separate information questions as a comparison", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        query: "発売日はいつ 価格はいくら",
+        results: [
+          {
+            title: "発売日はいつ、価格はいくら",
+            content: "発売日と価格を案内する記事。",
+            url: "https://example.test/product-info",
+            engine: "bing",
+          },
+        ],
+      })
+    );
+
+    await fetchMentionChatSearchContext({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "発売日はいつ？価格はいくら？",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 2,
+      fetchImpl,
+    });
+
+    const url = new URL(String(fetchImpl.mock.calls[0][0]));
+    expect(url.searchParams.get("q")).toBe("発売日はいつ 価格はいくら");
+  });
+
   it("falls back to Japanese Wikipedia when SearXNG has no usable result", async () => {
     const fetchImpl = vi.fn().mockImplementation(async (input) => {
       const url = String(input);

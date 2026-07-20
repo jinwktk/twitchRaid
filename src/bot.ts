@@ -259,6 +259,7 @@ interface MentionChatInput {
 
 interface MentionChatConversationHistoryEntry {
   role: "user" | "bot";
+  source: "mention" | "stream";
   userName: string;
   text: string;
   createdAt: number;
@@ -268,6 +269,7 @@ interface MentionChatConversationHistoryText {
   text: string;
   itemCount: number;
   charCount: number;
+  latestMentionUserText: string | null;
 }
 
 interface CombinedMentionChatMemoryText {
@@ -417,15 +419,35 @@ function buildMentionChatConversationHistoryText({
   entries,
   maxMessages,
   maxChars,
+  latestMentionUserName,
 }: {
   entries: MentionChatConversationHistoryEntry[];
   maxMessages: number;
   maxChars: number;
+  latestMentionUserName: string;
 }): MentionChatConversationHistoryText | null {
   const effectiveMaxMessages = Math.max(1, Math.floor(maxMessages));
   const effectiveMaxChars = Math.max(1, Math.floor(maxChars));
   const recentEntries = entries.slice(-effectiveMaxMessages);
   const selectedLines: string[] = [];
+  const normalizedLatestMentionUserName = normalizeMentionChatUserName(
+    latestMentionUserName
+  );
+  let latestMentionUserText: string | null = null;
+
+  for (let i = recentEntries.length - 1; i >= 0; i -= 1) {
+    const entry = recentEntries[i];
+    if (
+      entry.role !== "user" ||
+      entry.source !== "mention" ||
+      normalizeMentionChatUserName(entry.userName) !==
+        normalizedLatestMentionUserName
+    ) {
+      continue;
+    }
+    latestMentionUserText = normalizeMentionChatConversationText(entry.text);
+    break;
+  }
 
   for (let i = recentEntries.length - 1; i >= 0; i -= 1) {
     const line = formatMentionChatConversationHistoryEntry(recentEntries[i]);
@@ -445,13 +467,27 @@ function buildMentionChatConversationHistoryText({
 
   const text = selectedLines.join("\n").trim();
   return text
-    ? { text, itemCount: selectedLines.length, charCount: text.length }
+    ? {
+        text,
+        itemCount: selectedLines.length,
+        charCount: text.length,
+        latestMentionUserText,
+      }
     : null;
+}
+
+function isBareMentionChatResearchFollowUp(promptText: string): boolean {
+  const prompt = normalizeMentionChatConversationText(promptText);
+  return /^(?:調べて|検索して|ググって)(?:ください)?[？?。!！\s]*$/u.test(
+    prompt
+  );
 }
 
 function shouldApplyMentionChatConversationHistory(promptText: string): boolean {
   const prompt = normalizeMentionChatConversationText(promptText);
   if (!prompt) return false;
+
+  if (isBareMentionChatResearchFollowUp(prompt)) return true;
 
   if (
     /^(?:どう思う|どうおもう|どうかな|どうですか|どうだと思う)[？?。!！\s]*$/u.test(
@@ -1246,7 +1282,8 @@ export class Bot {
 
   private _getMentionChatConversationHistory(
     channel: string,
-    now: number
+    now: number,
+    latestMentionUserName: string
   ): MentionChatConversationHistoryText | null {
     if (!(this.config.chatAiConversationHistoryEnabled ?? true)) return null;
 
@@ -1271,6 +1308,7 @@ export class Bot {
       entries: freshEntries,
       maxMessages: this.config.chatAiConversationHistoryMaxMessages ?? 6,
       maxChars: this.config.chatAiConversationHistoryMaxChars ?? 1_000,
+      latestMentionUserName,
     });
   }
 
@@ -1287,12 +1325,14 @@ export class Bot {
       ...entries,
       {
         role: "user" as const,
+        source: "mention" as const,
         userName: request.userName,
         text: request.prompt,
         createdAt: now,
       },
       {
         role: "bot" as const,
+        source: "mention" as const,
         userName: this.config.loginChannel,
         text: reply,
         createdAt: now,
@@ -1322,6 +1362,7 @@ export class Bot {
       ...entries,
       {
         role: "user" as const,
+        source: "stream" as const,
         userName,
         text,
         createdAt: now,
@@ -1447,8 +1488,27 @@ export class Bot {
             result: null,
             elapsedMs: 0,
           });
+      const conversationHistory = shouldApplyMentionChatConversationHistory(
+        request.prompt
+      )
+        ? this._getMentionChatConversationHistory(
+            request.channel,
+            now,
+            request.userName
+          )
+        : null;
+      const contextualSearchQuery =
+        conversationHistory?.latestMentionUserText &&
+        isBareMentionChatResearchFollowUp(request.prompt) &&
+        isSafeMentionChatConversationContextText(
+          conversationHistory.latestMentionUserText
+        )
+          ? conversationHistory.latestMentionUserText
+          : null;
+      const searchQueryText = contextualSearchQuery ?? request.prompt;
       const searchEnabled = this.config.chatAiSearchEnabled ?? false;
-      const searchCandidate = shouldSearchMentionChat(request.prompt);
+      const searchCandidate =
+        contextualSearchQuery !== null || shouldSearchMentionChat(request.prompt);
       const searchStartedAt = Date.now();
       const searchPromise = fetchMentionChatSearchContextDetailed({
         enabled: searchEnabled,
@@ -1456,7 +1516,8 @@ export class Bot {
         endpoint:
           this.config.chatAiSearchEndpoint ?? "https://api.duckduckgo.com/",
         engines: this.config.chatAiSearchEngines ?? "",
-        queryText: request.prompt,
+        queryText: searchQueryText,
+        force: contextualSearchQuery !== null,
         timeoutMs: this.config.chatAiSearchTimeoutMs ?? 2_500,
         maxQueryChars: this.config.chatAiSearchMaxQueryChars ?? 120,
         maxResponseBytes: this.config.chatAiSearchMaxResponseBytes ?? 65_536,
@@ -1508,14 +1569,14 @@ export class Bot {
         );
       }
       const combinedMemoryText = combinedMemory.text;
-      const conversationHistory = shouldApplyMentionChatConversationHistory(
-        request.prompt
-      )
-        ? this._getMentionChatConversationHistory(request.channel, now)
-        : null;
       if (conversationHistory) {
         logger.info(
           `AIメンション会話履歴を適用: items=${conversationHistory.itemCount}, chars=${conversationHistory.charCount}`
+        );
+      }
+      if (contextualSearchQuery) {
+        logger.info(
+          `AIメンション会話の省略検索へ直近話題を適用: chars=${contextualSearchQuery.length}`
         );
       }
       if (searchContext) {
@@ -1587,7 +1648,7 @@ export class Bot {
           endpoint:
             this.config.chatAiSearchEndpoint ?? "https://api.duckduckgo.com/",
           engines: this.config.chatAiSearchEngines ?? "",
-          queryText: request.prompt,
+          queryText: searchQueryText,
           force: true,
           timeoutMs: this.config.chatAiSearchTimeoutMs ?? 2_500,
           maxQueryChars: this.config.chatAiSearchMaxQueryChars ?? 120,

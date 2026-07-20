@@ -148,9 +148,28 @@ function hasUnsafeExternalQueryContent(value: string): boolean {
   );
 }
 
+function isCompactComparisonQuestion(value: string): boolean {
+  const parts = value
+    .split(/[？?]+/u)
+    .map(singleLine)
+    .filter(Boolean);
+  if (parts.length !== 2) return false;
+
+  return parts.every(
+    (part) =>
+      part.length <= 24 &&
+      !/[\s、。！!]/u.test(part) &&
+      !/(?:いつ|いくら|だれ|誰|どこ|なに|何|どれ|どっち|どう|なぜ|何故|なんで|いかが)/u.test(
+        part
+      )
+  );
+}
+
 function normalizeSearchQuery(value: string): string {
+  const originalQuery = singleLine(value);
+  const isComparisonQuestion = isCompactComparisonQuestion(originalQuery);
   let query = singleLine(
-    value
+    originalQuery
       .replace(/[「」『』【】（）()[\]{}]/g, " ")
       .replace(/[、。！？!?]+$/gu, "")
   );
@@ -181,7 +200,11 @@ function normalizeSearchQuery(value: string): string {
     }
     query = singleLine(query.replace(/[、。！？!?]+$/gu, ""));
   }
+  query = singleLine(query.replace(/[、。！？!?]+/gu, " "));
   query = singleLine(query.replace(/の(?=替え歌(?:$|\s))/gu, " "));
+  if (isComparisonQuestion && !/(?:違い|比較|どっち)/u.test(query)) {
+    query = singleLine(`${query} 違い`);
+  }
 
   return applyKnownSearchAliases(query);
 }
@@ -351,13 +374,20 @@ function hasExactQueryResult(results: SearchResult[], query: string): boolean {
     .split(/\s+/u)
     .map(compactForRelevance)
     .filter(Boolean);
+  const filteredRelevanceTerms =
+    queryTerms.length >= 3
+      ? queryTerms.filter((term) => term !== "違い")
+      : queryTerms;
+  const relevanceTerms = filteredRelevanceTerms.length
+    ? filteredRelevanceTerms
+    : queryTerms;
   return results.some((result) => {
     const compactResult = compactForRelevance(
       `${result.title} ${result.snippet} ${result.url ?? ""}`
     );
     return (
       compactResult.includes(compactQuery) ||
-      queryTerms.every((term) => compactResult.includes(term))
+      relevanceTerms.every((term) => compactResult.includes(term))
     );
   });
 }

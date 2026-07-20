@@ -2730,6 +2730,118 @@ describe("Bot mention chat", () => {
     expect(historyLog).not.toContain("Bがすきだよ！");
   });
 
+  it("uses the same user's previous chat topic when a bare research follow-up omits the subject", async () => {
+    const { bot, say } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiSearchEngines: "bing",
+    });
+    const initialReply =
+      "にめいやさん、タン塩と塩タンは多分同じものだと思うけど、もう少し教えてほしいな！";
+    const ollamaResponses = [
+      initialReply,
+      "タン塩と塩タンは同じ料理を指す呼び方だよD！",
+    ];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.startsWith("http://searxng.test/")) {
+        return new Response(
+          JSON.stringify({
+            query: "タン塩 塩タン 違い",
+            results: [
+              {
+                title: "タン塩と塩タンの呼び方",
+                content: "どちらも牛タンへ塩味を付けて焼く同じ料理を指す呼び方。",
+                url: "https://example.test/tan-shio",
+                engine: "bing",
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({ response: ollamaResponses.shift() ?? "回答D！" }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    });
+
+    await bot._handleCommand("#rukalun", "viewer", "!chat タン塩？塩タン？", {});
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "other_viewer",
+      "別の視聴者は新宿に住んでる",
+      Date.now() / 1000
+    );
+    await bot._handleCommand("#rukalun", "viewer", "!chat 調べて？", {});
+
+    const searchCalls = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).startsWith("http://searxng.test/")
+    );
+    expect(searchCalls).toHaveLength(1);
+    expect(new URL(String(searchCalls[0][0])).searchParams.get("q")).toBe(
+      "タン塩 塩タン 違い"
+    );
+
+    const ollamaCalls = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    expect(ollamaCalls).toHaveLength(2);
+    const secondPrompt = JSON.parse(ollamaCalls[1][1].body as string).prompt;
+    expect(secondPrompt).toContain("直近会話");
+    expect(secondPrompt).toContain("タン塩？塩タン？");
+    expect(secondPrompt).toContain(initialReply);
+    expect(secondPrompt).toContain("外部検索結果");
+    expect(secondPrompt).toContain("タン塩と塩タンの呼び方");
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "タン塩と塩タンは同じ料理を指す呼び方だよD！"
+    );
+  });
+
+  it("does not externally search an unsafe previous chat turn for a bare follow-up", async () => {
+    const { bot, say } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiSearchEngines: "bing",
+    });
+    const ollamaResponses = ["URLは見ないD！", "検索対象を教えてほしいD！"];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input).startsWith("http://searxng.test/")) {
+        return new Response(JSON.stringify({ results: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(
+        JSON.stringify({ response: ollamaResponses.shift() ?? "回答D！" }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    });
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat https://example.test/private の内容",
+      {}
+    );
+    await bot._handleCommand("#rukalun", "viewer", "!chat 調べて？", {});
+
+    const searchCalls = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).startsWith("http://searxng.test/")
+    );
+    expect(searchCalls).toHaveLength(0);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "検索対象を教えてほしいD！"
+    );
+  });
+
   it("passes recent listener comments to a vague chat command prompt", async () => {
     const { bot, say } = makeBot({ chatAiCooldownSeconds: 0 });
     const infoSpy = vi.spyOn(logger, "info");
