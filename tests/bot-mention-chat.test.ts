@@ -2254,13 +2254,13 @@ describe("Bot mention chat", () => {
     await bot._handleRegularMessage(
       "#rukalun",
       "viewer",
-      "@rukalun 私はカレーが好きって覚えて",
+      "@rukalun 趣味は釣りって覚えといて",
       100
     );
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(JSON.parse(fs.readFileSync(memoryPath, "utf8"))).toMatchObject({
-      viewerの好きなもの: "カレー",
+      "viewerの趣味": "釣り",
     });
     expect(say).toHaveBeenCalledWith("#rukalun", "覚えたD！");
   });
@@ -2310,7 +2310,7 @@ describe("Bot mention chat", () => {
     expect(fs.existsSync(memoryPath)).toBe(false);
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "覚える形式は「覚えて: キー=内容」でお願いD！"
+      "誰のどんなことか分かるように、そのまま文章で教えてほしいD！"
     );
   });
 
@@ -2399,7 +2399,7 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "覚えたD！");
   });
 
-  it("records implicit memory as a candidate after a successful reply without another Ollama call", async () => {
+  it("activates implicit self-preference memory after one successful reply without another Ollama call", async () => {
     vi.useFakeTimers();
     const memoryPath = path.join(ensureTempDir(), "implicit-memory.json");
     const { bot, say } = makeBot({
@@ -2434,14 +2434,14 @@ describe("Bot mention chat", () => {
         "viewerの好きなもの": {
           kind: "implicit",
           sourceUser: "viewer",
-          status: "candidate",
+          status: "active",
           observedCount: 1,
         },
       },
     });
   });
 
-  it("records first-person implicit profile statements under the source user as candidates", async () => {
+  it("activates first-person implicit profile statements under the source user", async () => {
     vi.useFakeTimers();
     const memoryPath = path.join(ensureTempDir(), "implicit-profile.json");
     const { bot, say } = makeBot({
@@ -2476,9 +2476,83 @@ describe("Bot mention chat", () => {
         viewer: {
           kind: "implicit",
           sourceUser: "viewer",
-          status: "candidate",
+          status: "active",
           observedCount: 1,
         },
+      },
+    });
+  });
+
+  it("activates a safe self-profile from natural !chat text after one observation", async () => {
+    vi.useFakeTimers();
+    const memoryPath = path.join(ensureTempDir(), "natural-chat-memory.json");
+    const { bot, say } = makeBot({
+      chatAiAutoLearnEnabled: true,
+      chatAiImplicitMemoryEnabled: true,
+      chatAiMemoryEnabled: true,
+      chatAiMemoryPath: memoryPath,
+      chatAiMemoryWriterUsers: ["all"],
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "釣りが趣味なんだねD！" }),
+    } as Response);
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat 趣味は釣り",
+      {}
+    );
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith("#rukalun", "釣りが趣味なんだねD！");
+    expect(JSON.parse(fs.readFileSync(memoryPath, "utf8"))).toMatchObject({
+      "viewerの趣味": "釣り",
+      __meta: {
+        "viewerの趣味": {
+          kind: "implicit",
+          sourceUser: "viewer",
+          status: "active",
+          observedCount: 1,
+        },
+      },
+    });
+  });
+
+  it("activates safe natural self-profile comments without chat or Ollama calls", async () => {
+    vi.useFakeTimers();
+    const memoryPath = path.join(ensureTempDir(), "natural-comment-memory.json");
+    const { bot, say } = makeBot({
+      chatAiAutoLearnEnabled: true,
+      chatAiImplicitMemoryEnabled: true,
+      chatAiCommentMemoryEnabled: true,
+      chatAiCommentMemoryMaxEntriesPerMessage: 3,
+      chatAiMemoryEnabled: true,
+      chatAiMemoryPath: memoryPath,
+      chatAiMemoryWriterUsers: ["all"],
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "趣味は釣り。辛いものは苦手。カレー好きなんだよね",
+      100
+    );
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(say).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(JSON.parse(fs.readFileSync(memoryPath, "utf8"))).toMatchObject({
+      "viewerの趣味": "釣り",
+      "viewerの苦手なもの": "辛いもの",
+      "viewerの好きなもの": "カレー",
+      __meta: {
+        "viewerの趣味": { status: "active", observedCount: 1 },
+        "viewerの苦手なもの": { status: "active", observedCount: 1 },
+        "viewerの好きなもの": { status: "active", observedCount: 1 },
       },
     });
   });
@@ -2506,7 +2580,7 @@ describe("Bot mention chat", () => {
     await bot._handleRegularMessage(
       "#rukalun",
       "viewer",
-      "@rukalun 私はカレーが好き",
+      "@rukalun るっかはカレーが好き",
       100
     );
 
@@ -2517,9 +2591,9 @@ describe("Bot mention chat", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(JSON.parse(fs.readFileSync(memoryPath, "utf8"))).toMatchObject({
-      "viewerの好きなもの": "カレー",
+      "るっかの好きなもの": "カレー",
       __meta: {
-        "viewerの好きなもの": {
+        "るっかの好きなもの": {
           kind: "implicit",
           sourceUser: "viewer",
           status: "candidate",
@@ -2558,7 +2632,7 @@ describe("Bot mention chat", () => {
     await bot._handleRegularMessage(
       "#rukalun",
       "viewer",
-      "私はカレーが好き。私は社会人だよ",
+      "るっかるんはFF14が好き。nyme_ia2はBotです",
       100
     );
 
@@ -2580,7 +2654,7 @@ describe("Bot mention chat", () => {
     await bot._handleRegularMessage(
       "#rukalun",
       "viewer",
-      "私はカレーが好き。私は社会人だよ",
+      "るっかるんはFF14が好き。nyme_ia2はBotです",
       200
     );
     await vi.runOnlyPendingTimersAsync();
@@ -2595,20 +2669,20 @@ describe("Bot mention chat", () => {
     );
     expect(mem0Bodies).toMatchObject([
       {
-        messages: [{ role: "user", content: "viewerの好きなもの: カレー" }],
+        messages: [{ role: "user", content: "るっかるんの好きなもの: FF14" }],
         infer: false,
         metadata: {
-          key: "viewerの好きなもの",
+          key: "るっかるんの好きなもの",
           kind: "implicit",
           sourceUser: "viewer",
           source: "twitchRaid",
         },
       },
       {
-        messages: [{ role: "user", content: "viewer: 社会人" }],
+        messages: [{ role: "user", content: "nyme_ia2: Bot" }],
         infer: false,
         metadata: {
-          key: "viewer",
+          key: "nyme_ia2",
           kind: "implicit",
           sourceUser: "viewer",
           source: "twitchRaid",
@@ -2626,8 +2700,8 @@ describe("Bot mention chat", () => {
       )
     ).toHaveLength(2);
     for (const call of infoSpy.mock.calls) {
-      expect(call[0]).not.toContain("カレー");
-      expect(call[0]).not.toContain("社会人");
+      expect(call[0]).not.toContain("FF14");
+      expect(call[0]).not.toContain("Botです");
     }
   });
 
@@ -2737,12 +2811,14 @@ describe("Bot mention chat", () => {
 
   it("does not double-store bot mention messages as regular stream comments", async () => {
     vi.useFakeTimers();
+    const memoryPath = path.join(ensureTempDir(), "no-double-store-memory.json");
     const { bot, say } = makeBot({
       chatAiCooldownSeconds: 0,
       chatAiAutoLearnEnabled: true,
       chatAiImplicitMemoryEnabled: true,
       chatAiCommentMemoryEnabled: true,
       chatAiMemoryWriterUsers: ["all"],
+      chatAiMemoryPath: memoryPath,
       chatAiMem0Enabled: true,
       chatAiMem0Endpoint: "http://mem0:8888",
     });
@@ -2760,8 +2836,22 @@ describe("Bot mention chat", () => {
     await vi.runOnlyPendingTimersAsync();
 
     expect(say).toHaveBeenCalledWith("#rukalun", "覚えたD！");
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(String(fetchSpy.mock.calls[0][0])).toMatch(/\/api\/generate$/u);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(
+      fetchSpy.mock.calls.filter(([input]) =>
+        String(input).endsWith("/api/generate")
+      )
+    ).toHaveLength(1);
+    expect(
+      fetchSpy.mock.calls.filter(
+        ([input]) => String(input) === "http://mem0:8888/memories"
+      )
+    ).toHaveLength(1);
+    expect(JSON.parse(fs.readFileSync(memoryPath, "utf8"))).toMatchObject({
+      __meta: {
+        "viewerの好きなもの": { status: "active", observedCount: 1 },
+      },
+    });
   });
 
   it("does not consume normal AI cooldown for memory fixed replies", async () => {

@@ -93,6 +93,7 @@ import {
   extractStreamCommentMemoryEntries,
   loadMentionChatMemoryAuthorityStore,
   loadMentionChatMemoryStore,
+  resolveMentionChatMemoryPromotionMinObservations,
   saveMentionChatAutoLearnMemoryStore,
   saveMentionChatMemoryObservationStore,
   type MentionChatMemoryEntry,
@@ -171,7 +172,7 @@ const MENTION_CHAT_MEMORY_KEYWORD_PATTERN =
   /(?:覚えて(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|覚えといて(?:ください|下さい|ね)?|覚えとけ|記憶して(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|記憶しといて(?:ください|下さい|ね)?|メモして(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|メモしといて(?:ください|下さい|ね)?|メモっといて(?:ください|下さい|ね)?|忘れないで(?!いる|いた|います|た|しょ))/u;
 const MENTION_CHAT_MEMORY_SAVED_REPLY = "覚えたD！";
 const MENTION_CHAT_MEMORY_USAGE_REPLY =
-  "覚える形式は「覚えて: キー=内容」でお願いD！";
+  "誰のどんなことか分かるように、そのまま文章で教えてほしいD！";
 const MENTION_CHAT_MEMORY_UNSAFE_REPLY =
   "その内容は安全のため覚えられないD！";
 const MENTION_CHAT_MEMORY_DISABLED_REPLY = "記憶保存は今は無効D！";
@@ -1077,7 +1078,11 @@ export class Bot {
               kind: "implicit",
               maxItems: this.config.chatAiAutoLearnMaxItems ?? 50,
               promotionMinObservations:
-                this.config.chatAiMemoryPromotionMinObservations ?? 2,
+                resolveMentionChatMemoryPromotionMinObservations(
+                  entry,
+                  sourceUser,
+                  this.config.chatAiMemoryPromotionMinObservations ?? 2
+                ),
               sourceUser,
             });
             if (result.reason === "observed") {
@@ -1249,7 +1254,11 @@ export class Bot {
             kind: "implicit",
             maxItems: this.config.chatAiAutoLearnMaxItems ?? 50,
             promotionMinObservations:
-              this.config.chatAiMemoryPromotionMinObservations ?? 2,
+              resolveMentionChatMemoryPromotionMinObservations(
+                entry,
+                request.userName,
+                this.config.chatAiMemoryPromotionMinObservations ?? 2
+              ),
             sourceUser: request.userName,
           });
           if (result.reason === "observed") {

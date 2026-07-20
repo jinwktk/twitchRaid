@@ -41,12 +41,14 @@ export interface ExtractMentionChatMemoryEntryOptions {
 }
 
 export interface ExtractImplicitMentionChatMemoryEntryOptions
-  extends ExtractMentionChatMemoryEntryOptions {}
+  extends ExtractMentionChatMemoryEntryOptions {
+  knownTargets?: readonly string[];
+}
 
 export interface ExtractStreamCommentMemoryEntriesOptions
   extends ExtractMentionChatMemoryEntryOptions {
   maxEntries: number;
-  knownTargets?: string[];
+  knownTargets?: readonly string[];
 }
 
 export interface SaveMentionChatAutoLearnMemoryOptions
@@ -312,20 +314,102 @@ const IMPLICIT_QUESTION_OR_REQUEST_PATTERN =
 const IMPLICIT_TEMPORARY_KEY_PATTERN =
   /^(?:今日|昨日|明日|今|現在|さっき|今回|この|その|あの|これ|それ|あれ|ここ|そこ|あそこ)$/u;
 const IMPLICIT_UNSTABLE_VALUE_PATTERN =
-  /(?:かも|たぶん|多分|一時的|今だけ|今日だけ|昨日だけ|明日だけ)/u;
+  /(?:かも|たぶん|多分|一時的|一時期|一旦|暫定|仮に|当面|当分|当座|しばらく|さっき|先ほど|先日|先頃|この前|この間|現在|今|今日|昨日|明日|今朝|今晩|今夜|今週|先週|来週|今月|先月|来月|今年|去年|来年|最近|この頃)/u;
 const IMPLICIT_TRANSIENT_CONVERSATION_PATTERN =
   /(?:もういい|その話|この話|あの話|同じ話|話は|調子に乗|あんま調子|負け|勝ち|低能|黙れ|やめろ)/u;
 const IMPLICIT_RIDDLE_PATTERN =
   /(?:なーん|なぞなぞ|クイズ|答えは|モノマネ)/u;
 const TWITCH_EMOTE_TOKEN_PATTERN = /\brukka[A-Za-z0-9_]+\b/u;
 const IMPLICIT_PII_KEY_PATTERN =
-  /本名|氏名|住所|所在地|誕生日|生年月日|マイナンバー|個人番号|電話番号|メールアドレス|メール/iu;
+  /本名|氏名|年齢|住所|所在地|居住地|出身地|地元|誕生日|生年月日|マイナンバー|個人番号|電話番号|メールアドレス|メール/iu;
 const FIRST_PERSON_SENSITIVE_VALUE_PATTERN =
-  /(?:\d+|[0-9０-９]+)\s*(?:歳|才)|(?:誕生日|生年月日|生まれ|平成|昭和|令和|西暦|\d{4}年|[0-9０-９]+月[0-9０-９]+日)|(?:住んで|すんで|住まい|居住|在住|住所|所在地|出身|都|道|府|県|市|区|町|村)/u;
+  /(?:\d+|[0-9０-９]+)\s*(?:歳|才|さい|代)|[一二三四五六七八九十百〇零]+\s*(?:歳|才|さい|代)|(?:本名|実名|氏名|フルネーム|戸籍名|未成年|成人(?:済み)?|アラ(?:サー|フォー|フィフ)|還暦|誕生日|生年月日|生まれ|平成|昭和|令和|西暦|\d{4}年|[0-9０-９]+月[0-9０-９]+日)|(?:住んで|すんで|住み|住まい|暮らし|居住|在住|住所|所在地|出身|地元|育ち)/u;
 const FIRST_PERSON_PATTERN = /^(?:私|わたし|僕|ぼく|俺|おれ|うち|自分)$/u;
 const STREAM_COMMENT_SENTENCE_PATTERN = /[^。.!！?？]+[。.!！?？]?/gu;
-const SUBJECTLESS_FAVORITE_PATTERN =
-  /^(.+?)が好き(?:です|だ|だよ|だね)?[。.!！\s]*$/u;
+const IMPLICIT_PREFERENCE_ASSERTION_PATTERN =
+  /(?:大好き|大嫌い|好き|苦手|嫌い)(?:なんだよね|なんだよ|なんだね|なんです|なんだ|だよね|だよ|だね|です|だ)?[。.!！\s]*$/u;
+const IMPLICIT_NEGATED_VALUE_PATTERN =
+  /(?:(?:じゃ|では)(?:ない|無い|なかった|無かった|なく|無く|ありません|ございません|ねえ|ねぇ)|でも(?:ない|無い)|(?:い|居)(?:ない|無い|なかった|無かった|なく|無く|ません|ねえ|ねぇ)|ない|無い|なし|無し|ません|ございません)/u;
+const IMPLICIT_HEARSAY_PATTERN =
+  /(?:によると|曰く|とのこと|との噂|との情報|情報では|報道では|話では|という話|噂|らしい|みたい|っぽい|(?:の)?よう(?:だ|です|だった|でした)|だって|だとか|だそう|とされて?(?:た|いる|る)?|(?:って|と).{0,32}(?:言って(?:た|いる|る)?|言った|言われて?(?:た|いる|る)?|話して(?:た|いる|る)?|聞いた|聞いて(?:た|いる|る)?))/u;
+const IMPLICIT_TRANSIENT_SELF_VALUE_PATTERN =
+  /(?:眠い|眠たい|疲れた|疲れてる|疲れている|休み|仕事中|配信中|外出中|移動中|忙しい|暇)(?:です|だ|だよ|だね)?[。.!！\s]*$/u;
+const IMPLICIT_STABLE_SELF_IDENTITY_VALUES = new Set([
+  "社会人",
+  "学生",
+  "大学生",
+  "高校生",
+  "中学生",
+  "小学生",
+  "会社員",
+  "公務員",
+  "自営業",
+  "フリーランス",
+  "主婦",
+  "主夫",
+  "配信者",
+  "vtuber",
+  "エンジニア",
+  "プログラマー",
+  "デザイナー",
+  "ゲーマー",
+  "ストリーマー",
+]);
+const IMPLICIT_PREFERENCE_PREDICATES = [
+  "大好き",
+  "大嫌い",
+  "好き",
+  "苦手",
+  "嫌い",
+] as const;
+const IMPLICIT_ATTRIBUTED_PREFERENCE_VALUE_PATTERN =
+  /^(?:(?:みんな|皆|私|わたし|僕|ぼく|俺|おれ|うち|自分|彼|彼女|あの人|あの子|この子|その子|こいつ|そいつ|あいつ|友達|友人|知り合い|家族|同僚|同級生|先輩|後輩|先生|上司|部下|母|父|親|兄|姉|弟|妹|祖母|祖父|ママ|パパ|お母さん|お父さん|夫|妻|旦那|嫁|恋人)(?:は|も|が|、|,|\s|(?=[ァ-ヶーA-Za-z0-9]))|[^\s、,]{1,24}(?:さん|ちゃん|くん|氏)(?:は|も|が|、|,|\s|(?=[ァ-ヶーA-Za-z0-9]))|(?:るっか|るっかるん|rukalun|にめいや|にめいやボットくん|nyme_ia2)(?:は|も|が|、|,|\s))/u;
+const IMPLICIT_UNRESOLVED_SUBJECT_PARTICLE_PATTERN =
+  /^.{1,24}(?:は|も|が).{2,}$/u;
+const IMPLICIT_DEICTIC_PREFERENCE_VALUE_PATTERN =
+  /^(?:これ|それ|あれ|この|その|あの)(?:もの|やつ|こと)?$/u;
+const IMPLICIT_PREFERENCE_WORD_ONLY_PATTERN =
+  /^(?:大好き|大嫌い|好き|苦手|嫌い)$/u;
+const IMPLICIT_PREFERENCE_INTENSIFIER_PATTERN =
+  /(?:めちゃくちゃ|めっちゃ|かなり|とっても|とても|すごく|ものすごく|本当に|ほんとに|非常に|けっこう|結構|わりと|割と|普通に|そこそこ|まあまあ|一番|めちゃ|超)$/u;
+const IMPLICIT_PREFERENCE_DEGREE_ONLY_PATTERN = /^(?:大+|超+)$/u;
+const IMPLICIT_PREFERENCE_LEADING_INTENSIFIER_PATTERN =
+  /^(?:めちゃくちゃ|めっちゃ|かなり|とっても|とても|すごく|ものすごく|本当に|ほんとに|非常に|けっこう|結構|わりと|割と|普通に|そこそこ|まあまあ|一番|めちゃ|超)/u;
+const IMPLICIT_PREFERENCE_LEXICAL_FINAL_PARTICLE_VALUES = new Set([
+  "しょうが",
+  "すもも",
+  "こども",
+  "子ども",
+  "じゃがいも",
+  "さつまいも",
+  "いろは",
+]);
+const SELF_PROFILE_KEY_ALIASES = new Map<string, string>([
+  ["趣味", "趣味"],
+  ["仕事", "仕事"],
+  ["職業", "職業"],
+  ["好物", "好きな食べ物"],
+  ["好きな食べ物", "好きな食べ物"],
+  ["好きな飲み物", "好きな飲み物"],
+  ["好きなゲーム", "好きなゲーム"],
+  ["よく遊ぶゲーム", "よく遊ぶゲーム"],
+  ["好きなもの", "好きなもの"],
+  ["苦手なもの", "苦手なもの"],
+  ["嫌いなもの", "嫌いなもの"],
+  ["推し", "推し"],
+  ["ペット", "ペット"],
+  ["呼び方", "呼び方"],
+  ["ニックネーム", "呼び方"],
+]);
+const SELF_PROFILE_MEMORY_SUFFIXES = new Set(SELF_PROFILE_KEY_ALIASES.values());
+const SELF_PROFILE_PREFERENCE_SUFFIXES = new Set([
+  "好きなもの",
+  "好きな食べ物",
+  "好きな飲み物",
+  "好きなゲーム",
+  "苦手なもの",
+  "嫌いなもの",
+]);
 
 function isRecord(value: unknown): value is MemoryRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -379,7 +463,10 @@ function stripWrappingQuotes(value: string): string {
 function stripTrailingSentenceNoise(value: string): string {
   return value
     .replace(/[。.!！?？\s]+$/u, "")
-    .replace(/(?:だよね|だよ|だね|です|だ|ね)$/u, "")
+    .replace(
+      /(?:なんだよね|なんだよ|なんだね|なんです|なんだ|だよね|だよ|だね|です|だ|ね)$/u,
+      ""
+    )
     .trim();
 }
 
@@ -421,6 +508,63 @@ function normalizeStreamCommentMemoryKey(value: string): string {
   return singleLine(value).replace(/^[@＠]+/, "").toLowerCase();
 }
 
+function isSelfProfileMemoryEntry(
+  entry: MentionChatMemoryEntry,
+  sourceUser: string | undefined
+): boolean {
+  const normalizedSourceUser = normalizeImplicitSourceUser(sourceUser);
+  if (!normalizedSourceUser) return false;
+
+  const normalizedKey = normalizeStreamCommentMemoryKey(entry.key);
+  if (normalizedKey === normalizedSourceUser) return true;
+  const prefix = `${normalizedSourceUser}の`;
+  if (!normalizedKey.startsWith(prefix)) return false;
+  return SELF_PROFILE_MEMORY_SUFFIXES.has(normalizedKey.slice(prefix.length));
+}
+
+function isTransientSelfProfileEntry(
+  entry: MentionChatMemoryEntry,
+  sourceUser: string | undefined
+): boolean {
+  const normalizedSourceUser = normalizeImplicitSourceUser(sourceUser);
+  const normalizedKey = normalizeStreamCommentMemoryKey(entry.key);
+  if (!normalizedSourceUser) return false;
+  const prefix = `${normalizedSourceUser}の`;
+  if (
+    normalizedKey.startsWith(prefix) &&
+    SELF_PROFILE_PREFERENCE_SUFFIXES.has(normalizedKey.slice(prefix.length))
+  ) {
+    return false;
+  }
+  return IMPLICIT_TRANSIENT_SELF_VALUE_PATTERN.test(entry.value);
+}
+
+function isImmediatelyPromotableSelfProfileEntry(
+  entry: MentionChatMemoryEntry,
+  sourceUser: string | undefined
+): boolean {
+  if (!isSelfProfileMemoryEntry(entry, sourceUser)) return false;
+
+  const normalizedSourceUser = normalizeImplicitSourceUser(sourceUser);
+  const normalizedKey = normalizeStreamCommentMemoryKey(entry.key);
+  const value = stripTrailingSentenceNoise(singleLine(entry.value));
+  if (
+    !value ||
+    isUnsafeMemoryText(value) ||
+    FIRST_PERSON_SENSITIVE_VALUE_PATTERN.test(value) ||
+    IMPLICIT_UNSTABLE_VALUE_PATTERN.test(value) ||
+    IMPLICIT_NEGATED_VALUE_PATTERN.test(value) ||
+    IMPLICIT_HEARSAY_PATTERN.test(value) ||
+    isTransientSelfProfileEntry({ key: normalizedKey, value }, normalizedSourceUser)
+  ) {
+    return false;
+  }
+
+  return normalizedKey !== normalizedSourceUser
+    ? true
+    : IMPLICIT_STABLE_SELF_IDENTITY_VALUES.has(value.toLowerCase());
+}
+
 function normalizeMemorySubjectKey(
   rawKey: string,
   sourceUser: string | undefined
@@ -451,7 +595,23 @@ function cleanImplicitMemoryEntry(
   const normalizedKey = key.toLowerCase();
 
   if (!key || !value) return null;
-  if (subject.isFirstPerson && isSensitiveFirstPersonMemoryValue(value)) {
+  const normalizedSourceUser = normalizeImplicitSourceUser(options.sourceUser);
+  const isSelfProfile = isSelfProfileMemoryEntry(
+    { key, value },
+    normalizedSourceUser
+  );
+  if (
+    (subject.isFirstPerson || isSelfProfile) &&
+    isSensitiveFirstPersonMemoryValue(value)
+  ) {
+    return null;
+  }
+  if (
+    IMPLICIT_NEGATED_VALUE_PATTERN.test(value) ||
+    IMPLICIT_HEARSAY_PATTERN.test(value) ||
+    (isSelfProfile &&
+      isTransientSelfProfileEntry({ key, value }, normalizedSourceUser))
+  ) {
     return null;
   }
   if ([...key].length < 2) return null;
@@ -486,20 +646,140 @@ function splitStreamCommentMemoryCandidates(text: string): string[] {
   );
 }
 
-function extractSubjectlessFavoriteStreamCommentMemoryEntry(
-  text: string,
-  options: ExtractStreamCommentMemoryEntriesOptions
+function normalizeImplicitPreferenceKey(predicate: string): string {
+  if (predicate === "苦手") return "苦手なもの";
+  if (predicate === "嫌い" || predicate === "大嫌い") return "嫌いなもの";
+  return "好きなもの";
+}
+
+function resolveImplicitPreferenceSubject(
+  rawSubject: string,
+  options: ExtractImplicitMentionChatMemoryEntryOptions
+): string | null {
+  const subject = stripWrappingQuotes(singleLine(rawSubject));
+  const normalizedSubject = normalizeStreamCommentMemoryKey(subject);
+  const normalizedSourceUser = normalizeImplicitSourceUser(options.sourceUser);
+  if (FIRST_PERSON_PATTERN.test(subject)) {
+    return normalizedSourceUser || null;
+  }
+  if (normalizedSourceUser && normalizedSubject === normalizedSourceUser) {
+    return normalizedSourceUser;
+  }
+  const targets = options.knownTargets ?? DEFAULT_STREAM_COMMENT_MEMORY_TARGETS;
+  const isKnownTarget = targets.some(
+    (target) => normalizeStreamCommentMemoryKey(target) === normalizedSubject
+  );
+  return isKnownTarget ? subject : null;
+}
+
+function extractImplicitPreferenceMemoryEntry(
+  prompt: string,
+  options: ExtractImplicitMentionChatMemoryEntryOptions
 ): MentionChatMemoryEntry | null {
+  if (
+    IMPLICIT_NEGATED_VALUE_PATTERN.test(prompt) ||
+    IMPLICIT_HEARSAY_PATTERN.test(prompt)
+  ) {
+    return null;
+  }
+
+  const normalizedPrompt = stripTrailingSentenceNoise(prompt);
+  const predicate = IMPLICIT_PREFERENCE_PREDICATES.find((candidate) =>
+    normalizedPrompt.endsWith(candidate)
+  );
+  if (!predicate) return null;
+
+  let body = normalizedPrompt.slice(0, -predicate.length).trim();
+  if (!body) return null;
+  let previousBody = "";
+  while (body && body !== previousBody) {
+    previousBody = body;
+    body = body.replace(IMPLICIT_PREFERENCE_INTENSIFIER_PATTERN, "").trim();
+  }
+  if (
+    !body ||
+    IMPLICIT_PREFERENCE_WORD_ONLY_PATTERN.test(body) ||
+    IMPLICIT_PREFERENCE_DEGREE_ONLY_PATTERN.test(body) ||
+    IMPLICIT_PREFERENCE_LEADING_INTENSIFIER_PATTERN.test(body)
+  ) {
+    return null;
+  }
+
+  let subject: string | null = null;
+  let value = body;
+  for (let index = body.indexOf("は"); index > 0; index = body.indexOf("は", index + 1)) {
+    const resolvedSubject = resolveImplicitPreferenceSubject(
+      body.slice(0, index),
+      options
+    );
+    if (!resolvedSubject) continue;
+    subject = resolvedSubject;
+    value = body.slice(index + 1).trim();
+    break;
+  }
+
+  const normalizedValue = value.toLowerCase();
+  const isLexicalFinalParticleValue =
+    IMPLICIT_PREFERENCE_LEXICAL_FINAL_PARTICLE_VALUES.has(normalizedValue);
+  if (
+    /[がはも]$/u.test(value) &&
+    !isLexicalFinalParticleValue
+  ) {
+    value = value.slice(0, -1).trim();
+  }
+
+  if (
+    !value ||
+    IMPLICIT_PREFERENCE_DEGREE_ONLY_PATTERN.test(value) ||
+    FIRST_PERSON_PATTERN.test(value) ||
+    IMPLICIT_DEICTIC_PREFERENCE_VALUE_PATTERN.test(value) ||
+    /[、,]/u.test(value) ||
+    IMPLICIT_ATTRIBUTED_PREFERENCE_VALUE_PATTERN.test(value) ||
+    (!isLexicalFinalParticleValue &&
+      IMPLICIT_UNRESOLVED_SUBJECT_PARTICLE_PATTERN.test(value))
+  ) {
+    return null;
+  }
+
   const sourceUser = normalizeImplicitSourceUser(options.sourceUser);
-  if (!sourceUser) return null;
-  const match = text.match(SUBJECTLESS_FAVORITE_PATTERN);
-  if (!match) return null;
-  const value = stripWrappingQuotes(singleLine(match[1]));
-  if (!value || value.includes("は")) return null;
+  const keySubject = subject ?? sourceUser;
+  if (!keySubject) return null;
   return cleanImplicitMemoryEntry(
     {
-      key: `${sourceUser}の好きなもの`,
+      key: `${keySubject}の${normalizeImplicitPreferenceKey(predicate)}`,
       value,
+    },
+    options
+  );
+}
+
+function normalizeImplicitSelfProfileKey(rawKey: string): string | null {
+  const key = stripWrappingQuotes(singleLine(rawKey));
+  const firstPersonPossessiveMatch = key.match(
+    /^(?:私|わたし|僕|ぼく|俺|おれ|うち|自分)の(.+)$/u
+  );
+  return (
+    SELF_PROFILE_KEY_ALIASES.get(firstPersonPossessiveMatch?.[1] ?? key) ?? null
+  );
+}
+
+function extractImplicitSelfProfileMemoryEntry(
+  prompt: string,
+  options: ExtractImplicitMentionChatMemoryEntryOptions
+): MentionChatMemoryEntry | null {
+  const parsed = splitMemoryKeyValue(prompt);
+  if (!parsed) return null;
+
+  const sourceUser = normalizeImplicitSourceUser(options.sourceUser);
+  if (!sourceUser) return null;
+  const normalizedProfileKey = normalizeImplicitSelfProfileKey(parsed.key);
+  if (!normalizedProfileKey) return null;
+  if (isSensitiveFirstPersonMemoryValue(parsed.value)) return null;
+
+  return cleanImplicitMemoryEntry(
+    {
+      key: `${sourceUser}の${normalizedProfileKey}`,
+      value: parsed.value,
     },
     options
   );
@@ -509,9 +789,8 @@ function isAllowedStreamCommentMemoryEntry(
   entry: MentionChatMemoryEntry,
   options: ExtractStreamCommentMemoryEntriesOptions
 ): boolean {
-  const sourceUser = normalizeImplicitSourceUser(options.sourceUser);
   const key = normalizeStreamCommentMemoryKey(entry.key);
-  if (sourceUser && (key === sourceUser || key.startsWith(`${sourceUser}の`))) {
+  if (isSelfProfileMemoryEntry(entry, options.sourceUser)) {
     return true;
   }
 
@@ -737,6 +1016,13 @@ export function extractImplicitMentionChatMemoryEntry(
   if (!prompt || prompt.length > IMPLICIT_MEMORY_MAX_PROMPT_CHARS) return null;
   if (MEMORY_KEYWORD_PATTERN.test(prompt)) return null;
   if (IMPLICIT_QUESTION_OR_REQUEST_PATTERN.test(prompt)) return null;
+  if (IMPLICIT_UNSTABLE_VALUE_PATTERN.test(prompt)) return null;
+  if (
+    IMPLICIT_NEGATED_VALUE_PATTERN.test(prompt) ||
+    IMPLICIT_HEARSAY_PATTERN.test(prompt)
+  ) {
+    return null;
+  }
   if (isUnsafeMemoryText(prompt)) return null;
   if (
     IMPLICIT_TRANSIENT_CONVERSATION_PATTERN.test(prompt) ||
@@ -746,28 +1032,30 @@ export function extractImplicitMentionChatMemoryEntry(
     return null;
   }
 
-  const favoriteMatch = prompt.match(/^(.+?)は(.+?)が好き(?:です|だ|だよ|だね)?[。.!！\s]*$/u);
-  if (favoriteMatch) {
-    const sourceUser = normalizeImplicitSourceUser(options.sourceUser);
-    const subject = stripWrappingQuotes(singleLine(favoriteMatch[1]));
-    if (!FIRST_PERSON_PATTERN.test(subject) && !/るっか/u.test(subject)) {
-      return null;
-    }
-    const keySubject = FIRST_PERSON_PATTERN.test(subject)
-      ? sourceUser || "unknown"
-      : subject;
-    return cleanImplicitMemoryEntry(
-      {
-        key: `${keySubject}の好きなもの`,
-        value: favoriteMatch[2],
-      },
-      options
-    );
+  const preference = extractImplicitPreferenceMemoryEntry(prompt, options);
+  if (preference) return preference;
+  if (IMPLICIT_PREFERENCE_ASSERTION_PATTERN.test(prompt)) {
+    return null;
   }
+
+  const selfProfile = extractImplicitSelfProfileMemoryEntry(prompt, options);
+  if (selfProfile) return selfProfile;
 
   const parsed = splitMemoryKeyValue(prompt);
   if (!parsed) return null;
-  return cleanImplicitMemoryEntry(parsed, options);
+  if (normalizeImplicitSelfProfileKey(parsed.key)) return null;
+  const cleaned = cleanImplicitMemoryEntry(parsed, options);
+  if (!cleaned) return null;
+
+  const normalizedSourceUser = normalizeImplicitSourceUser(options.sourceUser);
+  if (
+    normalizedSourceUser &&
+    normalizeStreamCommentMemoryKey(cleaned.key) === normalizedSourceUser &&
+    !isImmediatelyPromotableSelfProfileEntry(cleaned, normalizedSourceUser)
+  ) {
+    return null;
+  }
+  return cleaned;
 }
 
 export function extractStreamCommentMemoryEntries(
@@ -781,9 +1069,7 @@ export function extractStreamCommentMemoryEntries(
   const seen = new Set<string>();
   for (const candidate of splitStreamCommentMemoryCandidates(commentText)) {
     if (entries.length >= maxEntries) break;
-    const entry =
-      extractImplicitMentionChatMemoryEntry(candidate, options) ??
-      extractSubjectlessFavoriteStreamCommentMemoryEntry(candidate, options);
+    const entry = extractImplicitMentionChatMemoryEntry(candidate, options);
     if (!entry) continue;
     if (!isAllowedStreamCommentMemoryEntry(entry, options)) continue;
 
@@ -1703,6 +1989,19 @@ export function saveMentionChatMemoryEntryStore({
 
 function normalizePromotionMinObservations(value: number): number {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : 2;
+}
+
+export function resolveMentionChatMemoryPromotionMinObservations(
+  entry: MentionChatMemoryEntry,
+  sourceUser: string | undefined,
+  configuredMinObservations: number
+): number {
+  const normalizedConfiguredMinObservations = normalizePromotionMinObservations(
+    configuredMinObservations
+  );
+  return isImmediatelyPromotableSelfProfileEntry(entry, sourceUser)
+    ? 1
+    : normalizedConfiguredMinObservations;
 }
 
 function observationConfidence(
