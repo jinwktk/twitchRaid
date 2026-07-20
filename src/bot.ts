@@ -478,7 +478,7 @@ function buildMentionChatConversationHistoryText({
 
 function isBareMentionChatResearchFollowUp(promptText: string): boolean {
   const prompt = normalizeMentionChatConversationText(promptText);
-  return /^(?:調べて|検索して|ググって)(?:ください)?[？?。!！\s]*$/u.test(
+  return /^(?:(?:どっち|どちら)(?:が|の(?:ほう|方)が)?(?:正しい|合って(?:い)?る|あって(?:い)?る)(?:のか|か)?\s*)?(?:調べて|検索して|ググって)(?:ほしい|ください)?[？?。!！\s]*$/u.test(
     prompt
   );
 }
@@ -1497,9 +1497,11 @@ export class Bot {
             request.userName
           )
         : null;
+      const subjectOmittedResearchFollowUp =
+        isBareMentionChatResearchFollowUp(request.prompt);
       const contextualSearchQuery =
         conversationHistory?.latestMentionUserText &&
-        isBareMentionChatResearchFollowUp(request.prompt) &&
+        subjectOmittedResearchFollowUp &&
         isSafeMentionChatConversationContextText(
           conversationHistory.latestMentionUserText
         )
@@ -1508,10 +1510,12 @@ export class Bot {
       const searchQueryText = contextualSearchQuery ?? request.prompt;
       const searchEnabled = this.config.chatAiSearchEnabled ?? false;
       const searchCandidate =
-        contextualSearchQuery !== null || shouldSearchMentionChat(request.prompt);
+        contextualSearchQuery !== null ||
+        (!subjectOmittedResearchFollowUp &&
+          shouldSearchMentionChat(request.prompt));
       const searchStartedAt = Date.now();
       const searchPromise = fetchMentionChatSearchContextDetailed({
-        enabled: searchEnabled,
+        enabled: searchEnabled && searchCandidate,
         provider: this.config.chatAiSearchProvider ?? "duckduckgo",
         endpoint:
           this.config.chatAiSearchEndpoint ?? "https://api.duckduckgo.com/",
@@ -1639,6 +1643,7 @@ export class Bot {
         generatedReply?.source === "generated" &&
         !searchContext &&
         searchEnabled &&
+        (!subjectOmittedResearchFollowUp || contextualSearchQuery !== null) &&
         searchOutcome.result.reason !== "failed" &&
         shouldResearchMentionChatReply(generatedReply.reply)
       ) {

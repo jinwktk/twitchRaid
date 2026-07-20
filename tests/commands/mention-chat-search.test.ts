@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   fetchMentionChatSearchContext,
+  fetchMentionChatSearchContextDetailed,
   shouldSearchMentionChat,
 } from "../../src/commands/mention-chat-search";
 
@@ -197,6 +198,217 @@ describe("mention chat external search", () => {
 
     const url = new URL(String(fetchImpl.mock.calls[0][0]));
     expect(url.searchParams.get("q")).toBe("発売日はいつ 価格はいくら");
+  });
+
+  it("searches both subjects separately when a compact comparison has no combined result", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      const query = url.searchParams.get("q");
+      if (query === "タン塩 塩タン 違い") {
+        return jsonResponse({
+          query,
+          results: [
+            {
+              title: "牛タンの焼き方",
+              content: "タン塩を焼く時の一般的な手順。",
+              url: "https://example.test/grilling",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      if (query === "タン塩") {
+        return jsonResponse({
+          query,
+          results: [
+            {
+              title: "タン塩という呼び方",
+              content: "牛タンを塩味で食べる料理の呼び方。",
+              url: "https://example.test/tan-shio",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      if (query === "塩タン") {
+        return jsonResponse({
+          query,
+          results: [
+            {
+              title: "塩タンという呼び方",
+              content: "地域や店によって使われる牛タン料理の呼び方。",
+              url: "https://example.test/shio-tan",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      if (String(input).startsWith("https://ja.wikipedia.org/")) {
+        return { ok: false, status: 404 } as Response;
+      }
+      throw new Error(`unexpected url: ${String(input)}`);
+    });
+
+    const result = await fetchMentionChatSearchContext({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "タン塩？塩タン？",
+      force: true,
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 2,
+      fetchImpl,
+    });
+
+    const sentQueries = fetchImpl.mock.calls
+      .map(([input]) => new URL(String(input)))
+      .filter((url) => url.hostname === "searxng.test")
+      .map((url) => url.searchParams.get("q"));
+    expect(sentQueries).toEqual([
+      "タン塩 塩タン 違い",
+      "タン塩",
+      "塩タン",
+    ]);
+    expect(result?.resultCount).toBe(2);
+    expect(result?.text).toContain("タン塩という呼び方");
+    expect(result?.text).toContain("塩タンという呼び方");
+  });
+
+  it("keeps a separate comparison lookup failure as failed", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      const query = url.searchParams.get("q");
+      if (query === "タン塩 塩タン 違い") {
+        return jsonResponse({ query, results: [] });
+      }
+      if (query === "タン塩") {
+        throw new Error("network unavailable");
+      }
+      if (query === "塩タン") {
+        return jsonResponse({
+          query,
+          results: [
+            {
+              title: "塩タンという呼び方",
+              content: "牛タン料理の呼び方。",
+              url: "https://example.test/shio-tan",
+            },
+          ],
+        });
+      }
+      if (String(input).startsWith("https://ja.wikipedia.org/")) {
+        return { ok: false, status: 404 } as Response;
+      }
+      throw new Error(`unexpected url: ${String(input)}`);
+    });
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "タン塩？塩タン？",
+      force: true,
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 2,
+      fetchImpl,
+    });
+
+    expect(result).toEqual({ context: null, reason: "failed" });
+  });
+
+  it("shares one overall deadline across comparison fallback searches", async () => {
+    let nowMs = 1_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      const query = url.searchParams.get("q");
+      if (query === "タン塩 塩タン 違い") {
+        nowMs += 100;
+        return jsonResponse({ query, results: [] });
+      }
+      throw new Error(`deadlineを超えて検索した: ${String(input)}`);
+    });
+
+    try {
+      const result = await fetchMentionChatSearchContextDetailed({
+        enabled: true,
+        provider: "searxng",
+        endpoint: "http://searxng.test/search",
+        engines: "bing",
+        queryText: "タン塩？塩タン？",
+        force: true,
+        timeoutMs: 100,
+        maxQueryChars: 120,
+        maxResponseBytes: 65536,
+        maxResults: 2,
+        fetchImpl,
+      });
+
+      expect(result).toEqual({ context: null, reason: "failed" });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
+  it("rejects unrelated results for short separate comparison subjects", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      const query = url.searchParams.get("q");
+      if (query === "猫 犬 違い") {
+        return jsonResponse({ query, results: [] });
+      }
+      if (query === "猫") {
+        return jsonResponse({
+          query,
+          results: [
+            {
+              title: "今日の天気",
+              content: "全国的に晴れる見込み。",
+              url: "https://example.test/weather",
+            },
+          ],
+        });
+      }
+      if (query === "犬") {
+        return jsonResponse({
+          query,
+          results: [
+            {
+              title: "夕食の献立",
+              content: "季節の野菜を使った料理。",
+              url: "https://example.test/dinner",
+            },
+          ],
+        });
+      }
+      if (String(input).startsWith("https://ja.wikipedia.org/")) {
+        return { ok: false, status: 404 } as Response;
+      }
+      throw new Error(`unexpected url: ${String(input)}`);
+    });
+
+    const result = await fetchMentionChatSearchContext({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "猫？犬？",
+      force: true,
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 2,
+      fetchImpl,
+    });
+
+    expect(result).toBeNull();
   });
 
   it("falls back to Japanese Wikipedia when SearXNG has no usable result", async () => {

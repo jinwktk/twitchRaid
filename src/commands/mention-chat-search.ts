@@ -148,12 +148,12 @@ function hasUnsafeExternalQueryContent(value: string): boolean {
   );
 }
 
-function isCompactComparisonQuestion(value: string): boolean {
+function getCompactComparisonTerms(value: string): string[] | null {
   const parts = value
     .split(/[？?]+/u)
     .map(singleLine)
     .filter(Boolean);
-  if (parts.length !== 2) return false;
+  if (parts.length !== 2) return null;
 
   return parts.every(
     (part) =>
@@ -162,7 +162,13 @@ function isCompactComparisonQuestion(value: string): boolean {
       !/(?:いつ|いくら|だれ|誰|どこ|なに|何|どれ|どっち|どう|なぜ|何故|なんで|いかが)/u.test(
         part
       )
-  );
+  )
+    ? parts
+    : null;
+}
+
+function isCompactComparisonQuestion(value: string): boolean {
+  return getCompactComparisonTerms(value) !== null;
 }
 
 function normalizeSearchQuery(value: string): string {
@@ -369,7 +375,6 @@ function compactForRelevance(value: string): string {
 
 function hasExactQueryResult(results: SearchResult[], query: string): boolean {
   const compactQuery = compactForRelevance(query);
-  if (compactQuery.length < 3) return true;
   const queryTerms = query
     .split(/\s+/u)
     .map(compactForRelevance)
@@ -441,20 +446,28 @@ function formatSearchContext(results: SearchResult[]): string {
   return lines.join("\n");
 }
 
-export async function fetchMentionChatSearchContextDetailed({
-  enabled,
-  provider = "duckduckgo",
-  endpoint,
-  engines = "",
-  queryText,
-  force = false,
-  timeoutMs,
-  maxQueryChars,
-  maxResponseBytes,
-  maxResults,
-  fetchImpl = fetch,
-}: FetchMentionChatSearchContextOptions): Promise<MentionChatSearchFetchResult> {
+function getRemainingSearchTimeoutMs(deadlineAt: number): number {
+  return Math.max(0, deadlineAt - Date.now());
+}
+
+async function fetchMentionChatSearchContextDetailedWithinDeadline(
+  {
+    enabled,
+    provider = "duckduckgo",
+    endpoint,
+    engines = "",
+    queryText,
+    force = false,
+    timeoutMs,
+    maxQueryChars,
+    maxResponseBytes,
+    maxResults,
+    fetchImpl = fetch,
+  }: FetchMentionChatSearchContextOptions,
+  deadlineAt: number
+): Promise<MentionChatSearchFetchResult> {
   const query = singleLine(queryText);
+  const compactComparisonTerms = getCompactComparisonTerms(query);
   const searchQuery = normalizeSearchQuery(query);
   if (
     !enabled ||
@@ -478,9 +491,13 @@ export async function fetchMentionChatSearchContextDetailed({
   if (!url) return { context: null, reason: "failed" };
 
   try {
+    const requestTimeoutMs = getRemainingSearchTimeoutMs(deadlineAt);
+    if (requestTimeoutMs <= 0) {
+      return { context: null, reason: "failed" };
+    }
     const response = await fetchImpl(url, {
       headers: { accept: "application/json" },
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: AbortSignal.timeout(requestTimeoutMs),
     });
     if (!response.ok) return { context: null, reason: "failed" };
 
@@ -496,16 +513,81 @@ export async function fetchMentionChatSearchContextDetailed({
 
     const body = JSON.parse(bytes.toString("utf8")) as unknown;
     const results = extractResults(body).slice(0, maxResults);
+    if (getRemainingSearchTimeoutMs(deadlineAt) <= 0) {
+      return { context: null, reason: "failed" };
+    }
     if (
       provider === "searxng" &&
       (results.length === 0 || !hasExactQueryResult(results, searchQuery))
     ) {
+      if (
+        compactComparisonTerms &&
+        maxResults >= compactComparisonTerms.length
+      ) {
+        const perTermMaxResults = Math.max(
+          1,
+          Math.floor(maxResults / compactComparisonTerms.length)
+        );
+        const comparisonOutcomes = await Promise.all(
+          compactComparisonTerms.map((term) =>
+            fetchMentionChatSearchContextDetailedWithinDeadline(
+              {
+                enabled,
+                provider,
+                endpoint,
+                engines,
+                queryText: term,
+                force: true,
+                timeoutMs,
+                maxQueryChars,
+                maxResponseBytes,
+                maxResults: perTermMaxResults,
+                fetchImpl,
+              },
+              deadlineAt
+            )
+          )
+        );
+        if (getRemainingSearchTimeoutMs(deadlineAt) <= 0) {
+          return { context: null, reason: "failed" };
+        }
+        if (comparisonOutcomes.some((outcome) => outcome.reason === "failed")) {
+          return { context: null, reason: "failed" };
+        }
+        if (comparisonOutcomes.every((outcome) => outcome.context !== null)) {
+          const comparisonContexts = comparisonOutcomes.map(
+            (outcome) => outcome.context as MentionChatSearchContext
+          );
+          return {
+            context: {
+              text: comparisonContexts
+                .map(
+                  (context, index) =>
+                    `比較対象「${compactComparisonTerms[index]}」:\n${context.text}`
+                )
+                .join("\n"),
+              resultCount: comparisonContexts.reduce(
+                (total, context) => total + context.resultCount,
+                0
+              ),
+            },
+            reason: "found",
+          };
+        }
+      }
+      const wikipediaTimeoutMs = getRemainingSearchTimeoutMs(deadlineAt);
+      if (wikipediaTimeoutMs <= 0) {
+        return { context: null, reason: "failed" };
+      }
       const wikipediaResult = await fetchWikipediaSummaryResult({
         query: searchQuery,
-        timeoutMs,
+        timeoutMs: wikipediaTimeoutMs,
         maxResponseBytes,
         fetchImpl,
       });
+      if (getRemainingSearchTimeoutMs(deadlineAt) <= 0) {
+        return { context: null, reason: "failed" };
+      }
       if (wikipediaResult) {
         return {
           context: {
@@ -532,6 +614,15 @@ export async function fetchMentionChatSearchContextDetailed({
   } catch {
     return { context: null, reason: "failed" };
   }
+}
+
+export async function fetchMentionChatSearchContextDetailed(
+  options: FetchMentionChatSearchContextOptions
+): Promise<MentionChatSearchFetchResult> {
+  return fetchMentionChatSearchContextDetailedWithinDeadline(
+    options,
+    Date.now() + Math.max(0, options.timeoutMs)
+  );
 }
 
 export async function fetchMentionChatSearchContext(
