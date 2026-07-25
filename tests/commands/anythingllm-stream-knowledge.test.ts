@@ -226,6 +226,42 @@ describe("AnythingLlmStreamKnowledge", () => {
     ledger.close();
   });
 
+  it("repairs one syntactically malformed leaf response before failing", async () => {
+    const paths = makePaths();
+    const ledger = new AnythingLlmLedger(paths.ledgerPath);
+    ledger.acceptComment(makeEvent());
+    embedAll(ledger);
+    const chat = vi
+      .fn()
+      .mockResolvedValueOnce({
+        reply: '{"summary":"赤が好き"},"facts":[]}',
+        sourceCount: 0,
+      })
+      .mockResolvedValueOnce({
+        reply: JSON.stringify({ summary: "赤が好き", facts: [] }),
+        sourceCount: 0,
+      });
+    const knowledge = new AnythingLlmStreamKnowledge({
+      ledger,
+      client: makeClient({ chat }),
+      stateDbPath: paths.statePath,
+    });
+    knowledge.captureStreamEnd(captureInput());
+
+    await expect(knowledge.processStream("stream-1")).resolves.toMatchObject({
+      status: "complete",
+      finalSummary: "赤が好き",
+    });
+    expect(chat).toHaveBeenCalledTimes(2);
+    expect(chat.mock.calls[1]?.[0]).toMatchObject({ reset: true });
+    expect(chat.mock.calls[1]?.[0].message).toContain(
+      "TWITCH_STREAM_JSON_REPAIR_V1"
+    );
+
+    knowledge.close();
+    ledger.close();
+  });
+
   it("rejects an unclosed think block before parsing stream knowledge JSON", async () => {
     const paths = makePaths();
     const ledger = new AnythingLlmLedger(paths.ledgerPath);
