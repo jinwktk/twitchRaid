@@ -32,6 +32,7 @@ New-NetFirewallRule `
     -RemoteAddress $LanSubnet `
     -Profile Private | Out-Null
 
+& netsh.exe interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=$Port | Out-Null
 & netsh.exe interface portproxy delete v4tov4 listenaddress=$LanAddress listenport=$Port | Out-Null
 & netsh.exe interface portproxy add v4tov4 listenaddress=$LanAddress listenport=$Port connectaddress=$wslAddress connectport=$Port | Out-Null
 

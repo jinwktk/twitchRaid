@@ -174,6 +174,7 @@ describe("SearXNG self-hosting config", () => {
 
     expect(script).toContain('[string]$WslDistribution = "Ubuntu-Backup"');
     expect(script).toContain('-RemoteAddress $LanSubnet');
+    expect(script).toContain('listenaddress=0.0.0.0 listenport=$Port');
     expect(script).toContain('listenaddress=$LanAddress');
   });
 });
