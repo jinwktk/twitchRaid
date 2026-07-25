@@ -286,6 +286,24 @@ TWITCH_SECRET_TOKEN=secret
 TWITCH_BROADCASTER_ID=broadcaster
 TWITCH_MODERATOR_ID=moderator
 CHAT_AI_ENABLED=true
+CHAT_AI_ANYTHINGLLM_ENABLED=true
+ANYTHING_LLM_BASE_URL=http://anythingllm.internal:3001
+ANYTHING_LLM_API_KEY_FILE=/run/secrets/custom-anythingllm-key
+ANYTHING_LLM_WORKSPACE_NAME=Twitch Custom Channel
+ANYTHING_LLM_WORKSPACE_SLUG=twitch-custom-channel
+ANYTHING_LLM_SESSION_ID=twitchraid-channel-custom-v1
+ANYTHING_LLM_UTILITY_WORKSPACE_NAME=Twitch Custom Utility
+ANYTHING_LLM_UTILITY_WORKSPACE_SLUG=twitch-custom-utility
+ANYTHING_LLM_UTILITY_SESSION_ID=twitchraid-utility-custom-v1
+ANYTHING_LLM_TIMEOUT_MS=25000
+ANYTHING_LLM_LEDGER_DB_PATH=data/custom-anythingllm-ledger.sqlite
+ANYTHING_LLM_STREAM_KNOWLEDGE_DB_PATH=data/custom-stream-knowledge.sqlite
+ANYTHING_LLM_BATCH_MAX_COMMENTS=150
+ANYTHING_LLM_CHAT_FLUSH_DEADLINE_MS=2200
+ANYTHING_LLM_QUEUE_HIGH_WATER_COMMENTS=8000
+ANYTHING_LLM_DISK_MIN_FREE_BYTES=536870912
+ANYTHING_LLM_CLEANUP_INTERVAL_SECONDS=1800
+ANYTHING_LLM_RAW_RETENTION_DAYS=400
 CHAT_AI_BASE_URL=http://127.0.0.1:11435
 CHAT_AI_MODEL=qwen2.5:7b
 CHAT_AI_TIMEOUT_MS=4500
@@ -365,6 +383,40 @@ BOT_REQUEST_NOTES_DIGEST_DISCORD_ENABLED=true
     const config = new Config(envPath);
 
     expect(config.chatAiEnabled).toBe(true);
+    expect(config.chatAiAnythingLlmEnabled).toBe(true);
+    expect(config.anythingLlmCommentWriteEnabled).toBe(true);
+    expect(config.anythingLlmBaseUrl).toBe("http://anythingllm.internal:3001");
+    expect(config.anythingLlmApiKeyFile).toBe(
+      path.resolve("/run/secrets/custom-anythingllm-key")
+    );
+    expect(config.anythingLlmWorkspaceName).toBe("Twitch Custom Channel");
+    expect(config.anythingLlmWorkspaceSlug).toBe("twitch-custom-channel");
+    expect(config.anythingLlmSessionId).toBe(
+      "twitchraid-channel-custom-v1"
+    );
+    expect(config.anythingLlmUtilityWorkspaceName).toBe(
+      "Twitch Custom Utility"
+    );
+    expect(config.anythingLlmUtilityWorkspaceSlug).toBe(
+      "twitch-custom-utility"
+    );
+    expect(config.anythingLlmUtilitySessionId).toBe(
+      "twitchraid-utility-custom-v1"
+    );
+    expect(config.anythingLlmTimeoutMs).toBe(25000);
+    expect(config.anythingLlmLedgerDbPath).toBe(
+      path.resolve("data/custom-anythingllm-ledger.sqlite")
+    );
+    expect(config.anythingLlmStreamKnowledgeEnabled).toBe(true);
+    expect(config.anythingLlmStreamKnowledgeDbPath).toBe(
+      path.resolve("data/custom-stream-knowledge.sqlite")
+    );
+    expect(config.anythingLlmBatchMaxComments).toBe(150);
+    expect(config.anythingLlmChatFlushDeadlineMs).toBe(2200);
+    expect(config.anythingLlmQueueHighWaterComments).toBe(8000);
+    expect(config.anythingLlmDiskMinFreeBytes).toBe(536870912);
+    expect(config.anythingLlmCleanupIntervalSeconds).toBe(1800);
+    expect(config.anythingLlmRawRetentionDays).toBe(400);
     expect(config.chatAiBaseUrl).toBe("http://127.0.0.1:11435");
     expect(config.chatAiModel).toBe("qwen2.5:7b");
     expect(config.chatAiTimeoutMs).toBe(4500);
@@ -467,6 +519,40 @@ OLLAMA_MODEL=qwen2.5:7b
     const config = new Config(envPath);
 
     expect(config.chatAiEnabled).toBe(false);
+    expect(config.chatAiAnythingLlmEnabled).toBe(false);
+    expect(config.anythingLlmBaseUrl).toBe("http://anythingllm:3001");
+    expect(config.anythingLlmApiKeyFile).toBe(
+      path.resolve("/run/secrets/anythingllm-api-key")
+    );
+    expect(config.anythingLlmWorkspaceName).toBe("Twitch rukalun");
+    expect(config.anythingLlmWorkspaceSlug).toBe("twitch-rukalun");
+    expect(config.anythingLlmSessionId).toBe(
+      "twitchraid-channel-broadcaster-v1"
+    );
+    expect(config.anythingLlmUtilityWorkspaceName).toBe(
+      "Twitch rukalun utility"
+    );
+    expect(config.anythingLlmUtilityWorkspaceSlug).toBe(
+      "twitch-rukalun-utility"
+    );
+    expect(config.anythingLlmUtilitySessionId).toBe(
+      "twitchraid-utility-broadcaster-v1"
+    );
+    expect(config.anythingLlmTimeoutMs).toBe(30000);
+    expect(config.anythingLlmLedgerDbPath).toBe(
+      path.resolve("data/anythingllm-ledger.sqlite")
+    );
+    expect(config.anythingLlmStreamKnowledgeEnabled).toBe(false);
+    expect(config.anythingLlmStreamKnowledgeDbPath).toBe(
+      path.resolve("data/anythingllm-stream-knowledge.sqlite")
+    );
+    expect(config.anythingLlmBatchMaxComments).toBe(200);
+    expect(config.anythingLlmChatFlushDeadlineMs).toBe(1500);
+    expect(config.anythingLlmQueueHighWaterComments).toBe(5000);
+    expect(config.anythingLlmDiskMinFreeBytes).toBe(1073741824);
+    expect(config.anythingLlmCleanupIntervalSeconds).toBe(3600);
+    expect(config.anythingLlmRawRetentionDays).toBe(365);
+    expect(config.anythingLlmCommentWriteEnabled).toBe(false);
     expect(config.chatAiBaseUrl).toBe("http://127.0.0.1:11434");
     expect(config.chatAiModel).toBe("qwen2.5:7b");
     expect(config.chatAiTimeoutMs).toBe(8000);
@@ -552,6 +638,26 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatReplyEmotes).toEqual([]);
   });
 
+  it("enables AnythingLLM shadow comment writes without cutting AI reads over", () => {
+    const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+CHAT_AI_ENABLED=false
+CHAT_AI_ANYTHINGLLM_ENABLED=false
+ANYTHING_LLM_COMMENT_WRITE_ENABLED=true
+`);
+
+    const config = new Config(envPath);
+
+    expect(config.anythingLlmCommentWriteEnabled).toBe(true);
+    expect(config.chatAiAnythingLlmEnabled).toBe(false);
+    expect(config.chatAiEnabled).toBe(false);
+  });
+
   it.each(["511", "8193", "NaN"])(
     "falls back to context length 4096 when CHAT_AI_CONTEXT_LENGTH=%s",
     (rawContextLength) => {
@@ -628,6 +734,42 @@ OLLAMA_SHOUTOUT_MODEL=qwen2.5:7b
 
     expect(config.chatAiEnabled).toBe(true);
     expect(config.chatAiModel).toBe("qwen2.5:7b");
+  });
+
+  it("enables chat AI from the AnythingLLM cutover flag without a direct Ollama model", () => {
+    const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+CHAT_AI_ANYTHINGLLM_ENABLED=true
+`);
+
+    const config = new Config(envPath);
+
+    expect(config.chatAiAnythingLlmEnabled).toBe(true);
+    expect(config.chatAiEnabled).toBe(true);
+    expect(config.chatAiModel).toBe("");
+  });
+
+  it("keeps chat AI explicitly disabled when the AnythingLLM cutover flag is enabled", () => {
+    const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+CHAT_AI_ENABLED=false
+CHAT_AI_ANYTHINGLLM_ENABLED=true
+`);
+
+    const config = new Config(envPath);
+
+    expect(config.chatAiAnythingLlmEnabled).toBe(true);
+    expect(config.chatAiEnabled).toBe(false);
   });
 
   it("uses the chat AI model for raid shoutout Ollama when no explicit shoutout model is set", () => {

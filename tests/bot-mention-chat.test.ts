@@ -6,6 +6,7 @@ import type { Config } from "../src/config";
 import { Bot, formatCommandDetectionLogText } from "../src/bot";
 import logger from "../src/utils/logger";
 import { listBotRequestNotesStore } from "../src/commands/bot-request-notes";
+import { AnythingLlmLedger } from "../src/commands/anythingllm-ledger";
 
 let tmpDir: string | null = null;
 
@@ -17,19 +18,38 @@ type MentionChatTestBot = Bot & {
     };
   };
   clipCacheStore: { close: () => void };
-  _handleRegularMessage: (
-    channel: string,
-    user: string,
-    text: string,
-    now?: number,
-    userDisplayName?: string | null
-  ) => Promise<void>;
-  _handleCommand: (
+  anythingLlmChannelMemory: {
+    close: () => Promise<void>;
+    flushPending: () => Promise<unknown>;
+  } | null;
+  anythingLlmLedger: { close: () => void } | null;
+  _handleIncomingChatEvent: (
     channel: string,
     user: string,
     text: string,
     msg: unknown
   ) => Promise<void>;
+  _handleRegularMessage: (
+    channel: string,
+    user: string,
+    text: string,
+    now?: number,
+    userDisplayName?: string | null,
+    acceptedSequence?: number
+  ) => Promise<void>;
+  _handleCommand: (
+    channel: string,
+    user: string,
+    text: string,
+    msg: unknown,
+    acceptedSequence?: number
+  ) => Promise<void>;
+  _handleStreamStarted: (stream: {
+    id: string;
+    title: string;
+    gameName?: string;
+    startDate: Date;
+  }) => Promise<boolean>;
 };
 
 let activeBot: MentionChatTestBot | null = null;
@@ -45,6 +65,10 @@ function makeConfig(
   overrides: Partial<Config> & Record<string, unknown> = {}
 ): Config {
   const dir = ensureTempDir();
+  const anythingLlmApiKeyFile = path.join(dir, "anythingllm-api-key");
+  if (!fs.existsSync(anythingLlmApiKeyFile)) {
+    fs.writeFileSync(anythingLlmApiKeyFile, "test-anythingllm-key\n", "utf8");
+  }
   return {
     envFile: path.join(dir, ".env"),
     loginChannel: "rukalun",
@@ -79,6 +103,23 @@ function makeConfig(
     chatRecommendationEnabled: true,
     chatRecommendationIntervalMinutes: 60,
     chatAiEnabled: true,
+    chatAiAnythingLlmEnabled: false,
+    anythingLlmBaseUrl: "http://anythingllm.test",
+    anythingLlmApiKeyFile,
+    anythingLlmWorkspaceName: "Twitch rukalun",
+    anythingLlmWorkspaceSlug: "twitch-rukalun",
+    anythingLlmSessionId: "twitchraid-channel-broadcaster-id-v1",
+    anythingLlmUtilityWorkspaceName: "Twitch rukalun utility",
+    anythingLlmUtilityWorkspaceSlug: "twitch-rukalun-utility",
+    anythingLlmUtilitySessionId: "twitchraid-utility-broadcaster-id-v1",
+    anythingLlmTimeoutMs: 3000,
+    anythingLlmLedgerDbPath: path.join(dir, "anythingllm-ledger.sqlite"),
+    anythingLlmBatchMaxComments: 200,
+    anythingLlmChatFlushDeadlineMs: 1500,
+    anythingLlmQueueHighWaterComments: 5000,
+    anythingLlmDiskMinFreeBytes: 0,
+    anythingLlmCleanupIntervalSeconds: 3600,
+    anythingLlmRawRetentionDays: 365,
     chatAiBaseUrl: "http://127.0.0.1:11434",
     chatAiModel: "qwen2.5:7b",
     chatAiTimeoutMs: 3000,
@@ -186,7 +227,197 @@ function makeBot(
   return { bot, say };
 }
 
-afterEach(() => {
+interface AnythingLlmFetchMockState {
+  chatMessages: string[];
+  chatSessions: string[];
+  searchQueries: string[];
+  directOllamaCalls: number;
+}
+
+function installAnythingLlmFetchMock(options: {
+  chatReplies?: string[];
+  failAnythingLlm?: boolean;
+  directOllamaReply?: string;
+} = {}): {
+  fetchSpy: ReturnType<typeof vi.spyOn>;
+  state: AnythingLlmFetchMockState;
+} {
+  const documents = new Map<
+    string,
+    { title: string; source: string; location: string }
+  >();
+  const embeddedLocations = new Set<string>();
+  const workspaces = [
+    { name: "Twitch rukalun", slug: "twitch-rukalun" },
+  ];
+  const chatReplies = [...(options.chatReplies ?? ["覚えてるD！"])];
+  const state: AnythingLlmFetchMockState = {
+    chatMessages: [],
+    chatSessions: [],
+    searchQueries: [],
+    directOllamaCalls: 0,
+  };
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  const fetchSpy = vi
+    .spyOn(globalThis, "fetch")
+    .mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/api/generate")) {
+        state.directOllamaCalls += 1;
+        if (options.directOllamaReply) {
+          return json({
+            response: options.directOllamaReply,
+            done: true,
+            done_reason: "stop",
+          });
+        }
+        throw new Error("direct Ollama must not be called");
+      }
+      if (url.hostname === "searxng.test") {
+        const query = url.searchParams.get("q") ?? "";
+        state.searchQueries.push(query);
+        return json({
+          query,
+          results: [
+            {
+              title: "タン塩と塩タンの呼び方",
+              content:
+                "タン塩と塩タンは、どちらも牛タンへ塩味を付けた料理の呼び方。",
+              url: "https://example.test/tan-shio",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      if (url.hostname !== "anythingllm.test") {
+        throw new Error(`unexpected fetch: ${url.toString()}`);
+      }
+      if (options.failAnythingLlm) {
+        return json({ error: "unavailable" }, 503);
+      }
+
+      if (url.pathname === "/api/v1/workspaces") {
+        return json({ workspaces });
+      }
+      if (url.pathname === "/api/v1/workspace/new") {
+        const body = JSON.parse(String(init?.body)) as { name: string };
+        const workspace =
+          body.name === "Twitch rukalun utility"
+            ? {
+                name: body.name,
+                slug: "twitch-rukalun-utility",
+              }
+            : { name: body.name, slug: "unexpected-workspace" };
+        workspaces.push(workspace);
+        return json({ workspace });
+      }
+      if (url.pathname === "/api/v1/documents") {
+        return json({
+          localFiles: {
+            type: "folder",
+            name: "documents",
+            items: [...documents.values()].map((document) => ({
+              type: "file",
+              name: document.location,
+              title: document.title,
+              docSource: document.source,
+            })),
+          },
+        });
+      }
+      if (url.pathname === "/api/v1/document/raw-text") {
+        const body = JSON.parse(String(init?.body)) as {
+          metadata: { title: string; docSource: string };
+        };
+        const location = `custom-documents/${body.metadata.title}.json`;
+        documents.set(body.metadata.title, {
+          title: body.metadata.title,
+          source: body.metadata.docSource,
+          location,
+        });
+        return json({
+          success: true,
+          documents: [
+            {
+              title: body.metadata.title,
+              docSource: body.metadata.docSource,
+              location,
+            },
+          ],
+        });
+      }
+      if (
+        url.pathname ===
+        "/api/v1/workspace/twitch-rukalun/update-embeddings"
+      ) {
+        const body = JSON.parse(String(init?.body)) as { adds: string[] };
+        for (const location of body.adds) embeddedLocations.add(location);
+        return json({ workspace: { slug: "twitch-rukalun" } });
+      }
+      if (url.pathname === "/api/v1/workspace/twitch-rukalun") {
+        return json({
+          workspace: [
+            {
+              name: "Twitch rukalun",
+              slug: "twitch-rukalun",
+              documents: [...embeddedLocations].map((docpath) => ({ docpath })),
+            },
+          ],
+        });
+      }
+      if (/^\/api\/v1\/workspace\/[^/]+\/chat$/u.test(url.pathname)) {
+        const body = JSON.parse(String(init?.body)) as {
+          message: string;
+          mode: string;
+          sessionId: string;
+        };
+        state.chatMessages.push(body.message);
+        state.chatSessions.push(body.sessionId);
+        expect(body.mode).toBe("chat");
+        if (url.pathname.includes("twitch-rukalun-utility")) {
+          expect(body.sessionId).toMatch(
+            /^twitchraid-utility-broadcaster-id-v1-mention-\d+-\d+$/u
+          );
+        } else {
+          expect(body.sessionId).toBe(
+            "twitchraid-channel-broadcaster-id-v1"
+          );
+        }
+        return json({
+          type: "textResponse",
+          textResponse: chatReplies.shift() ?? "覚えてるD！",
+          sources: [],
+          close: true,
+          error: null,
+        });
+      }
+      throw new Error(`unexpected AnythingLLM fetch: ${url.toString()}`);
+    });
+  return { fetchSpy, state };
+}
+
+function makeChatMessage(
+  id: string,
+  displayName = "視聴者"
+): Record<string, unknown> {
+  const numericSuffix = Number(id.match(/(\d+)$/u)?.[1] ?? "0") % 60;
+  return {
+    id,
+    date: new Date(
+      `2026-07-25T08:00:${String(numericSuffix).padStart(2, "0")}.000Z`
+    ),
+    channelId: "channel-1",
+    userInfo: { userId: `user-${id}`, displayName },
+  };
+}
+
+afterEach(async () => {
+  await activeBot?.anythingLlmChannelMemory?.close();
+  activeBot?.anythingLlmLedger?.close();
   activeBot?.clipCacheStore.close();
   activeBot = null;
   vi.useRealTimers();
@@ -214,6 +445,262 @@ describe("Bot mention chat", () => {
     expect(formatCommandDetectionLogText("!chat こんにちは")).toBe(
       "!chat こんにちは"
     );
+  });
+
+  it("stores normal, command, mention, and action comments before using AnythingLLM chat", async () => {
+    const { state } = installAnythingLlmFetchMock();
+    const infoSpy = vi.spyOn(logger, "info");
+    const ledgerPath = path.join(ensureTempDir(), "all-comments.sqlite");
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: ledgerPath,
+      chatAiCooldownSeconds: 0,
+    });
+    await bot._handleStreamStarted({
+      id: "stream-20260725",
+      title: "AnythingLLM移行テスト",
+      gameName: "Just Chatting",
+      startDate: new Date("2026-07-25T07:59:00.000Z"),
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "普通のコメント",
+      makeChatMessage("message-01")
+    );
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!help",
+      makeChatMessage("message-02")
+    );
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "@rukalun こんにちは",
+      makeChatMessage("message-03")
+    );
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "踊っている",
+      makeChatMessage("message-04")
+    );
+    await bot.anythingLlmChannelMemory?.flushPending();
+
+    expect(state.directOllamaCalls).toBe(0);
+    expect(state.chatMessages).toHaveLength(1);
+    expect(state.chatMessages[0]).toMatch(
+      /^TwitchチャットでBot宛てに届いたメンション/u
+    );
+    expect(state.chatMessages[0]).not.toMatch(/^@agent/u);
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      expect.stringContaining("使えるコマンド")
+    );
+    expect(say).toHaveBeenCalledWith("#rukalun", "覚えてるD！");
+    expect(say).toHaveBeenCalledTimes(2);
+    const anythingLogs = infoSpy.mock.calls
+      .map(([message]) => String(message))
+      .filter(
+        (message) =>
+          message.includes("AnythingLLM") ||
+          message.startsWith("AIメンション会話応答:")
+      )
+      .join("\n");
+    expect(anythingLogs).not.toContain("普通のコメント");
+    expect(anythingLogs).not.toContain("こんにちは");
+    expect(anythingLogs).not.toContain("覚えてる");
+
+    await bot.anythingLlmChannelMemory?.close();
+    bot.anythingLlmLedger?.close();
+    const ledger = new AnythingLlmLedger(ledgerPath);
+    expect(ledger.getComment("message-01")?.body).toBe("普通のコメント");
+    expect(ledger.getComment("message-02")?.body).toBe("!help");
+    expect(ledger.getComment("message-03")?.body).toBe(
+      "@rukalun こんにちは"
+    );
+    expect(ledger.getComment("message-04")?.body).toBe("踊っている");
+    expect(
+      ["message-01", "message-02", "message-03", "message-04"].map(
+        (id) => ledger.getComment(id)?.streamId
+      )
+    ).toEqual([
+      "stream-20260725",
+      "stream-20260725",
+      "stream-20260725",
+      "stream-20260725",
+    ]);
+    expect(
+      ["message-01", "message-02", "message-03", "message-04"].map(
+        (id) => ledger.getComment(id)?.batchId
+      )
+    ).not.toContain(null);
+    ledger.close();
+  });
+
+  it("shadow-writes every comment without reading or generating through AnythingLLM", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      directOllamaReply: "旧Ollama経路で回答するD！",
+    });
+    const ledgerPath = path.join(ensureTempDir(), "shadow-comments.sqlite");
+    const { bot, say } = makeBot({
+      chatAiEnabled: true,
+      chatAiAnythingLlmEnabled: false,
+      anythingLlmCommentWriteEnabled: true,
+      anythingLlmLedgerDbPath: ledgerPath,
+      chatAiCooldownSeconds: 0,
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat 何を覚えてる？",
+      makeChatMessage("shadow-message-01")
+    );
+    await bot.anythingLlmChannelMemory?.flushPending();
+
+    expect(state.directOllamaCalls).toBe(1);
+    expect(state.chatMessages).toHaveLength(0);
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      expect.stringContaining("旧Ollama経路")
+    );
+
+    await bot.anythingLlmChannelMemory?.close();
+    bot.anythingLlmLedger?.close();
+    const ledger = new AnythingLlmLedger(ledgerPath);
+    expect(ledger.getComment("shadow-message-01")?.body).toBe(
+      "!chat 何を覚えてる？"
+    );
+    ledger.close();
+  });
+
+  it("restores the same requester's search topic after a Bot restart", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: [
+        "タン塩と塩タンの話だよD！",
+        "どちらも牛タン料理の呼び方だよD！",
+      ],
+    });
+    const ledgerPath = path.join(ensureTempDir(), "restart-topic.sqlite");
+    const first = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: ledgerPath,
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: false,
+    }).bot;
+    await first._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat タン塩？塩タン？",
+      makeChatMessage("topic-message-01")
+    );
+    await first.anythingLlmChannelMemory?.close();
+    first.anythingLlmLedger?.close();
+    first.clipCacheStore.close();
+
+    const { bot: restarted, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: ledgerPath,
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiSearchEngines: "bing",
+    });
+    await restarted._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat 調べて？",
+      makeChatMessage("topic-message-02")
+    );
+
+    expect(state.searchQueries).toEqual(["タン塩 塩タン 違い"]);
+    expect(state.chatMessages).toHaveLength(2);
+    expect(state.chatMessages[1]).toContain("外部検索結果");
+    expect(state.chatMessages[1]).toContain("タン塩と塩タンの呼び方");
+    expect(state.directOllamaCalls).toBe(0);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "どちらも牛タン料理の呼び方だよD！"
+    );
+  });
+
+  it("repairs an invalid generated reply through the no-memory AnythingLLM utility session", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: [
+        "tonightはカレーがいいD！",
+        "今夜はカレーがいいD！",
+      ],
+    });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "utility-repair.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat 今日の夜ご飯はなにがいい？",
+      makeChatMessage("repair-message-01")
+    );
+
+    expect(state.chatSessions).toEqual([
+      "twitchraid-channel-broadcaster-id-v1",
+      expect.stringMatching(
+        /^twitchraid-utility-broadcaster-id-v1-mention-\d+-\d+$/u
+      ),
+    ]);
+    expect(state.chatMessages[1]).toContain("修正前候補");
+    expect(state.directOllamaCalls).toBe(0);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "今夜はカレーがいいD！"
+    );
+  });
+
+  it("keeps fixed commands available and returns an explicit AI fallback while AnythingLLM is down", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      failAnythingLlm: true,
+    });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "anythingllm-down.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+      chatAiTimeoutFallbackReply: "AI記憶基盤が混み合ってるD！",
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!help",
+      makeChatMessage("down-message-01")
+    );
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat こんにちは",
+      makeChatMessage("down-message-02")
+    );
+
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      expect.stringContaining("使えるコマンド")
+    );
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "AI記憶基盤が混み合ってるD！"
+    );
+    expect(state.directOllamaCalls).toBe(0);
   });
 
   it("replies to a non-command bot mention when chat AI is enabled", async () => {

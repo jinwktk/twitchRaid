@@ -361,6 +361,72 @@ describe("Bot stream start notification", () => {
     expect(saved.postedClipIds).toEqual([]);
   });
 
+  it("captures the AnythingLLM stream watermark before pending state even without Discord", async () => {
+    const config = makeConfig();
+    fs.writeFileSync(
+      config.streamSummaryStatePath,
+      `${JSON.stringify({
+        status: "active",
+        streamId: "stream-watermark",
+        title: "記憶対象配信",
+        gameName: "Just Chatting",
+        startedAt: "2026-07-25T08:00:00.000Z",
+        streamUrl: "https://www.twitch.tv/rukalun",
+        commentCount: 4,
+        raidCount: 0,
+        postedClipIds: [],
+      })}\n`
+    );
+    const order: string[] = [];
+    const captureStreamEnd = vi.fn(() => {
+      order.push("capture");
+      return {};
+    });
+    const bot = new Bot(config) as unknown as Bot & {
+      clipCacheStore: { close: () => void };
+      anythingLlmStreamKnowledge: {
+        captureStreamEnd: typeof captureStreamEnd;
+      } | null;
+      streamSummaryStateStore: {
+        markPending: (endedAt: string) => StreamSummaryState | null;
+      };
+      _scheduleAnythingLlmStreamKnowledge: (streamId?: string) => void;
+      _finalizeAndPostStreamSummary: (endedAt: string) => Promise<void>;
+    };
+    activeBot = bot;
+    bot.anythingLlmStreamKnowledge = { captureStreamEnd };
+    bot._scheduleAnythingLlmStreamKnowledge = vi.fn(() => {
+      order.push("schedule");
+    });
+    const originalMarkPending =
+      bot.streamSummaryStateStore.markPending.bind(
+        bot.streamSummaryStateStore
+      );
+    bot.streamSummaryStateStore.markPending = (endedAt) => {
+      order.push("pending");
+      return originalMarkPending(endedAt);
+    };
+
+    await bot._finalizeAndPostStreamSummary(
+      "2026-07-25T10:00:00.000Z"
+    );
+
+    expect(order).toEqual(["capture", "schedule", "pending"]);
+    expect(captureStreamEnd).toHaveBeenCalledWith({
+      streamId: "stream-watermark",
+      channel: "rukalun",
+      title: "記憶対象配信",
+      gameName: "Just Chatting",
+      startedAt: "2026-07-25T08:00:00.000Z",
+      endedAt: "2026-07-25T10:00:00.000Z",
+    });
+    expect(
+      JSON.parse(
+        fs.readFileSync(config.streamSummaryStatePath, "utf8")
+      ).status
+    ).toBe("pending");
+  });
+
   it.each([
     { status: "active" as const, endedAt: undefined },
     {

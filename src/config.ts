@@ -15,6 +15,13 @@ const DEFAULT_CLIP_SEARCH_PUBLISH_REPO_DIR = path.resolve(
   "RukalunPage"
 );
 const DEFAULT_CHAT_AI_TIMEOUT_MS = 8_000;
+const DEFAULT_ANYTHING_LLM_TIMEOUT_MS = 30_000;
+const DEFAULT_ANYTHING_LLM_BATCH_MAX_COMMENTS = 200;
+const DEFAULT_ANYTHING_LLM_CHAT_FLUSH_DEADLINE_MS = 1_500;
+const DEFAULT_ANYTHING_LLM_QUEUE_HIGH_WATER_COMMENTS = 5_000;
+const DEFAULT_ANYTHING_LLM_DISK_MIN_FREE_BYTES = 1_073_741_824;
+const DEFAULT_ANYTHING_LLM_CLEANUP_INTERVAL_SECONDS = 3_600;
+const DEFAULT_ANYTHING_LLM_RAW_RETENTION_DAYS = 365;
 const DEFAULT_CHAT_AI_CONTEXT_LENGTH = 4_096;
 const DEFAULT_CHAT_AI_TIMEOUT_FALLBACK_REPLY =
   "今ちょっとAIが混み合ってるD！";
@@ -169,6 +176,26 @@ export class Config {
   readonly chatRecommendationEnabled: boolean;
   readonly chatRecommendationIntervalMinutes: number;
   readonly chatAiEnabled: boolean;
+  readonly chatAiAnythingLlmEnabled: boolean;
+  readonly anythingLlmCommentWriteEnabled: boolean;
+  readonly anythingLlmBaseUrl: string;
+  readonly anythingLlmApiKeyFile: string;
+  readonly anythingLlmWorkspaceName: string;
+  readonly anythingLlmWorkspaceSlug: string;
+  readonly anythingLlmSessionId: string;
+  readonly anythingLlmUtilityWorkspaceName: string;
+  readonly anythingLlmUtilityWorkspaceSlug: string;
+  readonly anythingLlmUtilitySessionId: string;
+  readonly anythingLlmTimeoutMs: number;
+  readonly anythingLlmLedgerDbPath: string;
+  readonly anythingLlmStreamKnowledgeEnabled: boolean;
+  readonly anythingLlmStreamKnowledgeDbPath: string;
+  readonly anythingLlmBatchMaxComments: number;
+  readonly anythingLlmChatFlushDeadlineMs: number;
+  readonly anythingLlmQueueHighWaterComments: number;
+  readonly anythingLlmDiskMinFreeBytes: number;
+  readonly anythingLlmCleanupIntervalSeconds: number;
+  readonly anythingLlmRawRetentionDays: number;
   readonly chatAiBaseUrl: string;
   readonly chatAiModel: string;
   readonly chatAiTimeoutMs: number;
@@ -345,11 +372,105 @@ export class Config {
       env["OLLAMA_MODEL"]?.trim() ||
       env["OLLAMA_SHOUTOUT_MODEL"]?.trim() ||
       "";
+    this.chatAiAnythingLlmEnabled = parseEnabledFlag(
+      env["CHAT_AI_ANYTHINGLLM_ENABLED"] ?? "false"
+    );
+    this.anythingLlmBaseUrl =
+      env["ANYTHING_LLM_BASE_URL"]?.trim() || "http://anythingllm:3001";
+    this.anythingLlmApiKeyFile = path.resolve(
+      BASE_DIR,
+      env["ANYTHING_LLM_API_KEY_FILE"] ??
+        "/run/secrets/anythingllm-api-key"
+    );
+    this.anythingLlmWorkspaceName =
+      env["ANYTHING_LLM_WORKSPACE_NAME"]?.trim() ||
+      `Twitch ${this.loginChannel}`;
+    this.anythingLlmWorkspaceSlug =
+      env["ANYTHING_LLM_WORKSPACE_SLUG"]?.trim() ||
+      `twitch-${this.loginChannel}`;
+    const defaultAnythingLlmSessionSubject = (
+      this.twitchBroadcasterId || this.loginChannel
+    )
+      .replace(/[^a-zA-Z0-9_-]+/gu, "-")
+      .replace(/^-+|-+$/gu, "");
+    this.anythingLlmSessionId =
+      env["ANYTHING_LLM_SESSION_ID"]?.trim() ||
+      `twitchraid-channel-${defaultAnythingLlmSessionSubject}-v1`;
+    this.anythingLlmUtilityWorkspaceName =
+      env["ANYTHING_LLM_UTILITY_WORKSPACE_NAME"]?.trim() ||
+      `Twitch ${this.loginChannel} utility`;
+    this.anythingLlmUtilityWorkspaceSlug =
+      env["ANYTHING_LLM_UTILITY_WORKSPACE_SLUG"]?.trim() ||
+      `twitch-${this.loginChannel}-utility`;
+    this.anythingLlmUtilitySessionId =
+      env["ANYTHING_LLM_UTILITY_SESSION_ID"]?.trim() ||
+      `twitchraid-utility-${defaultAnythingLlmSessionSubject}-v1`;
+    this.anythingLlmTimeoutMs = parsePositiveInt(
+      env["ANYTHING_LLM_TIMEOUT_MS"],
+      DEFAULT_ANYTHING_LLM_TIMEOUT_MS
+    );
+    this.anythingLlmLedgerDbPath = path.resolve(
+      BASE_DIR,
+      env["ANYTHING_LLM_LEDGER_DB_PATH"] ??
+        "data/anythingllm-ledger.sqlite"
+    );
+    this.anythingLlmStreamKnowledgeEnabled =
+      parseOptionalEnabledFlag(
+        env["ANYTHING_LLM_STREAM_KNOWLEDGE_ENABLED"]
+      ) ?? this.chatAiAnythingLlmEnabled;
+    this.anythingLlmCommentWriteEnabled =
+      this.chatAiAnythingLlmEnabled ||
+      this.anythingLlmStreamKnowledgeEnabled ||
+      parseEnabledFlag(
+        env["ANYTHING_LLM_COMMENT_WRITE_ENABLED"] ?? "false"
+      );
+    this.anythingLlmStreamKnowledgeDbPath = path.resolve(
+      BASE_DIR,
+      env["ANYTHING_LLM_STREAM_KNOWLEDGE_DB_PATH"] ??
+        "data/anythingllm-stream-knowledge.sqlite"
+    );
+    this.anythingLlmBatchMaxComments = parseBoundedInt(
+      env["ANYTHING_LLM_BATCH_MAX_COMMENTS"],
+      DEFAULT_ANYTHING_LLM_BATCH_MAX_COMMENTS,
+      1,
+      200
+    );
+    this.anythingLlmChatFlushDeadlineMs = parseBoundedInt(
+      env["ANYTHING_LLM_CHAT_FLUSH_DEADLINE_MS"],
+      DEFAULT_ANYTHING_LLM_CHAT_FLUSH_DEADLINE_MS,
+      100,
+      30_000
+    );
+    this.anythingLlmQueueHighWaterComments = parseBoundedInt(
+      env["ANYTHING_LLM_QUEUE_HIGH_WATER_COMMENTS"],
+      DEFAULT_ANYTHING_LLM_QUEUE_HIGH_WATER_COMMENTS,
+      1,
+      1_000_000
+    );
+    this.anythingLlmDiskMinFreeBytes = parseBoundedInt(
+      env["ANYTHING_LLM_DISK_MIN_FREE_BYTES"],
+      DEFAULT_ANYTHING_LLM_DISK_MIN_FREE_BYTES,
+      0,
+      Number.MAX_SAFE_INTEGER
+    );
+    this.anythingLlmCleanupIntervalSeconds = parseBoundedInt(
+      env["ANYTHING_LLM_CLEANUP_INTERVAL_SECONDS"],
+      DEFAULT_ANYTHING_LLM_CLEANUP_INTERVAL_SECONDS,
+      60,
+      86_400
+    );
+    this.anythingLlmRawRetentionDays = parseBoundedInt(
+      env["ANYTHING_LLM_RAW_RETENTION_DAYS"],
+      DEFAULT_ANYTHING_LLM_RAW_RETENTION_DAYS,
+      1,
+      3_650
+    );
     const chatAiEnabled = parseOptionalEnabledFlag(env["CHAT_AI_ENABLED"]);
     this.chatAiEnabled =
       chatAiEnabled ??
-      (this.chatAiModel !== "" &&
-        parseEnabledFlag(env["OLLAMA_SHOUTOUT_ENABLED"] ?? "0"));
+      (this.chatAiAnythingLlmEnabled ||
+        (this.chatAiModel !== "" &&
+          parseEnabledFlag(env["OLLAMA_SHOUTOUT_ENABLED"] ?? "0")));
     this.chatAiTimeoutMs = parsePositiveInt(
       env["CHAT_AI_TIMEOUT_MS"],
       DEFAULT_CHAT_AI_TIMEOUT_MS

@@ -28,6 +28,7 @@ class FakeMemory:
         self.deleted_ids = []
         self.searched = []
         self.updated = []
+        self.listed = []
 
     def delete(self, memory_id):
         self.deleted_ids.append(memory_id)
@@ -40,6 +41,10 @@ class FakeMemory:
     def search(self, **params):
         self.searched.append(params)
         return [{"id": "mem-1", "memory": "好物: ラーメン", "score": 0.8}]
+
+    def get_all(self, **params):
+        self.listed.append(params)
+        return [{"id": "mem-1", "memory": "好物: ラーメン"}]
 
 
 def test_initializes_mem0_before_accepting_requests(monkeypatch):
@@ -174,6 +179,44 @@ def test_update_memory_requires_text(monkeypatch):
     assert response.status_code == 400
     assert response.json() == {"detail": "memory is required"}
     assert fake_memory.updated == []
+
+
+def test_list_memories_forwards_scope_and_explicit_limit(monkeypatch):
+    app_module = load_app_module()
+    fake_memory = FakeMemory()
+    monkeypatch.setattr(app_module, "get_memory", lambda: fake_memory)
+    monkeypatch.setattr(app_module, "_api_key", lambda: "")
+    client = TestClient(app_module.app)
+
+    response = client.get(
+        "/memories?user_id=rukalun&agent_id=twitchRaid"
+        "&app_id=twitchRaid&limit=250"
+    )
+
+    assert response.status_code == 200
+    assert fake_memory.listed == [
+        {
+            "filters": {
+                "user_id": "rukalun",
+                "agent_id": "twitchRaid",
+                "app_id": "twitchRaid",
+            },
+            "limit": 250,
+        }
+    ]
+
+
+def test_list_memories_rejects_unbounded_limit(monkeypatch):
+    app_module = load_app_module()
+    fake_memory = FakeMemory()
+    monkeypatch.setattr(app_module, "get_memory", lambda: fake_memory)
+    monkeypatch.setattr(app_module, "_api_key", lambda: "")
+    client = TestClient(app_module.app)
+
+    response = client.get("/memories?limit=10001")
+
+    assert response.status_code == 422
+    assert fake_memory.listed == []
 
 
 def test_search_forwards_similarity_threshold_to_mem0(monkeypatch):

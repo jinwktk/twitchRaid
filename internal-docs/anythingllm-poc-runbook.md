@@ -1,13 +1,13 @@
-# AnythingLLM隔離PoC運用手順
+# AnythingLLM本番運用・移行手順
 
 ## 目的
 
-本番BotをAnythingLLMへ接続する前に、サブPCの内部Docker networkだけで次の契約を確認する。
+サブPCの内部Docker networkでAnythingLLMの契約を検証し、全コメントshadow-writeからAI read/generationへ段階切替する。
 
 - AnythingLLMから既存Ollama、nomic embedding、Qdrant、SearXNGへ接続できる
 - workspace、document upload/embed、RAG chat、unembed、document/workspace削除がDeveloper APIで完結する
 - API key、認証token、保存コメントをGitや通常ログへ出さない
-- PoCの停止・削除が既存Botや固定コマンドへ影響しない
+- AnythingLLMの停止・障害がBot内の固定コマンドへ影響しない
 
 ## 固定構成
 
@@ -15,7 +15,7 @@
 - multi-arch digest: `sha256:df8a540a06079c42c0835b40002e708bea895b5ab3c631d723c276a378a2857f`
 - サブPCamd64 manifest: `sha256:3befe7d47e05a8f965490c724b10453bfd9948a07650639e2a26953a93c4b708`
 - network: `dokploy-network`
-- PoC service / internal DNS: `anythingllm`
+- service / internal DNS: `anythingllm`
 - 永続storage: `/home/mlove/dokploy/anythingllm/storage`
 - 認証設定: `/home/mlove/dokploy/anythingllm/.env`
 - Developer API key: `/home/mlove/dokploy/anythingllm/api/api-key`
@@ -90,15 +90,48 @@ docker service scale anythingllm=1
 
 restoreは新しい空directoryへ展開してファイル数・総byte・SQLite integrityを確認してから、停止中のservice mountを切り替える。既存storageへ直接上書きしない。
 
-## Rollback
+## Bot段階切替
 
-PoC段階ではBotがAnythingLLMを参照していないため、次でserviceだけを止められる。
+同じstorageを複数serviceから同時mountしない。手動service `anythingllm` を使う間は、Compose側で同一storage・aliasを持つ別serviceを起動しない。
+
+1. `ANYTHING_LLM_COMMENT_WRITE_ENABLED=true`
+2. `CHAT_AI_ANYTHINGLLM_ENABLED=false`
+3. `ANYTHING_LLM_STREAM_KNOWLEDGE_ENABLED=false`
+4. queue高水位、失敗batch、最古未反映時刻、ディスク空き、Bot固定コマンドを確認する
+5. 既存SQLite/mem0の移行snapshotを作成し、AnythingLLMへ1論理文書として反映する
+6. `CHAT_AI_ANYTHINGLLM_ENABLED=true`
+7. `ANYTHING_LLM_STREAM_KNOWLEDGE_ENABLED=true`
+8. `!chat` の合成no-send probeでAnythingLLM chatが使われ、BotからOllama `/api/generate` を直接呼ばないことを確認する
+
+read切替を有効にするとcomment writeも自動的に有効になる。通常コメント、コマンド、メンション、actionの原文はすべて台帳へ保存する。原文は既定365日、配信要約・出典付き事実・移行済み記憶は無期限文書として扱う。
+
+既存SQLite/mem0の移行は、Botと同じenv、API keyファイル、data mountを持つ一時コンテナで次を1回実行する。
 
 ```bash
-docker service rm anythingllm
+npm run migrate:anythingllm-memory
 ```
 
-この操作では`/home/mlove/dokploy/anythingllm`を削除しない。再作成すれば同じstorageを使える。本番切替後は先にBotのAnythingLLM feature flagを戻し、固定コマンドが正常なことを確認してからAnythingLLMを停止する。
+移行元SQLiteはread-onlyで読み、`active`かつtombstoneなしの安全な記憶だけを採用する。candidate/inactive/tombstoneと同じkeyのmem0項目は復活させない。snapshotは`data/anythingllm-legacy-migration.sqlite`へupload前に固定され、通信断後の再実行でも同じ文書を再利用する。Mem0取得件数が`ANYTHING_LLM_LEGACY_MIGRATION_MEM0_LIMIT`（既定10000）へ到達した場合は、欠落を避けるため移行を中止する。完了ログは件数とsnapshot SHA-256だけで、本文・API key・文書locationは出力しない。
+
+Dokploy applicationはpush時に既存`:local` imageを即pullするため、stale image再起動を避ける。安全な順序は、commit後の同一treeから`:sha`と`:local`を先にbuild/pushし、その後Git push、最後にimmutable `:sha`へservice更新する。あるいはautoDeployを一時停止して同じ順序を手動実行する。
+
+## Rollback
+
+まずAI readだけを戻し、shadow-writeを残す。
+
+```text
+CHAT_AI_ANYTHINGLLM_ENABLED=false
+ANYTHING_LLM_STREAM_KNOWLEDGE_ENABLED=false
+ANYTHING_LLM_COMMENT_WRITE_ENABLED=true
+```
+
+従来Ollama回答と固定コマンドを確認する。記憶書込みも止める必要がある場合だけ `ANYTHING_LLM_COMMENT_WRITE_ENABLED=false` にする。その後にserviceを停止できる。
+
+```bash
+docker service scale anythingllm=0
+```
+
+この操作では`/home/mlove/dokploy/anythingllm`を削除しない。復旧時は同じ固定digest・同じ1個のservice所有元で再起動する。台帳DB、配信知識DB、AnythingLLM storage、API keyファイルはrollback確認が終わるまで削除しない。
 
 ## 2026-07-25 実機記録
 

@@ -511,6 +511,61 @@ describe("Bot periodic recommendations", () => {
     ).toHaveLength(1);
   });
 
+  it("never calls direct Ollama prewarm after AnythingLLM read cutover", async () => {
+    const base = makeConfig();
+    const config = {
+      ...base,
+      chatAiEnabled: true,
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmCommentWriteEnabled: true,
+      anythingLlmBaseUrl: "http://anythingllm:3001",
+      anythingLlmApiKeyFile: path.join(tmpDir ?? "", "anythingllm.key"),
+      anythingLlmWorkspaceName: "Twitch rukalun",
+      anythingLlmWorkspaceSlug: "twitch-rukalun",
+      anythingLlmSessionId: "twitchraid-channel-test-v1",
+      anythingLlmUtilityWorkspaceName: "Twitch rukalun utility",
+      anythingLlmUtilityWorkspaceSlug: "twitch-rukalun-utility",
+      anythingLlmUtilitySessionId: "twitchraid-utility-test-v1",
+      anythingLlmTimeoutMs: 3_000,
+      anythingLlmLedgerDbPath: path.join(
+        tmpDir ?? "",
+        "anythingllm-ledger.sqlite"
+      ),
+      anythingLlmBatchMaxComments: 200,
+      anythingLlmQueueHighWaterComments: 5_000,
+      anythingLlmDiskMinFreeBytes: 0,
+      anythingLlmCleanupIntervalSeconds: 3_600,
+      anythingLlmRawRetentionDays: 365,
+      anythingLlmStreamKnowledgeEnabled: false,
+      anythingLlmStreamKnowledgeDbPath: path.join(
+        tmpDir ?? "",
+        "anythingllm-stream-knowledge.sqlite"
+      ),
+      chatAiBaseUrl: "http://ollama:11434",
+      chatAiModel: "qwen3.5:9b",
+      chatAiPrewarmEnabled: true,
+      chatAiPrewarmPrimeEnabled: true,
+      chatAiMem0EmbedPrewarmEnabled: true,
+      chatAiMem0SearchPrewarmEnabled: true,
+    } as Config;
+    const bot = new Bot(config) as unknown as Bot & {
+      clipCacheStore: { close: () => void };
+      anythingLlmChannelMemory: { close: () => Promise<void> } | null;
+      anythingLlmLedger: { close: () => void } | null;
+      _prewarmChatAiModel: (
+        trigger: "startup" | "interval"
+      ) => Promise<void>;
+    };
+    activeBot = bot;
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await bot._prewarmChatAiModel("startup");
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    await bot.anythingLlmChannelMemory?.close();
+    bot.anythingLlmLedger?.close();
+  });
+
   it("does not start prime or embedding when the generation preload fails", async () => {
     const config = {
       ...makeConfig(),

@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from functools import lru_cache
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from mem0 import Memory
@@ -227,7 +227,9 @@ def list_memories(
     request: Request,
     user_id: str | None = None,
     agent_id: str | None = None,
+    app_id: str | None = None,
     run_id: str | None = None,
+    limit: int | None = Query(default=None, ge=1, le=10_000),
     _auth: None = Depends(require_api_key),
 ) -> Any:
     filters = {
@@ -235,17 +237,21 @@ def list_memories(
         for key, value in {
             "user_id": user_id,
             "agent_id": agent_id,
+            "app_id": app_id,
             "run_id": run_id,
         }.items()
         if value is not None
     }
-    limit = _env_int("MEM0_LIST_LIMIT", 100)
+    effective_limit = limit or min(_env_int("MEM0_LIST_LIMIT", 100), 10_000)
 
     try:
         if hasattr(get_memory(), "get_all"):
             if filters:
-                return get_memory().get_all(filters=filters)
-            return get_memory().get_all(limit=limit)
+                return get_memory().get_all(
+                    filters=filters,
+                    limit=effective_limit,
+                )
+            return get_memory().get_all(limit=effective_limit)
         raise HTTPException(status_code=404, detail="list unsupported")
     except HTTPException:
         raise
