@@ -114,40 +114,6 @@ services:
         order: stop-first
         failure_action: rollback
 
-  mem0:
-    image: localhost:5050/twitchraid-mem0-oss:local
-    environment:
-      MEM0_ADMIN_API_KEY: ${MEM0_ADMIN_API_KEY}
-      MEM0_QDRANT_HOST: qdrant
-      MEM0_QDRANT_PORT: "6333"
-      MEM0_COLLECTION_NAME: twitchraid_memories
-      MEM0_EMBEDDING_DIMS: "768"
-      MEM0_OLLAMA_BASE_URL: http://sub-ai_ollama:11434
-      MEM0_LLM_MODEL: gemma4:e4b-it-qat
-      MEM0_EMBEDDER_MODEL: nomic-embed-text:latest
-      MEM0_INFER_DEFAULT: "false"
-      MEM0_HISTORY_DB_PATH: /app/history/history.db
-      MEM0_TELEMETRY: "false"
-      ANONYMIZED_TELEMETRY: "false"
-      TZ: Asia/Tokyo
-    volumes:
-      - /home/mlove/dokploy/mem0/history:/app/history
-    networks:
-      dokploy-network:
-        aliases:
-          - mem0
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: any
-        delay: 5s
-      placement:
-        constraints:
-          - node.role == manager
-      update_config:
-        order: start-first
-        failure_action: rollback
-
   anythingllm:
     image: mintplexlabs/anythingllm:1.15.0@sha256:df8a540a06079c42c0835b40002e708bea895b5ab3c631d723c276a378a2857f
     environment:
@@ -174,6 +140,11 @@ services:
     volumes:
       - /home/mlove/dokploy/anythingllm/storage:/app/server/storage
       - /home/mlove/dokploy/anythingllm/.env:/app/server/.env
+    ports:
+      - target: 3001
+        published: 3220
+        protocol: tcp
+        mode: host
     networks:
       dokploy-network:
         aliases:

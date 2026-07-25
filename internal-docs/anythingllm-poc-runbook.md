@@ -20,7 +20,13 @@
 - 認証設定: `/home/mlove/dokploy/anythingllm/.env`
 - Developer API key: `/home/mlove/dokploy/anythingllm/api/api-key`
 
-外部portはpublishしない。AnythingLLMの管理画面やAPIを外部公開する場合は、PoCとは別に認証付きreverse proxyとアクセス制限を設計する。
+管理画面は認証付きAnythingLLM標準UIを使う。Swarmはcontainer port 3001をWSL host port 3220へpublishし、Windowsの `scripts/configure-anythingllm-lan-ui.ps1` で `192.168.0.99:3220` だけをportproxyへ登録する。FirewallはPrivate profile、送信元`192.168.0.0/24`だけを許可し、`0.0.0.0`やPublic profileには公開しない。
+
+```powershell
+.\scripts\configure-anythingllm-lan-ui.ps1
+```
+
+接続先は `http://192.168.0.99:3220/`。旧`twitchraid-memory-web`は同portを使用するため、AnythingLLM公開前に停止・削除する。
 
 ## 初期化
 

@@ -201,7 +201,7 @@ describe("Bot periodic recommendations", () => {
     expect(say).not.toHaveBeenCalled();
   });
 
-  it("prewarms the chat AI model immediately and on the configured interval", async () => {
+  it.skip("legacy: prewarms the chat AI model immediately and on the configured interval", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-04T12:00:00.000Z"));
     const config = {
@@ -253,7 +253,7 @@ describe("Bot periodic recommendations", () => {
     expect(say).not.toHaveBeenCalled();
   });
 
-  it("runs startup-only prime and mem0 search in strict order while keeping intervals lightweight", async () => {
+  it.skip("legacy: runs startup-only prime and mem0 search in strict order while keeping intervals lightweight", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-10T14:20:00.000Z"));
     const config = {
@@ -441,7 +441,7 @@ describe("Bot periodic recommendations", () => {
     expect(say).not.toHaveBeenCalled();
   });
 
-  it("attempts startup-only prime and mem0 search only once across reconnects", async () => {
+  it.skip("legacy: attempts startup-only prime and mem0 search only once across reconnects", async () => {
     const config = {
       ...makeConfig(),
       chatAiEnabled: true,
@@ -552,21 +552,17 @@ describe("Bot periodic recommendations", () => {
       clipCacheStore: { close: () => void };
       anythingLlmChannelMemory: { close: () => Promise<void> } | null;
       anythingLlmLedger: { close: () => void } | null;
-      _prewarmChatAiModel: (
-        trigger: "startup" | "interval"
-      ) => Promise<void>;
     };
     activeBot = bot;
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
-    await bot._prewarmChatAiModel("startup");
-
+    expect(bot).not.toHaveProperty("_prewarmChatAiModel");
     expect(fetchSpy).not.toHaveBeenCalled();
     await bot.anythingLlmChannelMemory?.close();
     bot.anythingLlmLedger?.close();
   });
 
-  it("does not start prime or embedding when the generation preload fails", async () => {
+  it.skip("legacy: does not start prime or embedding when the generation preload fails", async () => {
     const config = {
       ...makeConfig(),
       chatAiEnabled: true,
@@ -608,7 +604,7 @@ describe("Bot periodic recommendations", () => {
     );
   });
 
-  it("does not start embedding or mem0 search when the startup prime returns HTTP 500", async () => {
+  it.skip("legacy: does not start embedding or mem0 search when the startup prime returns HTTP 500", async () => {
     const config = {
       ...makeConfig(),
       chatAiEnabled: true,
@@ -657,7 +653,7 @@ describe("Bot periodic recommendations", () => {
     );
   });
 
-  it("does not start mem0 search when the embedding prewarm fails", async () => {
+  it.skip("legacy: does not start mem0 search when the embedding prewarm fails", async () => {
     const config = {
       ...makeConfig(),
       chatAiEnabled: true,
@@ -707,7 +703,7 @@ describe("Bot periodic recommendations", () => {
     ).toHaveLength(0);
   });
 
-  it("fails open without leaking secrets when the startup mem0 search returns HTTP 500", async () => {
+  it.skip("legacy: fails open without leaking secrets when the startup mem0 search returns HTTP 500", async () => {
     const config = {
       ...makeConfig(),
       chatAiEnabled: true,

@@ -34,31 +34,18 @@ const DEFAULT_CHAT_AI_IGNORED_USERS = ["nyme_ia2"];
 const DEFAULT_CHAT_AI_CONVERSATION_HISTORY_MAX_MESSAGES = 6;
 const DEFAULT_CHAT_AI_CONVERSATION_HISTORY_MAX_CHARS = 1_000;
 const DEFAULT_CHAT_AI_CONVERSATION_HISTORY_TTL_SECONDS = 1_800;
-const DEFAULT_CHAT_AI_COMMENT_MEMORY_MAX_ENTRIES_PER_MESSAGE = 2;
-const DEFAULT_CHAT_AI_COMMENT_MEMORY_DEDUP_TTL_SECONDS = 21_600;
 const DEFAULT_BOT_REQUEST_NOTES_DIGEST_INTERVAL_HOURS = 168;
 const DEFAULT_BOT_REQUEST_NOTES_DIGEST_MAX_ITEMS = 10;
 const DEFAULT_BOT_REQUEST_NOTES_DIGEST_FILE_PATH =
   "data/bot-request-notes-digest.md";
-const DEFAULT_CHAT_AI_MEMORY_MAX_ITEMS = 8;
-const DEFAULT_CHAT_AI_MEMORY_MAX_CHARS = 600;
-const DEFAULT_CHAT_AI_MEMORY_PROMOTION_MIN_OBSERVATIONS = 2;
-const DEFAULT_CHAT_AI_MEM0_TIMEOUT_MS = 1_200;
-const DEFAULT_CHAT_AI_MEM0_MAX_RESULTS = 3;
-const DEFAULT_CHAT_AI_MEM0_MAX_CHARS = 600;
-const DEFAULT_CHAT_AI_MEM0_MIN_SCORE = 0.5;
 const DEFAULT_CHAT_AI_SEARCH_ENDPOINT = "https://api.duckduckgo.com/";
 const DEFAULT_CHAT_AI_SEARCH_PROVIDER = "duckduckgo";
 const DEFAULT_CHAT_AI_SEARCH_TIMEOUT_MS = 2_500;
 const DEFAULT_CHAT_AI_SEARCH_MAX_QUERY_CHARS = 120;
 const DEFAULT_CHAT_AI_SEARCH_MAX_RESPONSE_BYTES = 65_536;
 const DEFAULT_CHAT_AI_SEARCH_MAX_RESULTS = 3;
-const DEFAULT_CHAT_AI_AUTO_LEARN_MAX_KEY_CHARS = 40;
-const DEFAULT_CHAT_AI_AUTO_LEARN_MAX_VALUE_CHARS = 120;
-const DEFAULT_CHAT_AI_AUTO_LEARN_MAX_ITEMS = 50;
 
 type ChatAiSearchProvider = "duckduckgo" | "searxng";
-type ChatAiMemoryStore = "json" | "sqlite";
 
 function parseEnabledFlag(raw: string): boolean {
   const normalized = raw.trim().toLowerCase();
@@ -83,19 +70,6 @@ function parseBoundedInt(
 ): number {
   const parsed = Number(raw);
   return Number.isInteger(parsed) && parsed >= min && parsed <= max
-    ? parsed
-    : fallback;
-}
-
-function parseBoundedNumber(
-  raw: string | undefined,
-  fallback: number,
-  min: number,
-  max: number
-): number {
-  if (raw === undefined || raw.trim() === "") return fallback;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed >= min && parsed <= max
     ? parsed
     : fallback;
 }
@@ -136,10 +110,6 @@ function parseChatAiSearchProvider(
     : DEFAULT_CHAT_AI_SEARCH_PROVIDER;
 }
 
-function parseChatAiMemoryStore(raw: string | undefined): ChatAiMemoryStore {
-  const normalized = raw?.trim().toLowerCase();
-  return normalized === "sqlite" ? "sqlite" : "json";
-}
 
 export class Config {
   readonly envFile: string;
@@ -211,9 +181,6 @@ export class Config {
   readonly chatAiConversationHistoryMaxMessages: number;
   readonly chatAiConversationHistoryMaxChars: number;
   readonly chatAiConversationHistoryTtlSeconds: number;
-  readonly chatAiCommentMemoryEnabled: boolean;
-  readonly chatAiCommentMemoryMaxEntriesPerMessage: number;
-  readonly chatAiCommentMemoryDedupTtlSeconds: number;
   readonly botRequestNotesEnabled: boolean;
   readonly botRequestNotesDbPath: string;
   readonly botRequestNotesDigestEnabled: boolean;
@@ -227,31 +194,6 @@ export class Config {
   readonly chatAiIgnoredUsers: string[];
   readonly chatAiStreamImageEnabled: boolean;
   readonly chatAiVisionModel: string;
-  readonly chatAiMemoryEnabled: boolean;
-  readonly chatAiMemoryStore: ChatAiMemoryStore;
-  readonly chatAiMemoryPath: string;
-  readonly chatAiMemoryDbPath: string;
-  readonly chatAiMemoryMaxItems: number;
-  readonly chatAiMemoryMaxChars: number;
-  readonly chatAiMemoryPromotionMinObservations: number;
-  readonly chatAiMemoryWriterUsers: string[];
-  readonly chatAiMemoryRelevanceFilterEnabled: boolean;
-  readonly chatAiImplicitMemoryEnabled: boolean;
-  readonly chatAiMem0Enabled: boolean;
-  readonly chatAiMem0Endpoint: string;
-  readonly chatAiMem0ApiKey: string;
-  readonly chatAiMem0UserId: string;
-  readonly chatAiMem0AgentId: string;
-  readonly chatAiMem0AppId: string;
-  readonly chatAiMem0TimeoutMs: number;
-  readonly chatAiMem0MaxResults: number;
-  readonly chatAiMem0MaxChars: number;
-  readonly chatAiMem0MinScore: number;
-  readonly chatAiMem0RecallGateEnabled: boolean;
-  readonly chatAiMem0AllowMissingScore: boolean;
-  readonly chatAiMem0EmbedPrewarmEnabled: boolean;
-  readonly chatAiMem0EmbedModel: string;
-  readonly chatAiMem0SearchPrewarmEnabled: boolean;
   readonly chatAiSearchEnabled: boolean;
   readonly chatAiSearchProvider: ChatAiSearchProvider;
   readonly chatAiSearchEndpoint: string;
@@ -260,10 +202,6 @@ export class Config {
   readonly chatAiSearchMaxQueryChars: number;
   readonly chatAiSearchMaxResponseBytes: number;
   readonly chatAiSearchMaxResults: number;
-  readonly chatAiAutoLearnEnabled: boolean;
-  readonly chatAiAutoLearnMaxKeyChars: number;
-  readonly chatAiAutoLearnMaxValueChars: number;
-  readonly chatAiAutoLearnMaxItems: number;
   readonly chatAiPromptReplyLogEnabled: boolean;
   readonly chatReplyEmotes: string[];
   readonly clipSearchAutoPublishEnabled: boolean;
@@ -519,17 +457,6 @@ export class Config {
       env["CHAT_AI_CONVERSATION_HISTORY_TTL_SECONDS"],
       DEFAULT_CHAT_AI_CONVERSATION_HISTORY_TTL_SECONDS
     );
-    this.chatAiCommentMemoryEnabled = parseEnabledFlag(
-      env["CHAT_AI_COMMENT_MEMORY_ENABLED"] ?? "0"
-    );
-    this.chatAiCommentMemoryMaxEntriesPerMessage = parsePositiveInt(
-      env["CHAT_AI_COMMENT_MEMORY_MAX_ENTRIES_PER_MESSAGE"],
-      DEFAULT_CHAT_AI_COMMENT_MEMORY_MAX_ENTRIES_PER_MESSAGE
-    );
-    this.chatAiCommentMemoryDedupTtlSeconds = parsePositiveInt(
-      env["CHAT_AI_COMMENT_MEMORY_DEDUP_TTL_SECONDS"],
-      DEFAULT_CHAT_AI_COMMENT_MEMORY_DEDUP_TTL_SECONDS
-    );
     this.botRequestNotesEnabled = parseEnabledFlag(
       env["BOT_REQUEST_NOTES_ENABLED"] ?? "0"
     );
@@ -576,39 +503,6 @@ export class Config {
     );
     this.chatAiVisionModel =
       env["CHAT_AI_VISION_MODEL"]?.trim() || this.chatAiModel;
-    this.chatAiMemoryEnabled = parseEnabledFlag(
-      env["CHAT_AI_MEMORY_ENABLED"] ?? "0"
-    );
-    this.chatAiMemoryStore = parseChatAiMemoryStore(
-      env["CHAT_AI_MEMORY_STORE"]
-    );
-    this.chatAiMemoryPath = path.resolve(
-      BASE_DIR,
-      env["CHAT_AI_MEMORY_PATH"] ?? "data/chat-ai-memory.json"
-    );
-    this.chatAiMemoryDbPath = path.resolve(
-      BASE_DIR,
-      env["CHAT_AI_MEMORY_DB_PATH"] ?? "data/chat-ai-memory.sqlite"
-    );
-    this.chatAiMemoryMaxItems = parsePositiveInt(
-      env["CHAT_AI_MEMORY_MAX_ITEMS"],
-      DEFAULT_CHAT_AI_MEMORY_MAX_ITEMS
-    );
-    this.chatAiMemoryMaxChars = parsePositiveInt(
-      env["CHAT_AI_MEMORY_MAX_CHARS"],
-      DEFAULT_CHAT_AI_MEMORY_MAX_CHARS
-    );
-    this.chatAiMemoryPromotionMinObservations = parsePositiveInt(
-      env["CHAT_AI_MEMORY_PROMOTION_MIN_OBSERVATIONS"],
-      DEFAULT_CHAT_AI_MEMORY_PROMOTION_MIN_OBSERVATIONS
-    );
-    this.chatAiMemoryWriterUsers = parseNameList(
-      env["CHAT_AI_MEMORY_WRITER_USERS"],
-      [this.loginChannel]
-    );
-    this.chatAiMemoryRelevanceFilterEnabled = parseEnabledFlag(
-      env["CHAT_AI_MEMORY_RELEVANCE_FILTER_ENABLED"] ?? "true"
-    );
     this.chatAiSearchEnabled = parseEnabledFlag(
       env["CHAT_AI_SEARCH_ENABLED"] ?? "0"
     );
@@ -634,68 +528,6 @@ export class Config {
     this.chatAiSearchMaxResults = parsePositiveInt(
       env["CHAT_AI_SEARCH_MAX_RESULTS"],
       DEFAULT_CHAT_AI_SEARCH_MAX_RESULTS
-    );
-    this.chatAiImplicitMemoryEnabled = parseEnabledFlag(
-      env["CHAT_AI_IMPLICIT_MEMORY_ENABLED"] ?? "0"
-    );
-    this.chatAiMem0Enabled = parseEnabledFlag(
-      env["CHAT_AI_MEM0_ENABLED"] ?? "0"
-    );
-    this.chatAiMem0Endpoint = env["CHAT_AI_MEM0_ENDPOINT"]?.trim() || "";
-    this.chatAiMem0ApiKey =
-      env["CHAT_AI_MEM0_API_KEY"]?.trim() || env["MEM0_API_KEY"]?.trim() || "";
-    this.chatAiMem0UserId =
-      env["CHAT_AI_MEM0_USER_ID"]?.trim() || this.loginChannel;
-    this.chatAiMem0AgentId =
-      env["CHAT_AI_MEM0_AGENT_ID"]?.trim() || "twitchRaid";
-    this.chatAiMem0AppId =
-      env["CHAT_AI_MEM0_APP_ID"]?.trim() || "twitchRaid";
-    this.chatAiMem0TimeoutMs = parsePositiveInt(
-      env["CHAT_AI_MEM0_TIMEOUT_MS"],
-      DEFAULT_CHAT_AI_MEM0_TIMEOUT_MS
-    );
-    this.chatAiMem0MaxResults = parsePositiveInt(
-      env["CHAT_AI_MEM0_MAX_RESULTS"],
-      DEFAULT_CHAT_AI_MEM0_MAX_RESULTS
-    );
-    this.chatAiMem0MaxChars = parsePositiveInt(
-      env["CHAT_AI_MEM0_MAX_CHARS"],
-      DEFAULT_CHAT_AI_MEM0_MAX_CHARS
-    );
-    this.chatAiMem0MinScore = parseBoundedNumber(
-      env["CHAT_AI_MEM0_MIN_SCORE"],
-      DEFAULT_CHAT_AI_MEM0_MIN_SCORE,
-      0,
-      1
-    );
-    this.chatAiMem0RecallGateEnabled = parseEnabledFlag(
-      env["CHAT_AI_MEM0_RECALL_GATE_ENABLED"] ?? "true"
-    );
-    this.chatAiMem0AllowMissingScore = parseEnabledFlag(
-      env["CHAT_AI_MEM0_ALLOW_MISSING_SCORE"] ?? "false"
-    );
-    this.chatAiMem0EmbedPrewarmEnabled = parseEnabledFlag(
-      env["CHAT_AI_MEM0_EMBED_PREWARM_ENABLED"] ?? "false"
-    );
-    this.chatAiMem0EmbedModel =
-      env["CHAT_AI_MEM0_EMBED_MODEL"]?.trim() || "";
-    this.chatAiMem0SearchPrewarmEnabled = parseEnabledFlag(
-      env["CHAT_AI_MEM0_SEARCH_PREWARM_ENABLED"] ?? "false"
-    );
-    this.chatAiAutoLearnEnabled = parseEnabledFlag(
-      env["CHAT_AI_AUTO_LEARN_ENABLED"] ?? "0"
-    );
-    this.chatAiAutoLearnMaxKeyChars = parsePositiveInt(
-      env["CHAT_AI_AUTO_LEARN_MAX_KEY_CHARS"],
-      DEFAULT_CHAT_AI_AUTO_LEARN_MAX_KEY_CHARS
-    );
-    this.chatAiAutoLearnMaxValueChars = parsePositiveInt(
-      env["CHAT_AI_AUTO_LEARN_MAX_VALUE_CHARS"],
-      DEFAULT_CHAT_AI_AUTO_LEARN_MAX_VALUE_CHARS
-    );
-    this.chatAiAutoLearnMaxItems = parsePositiveInt(
-      env["CHAT_AI_AUTO_LEARN_MAX_ITEMS"],
-      DEFAULT_CHAT_AI_AUTO_LEARN_MAX_ITEMS
     );
     this.chatAiPromptReplyLogEnabled = parseEnabledFlag(
       env["CHAT_AI_PROMPT_REPLY_LOG_ENABLED"] ?? "0"

@@ -432,43 +432,14 @@ BOT_REQUEST_NOTES_DIGEST_DISCORD_ENABLED=true
     expect(config.chatAiConversationHistoryMaxMessages).toBe(4);
     expect(config.chatAiConversationHistoryMaxChars).toBe(320);
     expect(config.chatAiConversationHistoryTtlSeconds).toBe(900);
-    expect(config.chatAiCommentMemoryEnabled).toBe(true);
-    expect(config.chatAiCommentMemoryMaxEntriesPerMessage).toBe(3);
-    expect(config.chatAiCommentMemoryDedupTtlSeconds).toBe(120);
     expect(config.chatAiBotAliases).toEqual(["rukalunbot", "rukalun"]);
     expect(config.chatAiCooldownSeconds).toBe(30);
     expect(config.chatAiIgnoredUsers).toEqual(["rukalunbot", "nightbot"]);
     expect(config.chatAiStreamImageEnabled).toBe(true);
     expect(config.chatAiVisionModel).toBe("qwen2.5vl:7b");
-    expect(config.chatAiMemoryEnabled).toBe(true);
-    expect(config.chatAiMemoryStore).toBe("sqlite");
-    expect(config.chatAiMemoryPath).toBe(
-      path.resolve("data/custom-chat-ai-memory.json")
-    );
-    expect(config.chatAiMemoryDbPath).toBe(
-      path.resolve("data/custom-chat-ai-memory.sqlite")
-    );
-    expect(config.chatAiMemoryMaxItems).toBe(12);
-    expect(config.chatAiMemoryMaxChars).toBe(900);
-    expect(config.chatAiMemoryPromotionMinObservations).toBe(3);
-    expect(config.chatAiMemoryWriterUsers).toEqual(["rukalun", "nyme_ia"]);
-    expect(config.chatAiMemoryRelevanceFilterEnabled).toBe(false);
-    expect(config.chatAiImplicitMemoryEnabled).toBe(true);
-    expect(config.chatAiMem0Enabled).toBe(true);
-    expect(config.chatAiMem0Endpoint).toBe("http://mem0:8888");
-    expect(config.chatAiMem0ApiKey).toBe("mem0-key");
-    expect(config.chatAiMem0UserId).toBe("rukalun");
-    expect(config.chatAiMem0AgentId).toBe("twitchRaid");
-    expect(config.chatAiMem0AppId).toBe("chat");
-    expect(config.chatAiMem0TimeoutMs).toBe(1700);
-    expect(config.chatAiMem0MaxResults).toBe(4);
-    expect(config.chatAiMem0MaxChars).toBe(700);
-    expect(config.chatAiMem0MinScore).toBe(0.72);
-    expect(config.chatAiMem0RecallGateEnabled).toBe(false);
-    expect(config.chatAiMem0AllowMissingScore).toBe(true);
-    expect(config.chatAiMem0EmbedPrewarmEnabled).toBe(true);
-    expect(config.chatAiMem0EmbedModel).toBe("nomic-embed-text");
-    expect(config.chatAiMem0SearchPrewarmEnabled).toBe(true);
+    expect(config).not.toHaveProperty("chatAiMemoryEnabled");
+    expect(config).not.toHaveProperty("chatAiMem0Enabled");
+    expect(config).not.toHaveProperty("chatAiAutoLearnEnabled");
     expect(config).not.toHaveProperty("chatAiMemoryHubEnabled");
     expect(config).not.toHaveProperty("chatAiMemoryHubUrl");
     expect(config).not.toHaveProperty("chatAiMemoryHubNamespace");
@@ -481,10 +452,6 @@ BOT_REQUEST_NOTES_DIGEST_DISCORD_ENABLED=true
     expect(config.chatAiSearchMaxQueryChars).toBe(90);
     expect(config.chatAiSearchMaxResponseBytes).toBe(32768);
     expect(config.chatAiSearchMaxResults).toBe(2);
-    expect(config.chatAiAutoLearnEnabled).toBe(true);
-    expect(config.chatAiAutoLearnMaxKeyChars).toBe(24);
-    expect(config.chatAiAutoLearnMaxValueChars).toBe(80);
-    expect(config.chatAiAutoLearnMaxItems).toBe(30);
     expect(config.chatAiPromptReplyLogEnabled).toBe(true);
     expect(config.chatReplyEmotes).toEqual([
       "rukkaHi",
@@ -570,9 +537,6 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiConversationHistoryMaxMessages).toBe(6);
     expect(config.chatAiConversationHistoryMaxChars).toBe(1000);
     expect(config.chatAiConversationHistoryTtlSeconds).toBe(1800);
-    expect(config.chatAiCommentMemoryEnabled).toBe(false);
-    expect(config.chatAiCommentMemoryMaxEntriesPerMessage).toBe(2);
-    expect(config.chatAiCommentMemoryDedupTtlSeconds).toBe(21600);
     expect(config.botRequestNotesEnabled).toBe(false);
     expect(config.botRequestNotesDbPath).toBe(
       path.resolve("data/bot-request-notes.sqlite")
@@ -590,34 +554,9 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiIgnoredUsers).toEqual(["nyme_ia2"]);
     expect(config.chatAiStreamImageEnabled).toBe(false);
     expect(config.chatAiVisionModel).toBe("qwen2.5:7b");
-    expect(config.chatAiMemoryEnabled).toBe(false);
-    expect(config.chatAiMemoryStore).toBe("json");
-    expect(config.chatAiMemoryPath).toBe(
-      path.resolve("data/chat-ai-memory.json")
-    );
-    expect(config.chatAiMemoryDbPath).toBe(
-      path.resolve("data/chat-ai-memory.sqlite")
-    );
-    expect(config.chatAiMemoryMaxItems).toBe(8);
-    expect(config.chatAiMemoryMaxChars).toBe(600);
-    expect(config.chatAiMemoryWriterUsers).toEqual(["rukalun"]);
-    expect(config.chatAiMemoryRelevanceFilterEnabled).toBe(true);
-    expect(config.chatAiImplicitMemoryEnabled).toBe(false);
-    expect(config.chatAiMem0Enabled).toBe(false);
-    expect(config.chatAiMem0Endpoint).toBe("");
-    expect(config.chatAiMem0ApiKey).toBe("");
-    expect(config.chatAiMem0UserId).toBe("rukalun");
-    expect(config.chatAiMem0AgentId).toBe("twitchRaid");
-    expect(config.chatAiMem0AppId).toBe("twitchRaid");
-    expect(config.chatAiMem0TimeoutMs).toBe(1200);
-    expect(config.chatAiMem0MaxResults).toBe(3);
-    expect(config.chatAiMem0MaxChars).toBe(600);
-    expect(config.chatAiMem0MinScore).toBe(0.5);
-    expect(config.chatAiMem0RecallGateEnabled).toBe(true);
-    expect(config.chatAiMem0AllowMissingScore).toBe(false);
-    expect(config.chatAiMem0EmbedPrewarmEnabled).toBe(false);
-    expect(config.chatAiMem0EmbedModel).toBe("");
-    expect(config.chatAiMem0SearchPrewarmEnabled).toBe(false);
+    expect(config).not.toHaveProperty("chatAiMemoryEnabled");
+    expect(config).not.toHaveProperty("chatAiMem0Enabled");
+    expect(config).not.toHaveProperty("chatAiAutoLearnEnabled");
     expect(config).not.toHaveProperty("chatAiMemoryHubEnabled");
     expect(config).not.toHaveProperty("chatAiMemoryHubUrl");
     expect(config).not.toHaveProperty("chatAiMemoryHubNamespace");
@@ -630,10 +569,6 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiSearchMaxQueryChars).toBe(120);
     expect(config.chatAiSearchMaxResponseBytes).toBe(65536);
     expect(config.chatAiSearchMaxResults).toBe(3);
-    expect(config.chatAiAutoLearnEnabled).toBe(false);
-    expect(config.chatAiAutoLearnMaxKeyChars).toBe(40);
-    expect(config.chatAiAutoLearnMaxValueChars).toBe(120);
-    expect(config.chatAiAutoLearnMaxItems).toBe(50);
     expect(config.chatAiPromptReplyLogEnabled).toBe(false);
     expect(config.chatReplyEmotes).toEqual([]);
   });
@@ -674,47 +609,6 @@ CHAT_AI_CONTEXT_LENGTH=${rawContextLength}
       const config = new Config(envPath);
 
       expect(config.chatAiContextLength).toBe(4096);
-    }
-  );
-
-  it.each(["-1", "1.1", "NaN"])(
-    "falls back to mem0 score 0.5 when CHAT_AI_MEM0_MIN_SCORE=%s",
-    (rawMinScore) => {
-      const envPath = writeEnvFile(`
-TWITCH_CLIENT_ID=client
-TWITCH_ACCESS_TOKEN=access
-TWITCH_REFRESH_TOKEN=refresh
-TWITCH_SECRET_TOKEN=secret
-TWITCH_BROADCASTER_ID=broadcaster
-TWITCH_MODERATOR_ID=moderator
-CHAT_AI_MEM0_MIN_SCORE=${rawMinScore}
-`);
-
-      const config = new Config(envPath);
-
-      expect(config.chatAiMem0MinScore).toBe(0.5);
-    }
-  );
-
-  it.each([
-    ["0", 0],
-    ["1", 1],
-  ])(
-    "accepts CHAT_AI_MEM0_MIN_SCORE boundary %s",
-    (rawMinScore, expected) => {
-      const envPath = writeEnvFile(`
-TWITCH_CLIENT_ID=client
-TWITCH_ACCESS_TOKEN=access
-TWITCH_REFRESH_TOKEN=refresh
-TWITCH_SECRET_TOKEN=secret
-TWITCH_BROADCASTER_ID=broadcaster
-TWITCH_MODERATOR_ID=moderator
-CHAT_AI_MEM0_MIN_SCORE=${rawMinScore}
-`);
-
-      const config = new Config(envPath);
-
-      expect(config.chatAiMem0MinScore).toBe(expected);
     }
   );
 

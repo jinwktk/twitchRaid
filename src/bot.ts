@@ -76,7 +76,6 @@ import {
 } from "./commands/shoutout-introduction";
 import {
   buildMentionChatPrompt,
-  buildMentionChatPrewarmRequest,
   createMentionChatMatcher,
   formatGeneratedMentionChatReply,
   formatMentionChatLogValue,
@@ -94,29 +93,6 @@ import {
 import { AnythingLlmLedger } from "./commands/anythingllm-ledger";
 import { AnythingLlmChannelMemory } from "./commands/anythingllm-channel-memory";
 import { AnythingLlmStreamKnowledge } from "./commands/anythingllm-stream-knowledge";
-import {
-  primeOllamaGenerateModel,
-  prewarmOllamaEmbedModel,
-  prewarmOllamaGenerateModel,
-} from "./commands/ollama-prewarm";
-import {
-  analyzeMentionChatMemoryRequest,
-  extractImplicitMentionChatMemoryEntry,
-  extractStreamCommentMemoryEntries,
-  loadMentionChatMemoryAuthorityStore,
-  loadMentionChatMemoryStore,
-  resolveMentionChatMemoryPromotionMinObservations,
-  saveMentionChatAutoLearnMemoryStore,
-  saveMentionChatMemoryObservationStore,
-  type MentionChatMemoryEntry,
-  type AnalyzeMentionChatMemoryRequestResult,
-} from "./commands/mention-chat-memory";
-import {
-  loadMentionChatMem0Memory,
-  saveMentionChatMem0Memory,
-  shouldRecallMentionChatMem0Memory,
-  type MentionChatMem0MemoryItem,
-} from "./commands/mention-chat-mem0";
 import {
   buildBotRequestNotesDigest,
   extractBotRequestNote,
@@ -182,15 +158,6 @@ const MENTION_CHAT_SEARCH_NO_RESULT_REPLY =
   "ごめん、検索結果がなくて分からないD！";
 const MENTION_CHAT_MEMORY_KEYWORD_PATTERN =
   /(?:覚えて(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|覚えといて(?:ください|下さい|ね)?|覚えとけ|記憶して(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|記憶しといて(?:ください|下さい|ね)?|メモして(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|メモしといて(?:ください|下さい|ね)?|メモっといて(?:ください|下さい|ね)?|忘れないで(?!いる|いた|います|た|しょ))/u;
-const MENTION_CHAT_MEMORY_SAVED_REPLY = "覚えたD！";
-const MENTION_CHAT_MEMORY_USAGE_REPLY =
-  "誰のどんなことか分かるように、そのまま文章で教えてほしいD！";
-const MENTION_CHAT_MEMORY_UNSAFE_REPLY =
-  "その内容は安全のため覚えられないD！";
-const MENTION_CHAT_MEMORY_DISABLED_REPLY = "記憶保存は今は無効D！";
-const MENTION_CHAT_MEMORY_FORBIDDEN_REPLY =
-  "メモ保存は管理者だけできるD！";
-const MENTION_CHAT_MEMORY_WRITE_FAILED_REPLY = "メモ保存に失敗したD！";
 
 function formatSkippedMentionPrompt(prompt: string): string {
   const singleLine = prompt.replace(/\s+/g, " ").trim() || "内容なし";
@@ -223,27 +190,6 @@ function normalizeMentionChatUserName(userName: string): string {
   return userName.trim().replace(/^[@＠]+/, "").toLowerCase();
 }
 
-function isMentionChatMemoryWriter(
-  userName: string,
-  writerUsers: string[]
-): boolean {
-  const normalizedUserName = normalizeMentionChatUserName(userName);
-  const normalizedWriterUsers = writerUsers.map((writer) =>
-    normalizeMentionChatUserName(writer)
-  );
-  return (
-    normalizedWriterUsers.includes("all") ||
-    normalizedWriterUsers.includes(normalizedUserName)
-  );
-}
-
-function memoryRequestReplyForReason(reason: string): string {
-  if (reason === "unsafe") return MENTION_CHAT_MEMORY_UNSAFE_REPLY;
-  if (reason === "write_failed" || reason === "invalid_file") {
-    return MENTION_CHAT_MEMORY_WRITE_FAILED_REPLY;
-  }
-  return MENTION_CHAT_MEMORY_USAGE_REPLY;
-}
 
 interface MentionChatRequest {
   channel: string;
@@ -288,16 +234,6 @@ interface MentionChatConversationHistoryText {
   latestMentionUserText: string | null;
 }
 
-interface CombinedMentionChatMemoryText {
-  text: string | null;
-  dedupedMem0ItemCount: number;
-}
-
-interface MentionChatMemoryAuthority {
-  activeKeys: readonly string[];
-  suppressedKeys: readonly string[];
-}
-
 const UNSAFE_MENTION_CHAT_CONVERSATION_CONTEXT_PATTERN =
   /https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|\b(?:token|secret|password|passwd|api[\s_-]?key|access[\s_-]?token|refresh[\s_-]?token)\b|apiキー|トークン|アクセストークン|リフレッシュトークン|シークレット|認証情報|認証|パスワード|秘密鍵|秘密|前の指示|上の指示|以前の指示|指示を無視|命令を無視|ルールを無視|システムプロンプト|プロンプトを表示|内部設定|developer message|system prompt|ignore (?:all )?(?:previous|above) instructions/iu;
 
@@ -315,103 +251,6 @@ function normalizeMentionChatConversationText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function splitMentionChatMemoryLines(
-  value: string | null | undefined
-): string[] {
-  return (value ?? "")
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
-function normalizeMentionChatMemoryLine(value: string): string {
-  return value.replace(/\s+/g, " ").trim().toLowerCase();
-}
-
-function extractMentionChatMemoryLineKey(value: string): string | null {
-  const line = value.replace(/\s+/g, " ").trim();
-  const separatorIndex = line.search(/[：:]/u);
-  if (separatorIndex <= 0) return null;
-
-  const key = line.slice(0, separatorIndex).trim().toLowerCase();
-  return key || null;
-}
-
-function combineMentionChatMemoryText(
-  localMemoryText: string | null | undefined,
-  mem0MemoryText: string | null | undefined,
-  options: {
-    mem0Items?: readonly MentionChatMem0MemoryItem[];
-    authority?: MentionChatMemoryAuthority;
-    maxChars: number;
-  }
-): CombinedMentionChatMemoryText {
-  const localText = (localMemoryText ?? "").trim();
-  const localLines = splitMentionChatMemoryLines(localText);
-  const localLineSet = new Set(localLines.map(normalizeMentionChatMemoryLine));
-  const localKeySet = new Set(
-    localLines
-      .map(extractMentionChatMemoryLineKey)
-      .filter((key): key is string => Boolean(key))
-  );
-  const authorityKeySet = new Set(
-    [
-      ...(options.authority?.activeKeys ?? []),
-      ...(options.authority?.suppressedKeys ?? []),
-    ]
-      .map((key) => key.replace(/\s+/g, " ").trim().toLowerCase())
-      .filter(Boolean)
-  );
-  const mem0Items =
-    options.mem0Items && options.mem0Items.length > 0
-      ? options.mem0Items
-      : splitMentionChatMemoryLines(mem0MemoryText).map((text) => ({
-          text,
-          key: extractMentionChatMemoryLineKey(text),
-        }));
-
-  const remainingMem0Lines: string[] = [];
-  let dedupedMem0ItemCount = 0;
-  for (const item of mem0Items) {
-    const line = item.text;
-    const normalizedLine = normalizeMentionChatMemoryLine(line);
-    const key = (item.key ?? extractMentionChatMemoryLineKey(line))
-      ?.replace(/\s+/g, " ")
-      .trim()
-      .toLowerCase();
-    if (
-      localLineSet.has(normalizedLine) ||
-      (key && (localKeySet.has(key) || authorityKeySet.has(key)))
-    ) {
-      dedupedMem0ItemCount += 1;
-      continue;
-    }
-    remainingMem0Lines.push(line);
-  }
-
-  const maxChars = Math.max(0, Math.floor(options.maxChars));
-  const selectedLines: string[] = [];
-  const tryAppend = (lines: readonly string[]): boolean => {
-    const candidate = [...selectedLines, ...lines].join("\n");
-    if (candidate.length > maxChars) return false;
-    selectedLines.push(...lines);
-    return true;
-  };
-  for (const line of localLines) {
-    if (!tryAppend([line])) break;
-  }
-  let hasMem0Header = false;
-  for (const line of remainingMem0Lines) {
-    const lines = hasMem0Header ? [line] : ["mem0メモ:", line];
-    if (!tryAppend(lines)) break;
-    hasMem0Header = true;
-  }
-
-  return {
-    text: selectedLines.length > 0 ? selectedLines.join("\n") : null,
-    dedupedMem0ItemCount,
-  };
-}
 
 function shortenMentionChatConversationText(
   value: string,
@@ -578,12 +417,8 @@ export class Bot {
     string,
     MentionChatConversationHistoryEntry[]
   >();
-  private readonly streamCommentMemoryMem0Dedup = new Map<string, number>();
   private mentionChatRequestSequence = 0;
   private lastMentionChatAttemptAt = 0;
-  private lastChatAiPrewarmAt = 0;
-  private chatAiPrewarmInFlight = false;
-  private chatAiStartupOnlyPrewarmAttempted = false;
   private botRequestNotesDigestInFlight = false;
   private readonly streamSummaryThreadEnsureInFlight = new Map<
     string,
@@ -673,14 +508,13 @@ export class Bot {
         storagePath: config.anythingLlmLedgerDbPath,
         closeLedgerOnClose: false,
       });
-      this.anythingLlmStreamKnowledge =
-        config.anythingLlmStreamKnowledgeEnabled
-          ? new AnythingLlmStreamKnowledge({
-              ledger: anythingLlmLedger,
-              client: channelClient,
-              stateDbPath: config.anythingLlmStreamKnowledgeDbPath,
-            })
-          : null;
+      this.anythingLlmStreamKnowledge = config.anythingLlmStreamKnowledgeEnabled
+        ? new AnythingLlmStreamKnowledge({
+            ledger: anythingLlmLedger,
+            client: channelClient,
+            stateDbPath: config.anythingLlmStreamKnowledgeDbPath,
+          })
+        : null;
       this.anythingLlmUtilityClient = config.chatAiAnythingLlmEnabled
         ? new AnythingLlmClient({
             baseUrl: config.anythingLlmBaseUrl,
@@ -996,7 +830,6 @@ export class Bot {
     );
     if (!handledMentionChat) {
       this._recordStreamCommentConversationHistory(channel, user, text, now);
-      this._scheduleStreamCommentMemorySave(user, text);
       this._scheduleBotRequestNoteSave(user, text);
     }
   }
@@ -1082,15 +915,6 @@ export class Bot {
       acceptedSequence,
     };
 
-    const memoryRequest = this._analyzeMentionChatMemoryRequest(
-      request.prompt,
-      request.userName
-    );
-    if (memoryRequest.isMemoryRequest) {
-      await this._processMentionChatMemoryRequest(request, memoryRequest);
-      return;
-    }
-
     const cooldownRemainingSeconds =
       this._getMentionChatCooldownRemainingSeconds(now);
     if (
@@ -1120,162 +944,6 @@ export class Bot {
     void this._drainMentionChatQueue();
   }
 
-  private _analyzeMentionChatMemoryRequest(
-    prompt: string,
-    sourceUser: string
-  ): AnalyzeMentionChatMemoryRequestResult {
-    return analyzeMentionChatMemoryRequest(prompt, {
-      maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
-      maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
-      sourceUser,
-    });
-  }
-
-  private _isMentionChatMem0Enabled(): boolean {
-    return this.config.chatAiMem0Enabled ?? false;
-  }
-
-  private async _saveMentionChatMem0Memory({
-    entry,
-    kind,
-    sourceUser,
-    logLabel = "AIメンション会話mem0メモ",
-  }: {
-    entry: MentionChatMemoryEntry;
-    kind: "semantic" | "implicit";
-    sourceUser: string;
-    logLabel?: string;
-  }): Promise<boolean> {
-    if (!this._isMentionChatMem0Enabled()) return false;
-
-    const result = await saveMentionChatMem0Memory({
-      enabled: true,
-      apiKey: this.config.chatAiMem0ApiKey ?? "",
-      endpoint: this.config.chatAiMem0Endpoint ?? "",
-      userId: this.config.chatAiMem0UserId ?? this.config.loginChannel,
-      agentId: this.config.chatAiMem0AgentId ?? "twitchRaid",
-      appId: this.config.chatAiMem0AppId ?? "twitchRaid",
-      timeoutMs: this.config.chatAiMem0TimeoutMs ?? 1_200,
-      entry,
-      kind,
-      sourceUser,
-    });
-    if (result.saved) {
-      logger.info(`${logLabel}を保存: result=saved`);
-    } else {
-      logger.info(
-        `${logLabel}保存をスキップ: reason=${result.reason}`
-      );
-    }
-    return result.saved;
-  }
-
-  private _streamCommentMemoryDedupKey(
-    entry: MentionChatMemoryEntry,
-    sourceUser: string
-  ): string {
-    return [
-      normalizeMentionChatUserName(sourceUser),
-      entry.key.replace(/\s+/g, " ").trim().toLowerCase(),
-      entry.value.replace(/\s+/g, " ").trim().toLowerCase(),
-    ].join("\n");
-  }
-
-  private async _saveStreamCommentMem0Memory(
-    entry: MentionChatMemoryEntry,
-    sourceUser: string
-  ): Promise<void> {
-    const ttlSeconds = this.config.chatAiCommentMemoryDedupTtlSeconds ?? 21_600;
-    const now = Date.now() / 1000;
-    const dedupKey = this._streamCommentMemoryDedupKey(entry, sourceUser);
-    const lastSavedAt = this.streamCommentMemoryMem0Dedup.get(dedupKey);
-    if (ttlSeconds > 0 && lastSavedAt !== undefined && now - lastSavedAt < ttlSeconds) {
-      logger.info("配信コメント由来mem0メモ保存をスキップ: reason=dedup");
-      return;
-    }
-
-    const saved = await this._saveMentionChatMem0Memory({
-      entry,
-      kind: "implicit",
-      sourceUser,
-      logLabel: "配信コメント由来mem0メモ",
-    });
-    if (saved) {
-      this.streamCommentMemoryMem0Dedup.set(dedupKey, now);
-    }
-  }
-
-  private _scheduleStreamCommentMemorySave(user: string, text: string): void {
-    if (!(this.config.chatAiCommentMemoryEnabled ?? false)) return;
-    if (!(this.config.chatAiImplicitMemoryEnabled ?? false)) return;
-    if (!(this.config.chatAiAutoLearnEnabled ?? false)) return;
-
-    const sourceUser = normalizeMentionChatUserName(user);
-    if (!sourceUser) return;
-    if ((this.config.chatAiIgnoredUsers ?? []).includes(sourceUser)) return;
-    if (
-      !isMentionChatMemoryWriter(
-        sourceUser,
-        this.config.chatAiMemoryWriterUsers ?? []
-      )
-    ) {
-      return;
-    }
-
-    setTimeout(() => {
-      void (async () => {
-        try {
-          const entries = extractStreamCommentMemoryEntries(text, {
-            maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
-            maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
-            sourceUser,
-            maxEntries: this.config.chatAiCommentMemoryMaxEntriesPerMessage ?? 2,
-          });
-          if (!entries.length) return;
-
-          for (const entry of entries) {
-            const result = saveMentionChatMemoryObservationStore({
-              enabled: true,
-              store: this.config.chatAiMemoryStore ?? "json",
-              jsonPath: this.config.chatAiMemoryPath ?? "",
-              sqlitePath: this.config.chatAiMemoryDbPath ?? "",
-              entry,
-              kind: "implicit",
-              maxItems: this.config.chatAiAutoLearnMaxItems ?? 50,
-              promotionMinObservations:
-                resolveMentionChatMemoryPromotionMinObservations(
-                  entry,
-                  sourceUser,
-                  this.config.chatAiMemoryPromotionMinObservations ?? 2
-                ),
-              sourceUser,
-            });
-            if (result.reason === "observed") {
-              logger.info(
-                `配信コメント由来メモを候補として観測: observations=${result.observedCount ?? 1}`
-              );
-            } else if (result.reason === "promoted") {
-              logger.info(
-                `配信コメント由来メモを昇格: observations=${result.observedCount ?? 1}`
-              );
-              await this._saveStreamCommentMem0Memory(entry, sourceUser);
-            } else if (result.reason === "already_active") {
-              logger.info(
-                `配信コメント由来メモは既に有効: observations=${result.observedCount ?? 1}`
-              );
-            } else {
-              logger.info(
-                `配信コメント由来メモ保存をスキップ: reason=${result.reason}`
-              );
-            }
-          }
-        } catch (e) {
-          logger.error(`❌ 配信コメント由来メモ保存に失敗しました: ${e}`);
-        }
-      })();
-    }, 0);
-  }
-
   private _scheduleBotRequestNoteSave(user: string, text: string): void {
     if (!(this.config.botRequestNotesEnabled ?? false)) return;
 
@@ -1303,155 +971,6 @@ export class Bot {
       } catch (e) {
         logger.error(`❌ Bot要望メモ保存に失敗しました: ${e}`);
       }
-    }, 0);
-  }
-
-  private async _processMentionChatMemoryRequest(
-    request: MentionChatRequest,
-    memoryRequest: AnalyzeMentionChatMemoryRequestResult
-  ): Promise<void> {
-    try {
-      const autoLearnEnabled = this.config.chatAiAutoLearnEnabled ?? false;
-      if (!autoLearnEnabled) {
-        logger.info("AIメンション会話メモ保存をスキップ: reason=disabled");
-        await this.chatClient.say(
-          request.channel,
-          MENTION_CHAT_MEMORY_DISABLED_REPLY
-        );
-        return;
-      }
-
-      if (
-        !isMentionChatMemoryWriter(
-          request.userName,
-          this.config.chatAiMemoryWriterUsers ?? []
-        )
-      ) {
-        logger.info(
-          `AIメンション会話メモ保存を拒否: reason=forbidden, user=${request.userName}`
-        );
-        await this.chatClient.say(
-          request.channel,
-          MENTION_CHAT_MEMORY_FORBIDDEN_REPLY
-        );
-        return;
-      }
-
-      if (memoryRequest.reason !== "valid") {
-        logger.info(
-          `AIメンション会話メモ保存をスキップ: reason=${memoryRequest.reason}`
-        );
-        await this.chatClient.say(
-          request.channel,
-          memoryRequestReplyForReason(memoryRequest.reason)
-        );
-        return;
-      }
-
-      const learnResult = saveMentionChatAutoLearnMemoryStore({
-        enabled: autoLearnEnabled,
-        store: this.config.chatAiMemoryStore ?? "json",
-        jsonPath: this.config.chatAiMemoryPath ?? "",
-        sqlitePath: this.config.chatAiMemoryDbPath ?? "",
-        promptText: request.prompt,
-        maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
-        maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
-        maxItems: this.config.chatAiAutoLearnMaxItems ?? 50,
-        sourceUser: request.userName,
-      });
-      if (learnResult.saved) {
-        logger.info("AIメンション会話メモを保存: result=saved");
-        if (memoryRequest.entry) {
-          await this._saveMentionChatMem0Memory({
-            entry: memoryRequest.entry,
-            kind: "semantic",
-            sourceUser: request.userName,
-          });
-        }
-        await this.chatClient.say(
-          request.channel,
-          MENTION_CHAT_MEMORY_SAVED_REPLY
-        );
-      } else {
-        logger.info(
-          `AIメンション会話メモ保存をスキップ: reason=${learnResult.reason}`
-        );
-        await this.chatClient.say(
-          request.channel,
-          memoryRequestReplyForReason(learnResult.reason)
-        );
-      }
-    } catch (e) {
-      logger.error(`❌ AIメンション会話メモ保存応答に失敗しました: ${e}`);
-    }
-  }
-
-  private _scheduleImplicitMentionChatMemorySave(
-    request: MentionChatRequest
-  ): void {
-    if (!(this.config.chatAiImplicitMemoryEnabled ?? false)) return;
-    if (!(this.config.chatAiAutoLearnEnabled ?? false)) return;
-    if (
-      !isMentionChatMemoryWriter(
-        request.userName,
-        this.config.chatAiMemoryWriterUsers ?? []
-      )
-    ) {
-      return;
-    }
-
-    setTimeout(() => {
-      void (async () => {
-        try {
-          const entry = extractImplicitMentionChatMemoryEntry(request.prompt, {
-            maxKeyChars: this.config.chatAiAutoLearnMaxKeyChars ?? 40,
-            maxValueChars: this.config.chatAiAutoLearnMaxValueChars ?? 120,
-            sourceUser: request.userName,
-          });
-          if (!entry) return;
-
-          const result = saveMentionChatMemoryObservationStore({
-            enabled: true,
-            store: this.config.chatAiMemoryStore ?? "json",
-            jsonPath: this.config.chatAiMemoryPath ?? "",
-            sqlitePath: this.config.chatAiMemoryDbPath ?? "",
-            entry,
-            kind: "implicit",
-            maxItems: this.config.chatAiAutoLearnMaxItems ?? 50,
-            promotionMinObservations:
-              resolveMentionChatMemoryPromotionMinObservations(
-                entry,
-                request.userName,
-                this.config.chatAiMemoryPromotionMinObservations ?? 2
-              ),
-            sourceUser: request.userName,
-          });
-          if (result.reason === "observed") {
-            logger.info(
-              `AIメンション会話暗黙メモを候補として観測: observations=${result.observedCount ?? 1}`
-            );
-          } else if (result.reason === "promoted") {
-            logger.info(
-              `AIメンション会話暗黙メモを昇格: observations=${result.observedCount ?? 1}`
-            );
-            await this._saveMentionChatMem0Memory({
-              entry,
-              kind: "implicit",
-              sourceUser: request.userName,
-            });
-          } else if (result.reason === "already_active") {
-            logger.info(
-              `AIメンション会話暗黙メモは既に有効: observations=${result.observedCount ?? 1}`
-            );
-          } else if (result.reason !== "not_memory_request") {
-            logger.info(
-              `AIメンション会話暗黙メモ保存をスキップ: reason=${result.reason}`
-            );
-          }
-        } catch (e) {
-          logger.error(`❌ AIメンション会話暗黙メモ保存に失敗しました: ${e}`);
-        }
-      })();
     }, 0);
   }
 
@@ -1593,7 +1112,7 @@ export class Bot {
         userDisplayName: request.userDisplayName,
         promptText: request.prompt,
         redactedPromptText: promptLogValue,
-        memoryText,
+        memoryText: null,
         conversationHistoryText,
         searchContextText,
         streamImageBase64: null,
@@ -1746,65 +1265,6 @@ export class Bot {
       }
       const requestId = this._nextMentionChatRequestId();
       const contextStartedAt = Date.now();
-      const memoryEnabled = this.config.chatAiMemoryEnabled ?? false;
-      const memoryStore = this.config.chatAiMemoryStore ?? "json";
-      const memoryMaxChars = this.config.chatAiMemoryMaxChars ?? 600;
-      const memory = loadMentionChatMemoryStore({
-        enabled: memoryEnabled,
-        store: this.config.chatAiMemoryStore ?? "json",
-        jsonPath: this.config.chatAiMemoryPath ?? "",
-        sqlitePath: this.config.chatAiMemoryDbPath ?? "",
-        maxItems: this.config.chatAiMemoryMaxItems ?? 8,
-        maxChars: memoryMaxChars,
-        queryText: request.prompt,
-        subjectAliases: [request.userName],
-        relevanceFilterEnabled:
-          this.config.chatAiMemoryRelevanceFilterEnabled ?? true,
-      });
-      if (memory.text) {
-        logger.info(
-          `AIメンション会話メモを適用: store=${this.config.chatAiMemoryStore ?? "json"}, items=${memory.itemCount}, chars=${memory.charCount}`
-        );
-      }
-      const authority = memoryEnabled
-        ? loadMentionChatMemoryAuthorityStore({
-            store: memoryStore,
-            jsonPath: this.config.chatAiMemoryPath ?? "",
-            sqlitePath: this.config.chatAiMemoryDbPath ?? "",
-          })
-        : { activeKeys: [], suppressedKeys: [] };
-      const mem0Enabled = memoryEnabled && this._isMentionChatMem0Enabled();
-      const mem0Requested =
-        mem0Enabled &&
-        shouldRecallMentionChatMem0Memory(
-          request.prompt,
-          this.config.chatAiMem0RecallGateEnabled ?? true
-        );
-      const mem0StartedAt = Date.now();
-      const mem0Promise = mem0Requested
-        ? loadMentionChatMem0Memory({
-            enabled: true,
-            apiKey: this.config.chatAiMem0ApiKey ?? "",
-            endpoint: this.config.chatAiMem0Endpoint ?? "",
-            queryText: request.prompt,
-            userId: this.config.chatAiMem0UserId ?? this.config.loginChannel,
-            agentId: this.config.chatAiMem0AgentId ?? "twitchRaid",
-            appId: this.config.chatAiMem0AppId ?? "twitchRaid",
-            timeoutMs: this.config.chatAiMem0TimeoutMs ?? 1_200,
-            maxItems: this.config.chatAiMem0MaxResults ?? 3,
-            maxChars: this.config.chatAiMem0MaxChars ?? 600,
-            minScore: this.config.chatAiMem0MinScore ?? 0.5,
-            allowMissingScore:
-              this.config.chatAiMem0AllowMissingScore ?? false,
-            subjectAliases: [request.userName],
-          }).then((result) => ({
-            result,
-            elapsedMs: Math.max(0, Date.now() - mem0StartedAt),
-          }))
-        : Promise.resolve({
-            result: null,
-            elapsedMs: 0,
-          });
       const conversationHistory = shouldApplyMentionChatConversationHistory(
         request.prompt
       )
@@ -1860,49 +1320,11 @@ export class Bot {
         result,
         elapsedMs: Math.max(0, Date.now() - searchStartedAt),
       }));
-      const [mem0Outcome, searchOutcome] = await Promise.all([
-        mem0Promise,
-        searchPromise,
-      ]);
-      const mem0Memory = mem0Outcome.result;
-      const mem0Reason = mem0Requested
-        ? (mem0Memory?.reason ?? "failed")
-        : mem0Enabled
-          ? "recall_gate"
-          : "disabled";
+      const searchOutcome = await searchPromise;
       const searchContext = searchOutcome.result.context;
       logger.info(
-        `AIメンション会話コンテキスト準備: requestId=${requestId}, localItems=${memory.itemCount}, mem0Requested=${mem0Requested}, mem0Reason=${mem0Reason}, mem0Ms=${mem0Outcome.elapsedMs}, searchReason=${searchOutcome.result.reason}, searchResults=${searchContext?.resultCount ?? 0}, searchMs=${searchOutcome.elapsedMs}, totalMs=${Math.max(0, Date.now() - contextStartedAt)}`
+        `AIメンション会話コンテキスト準備: requestId=${requestId}, provider=anythingllm, searchReason=${searchOutcome.result.reason}, searchResults=${searchContext?.resultCount ?? 0}, searchMs=${searchOutcome.elapsedMs}, totalMs=${Math.max(0, Date.now() - contextStartedAt)}`
       );
-      if (mem0Memory?.text) {
-        logger.info(
-          `AIメンション会話mem0メモを適用: items=${mem0Memory.itemCount}, chars=${mem0Memory.charCount}`
-        );
-      } else if (
-        mem0Requested &&
-        mem0Memory &&
-        mem0Memory.reason !== "disabled" &&
-        mem0Memory.reason !== "empty"
-      ) {
-        logger.info(
-          `AIメンション会話mem0メモは未適用: reason=${mem0Memory.reason}`
-        );
-      }
-      const combinedMemory = combineMentionChatMemoryText(
-        memory.text,
-        mem0Memory?.text,
-        {
-          mem0Items: mem0Memory?.items,
-          authority,
-          maxChars: memoryMaxChars,
-        }
-      );
-      if (combinedMemory.dedupedMem0ItemCount > 0) {
-        logger.info(
-          `AIメンション会話mem0メモ重複を除外: items=${combinedMemory.dedupedMem0ItemCount}`
-        );
-      }
-      const combinedMemoryText = combinedMemory.text;
       if (conversationHistory) {
         logger.info(
           `AIメンション会話履歴を適用: items=${conversationHistory.itemCount}, chars=${conversationHistory.charCount}`
@@ -1952,9 +1374,7 @@ export class Bot {
       const model = this.config.chatAiAnythingLlmEnabled
         ? `anythingllm:${this.config.anythingLlmWorkspaceSlug}`
         : (this.config.chatAiModel ?? "");
-      const promptLogValue = isMentionChatMemoryRequest(request.prompt)
-        ? MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE
-        : request.prompt;
+      const promptLogValue = formatCommandDetectionLogText(request.prompt);
       const promptReplyLogEnabled =
         this.config.chatAiPromptReplyLogEnabled ?? false;
       let pendingCommentContextText: string | null = null;
@@ -1992,7 +1412,7 @@ export class Bot {
           request,
           requestId,
           promptLogValue,
-          memoryText: combinedMemoryText,
+          memoryText: null,
           conversationHistoryText: conversationHistory?.text,
           searchContextText: searchContext?.text,
           pendingCommentContextText,
@@ -2031,7 +1451,7 @@ export class Bot {
               request,
               requestId,
               promptLogValue,
-              memoryText: combinedMemoryText,
+              memoryText: null,
               conversationHistoryText: conversationHistory?.text,
               searchContextText: researchSearchContext.text,
               pendingCommentContextText,
@@ -2067,7 +1487,7 @@ export class Bot {
           requestId,
           promptText: promptLogValue,
           reply,
-          memoryText: combinedMemoryText,
+          memoryText: null,
           conversationHistoryText: conversationHistory?.text,
           searchContextText: selectedSearchContextText,
         });
@@ -2130,7 +1550,6 @@ export class Bot {
           }
         }
       }
-      this._scheduleImplicitMentionChatMemorySave(request);
     } catch (e) {
       logger.error(`❌ AIメンション会話の送信に失敗しました: ${e}`);
     } finally {
@@ -2868,7 +2287,6 @@ export class Bot {
     const tokenRefreshThresholdSeconds = 5 * 60; // 期限5分前
     let lastTokenRefresh = Date.now() / 1000;
 
-    void this._prewarmChatAiModel("startup");
 
     this.keepAliveTimer = setInterval(async () => {
       try {
@@ -2933,153 +2351,10 @@ export class Bot {
           this._scheduleAnythingLlmStreamKnowledge();
         }
 
-        if (this._shouldPrewarmChatAiModel(now)) {
-          void this._prewarmChatAiModel("interval");
-        }
       } catch (e) {
         logger.error(`❌ キープアライブ中にエラー: ${e}`);
       }
     }, connectionCheckInterval);
-  }
-
-  private _shouldPrewarmChatAiModel(now: number): boolean {
-    if (
-      !this.config.chatAiPrewarmEnabled ||
-      !this.config.chatAiEnabled ||
-      !this.config.chatAiModel ||
-      this.config.chatAiAnythingLlmEnabled
-    ) {
-      return false;
-    }
-    const intervalSeconds = this.config.chatAiPrewarmIntervalSeconds ?? 600;
-    return now - this.lastChatAiPrewarmAt >= intervalSeconds;
-  }
-
-  private async _prewarmChatAiModel(
-    trigger: "startup" | "interval"
-  ): Promise<void> {
-    if (
-      !this.config.chatAiPrewarmEnabled ||
-      !this.config.chatAiEnabled ||
-      !this.config.chatAiModel ||
-      this.config.chatAiAnythingLlmEnabled ||
-      this.chatAiPrewarmInFlight
-    ) {
-      return;
-    }
-
-    this.chatAiPrewarmInFlight = true;
-    const runStartupOnly =
-      trigger === "startup" && !this.chatAiStartupOnlyPrewarmAttempted;
-    if (runStartupOnly) this.chatAiStartupOnlyPrewarmAttempted = true;
-    try {
-      const model = this.config.chatAiModel;
-      const embedModel = this.config.chatAiMem0EmbedModel ?? "";
-      const baseUrl = this.config.chatAiBaseUrl ?? this.config.ollamaBaseUrl;
-      const timeoutMs = this.config.chatAiPrewarmTimeoutMs ?? 180_000;
-      const keepAlive = this.config.chatAiKeepAlive ?? "30m";
-      const result = await prewarmOllamaGenerateModel({
-        enabled: true,
-        baseUrl,
-        model,
-        timeoutMs,
-        keepAlive,
-      });
-      this.lastChatAiPrewarmAt = Date.now() / 1000;
-      if (result.status === "warmed") {
-        logger.info(
-          `AIメンション会話モデルprewarm完了: trigger=${trigger}, model=${formatMentionChatLogValue(model)}, elapsedMs=${result.elapsedMs}, keepAlive=${formatMentionChatLogValue(keepAlive)}`
-        );
-      } else if (result.status === "failed") {
-        logger.warn(
-          `AIメンション会話モデルprewarm失敗: trigger=${trigger}, reason=${result.reason}, model=${formatMentionChatLogValue(model)}, timeoutMs=${timeoutMs}, elapsedMs=${result.elapsedMs}, detail=${formatMentionChatLogValue(result.detail)}`
-        );
-      }
-      if (result.status !== "warmed") return;
-
-      if (runStartupOnly && (this.config.chatAiPrewarmPrimeEnabled ?? false)) {
-        const primeRequest = buildMentionChatPrewarmRequest(
-          this.config.chatAiMaxResponseChars ?? DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS
-        );
-        const primeResult = await primeOllamaGenerateModel({
-          enabled: true,
-          baseUrl,
-          model,
-          timeoutMs,
-          keepAlive,
-          contextLength: this.config.chatAiContextLength ?? 4_096,
-          systemPrompt: primeRequest.systemPrompt,
-          prompt: primeRequest.prompt,
-        });
-        if (primeResult.status === "warmed") {
-          logger.info(
-            `AIメンション会話モデルprime完了: trigger=${trigger}, model=${formatMentionChatLogValue(model)}, elapsedMs=${primeResult.elapsedMs}`
-          );
-        } else if (primeResult.status === "failed") {
-          logger.warn(
-            `AIメンション会話モデルprime失敗: trigger=${trigger}, reason=${primeResult.reason}, model=${formatMentionChatLogValue(model)}, timeoutMs=${timeoutMs}, elapsedMs=${primeResult.elapsedMs}, detail=${formatMentionChatLogValue(primeResult.detail)}`
-          );
-        }
-        if (primeResult.status !== "warmed") return;
-      }
-
-      const embedResult = await prewarmOllamaEmbedModel({
-        enabled: this.config.chatAiMem0EmbedPrewarmEnabled ?? false,
-        baseUrl,
-        model: embedModel,
-        timeoutMs,
-      });
-      if (embedResult.status === "warmed") {
-        logger.info(
-          `AIメンション会話mem0埋め込みモデルprewarm完了: trigger=${trigger}, model=${formatMentionChatLogValue(embedModel)}, elapsedMs=${embedResult.elapsedMs}`
-        );
-      } else if (embedResult.status === "failed") {
-        logger.warn(
-          `AIメンション会話mem0埋め込みモデルprewarm失敗: trigger=${trigger}, reason=${embedResult.reason}, model=${formatMentionChatLogValue(embedModel)}, timeoutMs=${timeoutMs}, elapsedMs=${embedResult.elapsedMs}, detail=${formatMentionChatLogValue(embedResult.detail)}`
-        );
-      }
-      if (embedResult.status === "failed") return;
-      if (
-        (this.config.chatAiMem0EmbedPrewarmEnabled ?? false) &&
-        embedResult.status !== "warmed"
-      ) {
-        return;
-      }
-
-      if (
-        runStartupOnly &&
-        (this.config.chatAiMem0SearchPrewarmEnabled ?? false) &&
-        (this.config.chatAiMemoryEnabled ?? false) &&
-        this._isMentionChatMem0Enabled()
-      ) {
-        const mem0StartedAt = Date.now();
-        const mem0Result = await loadMentionChatMem0Memory({
-          enabled: true,
-          endpoint: this.config.chatAiMem0Endpoint ?? "",
-          apiKey: this.config.chatAiMem0ApiKey ?? "",
-          queryText: "好きな食べ物なんだっけ？",
-          userId: this.config.chatAiMem0UserId ?? this.config.loginChannel,
-          agentId: this.config.chatAiMem0AgentId ?? "twitchRaid",
-          timeoutMs,
-          maxItems: 1,
-          maxChars: 1,
-          minScore: 1,
-          allowMissingScore: false,
-        });
-        const elapsedMs = Math.max(0, Date.now() - mem0StartedAt);
-        if (mem0Result.reason === "found" || mem0Result.reason === "empty") {
-          logger.info(
-            `AIメンション会話mem0検索prewarm完了: trigger=${trigger}, reason=${mem0Result.reason}, items=${mem0Result.itemCount}, elapsedMs=${elapsedMs}`
-          );
-        } else {
-          logger.warn(
-            `AIメンション会話mem0検索prewarm失敗: trigger=${trigger}, reason=${mem0Result.reason}, timeoutMs=${timeoutMs}, elapsedMs=${elapsedMs}`
-          );
-        }
-      }
-    } finally {
-      this.chatAiPrewarmInFlight = false;
-    }
   }
 
   private async _sendBotRequestNotesDigestIfDue(now: number): Promise<void> {

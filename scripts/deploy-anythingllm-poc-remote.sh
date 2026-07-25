@@ -6,10 +6,15 @@ storage_root="${ANYTHING_LLM_STORAGE_ROOT:-/home/mlove/dokploy/anythingllm}"
 storage_dir="${storage_root}/storage"
 env_file="${storage_root}/.env"
 service_name="${ANYTHING_LLM_SERVICE_NAME:-anythingllm}"
+lan_ui_port="${ANYTHING_LLM_LAN_UI_PORT:-3220}"
 image="mintplexlabs/anythingllm:1.15.0@sha256:df8a540a06079c42c0835b40002e708bea895b5ab3c631d723c276a378a2857f"
 
 if [[ ! "${service_name}" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
   printf 'ANYTHING_LLM_SERVICE_NAME contains unsupported characters.\n' >&2
+  exit 1
+fi
+if [[ ! "${lan_ui_port}" =~ ^[0-9]+$ ]] || (( lan_ui_port < 1024 || lan_ui_port > 65535 )); then
+  printf 'ANYTHING_LLM_LAN_UI_PORT must be between 1024 and 65535.\n' >&2
   exit 1
 fi
 if [[ ! -d "${storage_dir}" || ! -f "${env_file}" ]]; then
@@ -31,7 +36,12 @@ if docker service inspect "${service_name}" >/dev/null 2>&1; then
     printf 'Existing AnythingLLM service uses a different image.\n' >&2
     exit 1
   fi
-  printf 'AnythingLLM service already exists; no changes were made.\n'
+  if ! docker service inspect --format '{{json .Endpoint.Spec.Ports}}' "${service_name}" | grep -q "\"PublishedPort\":${lan_ui_port}"; then
+    docker service update \
+      --publish-add "published=${lan_ui_port},target=3001,protocol=tcp,mode=host" \
+      "${service_name}" >/dev/null
+  fi
+  printf 'AnythingLLM service is reconciled with LAN UI port %s.\n' "${lan_ui_port}"
   exit 0
 fi
 
@@ -47,6 +57,7 @@ docker service create \
   --update-order stop-first \
   --update-failure-action rollback \
   --rollback-order stop-first \
+  --publish-add "published=${lan_ui_port},target=3001,protocol=tcp,mode=host" \
   --mount "type=bind,source=${storage_dir},target=/app/server/storage" \
   --mount "type=bind,source=${env_file},target=/app/server/.env" \
   --env NODE_ENV=production \
@@ -71,4 +82,4 @@ docker service create \
   --env TZ=Asia/Tokyo \
   "${image}" >/dev/null
 
-printf 'AnythingLLM service was created without publishing an external port.\n'
+printf 'AnythingLLM service was created with host port %s for the Windows LAN firewall boundary.\n' "${lan_ui_port}"

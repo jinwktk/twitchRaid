@@ -16,21 +16,19 @@ describe("SearXNG self-hosting config", () => {
     expect(compose).toContain("localhost:5050/sub-sbvits2:local");
     expect(compose).toContain("searxng/searxng:latest");
     expect(compose).toContain("qdrant/qdrant:v1.15.4");
-    expect(compose).toContain("localhost:5050/twitchraid-mem0-oss:local");
+    expect(compose).not.toContain("localhost:5050/twitchraid-mem0-oss:local");
     expect(compose).toContain(
       "/home/mlove/dokploy/searxng/settings.yml:/etc/searxng/settings.yml:ro"
     );
     expect(compose).toContain(
       "/home/mlove/dokploy/mem0/qdrant:/qdrant/storage"
     );
-    expect(compose).toContain(
-      "/home/mlove/dokploy/mem0/history:/app/history"
-    );
+    expect(compose).not.toContain("/home/mlove/dokploy/mem0/history:/app/history");
     expect(compose).toContain("QDRANT__TELEMETRY_DISABLED: \"true\"");
-    expect(compose).toContain("MEM0_OLLAMA_BASE_URL: http://sub-ai_ollama:11434");
-    expect(compose).toContain("MEM0_LLM_MODEL: gemma4:e4b-it-qat");
-    expect(compose).toContain("MEM0_EMBEDDER_MODEL: nomic-embed-text:latest");
-    expect(compose).toContain("MEM0_INFER_DEFAULT: \"false\"");
+    expect(compose).not.toContain("MEM0_OLLAMA_BASE_URL");
+    expect(compose).not.toContain("MEM0_LLM_MODEL");
+    expect(compose).not.toContain("MEM0_EMBEDDER_MODEL");
+    expect(compose).not.toContain("MEM0_INFER_DEFAULT");
     expect(compose).toContain("OLLAMA_KEEP_ALIVE: 30m");
     expect(compose).toContain('OLLAMA_NUM_PARALLEL: "1"');
     expect(compose).toContain('OLLAMA_CONTEXT_LENGTH: "4096"');
@@ -46,7 +44,7 @@ describe("SearXNG self-hosting config", () => {
     expect(compose).not.toContain("/mnt/c/Users/mlove/.cache/huggingface");
     expect(compose).toContain("aliases:");
     expect(compose).toContain("- searxng");
-    expect(compose).toContain("- mem0");
+    expect(compose).not.toContain("- mem0");
     expect(compose).toContain("- qdrant");
     expect(compose).toContain("restart_policy:");
     expect(compose).not.toContain("published: 8080");

@@ -188,9 +188,23 @@ function sessionIdForStream(prefix: string, streamId: string): string {
 }
 
 function parseJsonObject(value: string): Record<string, unknown> {
+  let normalized = value.trim();
+  const completedThink = normalized.match(/^<think\b[^>]*>[\s\S]*?<\/think>\s*/iu);
+  if (completedThink) {
+    normalized = normalized.slice(completedThink[0].length).trim();
+  }
+  if (/^<think\b/iu.test(normalized)) {
+    throw new StreamKnowledgeFailure("invalid_json");
+  }
+  const fencedJson = normalized.match(/^```(?:json)?\s*\r?\n([\s\S]*?)\r?\n```$/iu);
+  if (fencedJson) {
+    normalized = fencedJson[1].trim();
+  } else if (normalized.startsWith("```")) {
+    throw new StreamKnowledgeFailure("invalid_json");
+  }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(value);
+    parsed = JSON.parse(normalized);
   } catch {
     throw new StreamKnowledgeFailure("invalid_json");
   }

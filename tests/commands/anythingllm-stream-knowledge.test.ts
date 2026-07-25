@@ -186,6 +186,68 @@ describe("AnythingLlmStreamKnowledge", () => {
     ledger.close();
   });
 
+  it("accepts a completed think block and fenced JSON from AnythingLLM", async () => {
+    const paths = makePaths();
+    const ledger = new AnythingLlmLedger(paths.ledgerPath);
+    ledger.acceptComment(makeEvent());
+    embedAll(ledger);
+    const payload = JSON.stringify({
+      summary: "赤が好きという話題。",
+      facts: [{
+        subject: "viewer",
+        key: "好きな色",
+        value: "赤",
+        source_event_ids: ["message-1"],
+      }],
+    });
+    const knowledge = new AnythingLlmStreamKnowledge({
+      ledger,
+      client: makeClient({
+        chat: vi.fn(async () => ({
+          reply: `<think>Internal reasoning in English</think>\n\`\`\`json\n${payload}\n\`\`\``,
+          sourceCount: 1,
+        })),
+      }),
+      stateDbPath: paths.statePath,
+    });
+    knowledge.captureStreamEnd(captureInput());
+
+    await expect(knowledge.processStream("stream-1")).resolves.toMatchObject({
+      status: "complete",
+      finalSummary: "赤が好きという話題。",
+      factCount: 1,
+    });
+
+    knowledge.close();
+    ledger.close();
+  });
+
+  it("rejects an unclosed think block before parsing stream knowledge JSON", async () => {
+    const paths = makePaths();
+    const ledger = new AnythingLlmLedger(paths.ledgerPath);
+    ledger.acceptComment(makeEvent());
+    embedAll(ledger);
+    const knowledge = new AnythingLlmStreamKnowledge({
+      ledger,
+      client: makeClient({
+        chat: vi.fn(async () => ({
+          reply: '<THINK>未完了 {"summary":"危険","facts":[]}',
+          sourceCount: 1,
+        })),
+      }),
+      stateDbPath: paths.statePath,
+    });
+    knowledge.captureStreamEnd(captureInput());
+
+    await expect(knowledge.processStream("stream-1")).resolves.toMatchObject({
+      status: "failed",
+      lastFailureReason: "invalid_json",
+    });
+
+    knowledge.close();
+    ledger.close();
+  });
+
   it("resumes cached leaf nodes after restart and reduces in accepted-sequence order", async () => {
     const paths = makePaths();
     const ledger = new AnythingLlmLedger(paths.ledgerPath);

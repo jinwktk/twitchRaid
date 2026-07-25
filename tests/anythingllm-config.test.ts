@@ -317,13 +317,15 @@ describe("AnythingLLM isolated PoC config", () => {
     expect(anythingllm).not.toContain("mintplexlabs/anythingllm:latest");
   });
 
-  it("keeps AnythingLLM internal while persisting data and reusing SUB AI services", () => {
+  it("publishes the authenticated AnythingLLM UI through the LAN gateway while reusing SUB AI services", () => {
     const compose = fs.readFileSync(composePath, "utf8");
     const anythingllm = getComposeService(compose, "anythingllm");
 
     expect(anythingllm).not.toBe("");
-    expect(anythingllm).not.toMatch(/^\s+ports:/mu);
-    expect(anythingllm).not.toContain("published:");
+    expect(anythingllm).toMatch(/^\s+ports:/mu);
+    expect(anythingllm).toContain("target: 3001");
+    expect(anythingllm).toContain("published: 3220");
+    expect(anythingllm).toContain("mode: host");
     expect(anythingllm).toContain(
       "/home/mlove/dokploy/anythingllm/storage:/app/server/storage"
     );
@@ -440,7 +442,9 @@ describe("AnythingLLM isolated PoC config", () => {
     );
     expect(deploy).toContain("--update-order stop-first");
     expect(deploy).toContain("--update-failure-action rollback");
-    expect(deploy).not.toContain("--publish");
+    expect(deploy).toContain(
+      '--publish-add "published=${lan_ui_port},target=3001,protocol=tcp,mode=host"'
+    );
     expect(deploy).not.toMatch(
       /--env (?:AUTH_TOKEN|JWT_SECRET|SIG_KEY|SIG_SALT|ANYTHING_LLM_API_KEY)=/u
     );
