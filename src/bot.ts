@@ -500,6 +500,16 @@ export class Bot {
             timeoutMs: config.anythingLlmTimeoutMs,
           })
         : null;
+      const streamSummaryClient = config.anythingLlmStreamKnowledgeEnabled
+        ? new AnythingLlmClient({
+            baseUrl: config.anythingLlmBaseUrl,
+            apiKeyFile: config.anythingLlmApiKeyFile,
+            workspaceName: config.anythingLlmUtilityWorkspaceName,
+            workspaceSlug: config.anythingLlmUtilityWorkspaceSlug,
+            sessionId: `${config.anythingLlmUtilitySessionId}-stream-summary`,
+            timeoutMs: Math.max(config.anythingLlmTimeoutMs, 180_000),
+          })
+        : null;
       const anythingLlmLedger = new AnythingLlmLedger(
         config.anythingLlmLedgerDbPath,
         config.anythingLlmRawRetentionDays
@@ -522,7 +532,7 @@ export class Bot {
         ? new AnythingLlmStreamKnowledge({
             ledger: anythingLlmLedger,
             client: channelClient,
-            summaryClient: utilityClient ?? channelClient,
+            summaryClient: streamSummaryClient ?? channelClient,
             stateDbPath: config.anythingLlmStreamKnowledgeDbPath,
           })
         : null;
