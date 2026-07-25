@@ -157,9 +157,11 @@ describe("AnythingLlmStreamKnowledge", () => {
     const ledger = new AnythingLlmLedger(paths.ledgerPath);
     ledger.acceptComment(makeEvent());
     const client = makeClient();
+    const summaryClient = makeClient();
     const knowledge = new AnythingLlmStreamKnowledge({
       ledger,
       client,
+      summaryClient,
       stateDbPath: paths.statePath,
     });
     knowledge.captureStreamEnd(captureInput());
@@ -167,20 +169,21 @@ describe("AnythingLlmStreamKnowledge", () => {
     const waiting = await knowledge.processStream("stream-1");
 
     expect(waiting.status).toBe("waiting_batches");
-    expect(client.chat).not.toHaveBeenCalled();
+    expect(summaryClient.chat).not.toHaveBeenCalled();
     expect(client.ingestTextDocument).not.toHaveBeenCalled();
 
     embedAll(ledger);
     const complete = await knowledge.processStream("stream-1");
 
     expect(complete.status).toBe("complete");
-    expect(client.chat).toHaveBeenCalledTimes(1);
-    expect(client.chat).toHaveBeenCalledWith(
+    expect(summaryClient.chat).toHaveBeenCalledTimes(1);
+    expect(summaryClient.chat).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: expect.stringMatching(/^twitchraid-stream-/u),
         reset: true,
       })
     );
+    expect(client.chat).not.toHaveBeenCalled();
     expect(client.ingestTextDocument).toHaveBeenCalledTimes(2);
 
     knowledge.close();

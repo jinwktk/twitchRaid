@@ -490,6 +490,16 @@ export class Bot {
         sessionId: config.anythingLlmSessionId,
         timeoutMs: config.anythingLlmTimeoutMs,
       });
+      const utilityClient = config.chatAiAnythingLlmEnabled
+        ? new AnythingLlmClient({
+            baseUrl: config.anythingLlmBaseUrl,
+            apiKeyFile: config.anythingLlmApiKeyFile,
+            workspaceName: config.anythingLlmUtilityWorkspaceName,
+            workspaceSlug: config.anythingLlmUtilityWorkspaceSlug,
+            sessionId: config.anythingLlmUtilitySessionId,
+            timeoutMs: config.anythingLlmTimeoutMs,
+          })
+        : null;
       const anythingLlmLedger = new AnythingLlmLedger(
         config.anythingLlmLedgerDbPath,
         config.anythingLlmRawRetentionDays
@@ -512,19 +522,11 @@ export class Bot {
         ? new AnythingLlmStreamKnowledge({
             ledger: anythingLlmLedger,
             client: channelClient,
+            summaryClient: utilityClient ?? channelClient,
             stateDbPath: config.anythingLlmStreamKnowledgeDbPath,
           })
         : null;
-      this.anythingLlmUtilityClient = config.chatAiAnythingLlmEnabled
-        ? new AnythingLlmClient({
-            baseUrl: config.anythingLlmBaseUrl,
-            apiKeyFile: config.anythingLlmApiKeyFile,
-            workspaceName: config.anythingLlmUtilityWorkspaceName,
-            workspaceSlug: config.anythingLlmUtilityWorkspaceSlug,
-            sessionId: config.anythingLlmUtilitySessionId,
-            timeoutMs: config.anythingLlmTimeoutMs,
-          })
-        : null;
+      this.anythingLlmUtilityClient = utilityClient;
     } else {
       this.anythingLlmLedger = null;
       this.anythingLlmChannelMemory = null;

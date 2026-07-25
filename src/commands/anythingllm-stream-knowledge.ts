@@ -68,6 +68,7 @@ export interface AnythingLlmStreamKnowledgeJob {
 export interface AnythingLlmStreamKnowledgeOptions {
   ledger: AnythingLlmLedger;
   client: AnythingLlmStreamKnowledgeClient;
+  summaryClient?: AnythingLlmStreamKnowledgeClient;
   stateDbPath: string;
   leafMaxComments?: number;
   reduceFanIn?: number;
@@ -391,6 +392,7 @@ function failureReason(error: unknown): string {
 export class AnythingLlmStreamKnowledge {
   private readonly ledger: AnythingLlmLedger;
   private readonly client: AnythingLlmStreamKnowledgeClient;
+  private readonly summaryClient: AnythingLlmStreamKnowledgeClient;
   private readonly db: DatabaseSync;
   private readonly leafMaxComments: number;
   private readonly reduceFanIn: number;
@@ -404,6 +406,7 @@ export class AnythingLlmStreamKnowledge {
   constructor(options: AnythingLlmStreamKnowledgeOptions) {
     this.ledger = options.ledger;
     this.client = options.client;
+    this.summaryClient = options.summaryClient ?? options.client;
     this.leafMaxComments = normalizePositiveInteger(
       options.leafMaxComments,
       DEFAULT_LEAF_MAX_COMMENTS,
@@ -689,7 +692,7 @@ export class AnythingLlmStreamKnowledge {
           facts: parseStoredFacts(cached.facts_json),
         };
       } else {
-        const response = await this.client.chat({
+        const response = await this.summaryClient.chat({
           message: formatLeafPrompt(job, leafEvents),
           sessionId,
           reset: true,
@@ -737,7 +740,7 @@ export class AnythingLlmStreamKnowledge {
           }
           reduced = { summary: cached.summary };
         } else {
-          const response = await this.client.chat({
+          const response = await this.summaryClient.chat({
             message: formatReducePrompt(job, level, children),
             sessionId,
             reset: true,
