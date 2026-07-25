@@ -179,6 +179,15 @@ function isTimeoutError(error: unknown): boolean {
   );
 }
 
+function matchesDocumentTitle(actual: unknown, expected: string): boolean {
+  if (actual === expected) return true;
+  return (
+    typeof actual === "string" &&
+    !/\.[^.\s]+$/u.test(expected) &&
+    actual === `${expected}.txt`
+  );
+}
+
 function findDocumentLocation(
   payload: unknown,
   expectedTitle: string,
@@ -200,7 +209,7 @@ function findDocumentLocation(
   const walk = (node: DocumentNode, parentSegments: string[]): void => {
     if (node.type === "file") {
       if (
-        node.title === expectedTitle &&
+        matchesDocumentTitle(node.title, expectedTitle) &&
         node.docSource === expectedSource &&
         typeof node.name === "string" &&
         node.name.trim()
@@ -250,7 +259,7 @@ function readUploadedDocumentLocation(
   const document = body?.documents?.[0];
   if (
     body?.success !== true ||
-    document?.title !== expectedTitle ||
+    !matchesDocumentTitle(document?.title, expectedTitle) ||
     document?.docSource !== expectedSource ||
     typeof document.location !== "string" ||
     !document.location.trim()

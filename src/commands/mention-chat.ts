@@ -957,8 +957,13 @@ export function formatGeneratedMentionChatReply(
   maxResponseChars: number,
   options: FormatGeneratedMentionChatReplyOptions = {}
 ): string | null {
+  const withoutThinking = generated.replace(
+    /^\s*<think>[\s\S]*?<\/think>\s*/iu,
+    ""
+  );
+  if (/^\s*<think\b/iu.test(withoutThinking)) return null;
   const normalized = stripCommandPrefix(
-    stripWrappingQuotes(singleLine(removeEmoji(generated)))
+    stripWrappingQuotes(singleLine(removeEmoji(withoutThinking)))
   );
   if (!normalized) return null;
   if (

@@ -22,6 +22,146 @@ function requestPath(input: string | URL | Request): string {
 }
 
 describe("AnythingLlmClient", () => {
+  it("accepts AnythingLLM adding .txt to an extensionless batch title", async () => {
+    const documentLocation =
+      "custom-documents/raw-twitch-comments-1-1-probe.json";
+    let uploaded = false;
+    let embedded = false;
+    const fetchImpl = vi.fn(
+      async (input: string | URL | Request) => {
+        const pathname = requestPath(input);
+        if (pathname === "/api/v1/workspaces") {
+          return jsonResponse({
+            workspaces: [{ name: "Twitch rukalun", slug: "twitch-rukalun" }],
+          });
+        }
+        if (pathname === "/api/v1/documents") {
+          return jsonResponse({
+            localFiles: {
+              type: "folder",
+              name: "documents",
+              items: uploaded
+                ? [{
+                    type: "file",
+                    title: "twitch-comments-1-1-probe.txt",
+                    docSource: "twitchraid://batch/extensionless",
+                    name: documentLocation,
+                  }]
+                : [],
+            },
+          });
+        }
+        if (pathname === "/api/v1/document/raw-text") {
+          uploaded = true;
+          return jsonResponse({
+            success: true,
+            documents: [{
+              title: "twitch-comments-1-1-probe.txt",
+              docSource: "twitchraid://batch/extensionless",
+              location: documentLocation,
+            }],
+          });
+        }
+        if (pathname.endsWith("/update-embeddings")) {
+          embedded = true;
+          return jsonResponse({ workspace: { slug: "twitch-rukalun" } });
+        }
+        if (pathname === "/api/v1/workspace/twitch-rukalun") {
+          return jsonResponse({
+            workspace: [{
+              name: "Twitch rukalun",
+              slug: "twitch-rukalun",
+              documents: embedded ? [{ docpath: documentLocation }] : [],
+            }],
+          });
+        }
+        return jsonResponse({ error: "unexpected" }, 404);
+      }
+    );
+    const client = new AnythingLlmClient({
+      baseUrl: "http://anythingllm:3001",
+      apiKey: "test-only-api-key",
+      workspaceName: "Twitch rukalun",
+      workspaceSlug: "twitch-rukalun",
+      sessionId: "twitch-rukalun",
+      timeoutMs: 3000,
+      fetchImpl,
+    });
+
+    await expect(client.ingestTextDocument({
+      documentName: "twitch-comments-1-1-probe",
+      documentSource: "twitchraid://batch/extensionless",
+      text: "untrusted synthetic comment",
+    })).resolves.toEqual({ documentLocation, recoveredUpload: false });
+  });
+
+  it("recovers an existing .txt-normalized document without uploading it again", async () => {
+    const documentLocation =
+      "custom-documents/raw-twitch-comments-2-2-existing.json";
+    let embedded = false;
+    const fetchImpl = vi.fn(
+      async (input: string | URL | Request) => {
+        const pathname = requestPath(input);
+        if (pathname === "/api/v1/workspaces") {
+          return jsonResponse({
+            workspaces: [{ name: "Twitch rukalun", slug: "twitch-rukalun" }],
+          });
+        }
+        if (pathname === "/api/v1/documents") {
+          return jsonResponse({
+            localFiles: {
+              type: "folder",
+              name: "documents",
+              items: [{
+                type: "file",
+                title: "twitch-comments-2-2-existing.txt",
+                docSource: "twitchraid://batch/existing-extensionless",
+                name: documentLocation,
+              }],
+            },
+          });
+        }
+        if (pathname === "/api/v1/document/raw-text") {
+          return jsonResponse({ error: "must not upload" }, 500);
+        }
+        if (pathname.endsWith("/update-embeddings")) {
+          embedded = true;
+          return jsonResponse({ workspace: { slug: "twitch-rukalun" } });
+        }
+        if (pathname === "/api/v1/workspace/twitch-rukalun") {
+          return jsonResponse({
+            workspace: [{
+              name: "Twitch rukalun",
+              slug: "twitch-rukalun",
+              documents: embedded ? [{ docpath: documentLocation }] : [],
+            }],
+          });
+        }
+        return jsonResponse({ error: "unexpected" }, 404);
+      }
+    );
+    const client = new AnythingLlmClient({
+      baseUrl: "http://anythingllm:3001",
+      apiKey: "test-only-api-key",
+      workspaceName: "Twitch rukalun",
+      workspaceSlug: "twitch-rukalun",
+      sessionId: "twitch-rukalun",
+      timeoutMs: 3000,
+      fetchImpl,
+    });
+
+    await expect(client.ingestTextDocument({
+      documentName: "twitch-comments-2-2-existing",
+      documentSource: "twitchraid://batch/existing-extensionless",
+      text: "untrusted existing synthetic comment",
+    })).resolves.toEqual({ documentLocation, recoveredUpload: false });
+    expect(
+      fetchImpl.mock.calls.some(([input]) =>
+        requestPath(input) === "/api/v1/document/raw-text"
+      )
+    ).toBe(false);
+  });
+
   it("reconciles a lost upload response by stable document title before embedding", async () => {
     const documentLocation =
       "custom-documents/twitch-comment-stable-message.json";

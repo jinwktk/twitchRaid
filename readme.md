@@ -394,6 +394,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-07-26**: AnythingLLM切替後に`!chat`が返信しない問題を修正した。AnythingLLMが拡張子なしのraw文書名へ自動付与する`.txt`をBot側の所有確認でも同一文書として扱い、保存成功を`invalid_response`として再試行し続けないようにした。また、AnythingLLM経由のOllama返信先頭に付く完結済み`<think>...</think>`だけを安全検査前に除外し、完成済み日本語返信を誤って`policy_rejected`にしないようにした。閉じていない思考タグや、除去後の返信に対する従来の英語・歌唱・文字数ポリシーは引き続きfail-closedで検査する。
 - **2026-07-25**: AI会話を`Twitch Bot -> AnythingLLM -> Ollama`へ段階切替できるようにした。通常コメント、コマンド、Botメンション、`!chat`、actionを発言者によらず先にSQLite台帳へ受理し、安定したbatch文書として再試行可能にupload/embedする。原文は既定365日後にunembed、原本削除、ローカル本文消去を再開可能な段階で実行する。配信終了時は最終watermarkを同期固定し、全原文反映後に決定的な階層要約と出典付き事実を無期限文書化する。既存SQLite/mem0のactive記憶は、候補・無効・削除済みkeyを復活させない冪等snapshot移行にした。固定コマンドはBot内に維持し、shadow-write、AI read、配信知識を独立フラグで切り替えられる。全53ファイル708件、Mem0 10件、build、lint、差分チェックを通過した。
 - **2026-07-25**: 本番Botへ未接続のAnythingLLM隔離PoCを追加した。`1.15.0`とimage digestを固定し、外部portなしで既存Ollama、nomic埋め込み、Qdrant、SearXNGへ接続する。API keyはmode `0600`のファイルで渡し、合成文書のworkspace作成、upload/embed、検索付きchat、unembed、文書/workspace削除をDeveloper API契約テストで2回確認した。初回14.66秒、常駐後4.92秒、idle RAM 220.1MiB、storage 412KiB。PoC停止中も既存Botは同一container・1/1・restart 0で、固定コマンド16件が成功した。storage backupは全6ファイルの名前・SHA・368,328 bytes一致とSQLite integrity `ok`を確認した。
 - **2026-07-20**: 記憶に専用形式を要求しないよう、`趣味は釣り`、`辛いものは苦手`、`カレー好きなんだよね` などの自然な発言から、発言者本人の安全で安定したプロフィール・嗜好を抽出し、最初の観測でactive化するようにした。Botや他人についての事実は従来どおりcandidateから既定2観測で昇格するため、第三者情報を1発言で確定しない。質問、一時情報、否定・伝聞、指示語だけや第三者に見える曖昧な好悪文、年齢/居住地/本名等の一人称PII、秘密情報、プロンプト注入はfail-closedで拒否し、通常コメントでは返信・追加Ollama呼び出しを行わない。曖昧な明示記憶依頼の固定返信も、key=value形式ではなく自然な文章で具体化してもらう案内へ変更した。

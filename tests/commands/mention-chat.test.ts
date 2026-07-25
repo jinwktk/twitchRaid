@@ -93,6 +93,36 @@ describe("extractMentionChatPrompt", () => {
 });
 
 describe("formatGeneratedMentionChatReply", () => {
+  it("removes a completed leading think block before policy validation", () => {
+    expect(
+      formatGeneratedMentionChatReply(
+        "<think>Thinking Process: draft in English</think>こんにちはD！今日も楽しもうね！",
+        200
+      )
+    ).toBe("こんにちはD！今日も楽しもうね！");
+  });
+
+  it("does not accept an unclosed think block", () => {
+    expect(
+      formatGeneratedMentionChatReply(
+        "<think>Thinking Process: unfinished こんにちはD！",
+        200
+      )
+    ).toBeNull();
+    expect(
+      formatGeneratedMentionChatReply(
+        "<THINK>内部の検討 こんにちはD！",
+        200
+      )
+    ).toBeNull();
+    expect(
+      formatGeneratedMentionChatReply(
+        "<Think >内部の検討 こんにちはD！",
+        200
+      )
+    ).toBeNull();
+  });
+
   it("formats generated replies for Twitch chat", () => {
     const reply = formatGeneratedMentionChatReply(
       ` "今日はいい感じD！\\nたのしんでいこー！🐺" `,
