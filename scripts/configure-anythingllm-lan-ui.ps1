@@ -2,7 +2,7 @@ param(
     [string]$LanAddress = "192.168.0.99",
     [string]$LanSubnet = "192.168.0.0/24",
     [int]$Port = 3220,
-    [string]$WslDistribution = "Ubuntu"
+    [string]$WslDistribution = "Ubuntu-Backup"
 )
 
 $ErrorActionPreference = "Stop"

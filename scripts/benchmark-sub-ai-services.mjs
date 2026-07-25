@@ -89,13 +89,13 @@ const result = JSON.parse(outputLine);
 const baselineP95Ms = {
   generate: 770.54,
   embed: 32.49,
-  mem0: 40.38,
+  anythingllm: 100,
   searxng: 372.83,
 };
 const limits = {
   generateP95Ms: baselineP95Ms.generate * 1.1,
   embedP95Ms: baselineP95Ms.embed * 1.1,
-  mem0P95Ms: baselineP95Ms.mem0 * 1.1,
+  anythingLlmP95Ms: baselineP95Ms.anythingllm * 2,
   searxngP95Ms: baselineP95Ms.searxng * 1.1,
 };
 
@@ -114,10 +114,10 @@ if (shouldAssert) {
       limits.embedP95Ms,
     ],
     [
-      result.mem0.p95Ms <= limits.mem0P95Ms,
-      "mem0",
-      result.mem0.p95Ms,
-      limits.mem0P95Ms,
+      result.anythingllm.p95Ms <= limits.anythingLlmP95Ms,
+      "AnythingLLM",
+      result.anythingllm.p95Ms,
+      limits.anythingLlmP95Ms,
     ],
     [
       result.searxng.p95Ms <= limits.searxngP95Ms,

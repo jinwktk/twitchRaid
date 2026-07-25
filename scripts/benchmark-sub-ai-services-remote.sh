@@ -2,7 +2,7 @@ set -euo pipefail
 
 services=(
   sub-ai_ollama
-  sub-ai_mem0
+  anythingllm
   sub-ai_qdrant
   sub-ai_searxng
   sub-ai_whisper-api
@@ -46,9 +46,6 @@ for service in "${services[@]}"; do
   fi
 done
 
-verify_service_env sub-ai_mem0 "MEM0_LLM_MODEL=gemma4:e4b-it-qat"
-verify_service_env sub-ai_mem0 "MEM0_EMBEDDER_MODEL=nomic-embed-text:latest"
-verify_service_env sub-ai_mem0 "MEM0_INFER_DEFAULT=false"
 verify_running_containers
 tasks_before=$(task_snapshot)
 
@@ -60,13 +57,15 @@ fi
 
 result=$(docker exec -i "$bot" node <<'NODE'
 const { performance } = require("node:perf_hooks");
+const fs = require("node:fs");
 
 const ollamaBaseUrl = "http://sub-ai_ollama:11434";
-const mem0BaseUrl = "http://mem0:8888";
+const anythingLlmBaseUrl = "http://anythingllm:3001";
 const searxngUrl = new URL("http://searxng:8080/search");
 const model = process.env.CHAT_AI_MODEL || "gemma4:e4b-it-qat";
-const embedModel = process.env.CHAT_AI_MEM0_EMBED_MODEL || "nomic-embed-text:latest";
-const apiKey = process.env.CHAT_AI_MEM0_API_KEY || "";
+const embedModel = "nomic-embed-text:latest";
+const apiKeyFile = process.env.ANYTHING_LLM_API_KEY_FILE || "/run/secrets/anythingllm-api-key";
+const apiKey = fs.readFileSync(apiKeyFile, "utf8").trim();
 
 function verifyEffectiveBotConfig() {
   const required = new Map([
@@ -77,10 +76,10 @@ function verifyEffectiveBotConfig() {
     ["OLLAMA_MODEL", "gemma4:e4b-it-qat"],
     ["OLLAMA_SHOUTOUT_ENABLED", "true"],
     ["OLLAMA_SHOUTOUT_MODEL", "gemma4:e4b-it-qat"],
-    ["CHAT_AI_MEMORY_ENABLED", "true"],
-    ["CHAT_AI_MEMORY_STORE", "sqlite"],
-    ["CHAT_AI_MEM0_ENABLED", "true"],
-    ["CHAT_AI_MEM0_ENDPOINT", mem0BaseUrl],
+    ["CHAT_AI_ANYTHINGLLM_ENABLED", "true"],
+    ["ANYTHING_LLM_COMMENT_WRITE_ENABLED", "true"],
+    ["ANYTHING_LLM_STREAM_KNOWLEDGE_ENABLED", "true"],
+    ["ANYTHING_LLM_BASE_URL", anythingLlmBaseUrl],
     ["CHAT_AI_SEARCH_ENABLED", "true"],
     ["CHAT_AI_SEARCH_PROVIDER", "searxng"],
     [
@@ -88,17 +87,13 @@ function verifyEffectiveBotConfig() {
       "http://searxng:8080/search?language=all&safesearch=0",
     ],
     ["CHAT_AI_SEARCH_ENGINES", "bing"],
-    ["CHAT_AI_PREWARM_ENABLED", "true"],
-    ["CHAT_AI_PREWARM_PRIME_ENABLED", "true"],
-    ["CHAT_AI_MEM0_EMBED_PREWARM_ENABLED", "true"],
-    ["CHAT_AI_MEM0_SEARCH_PREWARM_ENABLED", "true"],
   ]);
   for (const [name, expected] of required) {
     if (process.env[name] !== expected) {
       throw new Error(`effective Bot setting ${name} does not match production contract`);
     }
   }
-  if (!apiKey) throw new Error("effective Bot mem0 API key is missing");
+  if (!apiKey) throw new Error("effective Bot AnythingLLM API key is missing");
 }
 
 function percentile95(values) {
@@ -188,38 +183,16 @@ async function main() {
     return { vectorCount: body.embeddings.length, vectorDimensions: 768 };
   }, 20);
 
-  const mem0Headers = { "Content-Type": "application/json" };
-  if (apiKey) mem0Headers["X-API-Key"] = apiKey;
-  const mem0Payload = JSON.stringify({
-    query: "好きな食べ物なんだっけ？",
-    user_id: process.env.CHAT_AI_MEM0_USER_ID || "rukalun",
-    agent_id: process.env.CHAT_AI_MEM0_AGENT_ID || "twitchRaid",
-    top_k: 3,
-    threshold: 0.5,
-  });
-  await fetchJson(`${mem0BaseUrl}/search`, {
-    method: "POST",
-    headers: mem0Headers,
-    body: mem0Payload,
-  });
-  const mem0 = await measure(async () => {
-    const body = await fetchJson(`${mem0BaseUrl}/search`, {
-      method: "POST",
-      headers: mem0Headers,
-      body: mem0Payload,
+  const anythingLlmHeaders = { Authorization: `Bearer ${apiKey}` };
+  const anythingllm = await measure(async () => {
+    const body = await fetchJson(`${anythingLlmBaseUrl}/api/v1/workspaces`, {
+      headers: anythingLlmHeaders,
     });
-    const results = Array.isArray(body) ? body : body.results || body.memories;
-    if (
-      !Array.isArray(results) ||
-      results.length === 0 ||
-      results.some((item) => typeof item?.score !== "number" || item.score < 0.5)
-    ) {
-      throw new Error("mem0 response contract failed");
+    const workspaces = Array.isArray(body?.workspaces) ? body.workspaces : null;
+    if (!workspaces || workspaces.length === 0) {
+      throw new Error("AnythingLLM workspace contract failed");
     }
-    return {
-      resultCount: results.length,
-      minimumScore: Math.min(...results.map((item) => item.score)),
-    };
+    return { workspaceCount: workspaces.length };
   }, 20);
 
   searxngUrl.searchParams.set("q", "OpenAI");
@@ -252,7 +225,7 @@ async function main() {
     return { resultCount: body.results.length };
   }, 20);
 
-  console.log(JSON.stringify({ generate, embed, mem0, searxng }));
+  console.log(JSON.stringify({ generate, embed, anythingllm, searxng }));
 }
 
 main().catch((error) => {

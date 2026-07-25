@@ -147,15 +147,11 @@ describe("SearXNG self-hosting config", () => {
     expect(benchmark).toContain(
       '["OLLAMA_SHOUTOUT_MODEL", "gemma4:e4b-it-qat"]'
     );
-    expect(benchmark).toContain(
-      'verify_service_env sub-ai_mem0 "MEM0_LLM_MODEL=gemma4:e4b-it-qat"'
-    );
-    expect(benchmark).toContain(
-      'verify_service_env sub-ai_mem0 "MEM0_EMBEDDER_MODEL=nomic-embed-text:latest"'
-    );
-    expect(benchmark).toContain(
-      'verify_service_env sub-ai_mem0 "MEM0_INFER_DEFAULT=false"'
-    );
+    expect(benchmark).toContain("anythingllm");
+    expect(benchmark).toContain('["CHAT_AI_ANYTHINGLLM_ENABLED", "true"]');
+    expect(benchmark).toContain('["ANYTHING_LLM_BASE_URL", anythingLlmBaseUrl]');
+    expect(benchmark).not.toContain("sub-ai_mem0");
+    expect(benchmark).not.toContain("CHAT_AI_MEM0_");
   });
 
   it("keeps the SUB AI performance gate aligned with the Gemma production baseline", () => {
@@ -166,7 +162,18 @@ describe("SearXNG self-hosting config", () => {
 
     expect(benchmark).toContain("generate: 770.54");
     expect(benchmark).toContain("embed: 32.49");
-    expect(benchmark).toContain("mem0: 40.38");
+    expect(benchmark).toContain("anythingllm: 100");
     expect(benchmark).toContain("searxng: 372.83");
+  });
+
+  it("uses the production WSL distribution for the LAN-only AnythingLLM UI", () => {
+    const script = fs.readFileSync(
+      path.join(repoRoot, "scripts/configure-anythingllm-lan-ui.ps1"),
+      "utf8"
+    );
+
+    expect(script).toContain('[string]$WslDistribution = "Ubuntu-Backup"');
+    expect(script).toContain('-RemoteAddress $LanSubnet');
+    expect(script).toContain('listenaddress=$LanAddress');
   });
 });
