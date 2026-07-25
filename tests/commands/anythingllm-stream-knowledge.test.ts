@@ -178,6 +178,7 @@ describe("AnythingLlmStreamKnowledge", () => {
     expect(client.chat).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: expect.stringMatching(/^twitchraid-stream-/u),
+        reset: true,
       })
     );
     expect(client.ingestTextDocument).toHaveBeenCalledTimes(2);

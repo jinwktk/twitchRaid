@@ -56,6 +56,7 @@ export interface AnythingLlmRemoveTextDocumentResult {
 export interface AnythingLlmChatInput {
   message: string;
   sessionId?: string;
+  reset?: boolean;
 }
 
 export interface AnythingLlmChatResult {
@@ -553,7 +554,7 @@ export class AnythingLlmClient {
         mode: "chat",
         sessionId,
         attachments: [],
-        reset: false,
+        reset: input.reset === true,
       },
       method: "POST",
       operation: "workspace chat",

@@ -118,7 +118,10 @@ class StreamKnowledgeFailure extends Error {
   }
 }
 
-const DEFAULT_LEAF_MAX_COMMENTS = 100;
+// AnythingLLM also injects retrieved source chunks into the 4096-token Ollama
+// context. Keep each explicit evidence leaf small enough to leave generation
+// room even when every Twitch comment is near the 500-character limit.
+const DEFAULT_LEAF_MAX_COMMENTS = 8;
 const DEFAULT_REDUCE_FAN_IN = 8;
 const NO_COMMENT_SUMMARY = "記録されたコメントはありません。";
 
@@ -689,6 +692,7 @@ export class AnythingLlmStreamKnowledge {
         const response = await this.client.chat({
           message: formatLeafPrompt(job, leafEvents),
           sessionId,
+          reset: true,
         });
         leaf = parseLeafResponse(response.reply, leafEvents);
         this.saveNode(
@@ -736,6 +740,7 @@ export class AnythingLlmStreamKnowledge {
           const response = await this.client.chat({
             message: formatReducePrompt(job, level, children),
             sessionId,
+            reset: true,
           });
           reduced = parseReduceResponse(response.reply);
           this.saveNode(

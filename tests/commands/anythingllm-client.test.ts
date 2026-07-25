@@ -455,7 +455,7 @@ describe("AnythingLlmClient", () => {
     });
 
     await expect(
-      client.chat({ message: "さっき何の話？" })
+      client.chat({ message: "さっき何の話？", reset: true })
     ).resolves.toMatchObject({
       reply: "さっきはマグロの話をしていたD！",
       sourceCount: 1,
@@ -467,7 +467,7 @@ describe("AnythingLlmClient", () => {
         mode: "chat",
         sessionId: "twitch-rukalun",
         attachments: [],
-        reset: false,
+        reset: true,
       },
     });
     expect(requests.some(({ path }) => path === "/api/generate")).toBe(false);
