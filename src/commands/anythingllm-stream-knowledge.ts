@@ -125,6 +125,12 @@ class StreamKnowledgeFailure extends Error {
 const DEFAULT_LEAF_MAX_COMMENTS = 8;
 const DEFAULT_REDUCE_FAN_IN = 8;
 const NO_COMMENT_SUMMARY = "記録されたコメントはありません。";
+const REPAIRABLE_RESPONSE_FAILURES = new Set([
+  "invalid_json",
+  "invalid_summary",
+  "invalid_facts",
+  "invalid_citation",
+]);
 
 function sha256(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -717,7 +723,7 @@ export class AnythingLlmStreamKnowledge {
         } catch (error) {
           if (
             !(error instanceof StreamKnowledgeFailure) ||
-            error.code !== "invalid_json"
+            !REPAIRABLE_RESPONSE_FAILURES.has(error.code)
           ) {
             throw error;
           }
@@ -784,7 +790,7 @@ export class AnythingLlmStreamKnowledge {
           } catch (error) {
             if (
               !(error instanceof StreamKnowledgeFailure) ||
-              error.code !== "invalid_json"
+              !REPAIRABLE_RESPONSE_FAILURES.has(error.code)
             ) {
               throw error;
             }

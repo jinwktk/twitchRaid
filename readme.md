@@ -3,7 +3,7 @@
 > 2026-07-26: AI会話の記憶基盤はAnythingLLMへ完全移行しました。旧SQLiteプロフィール記憶、mem0、旧Memory WebUIはランタイムから撤去済みです。管理画面は認証付きAnythingLLM標準UIをLAN内の `http://192.168.0.99:3220/` で使用します。全Twitchコメントは発言者を問わず台帳へ保存され、原文365日、配信要約・出典付き事実は無期限保持です。
 > 配信終了時の知識化は8コメント単位で階層要約し、文書を持たないutility workspaceで各leaf/reduce呼び出しの専用session履歴をリセットします。配信知識専用clientだけtimeoutを最低180秒とし、通常の `!chat` timeoutは延長しません。生成済み要約・事実文書だけはchannel workspaceへ保存します。
 > LAN UI設定時は旧WebUIが残した `0.0.0.0:3220` portproxyを先に削除し、`192.168.0.99:3220` だけを作成します。Windows FirewallもPrivate profile・送信元 `192.168.0.0/24` に限定します。
-> 配信知識のleaf/reduce応答が意味を保ったままJSON構文だけ壊れた場合は、同じutility workspaceで構文修復を1回だけ行います。修復後もschema・source event IDをローカルで再検証し、不正なら保存しません。
+> 配信知識のleaf/reduce応答がJSON構文、schema、summary、source event IDのいずれかを満たさない場合は、同じutility workspaceで修復を1回だけ行います。修復後もschema・source event IDをローカルで再検証し、不正なら保存しません。
 
 ## セットアップ
 
