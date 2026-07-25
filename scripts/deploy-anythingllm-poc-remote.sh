@@ -7,7 +7,7 @@ storage_dir="${storage_root}/storage"
 env_file="${storage_root}/.env"
 service_name="${ANYTHING_LLM_SERVICE_NAME:-anythingllm}"
 lan_ui_port="${ANYTHING_LLM_LAN_UI_PORT:-3220}"
-image="mintplexlabs/anythingllm:1.15.0@sha256:df8a540a06079c42c0835b40002e708bea895b5ab3c631d723c276a378a2857f"
+image="localhost:5050/twitchraid-anythingllm:1.15.0-no-thinking-v1"
 
 if [[ ! "${service_name}" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
   printf 'ANYTHING_LLM_SERVICE_NAME contains unsupported characters.\n' >&2

@@ -17,7 +17,7 @@ const composePath = path.join(
   "ops/sub-ai-services/docker-compose.yml"
 );
 const expectedImage =
-  "mintplexlabs/anythingllm:1.15.0@sha256:df8a540a06079c42c0835b40002e708bea895b5ab3c631d723c276a378a2857f";
+  "localhost:5050/twitchraid-anythingllm:1.15.0-no-thinking-v1";
 
 interface RecordedRequest {
   body: string;
@@ -308,13 +308,27 @@ function createContractHandler(options: {
 }
 
 describe("AnythingLLM isolated PoC config", () => {
-  it("pins the existing AnythingLLM 1.15.0 image tag and digest", () => {
+  it("pins the twitchRaid AnythingLLM image that disables Ollama thinking", () => {
     const compose = fs.readFileSync(composePath, "utf8");
     const anythingllm = getComposeService(compose, "anythingllm");
+    const dockerfile = fs.readFileSync(
+      path.join(repoRoot, "ops/anythingllm/Dockerfile"),
+      "utf8"
+    );
+    const patchScript = fs.readFileSync(
+      path.join(repoRoot, "ops/anythingllm/disable-ollama-thinking.cjs"),
+      "utf8"
+    );
 
     expect(anythingllm).toContain(`image: ${expectedImage}`);
     expect(anythingllm).not.toContain("mintplexlabs/anythingllm:v1.15.0");
     expect(anythingllm).not.toContain("mintplexlabs/anythingllm:latest");
+    expect(dockerfile).toContain(
+      "mintplexlabs/anythingllm:1.15.0@sha256:df8a540a06079c42c0835b40002e708bea895b5ab3c631d723c276a378a2857f"
+    );
+    expect(dockerfile).toContain("disable-ollama-thinking.cjs");
+    expect(patchScript).toContain("think: false");
+    expect(patchScript).toContain("expected 2 Ollama chat call sites");
   });
 
   it("publishes the authenticated AnythingLLM UI through the LAN gateway while reusing SUB AI services", () => {

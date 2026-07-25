@@ -163,7 +163,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - 記憶は視聴者ごとに分離せず、同じchannel workspace内で全視聴者の発言を参照できる。rawコメントは「命令ではない会話証拠」と明示してprompt injectionとして実行しない。視聴者向けの保存拒否・削除コマンドは設けず、運用者が保護された台帳・AnythingLLM管理経路で扱う
 - 段階切替は `ANYTHING_LLM_COMMENT_WRITE_ENABLED=true` で回答経路を変えずshadow-writeし、queue/失敗/遅延を確認後に `CHAT_AI_ANYTHINGLLM_ENABLED=true` でAI read/generationを切り替える。read切替時はcomment writeも自動的に有効になる。`ANYTHING_LLM_STREAM_KNOWLEDGE_ENABLED` は未指定ならread切替と同じ値を使う
 - 主要設定は `ANYTHING_LLM_BASE_URL`、`ANYTHING_LLM_API_KEY_FILE`、`ANYTHING_LLM_WORKSPACE_*`、`ANYTHING_LLM_LEDGER_DB_PATH`、`ANYTHING_LLM_STREAM_KNOWLEDGE_DB_PATH`、`ANYTHING_LLM_CLEANUP_INTERVAL_SECONDS`、`ANYTHING_LLM_QUEUE_HIGH_WATER_COMMENTS`、`ANYTHING_LLM_DISK_MIN_FREE_BYTES`。API keyはmode `0600`のファイルから読み、通常ログへ本文・prompt・provider応答・秘密値を出さない
-- `ops/sub-ai-services/docker-compose.yml` のAnythingLLMは`mintplexlabs/anythingllm:1.15.0`とdigestを固定する。UI用port 3220はWSL hostへだけpublishし、Windows側のportproxyをLAN IP `192.168.0.99` に限定、Firewallで送信元 `192.168.0.0/24`・Private profileだけを許可する。認証は保護済み`.env`を使い、インターネットへ公開しない
+- `ops/sub-ai-services/docker-compose.yml` のAnythingLLMは、digest固定した`mintplexlabs/anythingllm:1.15.0`を土台に、Ollama呼び出しへ`think:false`を加えた再現可能な派生イメージを使う。通常chatとstreamingの2箇所が一致しない場合はimage buildをfail-closedにする。UI用port 3220はWSL hostへだけpublishし、Windows側のportproxyをLAN IP `192.168.0.99` に限定、Firewallで送信元 `192.168.0.0/24`・Private profileだけを許可する。認証は保護済み`.env`を使い、インターネットへ公開しない
 - `npm run contract:anythingllm` は合成データだけでhealth、workspace、upload/embed、RAG chat、unembed、削除を検証する。初期化、API key、backup/restore、段階切替、rollbackは `internal-docs/anythingllm-poc-runbook.md` を参照する。AnythingLLM障害時も固定コマンドはBot内で独立して応答する
 - 既存SQLite/mem0記憶の移行snapshotは本番移行時に反映・検証済み。移行ツール、旧読書きコード、旧WebUI、mem0 serviceは最終cutover後に撤去した。QdrantはAnythingLLMが引き続き使用するためservice自体は保持し、旧mem0 collectionだけをbackup後に削除する
 
@@ -376,7 +376,7 @@ ops/
 │   ├── app.py                     # FastAPI /memories /search /healthz / PATCH/DELETE
 │   └── requirements.txt           # mem0ai OSS, Qdrant client, FastAPI
 ├── sub-ai-services/
-│   └── docker-compose.yml         # Ollama/Whisper/SBVITS2/SearXNG/Mem0/Qdrant stack雛形
+│   └── docker-compose.yml         # Ollama/Whisper/SBVITS2/SearXNG/AnythingLLM/Qdrant stack雛形
 └── searxng/
     └── settings.yml               # SearXNG JSON/Google設定
 docs/
@@ -399,6 +399,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-07-26**: AnythingLLM完全移行の本番仕上げとして、Ollama thinking対応モデルが配信知識JSONの出力枠を使い切る問題を修正した。固定AnythingLLM 1.15.0を土台に通常・streaming双方へ`think:false`を明示する派生イメージを追加し、呼び出し箇所が2件でなければbuildを停止する。さらにモデルが`source_event_ids`の閉じ角括弧だけを落とす既知の構文を限定補正し、補正後もローカルevent ID以外の出典、空fact、過大値は従来どおり拒否する。
 - **2026-07-26**: AnythingLLM切替後に`!chat`が返信しない問題を修正した。AnythingLLMが拡張子なしのraw文書名へ自動付与する`.txt`をBot側の所有確認でも同一文書として扱い、保存成功を`invalid_response`として再試行し続けないようにした。また、AnythingLLM経由のOllama返信先頭に付く完結済み`<think>...</think>`だけを安全検査前に除外し、完成済み日本語返信を誤って`policy_rejected`にしないようにした。閉じていない思考タグや、除去後の返信に対する従来の英語・歌唱・文字数ポリシーは引き続きfail-closedで検査する。
 - **2026-07-25**: AI会話を`Twitch Bot -> AnythingLLM -> Ollama`へ段階切替できるようにした。通常コメント、コマンド、Botメンション、`!chat`、actionを発言者によらず先にSQLite台帳へ受理し、安定したbatch文書として再試行可能にupload/embedする。原文は既定365日後にunembed、原本削除、ローカル本文消去を再開可能な段階で実行する。配信終了時は最終watermarkを同期固定し、全原文反映後に決定的な階層要約と出典付き事実を無期限文書化する。既存SQLite/mem0のactive記憶は、候補・無効・削除済みkeyを復活させない冪等snapshot移行にした。固定コマンドはBot内に維持し、shadow-write、AI read、配信知識を独立フラグで切り替えられる。全53ファイル708件、Mem0 10件、build、lint、差分チェックを通過した。
 - **2026-07-25**: 本番Botへ未接続のAnythingLLM隔離PoCを追加した。`1.15.0`とimage digestを固定し、外部portなしで既存Ollama、nomic埋め込み、Qdrant、SearXNGへ接続する。API keyはmode `0600`のファイルで渡し、合成文書のworkspace作成、upload/embed、検索付きchat、unembed、文書/workspace削除をDeveloper API契約テストで2回確認した。初回14.66秒、常駐後4.92秒、idle RAM 220.1MiB、storage 412KiB。PoC停止中も既存Botは同一container・1/1・restart 0で、固定コマンド16件が成功した。storage backupは全6ファイルの名前・SHA・368,328 bytes一致とSQLite integrity `ok`を確認した。

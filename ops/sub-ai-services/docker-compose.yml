@@ -115,7 +115,7 @@ services:
         failure_action: rollback
 
   anythingllm:
-    image: mintplexlabs/anythingllm:1.15.0@sha256:df8a540a06079c42c0835b40002e708bea895b5ab3c631d723c276a378a2857f
+    image: localhost:5050/twitchraid-anythingllm:1.15.0-no-thinking-v1
     environment:
       NODE_ENV: production
       STORAGE_DIR: /app/server/storage

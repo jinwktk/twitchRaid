@@ -216,7 +216,18 @@ function parseJsonObject(value: string): Record<string, unknown> {
   try {
     parsed = JSON.parse(normalized);
   } catch {
-    throw new StreamKnowledgeFailure("invalid_json");
+    const repairedSourceEventIds = normalized.replace(
+      /("source_event_ids"\s*:\s*\[(?:\s*"[^"\r\n]*"\s*,)*\s*"[^"\r\n]*")(\s*\})/gu,
+      "$1]$2"
+    );
+    if (repairedSourceEventIds === normalized) {
+      throw new StreamKnowledgeFailure("invalid_json");
+    }
+    try {
+      parsed = JSON.parse(repairedSourceEventIds);
+    } catch {
+      throw new StreamKnowledgeFailure("invalid_json");
+    }
   }
   if (
     !parsed ||

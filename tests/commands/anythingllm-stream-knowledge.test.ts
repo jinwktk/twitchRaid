@@ -262,6 +262,34 @@ describe("AnythingLlmStreamKnowledge", () => {
     ledger.close();
   });
 
+  it("repairs a missing source_event_ids closing bracket without another model call", async () => {
+    const paths = makePaths();
+    const ledger = new AnythingLlmLedger(paths.ledgerPath);
+    ledger.acceptComment(makeEvent());
+    embedAll(ledger);
+    const chat = vi.fn(async () => ({
+      reply:
+        '{"summary":"赤が好き","facts":[{"subject":"viewer","key":"好きな色","value":"赤","source_event_ids":["message-1"}]}',
+      sourceCount: 0,
+    }));
+    const knowledge = new AnythingLlmStreamKnowledge({
+      ledger,
+      client: makeClient({ chat }),
+      stateDbPath: paths.statePath,
+    });
+    knowledge.captureStreamEnd(captureInput());
+
+    await expect(knowledge.processStream("stream-1")).resolves.toMatchObject({
+      status: "complete",
+      finalSummary: "赤が好き",
+      factCount: 1,
+    });
+    expect(chat).toHaveBeenCalledTimes(1);
+
+    knowledge.close();
+    ledger.close();
+  });
+
   it("rejects an unclosed think block before parsing stream knowledge JSON", async () => {
     const paths = makePaths();
     const ledger = new AnythingLlmLedger(paths.ledgerPath);
