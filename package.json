@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "perf:hot-paths": "npm run build && node scripts/benchmark-hot-paths.mjs --assert",
     "perf:sub-ai-services": "node scripts/benchmark-sub-ai-services.mjs --assert",
+    "contract:anythingllm": "node scripts/verify-anythingllm-contract.mjs",
     "docs:export-clips": "node scripts/export-clip-search-data.mjs",
     "memory:web": "node scripts/memory-web.mjs",
     "memory:web:direct": "node scripts/memory-web.mjs --target direct",

@@ -148,6 +148,48 @@ services:
         order: start-first
         failure_action: rollback
 
+  anythingllm:
+    image: mintplexlabs/anythingllm:1.15.0@sha256:df8a540a06079c42c0835b40002e708bea895b5ab3c631d723c276a378a2857f
+    environment:
+      NODE_ENV: production
+      STORAGE_DIR: /app/server/storage
+      LLM_PROVIDER: ollama
+      OLLAMA_BASE_PATH: http://ollama:11434
+      OLLAMA_MODEL_PREF: gemma4:e4b-it-qat
+      OLLAMA_MODEL_TOKEN_LIMIT: "4096"
+      OLLAMA_RESPONSE_TIMEOUT: "180000"
+      EMBEDDING_ENGINE: ollama
+      EMBEDDING_BASE_PATH: http://ollama:11434
+      EMBEDDING_MODEL_PREF: nomic-embed-text:latest
+      EMBEDDING_MODEL_MAX_CHUNK_LENGTH: "8192"
+      VECTOR_DB: qdrant
+      QDRANT_ENDPOINT: http://qdrant:6333
+      AGENT_SEARXNG_API_URL: http://searxng:8080
+      AGENT_MAX_TOOL_CALLS: "5"
+      DISABLE_TELEMETRY: "true"
+      DISABLE_SWAGGER_DOCS: "true"
+      EMBED_REQUIRE_ALLOWLIST: "true"
+      ANYTHINGLLM_CHROMIUM_ARGS: --no-sandbox,--disable-setuid-sandbox
+      TZ: Asia/Tokyo
+    volumes:
+      - /home/mlove/dokploy/anythingllm/storage:/app/server/storage
+      - /home/mlove/dokploy/anythingllm/.env:/app/server/.env
+    networks:
+      dokploy-network:
+        aliases:
+          - anythingllm
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      placement:
+        constraints:
+          - node.role == manager
+      update_config:
+        order: stop-first
+        failure_action: rollback
+
 networks:
   dokploy-network:
     external: true

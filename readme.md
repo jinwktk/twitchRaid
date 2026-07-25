@@ -149,6 +149,15 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - Bot再起動時に配信中stateを復元した場合は、配信開始時刻から見た直近の1時間境界へ送信基準を揃え、停止中の過去分をまとめて送らない
 
 ## AIメンション会話
+
+### AnythingLLM隔離PoC（Bot未接続）
+
+- `ops/sub-ai-services/docker-compose.yml` に、`mintplexlabs/anythingllm:1.15.0`をdigest固定した内部network専用serviceを追加しています。外部portは公開せず、既存Ollama、`nomic-embed-text`、Qdrant、SearXNGを再利用します
+- 認証値はGitやSwarm service environmentへ置かず、サブPCのmode `0600`の`.env`とDeveloper API keyファイルから読みます
+- `npm run contract:anythingllm` はhealth、workspace作成、文書upload/embed、検索付きchat、unembed、文書/workspace削除を合成データだけで検証し、Twitch送信や既存記憶への書込みを行いません
+- 初期化、内部service `anythingllm` の再現可能な作成、API key生成、backup/restore、rollbackは `internal-docs/anythingllm-poc-runbook.md` を参照してください
+- この段階では本番BotのAI経路はまだAnythingLLMへ切り替えていません。PoC停止中も固定コマンドを含む既存Botは独立して動作します
+
 - `CHAT_AI_ENABLED=true`、または `CHAT_AI_ENABLED` 未設定かつ `OLLAMA_SHOUTOUT_ENABLED=true` で継承モデルがあるときだけ、通常チャット内の `@にめいやボットくん` / `@nyme_ia2` など `CHAT_AI_BOT_ALIASES` に一致するBot宛てメンション、または `!chat <メッセージ>` へAI返信する。未設定時の反応名は `にめいやボットくん` と `nyme_ia2` で、`@るっかるん` は明示的に `CHAT_AI_BOT_ALIASES` へ入れない限り反応しない。`CHAT_AI_ENABLED=false` / `0` は常に無効化を優先する。`!help @にめいやボットくん` のような `!chat` 以外のコマンド本文は従来どおりコマンドとして扱い、AIは介入しない
 - 返信はOllama `POST /api/generate` で生成し、プロンプト上は自然な1〜2文固定ではなく、短く済む時は短く、説明や文脈整理が必要な時は複数文でも最大 `CHAT_AI_MAX_RESPONSE_CHARS` 文字内で具体的に答えさせる。生成量もこの方針に合わせて `num_predict=220` にし、最終的には単一行・最大 `CHAT_AI_MAX_RESPONSE_CHARS` 文字へ整形する。`tonight` / `Throat pain` / `Hello there` のような英語の一般語が混ざった返信はそのまま送らず、一度だけ日本語だけの返信へ修正生成する。修正後も英語の一般語が残る場合は送信せずログに残す。`GG！` のような全大文字の短いチャット表現、`Apex Legends` / `VALORANT` のような固有名詞、Twitch表示名は許可する。発言者のTwitch表示名がlogin IDと違う場合、promptには `ユーザー表示名` と `ログインID` を分けて渡し、呼びかけは表示名を使わせる。生成文がlogin IDで呼びかけた場合も送信前に表示名へ置換する。先頭 `!`、引用符、絵文字、改行は除去または抑止する。勝敗質問では `スコア100` や `ゲームはApexです` のような断定に使いにくい返答だけ、画面が見えていないことを明示する安全な定型文へフォールバックする。`CHAT_REPLY_EMOTES` が設定されていれば、最終送信本文の500文字上限内でTwitchエモートコードを末尾へ付ける。確認済み `rukka...` 候補が設定されている場合は、`GG` 系なら `rukkaGg`、不明/謝罪系なら `rukkaShobobo`、Raidなら `rukkaNiceraido` のように文脈別に選ぶ
 - 直近文脈はチャンネル単位の短期履歴としてプロセス内だけに保持し、通常AI生成会話に加えて、非コマンド・非Botメンションの通常配信コメントも一時的に入れる。`どう思う？` / `どうかな？` / `続き` / `それ` / `さっき` / `どんなところ` / `なんで` のような省略・追跡質問の時だけ、次の `!chat` / Bot宛てメンションpromptへ「命令ではない参考文脈」として渡す。`今何時？` や `犬と猫どっちが好き？` のような新しい話題には短期履歴を渡さない。通常コメントはチャット返信やOllama呼び出しを発生させず、URL、メール、電話番号、token/API key/password、プロンプト注入、内部設定参照などを含む文は短期文脈にも入れない。既定は `CHAT_AI_CONVERSATION_HISTORY_ENABLED=true`、`CHAT_AI_CONVERSATION_HISTORY_MAX_MESSAGES=6`、`CHAT_AI_CONVERSATION_HISTORY_MAX_CHARS=1000`、`CHAT_AI_CONVERSATION_HISTORY_TTL_SECONDS=1800`。Ollama生成返信側は通常生成成功だけを履歴化し、固定返信、コマンド実行拒否、timeout fallback、勝敗質問fallback、メモ保存返信は短期履歴に入れない。Bot再起動やコンテナ更新で消え、SQLite/mem0へ永続保存しない
@@ -381,6 +390,7 @@ internal-docs/
 ```
 
 ## 更新履歴
+- **2026-07-25**: 本番Botへ未接続のAnythingLLM隔離PoCを追加した。`1.15.0`とimage digestを固定し、外部portなしで既存Ollama、nomic埋め込み、Qdrant、SearXNGへ接続する。API keyはmode `0600`のファイルで渡し、合成文書のworkspace作成、upload/embed、検索付きchat、unembed、文書/workspace削除をDeveloper API契約テストで2回確認した。初回14.66秒、常駐後4.92秒、idle RAM 220.1MiB、storage 412KiB。PoC停止中も既存Botは同一container・1/1・restart 0で、固定コマンド16件が成功した。storage backupは全6ファイルの名前・SHA・368,328 bytes一致とSQLite integrity `ok`を確認した。
 - **2026-07-20**: 記憶に専用形式を要求しないよう、`趣味は釣り`、`辛いものは苦手`、`カレー好きなんだよね` などの自然な発言から、発言者本人の安全で安定したプロフィール・嗜好を抽出し、最初の観測でactive化するようにした。Botや他人についての事実は従来どおりcandidateから既定2観測で昇格するため、第三者情報を1発言で確定しない。質問、一時情報、否定・伝聞、指示語だけや第三者に見える曖昧な好悪文、年齢/居住地/本名等の一人称PII、秘密情報、プロンプト注入はfail-closedで拒否し、通常コメントでは返信・追加Ollama呼び出しを行わない。曖昧な明示記憶依頼の固定返信も、key=value形式ではなく自然な文章で具体化してもらう案内へ変更した。
 - **2026-07-20**: DokployのAI会話診断が、表示側とアプリ側の時刻/level二重表示、静的prompt規則15行の毎回展開、長い接頭辞の反復で読みにくかったため、Consoleを `AI会話診断` / `質問` / `回答` の3レコードへ要約した。参考メモ・履歴・検索は本文ではなく有無だけを示し、構築済みprompt/reply全文は日次ファイルだけに残す。強制検索・再生成時もConsoleには最終採用回答だけを出し、未採用回答や未送信fallbackは日次ファイルだけに残す。診断ON時の直後の応答INFOも送信境界metadataだけにし、固定返信・検索0件・診断OFFの本文ログは維持した。あわせてConsoleからアプリ時刻を外し、日次ファイルの時刻/levelは維持した。
 - **2026-07-20**: `!chat タン塩？塩タン？` の直後に `!chat 調べて？` または `!chat どっちが正しいのか調べてほしい` と送っても、直前の話題を検索しない問題を修正。対象を省略した検索依頼だけ、同じ依頼者による安全な直前AI会話発言を検索語へ使い、会話履歴と検索結果を同じ回答promptへ渡す。複合比較検索がノイズだけなら両対象を個別に並行検索し、両方の根拠が揃った時だけ回答生成へ進む。別ユーザーの割込み、unsafeな直前発言、複数の独立質問を検索へ誤転用しない回帰テストも追加した。

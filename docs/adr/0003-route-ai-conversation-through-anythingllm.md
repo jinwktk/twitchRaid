@@ -1,0 +1,3 @@
+# AI会話をAnythingLLM経由でOllamaへ送る
+
+AI会話の永続的なチャンネル記憶とRAG検索を回答生成へ一貫して適用するため、`!chat`とBot宛てメンションはAnythingLLMをAI会話ゲートウェイとして経由し、AnythingLLMから既存Ollamaを呼び出す。AnythingLLMはself-hostの固定versionを使い、既存QdrantとSearXNGを内部ネットワークから利用する。固定コマンドやAI会話以外のBot機能はこの経路へ移さない。
