@@ -101,5 +101,6 @@ describe("AnythingLLM記憶閲覧WebUI", () => {
   it("LAN公開ルールは3220のAnythingLLM UIとポートごとに共存する", () => {
     const script = readFileSync(path.resolve("scripts/configure-anythingllm-lan-ui.ps1"), "utf8");
     expect(script).toContain('$ruleName = "twitchRaid LAN UI ${Port}"');
+    expect(script).toContain("-Profile Any");
   });
 });
