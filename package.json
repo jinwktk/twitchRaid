@@ -15,6 +15,7 @@
     "contract:anythingllm": "node scripts/verify-anythingllm-contract.mjs",
     "docs:export-clips": "node scripts/export-clip-search-data.mjs",
     "request-notes:web": "node scripts/bot-request-notes-web.mjs",
+    "memory:web": "node scripts/anythingllm-memory-web.mjs",
     "pm2:start": "pm2 start ecosystem.config.js",
     "pm2:stop": "pm2 stop twitchRaid",
     "pm2:restart": "pm2 restart twitchRaid",

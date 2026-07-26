@@ -20,7 +20,7 @@ if (-not $wslAddress) {
     throw "Could not resolve the WSL IPv4 address."
 }
 
-$ruleName = "twitchRaid AnythingLLM LAN UI"
+$ruleName = "twitchRaid LAN UI ${Port}"
 Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 New-NetFirewallRule `
     -DisplayName $ruleName `
@@ -36,4 +36,4 @@ New-NetFirewallRule `
 & netsh.exe interface portproxy delete v4tov4 listenaddress=$LanAddress listenport=$Port | Out-Null
 & netsh.exe interface portproxy add v4tov4 listenaddress=$LanAddress listenport=$Port connectaddress=$wslAddress connectport=$Port | Out-Null
 
-Write-Output "AnythingLLM LAN UI: http://${LanAddress}:${Port}/ (allowed source: ${LanSubnet})"
+Write-Output "twitchRaid LAN UI: http://${LanAddress}:${Port}/ (allowed source: ${LanSubnet})"

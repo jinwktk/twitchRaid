@@ -161,6 +161,37 @@ services:
         order: stop-first
         failure_action: rollback
 
+  memory-web:
+    image: ${TWITCHRAID_BOT_IMAGE:-localhost:5050/twitch-raid-apcz9n:local}
+    command:
+      - node
+      - scripts/anythingllm-memory-web.mjs
+      - --host
+      - 0.0.0.0
+      - --port
+      - "3221"
+      - --allow-lan
+    volumes:
+      - ${TWITCHRAID_DATA_DIR:-/mnt/e/GitHub/twitchRaid/data}:/app/data:ro
+    ports:
+      - target: 3221
+        published: 3221
+        protocol: tcp
+        mode: host
+    networks:
+      - dokploy-network
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      placement:
+        constraints:
+          - node.role == manager
+      update_config:
+        order: stop-first
+        failure_action: rollback
+
 networks:
   dokploy-network:
     external: true
