@@ -229,6 +229,7 @@ function makeBot(
 
 interface AnythingLlmFetchMockState {
   chatMessages: string[];
+  chatModes: string[];
   chatSessions: string[];
   workspaceSystemPrompts: string[];
   searchQueries: string[];
@@ -258,6 +259,7 @@ function installAnythingLlmFetchMock(options: {
   const chatReplies = [...(options.chatReplies ?? ["覚えてるD！"])];
   const state: AnythingLlmFetchMockState = {
     chatMessages: [],
+    chatModes: [],
     chatSessions: [],
     workspaceSystemPrompts: [],
     searchQueries: [],
@@ -391,11 +393,15 @@ function installAnythingLlmFetchMock(options: {
           sessionId: string;
         };
         state.chatMessages.push(body.message);
+        state.chatModes.push(body.mode);
         state.chatSessions.push(body.sessionId);
-        expect(body.mode).toBe("chat");
         if (url.pathname.includes("twitch-rukalun-utility")) {
           expect(body.sessionId).toMatch(
             /^twitchraid-utility-broadcaster-id-v1-mention-\d+-\d+$/u
+          );
+        } else if (body.mode === "query") {
+          expect(body.sessionId).toBe(
+            "twitchraid-channel-broadcaster-id-v1-knowledge"
           );
         } else {
           expect(body.sessionId).toBe(
@@ -506,6 +512,7 @@ describe("Bot mention chat", () => {
 
     expect(state.directOllamaCalls).toBe(0);
     expect(state.chatMessages).toHaveLength(1);
+    expect(state.chatModes).toEqual(["chat"]);
     expect(state.chatMessages[0]).toMatch(/^チャンネル: #rukalun/u);
     expect(state.chatMessages[0]).toContain("ユーザーの発言: こんにちは");
     expect(state.chatMessages[0]).not.toContain(
@@ -601,6 +608,10 @@ describe("Bot mention chat", () => {
     expect(state.chatMessages[0]).toContain(
       "ユーザーの発言: 前回の配信まとめをください"
     );
+    expect(state.chatMessages[0]).toContain(
+      "ended_atが最も新しい配信です"
+    );
+    expect(state.chatModes).toEqual(["query"]);
     expect(state.workspaceSystemPrompts).toHaveLength(1);
     expect(state.workspaceSystemPrompts[0]).toContain(
       "その内容を事実資料として最優先"

@@ -81,6 +81,7 @@ import {
   formatGeneratedMentionChatReply,
   formatMentionChatLogValue,
   generateMentionChatReplyDetailed,
+  isPreviousStreamSummaryRequest,
   logMentionChatPromptAndReplyDiagnostic,
   logMentionChatSuccessDiagnosticSummary,
   resolveMentionChatImmediateReply,
@@ -1157,16 +1158,30 @@ export class Bot {
       pendingCommentContextText,
       includeFixedInstructions: false,
     });
+    const previousStreamSummaryRequest = isPreviousStreamSummaryRequest(
+      request.prompt
+    );
+    const providerMessage = previousStreamSummaryRequest
+      ? [
+          builtPrompt,
+          "資料選択: 前回とは、取得されたTWITCH_STREAM_SUMMARY_V1のうちended_atが最も新しい配信です。古い配信は使わず、最新配信のタイトル、ゲーム名、主な話題を具体的にまとめてください。",
+        ].join("\n")
+      : builtPrompt;
     const startedAt = Date.now();
     try {
       const first = await anythingLlmChannelMemory.chat({
-        message: builtPrompt,
+        message: providerMessage,
+        mode: previousStreamSummaryRequest ? "query" : "chat",
+        sessionId: previousStreamSummaryRequest
+          ? `${this.config.anythingLlmSessionId}-knowledge`
+          : undefined,
+        reset: previousStreamSummaryRequest,
       });
       logMentionChatPromptAndReplyDiagnostic({
         enabled: promptReplyLogEnabled,
         requestId,
         promptText: request.prompt,
-        builtPrompt,
+        builtPrompt: providerMessage,
         rawReply: first.reply,
         memoryText,
         conversationHistoryText,

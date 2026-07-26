@@ -56,6 +56,7 @@ export interface AnythingLlmRemoveTextDocumentResult {
 
 export interface AnythingLlmChatInput {
   message: string;
+  mode?: "chat" | "query";
   sessionId?: string;
   reset?: boolean;
 }
@@ -555,7 +556,7 @@ export class AnythingLlmClient {
     const payload = (await this.requestJson({
       body: {
         message,
-        mode: "chat",
+        mode: input.mode ?? "chat",
         sessionId,
         attachments: [],
         reset: input.reset === true,
