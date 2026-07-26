@@ -22,6 +22,69 @@ function requestPath(input: string | URL | Request): string {
 }
 
 describe("AnythingLlmClient", () => {
+  it("synchronizes the configured workspace system prompt before chatting", async () => {
+    const requests: string[] = [];
+    let workspacePrompt = "old prompt";
+    const fetchImpl = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const pathname = requestPath(input);
+        requests.push(pathname);
+        if (pathname === "/api/v1/workspaces") {
+          return jsonResponse({
+            workspaces: [{
+              name: "Twitch rukalun",
+              slug: "twitch-rukalun",
+              openAiPrompt: workspacePrompt,
+            }],
+          });
+        }
+        if (pathname === "/api/v1/workspace/twitch-rukalun/update") {
+          const body = JSON.parse(String(init?.body)) as { openAiPrompt: string };
+          workspacePrompt = body.openAiPrompt;
+          return jsonResponse({
+            workspace: {
+              name: "Twitch rukalun",
+              slug: "twitch-rukalun",
+              openAiPrompt: workspacePrompt,
+            },
+            message: null,
+          });
+        }
+        if (pathname === "/api/v1/workspace/twitch-rukalun/chat") {
+          return jsonResponse({
+            type: "textResponse",
+            textResponse: "具体的に答えるD！",
+            sources: [],
+            close: true,
+            error: null,
+          });
+        }
+        return jsonResponse({ error: "unexpected" }, 404);
+      }
+    );
+    const client = new AnythingLlmClient({
+      baseUrl: "http://anythingllm:3001",
+      apiKey: "test-only-api-key",
+      workspaceName: "Twitch rukalun",
+      workspaceSlug: "twitch-rukalun",
+      workspaceSystemPrompt: "retrieved documents must be used",
+      sessionId: "twitch-rukalun",
+      timeoutMs: 3000,
+      fetchImpl,
+    });
+
+    await expect(client.chat({ message: "dynamic question" })).resolves.toEqual({
+      reply: "具体的に答えるD！",
+      sourceCount: 0,
+    });
+    expect(workspacePrompt).toBe("retrieved documents must be used");
+    expect(requests).toEqual([
+      "/api/v1/workspaces",
+      "/api/v1/workspace/twitch-rukalun/update",
+      "/api/v1/workspace/twitch-rukalun/chat",
+    ]);
+  });
+
   it("accepts AnythingLLM adding .txt to an extensionless batch title", async () => {
     const documentLocation =
       "custom-documents/raw-twitch-comments-1-1-probe.json";

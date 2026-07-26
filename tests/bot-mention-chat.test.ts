@@ -230,6 +230,7 @@ function makeBot(
 interface AnythingLlmFetchMockState {
   chatMessages: string[];
   chatSessions: string[];
+  workspaceSystemPrompts: string[];
   searchQueries: string[];
   directOllamaCalls: number;
 }
@@ -247,13 +248,18 @@ function installAnythingLlmFetchMock(options: {
     { title: string; source: string; location: string }
   >();
   const embeddedLocations = new Set<string>();
-  const workspaces = [
-    { name: "Twitch rukalun", slug: "twitch-rukalun" },
+  const workspaces: Array<{
+    name: string;
+    slug: string;
+    openAiPrompt?: string | null;
+  }> = [
+    { name: "Twitch rukalun", slug: "twitch-rukalun", openAiPrompt: null },
   ];
   const chatReplies = [...(options.chatReplies ?? ["覚えてるD！"])];
   const state: AnythingLlmFetchMockState = {
     chatMessages: [],
     chatSessions: [],
+    workspaceSystemPrompts: [],
     searchQueries: [],
     directOllamaCalls: 0,
   };
@@ -314,6 +320,15 @@ function installAnythingLlmFetchMock(options: {
             : { name: body.name, slug: "unexpected-workspace" };
         workspaces.push(workspace);
         return json({ workspace });
+      }
+      if (/^\/api\/v1\/workspace\/[^/]+\/update$/u.test(url.pathname)) {
+        const body = JSON.parse(String(init?.body)) as { openAiPrompt: string };
+        const slug = url.pathname.split("/").at(-2);
+        const workspace = workspaces.find((candidate) => candidate.slug === slug);
+        if (!workspace) return json({ error: "workspace not found" }, 404);
+        workspace.openAiPrompt = body.openAiPrompt;
+        state.workspaceSystemPrompts.push(body.openAiPrompt);
+        return json({ workspace, message: null });
       }
       if (url.pathname === "/api/v1/documents") {
         return json({
@@ -491,8 +506,10 @@ describe("Bot mention chat", () => {
 
     expect(state.directOllamaCalls).toBe(0);
     expect(state.chatMessages).toHaveLength(1);
-    expect(state.chatMessages[0]).toMatch(
-      /^TwitchチャットでBot宛てに届いたメンション/u
+    expect(state.chatMessages[0]).toMatch(/^チャンネル: #rukalun/u);
+    expect(state.chatMessages[0]).toContain("ユーザーの発言: こんにちは");
+    expect(state.chatMessages[0]).not.toContain(
+      "TwitchチャットでBot宛てに届いたメンションへ"
     );
     expect(state.chatMessages[0]).not.toMatch(/^@agent/u);
     expect(say).toHaveBeenCalledWith(
@@ -541,7 +558,9 @@ describe("Bot mention chat", () => {
   });
 
   it("logs the AnythingLLM prompt and raw reply to the daily file and the final reply to console", async () => {
-    installAnythingLlmFetchMock({ chatReplies: ["配信要約を説明するD！"] });
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: ["配信要約を説明するD！"],
+    });
     const logSpy = vi.spyOn(logger, "log");
     const { bot, say } = makeBot({
       chatAiAnythingLlmEnabled: true,
@@ -573,6 +592,20 @@ describe("Bot mention chat", () => {
         expect.stringContaining("配信要約を説明するD！"),
       ])
     );
+    expect(state.chatMessages[0]).not.toContain(
+      "TwitchチャットでBot宛てに届いたメンションへ"
+    );
+    expect(state.chatMessages[0]).not.toContain(
+      "Botの自認: るっかるん本人として"
+    );
+    expect(state.chatMessages[0]).toContain(
+      "ユーザーの発言: 前回の配信まとめをください"
+    );
+    expect(state.workspaceSystemPrompts).toHaveLength(1);
+    expect(state.workspaceSystemPrompts[0]).toContain(
+      "その内容を事実資料として最優先"
+    );
+    expect(state.workspaceSystemPrompts[0]).toContain("最大500文字以内");
 
     await bot.anythingLlmChannelMemory?.close();
     bot.anythingLlmLedger?.close();

@@ -24,6 +24,7 @@ export interface AnythingLlmClientOptions {
   apiKeyFile?: string;
   workspaceName: string;
   workspaceSlug: string;
+  workspaceSystemPrompt?: string;
   sessionId: string;
   timeoutMs: number;
   fetchImpl?: FetchLike;
@@ -67,6 +68,7 @@ export interface AnythingLlmChatResult {
 interface WorkspaceRecord {
   name?: unknown;
   slug?: unknown;
+  openAiPrompt?: unknown;
 }
 
 interface DocumentNode {
@@ -279,6 +281,7 @@ export class AnythingLlmClient {
   private readonly apiKeyFile: string;
   private readonly workspaceName: string;
   private readonly expectedWorkspaceSlug: string;
+  private readonly workspaceSystemPrompt: string | null;
   private readonly sessionId: string;
   private readonly timeoutMs: number;
   private readonly fetchImpl: FetchLike;
@@ -301,6 +304,7 @@ export class AnythingLlmClient {
       options.workspaceSlug,
       "workspace slug"
     );
+    this.workspaceSystemPrompt = options.workspaceSystemPrompt?.trim() || null;
     this.sessionId = normalizeRequired(options.sessionId, "session ID");
     this.timeoutMs = normalizeTimeout(options.timeoutMs);
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
@@ -617,6 +621,7 @@ export class AnythingLlmClient {
           "AnythingLLM workspace ownership did not match"
         );
       }
+      await this.ensureWorkspaceSystemPrompt(existing);
       return this.expectedWorkspaceSlug;
     }
 
@@ -640,7 +645,34 @@ export class AnythingLlmClient {
         "AnythingLLM workspace creation returned an invalid response"
       );
     }
+    await this.ensureWorkspaceSystemPrompt(createPayload.workspace);
     return this.expectedWorkspaceSlug;
+  }
+
+  private async ensureWorkspaceSystemPrompt(
+    workspace: WorkspaceRecord
+  ): Promise<void> {
+    if (!this.workspaceSystemPrompt) return;
+    if (workspace.openAiPrompt === this.workspaceSystemPrompt) return;
+
+    const payload = (await this.requestJson({
+      body: { openAiPrompt: this.workspaceSystemPrompt },
+      method: "POST",
+      operation: "workspace system prompt update",
+      path: `/api/v1/workspace/${encodeURIComponent(
+        this.expectedWorkspaceSlug
+      )}/update`,
+    })) as { workspace?: WorkspaceRecord } | null;
+    if (
+      payload?.workspace?.name !== this.workspaceName ||
+      payload.workspace.slug !== this.expectedWorkspaceSlug ||
+      payload.workspace.openAiPrompt !== this.workspaceSystemPrompt
+    ) {
+      throw new AnythingLlmClientError(
+        "invalid_response",
+        "AnythingLLM workspace system prompt update returned an invalid response"
+      );
+    }
   }
 
   private async discoverDocument(

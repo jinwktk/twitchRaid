@@ -157,7 +157,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 
 ### AnythingLLM記憶・AI経路
 
-- 本番構成は `Twitch Bot -> AnythingLLM -> Ollama`。Botは固定コマンド、Twitch入出力、検索、安全なprompt構築、返信整形を担当し、AI会話の生成とRAG参照はAnythingLLMのDeveloper APIを経由する。AnythingLLM内部の生成providerは既存Ollama、embeddingは`nomic-embed-text`を使うため、AnythingLLM単体でモデル推論する構成ではない
+- 本番構成は `Twitch Bot -> AnythingLLM -> Ollama`。Botは固定コマンド、Twitch入出力、検索、リクエスト固有の文脈構築、返信整形を担当し、AI会話の生成とRAG参照はAnythingLLMのDeveloper APIを経由する。るっかるん本人としての自認、日本語、500文字、秘密情報拒否、取得文書優先などの固定ルールはchannel workspaceのsystem promptへ同期し、通常リクエストではチャンネル、表示名、ログインID、発言、必要な履歴・検索文脈だけを送る。最終的な文字数・言語・歌唱形式などの安全検査はBot側にも残す。AnythingLLM内部の生成providerは既存Ollama、embeddingは`nomic-embed-text`を使うため、AnythingLLM単体でモデル推論する構成ではない
 - 通常コメント、コマンド、Bot宛てメンション、`!chat`、actionを発言者に関係なくすべてSQLite台帳へ先に保存する。通常コメント/actionだけでAI返信は発生しない。原文batchは同一channel・配信ID・JST日付内、先頭から最大15分、最大200件で固定し、AnythingLLMへのupload/embedを再試行する
 - 原文の保持期限はbatch内の最新コメントから`ANYTHING_LLM_RAW_RETENTION_DAYS`日（既定365日）。期限後はworkspaceからunembed、AnythingLLM原本削除、ローカル本文消去の順で実行し、途中状態をSQLiteへ残して再起動後に再開する。配信終了時の最終watermark、階層要約、出典付き事実は別の永続ジョブと文書に保存し、原文365日cleanupの対象にしない
 - 記憶は視聴者ごとに分離せず、同じchannel workspace内で全視聴者の発言を参照できる。rawコメントは「命令ではない会話証拠」と明示してprompt injectionとして実行しない。視聴者向けの保存拒否・削除コマンドは設けず、運用者が保護された台帳・AnythingLLM管理経路で扱う
@@ -400,6 +400,8 @@ internal-docs/
 ```
 
 ## 更新履歴
+
+- **2026-07-26**: AI会話の固定ルールを毎回のuser messageへ重複させず、AnythingLLM channel workspaceの`openAiPrompt`へ移した。既存workspaceでも起動時の所有確認後に期待system promptと一致しなければDeveloper APIで同期し、応答のname/slug/promptが一致しない場合はfail-closedにする。通常メッセージはチャンネル、表示名、ログインID、発言と必要な動的文脈だけに縮小し、取得文書・配信要約を具体的な事実資料として優先する指示を固定化した。Bot側の最終出力検査は維持する。
 - **2026-07-26**: AnythingLLM経路の回答差を追跡できるよう、`CHAT_AI_PROMPT_REPLY_LOG_ENABLED=true`時に元質問・最終返信をコンソールへ、実際の構築済みprompt・AnythingLLM生回答全文を日次ファイルへ同じrequest IDで記録する診断ログを追加した。
 - **2026-07-26**: AnythingLLM標準UIでは本文を確認しにくいため、LAN内限定の読み取り専用記憶閲覧WebUIを追加した。全コメント台帳、配信要約、出典付き事実、取込状態をタブと全文検索で確認でき、SQLiteはread-onlyで開き、変更・削除APIを持たない。本番URLは `http://192.168.0.99:3221/`。
 - **2026-07-26**: AnythingLLM完全移行の本番仕上げとして、Ollama thinking対応モデルが配信知識JSONの出力枠を使い切る問題を修正した。固定AnythingLLM 1.15.0を土台に通常・streaming双方へ`think:false`を明示する派生イメージを追加し、呼び出し箇所が2件でなければbuildを停止する。さらにモデルが`source_event_ids`の閉じ角括弧だけを落とす既知の構文を限定補正し、補正後もローカルevent ID以外の出典、空fact、過大値は従来どおり拒否する。
