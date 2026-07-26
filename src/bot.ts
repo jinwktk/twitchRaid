@@ -1162,10 +1162,7 @@ export class Bot {
       request.prompt
     );
     const providerMessage = previousStreamSummaryRequest
-      ? [
-          builtPrompt,
-          "資料選択: 前回とは、取得されたTWITCH_STREAM_SUMMARY_V1のうちended_atが最も新しい配信です。古い配信は使わず、最新配信のタイトル、ゲーム名、主な話題を具体的にまとめてください。",
-        ].join("\n")
+      ? "前回とはended_atが最大のTWITCH_STREAM_SUMMARY_V1です。その配信のタイトル、ゲーム名、主な話題を具体的にまとめてください。古い配信は使わないでください。"
       : builtPrompt;
     const startedAt = Date.now();
     try {

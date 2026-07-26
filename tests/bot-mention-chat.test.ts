@@ -595,7 +595,9 @@ describe("Bot mention chat", () => {
     expect(fileMessages).toEqual(
       expect.arrayContaining([
         expect.stringMatching(/^AIメンション会話プロンプト\/Success: requestId=mention-\d+-\d+ promptLines=\d+ replyLines=1$/u),
-        expect.stringContaining("ユーザーの発言: 前回の配信まとめをください"),
+        expect.stringContaining(
+          "前回とはended_atが最大のTWITCH_STREAM_SUMMARY_V1です"
+        ),
         expect.stringContaining("配信要約を説明するD！"),
       ])
     );
@@ -605,11 +607,8 @@ describe("Bot mention chat", () => {
     expect(state.chatMessages[0]).not.toContain(
       "Botの自認: るっかるん本人として"
     );
-    expect(state.chatMessages[0]).toContain(
-      "ユーザーの発言: 前回の配信まとめをください"
-    );
-    expect(state.chatMessages[0]).toContain(
-      "ended_atが最も新しい配信です"
+    expect(state.chatMessages[0]).toBe(
+      "前回とはended_atが最大のTWITCH_STREAM_SUMMARY_V1です。その配信のタイトル、ゲーム名、主な話題を具体的にまとめてください。古い配信は使わないでください。"
     );
     expect(state.chatModes).toEqual(["query"]);
     expect(state.workspaceSystemPrompts).toHaveLength(1);
