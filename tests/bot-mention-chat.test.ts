@@ -540,6 +540,44 @@ describe("Bot mention chat", () => {
     ledger.close();
   });
 
+  it("logs the AnythingLLM prompt and raw reply to the daily file and the final reply to console", async () => {
+    installAnythingLlmFetchMock({ chatReplies: ["配信要約を説明するD！"] });
+    const logSpy = vi.spyOn(logger, "log");
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      chatAiPromptReplyLogEnabled: true,
+      anythingLlmLedgerDbPath: path.join(ensureTempDir(), "anythingllm-diagnostic.sqlite"),
+      chatAiCooldownSeconds: 0,
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat 前回の配信まとめをください",
+      makeChatMessage("message-anythingllm-diagnostic", "視聴者")
+    );
+
+    expect(say).toHaveBeenCalledWith("#rukalun", "配信要約を説明するD！");
+    const consoleMessages = logSpy.mock.calls
+      .filter(([, , options]) => options?.fileOnly !== true)
+      .map(([, message]) => String(message));
+    expect(consoleMessages).toContain("質問: 前回の配信まとめをください");
+    expect(consoleMessages).toContain("回答: 配信要約を説明するD！");
+    const fileMessages = logSpy.mock.calls
+      .filter(([, , options]) => options?.fileOnly === true)
+      .map(([, message]) => String(message));
+    expect(fileMessages).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^AIメンション会話プロンプト\/Success: requestId=mention-\d+-\d+ promptLines=\d+ replyLines=1$/u),
+        expect.stringContaining("ユーザーの発言: 前回の配信まとめをください"),
+        expect.stringContaining("配信要約を説明するD！"),
+      ])
+    );
+
+    await bot.anythingLlmChannelMemory?.close();
+    bot.anythingLlmLedger?.close();
+  });
+
   it("shadow-writes every comment without reading or generating through AnythingLLM", async () => {
     const { state } = installAnythingLlmFetchMock({
       directOllamaReply: "旧Ollama経路で回答するD！",

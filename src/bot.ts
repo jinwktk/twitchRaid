@@ -80,6 +80,7 @@ import {
   formatGeneratedMentionChatReply,
   formatMentionChatLogValue,
   generateMentionChatReplyDetailed,
+  logMentionChatPromptAndReplyDiagnostic,
   logMentionChatSuccessDiagnosticSummary,
   resolveMentionChatImmediateReply,
   resolveMentionChatProviderReply,
@@ -1156,6 +1157,16 @@ export class Bot {
       const first = await anythingLlmChannelMemory.chat({
         message: builtPrompt,
       });
+      logMentionChatPromptAndReplyDiagnostic({
+        enabled: promptReplyLogEnabled,
+        requestId,
+        promptText: request.prompt,
+        builtPrompt,
+        rawReply: first.reply,
+        memoryText,
+        conversationHistoryText,
+        searchContextText,
+      });
       let resolvedReply = resolveMentionChatProviderReply({
         generated: first.reply,
         maxResponseChars,
@@ -1491,7 +1502,6 @@ export class Bot {
       const reply = generatedReply.reply;
       const successDiagnosticLogged =
         promptReplyLogEnabled &&
-        !this.config.chatAiAnythingLlmEnabled &&
         (generatedReply.source === "generated" ||
           generatedReply.source === "match_outcome_fallback");
       if (successDiagnosticLogged) {

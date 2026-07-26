@@ -489,6 +489,35 @@ function logPromptAndReplyIfEnabled(
   });
 }
 
+export function logMentionChatPromptAndReplyDiagnostic({
+  enabled,
+  requestId,
+  promptText,
+  builtPrompt,
+  rawReply,
+  memoryText,
+  conversationHistoryText,
+  searchContextText,
+}: {
+  enabled: boolean;
+  requestId: string;
+  promptText: string;
+  builtPrompt: string;
+  rawReply: string;
+  memoryText?: string | null;
+  conversationHistoryText?: string | null;
+  searchContextText?: string | null;
+}): void {
+  logPromptAndReplyIfEnabled(enabled, builtPrompt, rawReply, {
+    requestId: normalizePerformanceRequestId(requestId),
+    promptText,
+    memoryText,
+    conversationHistoryText,
+    searchContextText,
+    consoleMode: "file_only",
+  });
+}
+
 function logPromptFailureIfEnabled(
   enabled: boolean | undefined,
   prompt: string | null | undefined,
