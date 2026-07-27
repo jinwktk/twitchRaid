@@ -5,6 +5,32 @@ import {
   shouldSearchMentionChat,
 } from "../../src/commands/mention-chat-search";
 
+const TENKI_TODAY_FORECAST_HTML = `<script type="application/ld+json">${JSON.stringify(
+  {
+    "@type": "Dataset",
+    name: "鹿児島市の今日の天気予報",
+    temporalCoverage: "2026-07-27",
+    mainEntity: {
+      "csvw:tableSchema": {
+        "csvw:columns": [
+          {
+            "csvw:name": "今日の天気",
+            "csvw:cells": [{ "csvw:value": "雨のち晴" }],
+          },
+          {
+            "csvw:name": "今日の最高気温(℃)",
+            "csvw:cells": [{ "csvw:value": "36" }],
+          },
+          {
+            "csvw:name": "今日の最低気温(℃)",
+            "csvw:cells": [{ "csvw:value": "28" }],
+          },
+        ],
+      },
+    },
+  }
+)}</script>`;
+
 function jsonResponse(value: unknown, headers: Record<string, string> = {}): Response {
   const bytes = Buffer.from(JSON.stringify(value), "utf8");
   return {
@@ -236,6 +262,190 @@ describe("mention chat external search", () => {
     });
 
     expect(result).toEqual({ context: null, reason: "no_result" });
+  });
+
+  it("does not enrich weather from a different location than the matching result", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "searxng.test") {
+        return jsonResponse({
+          query: "大阪の今日の天気",
+          results: [
+            {
+              title: "東京都八王子市の1時間天気",
+              content: "八王子市の天気、気温、降水量を掲載しています。",
+              url: "https://tenki.jp/forecast/3/16/4410/13201/1hour.html",
+              engine: "bing",
+            },
+            {
+              title: "大阪市の今日の天気",
+              content: "大阪市の天気予報です。",
+              url: "https://example.test/osaka-weather",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      if (url.hostname === "tenki.jp") {
+        return new Response(TENKI_TODAY_FORECAST_HTML, {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${url.toString()}`);
+    });
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "大阪の今日の天気を教えて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(result.reason).toBe("found");
+    expect(result.context?.text).toContain("大阪市の今日の天気");
+    expect(result.context?.text).not.toContain("鹿児島市の今日の天気は");
+  });
+
+  it("adds structured current forecast details from an allowlisted tenki.jp result", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "searxng.test") {
+        return jsonResponse({
+          query: "今日の天気",
+          results: [
+            {
+              title: "鹿児島市の1時間天気 - 日本気象協会 tenki.jp",
+              content:
+                "鹿児島市の1時間ごとの天気、気温、降水量を掲載しています。",
+              url: "https://tenki.jp/forecast/9/49/8810/46201/1hour.html",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      if (url.hostname === "tenki.jp") {
+        return new Response(TENKI_TODAY_FORECAST_HTML, {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${url.toString()}`);
+    });
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "今日の天気を教えて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(new URL(String(fetchImpl.mock.calls[1][0])).toString()).toBe(
+      "https://tenki.jp/forecast/9/49/8810/46201/"
+    );
+    expect(fetchImpl.mock.calls[1][1]?.redirect).toBe("error");
+    expect(result.reason).toBe("found");
+    expect(result.context?.text).toContain(
+      "鹿児島市の今日の天気は雨のち晴。最高気温36℃、最低気温28℃。予報日: 2026年7月27日。出典: tenki.jp"
+    );
+  });
+
+  it("does not add today's structured forecast to a tomorrow weather request", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname !== "searxng.test") {
+        throw new Error(`unexpected fetch: ${url.toString()}`);
+      }
+      return jsonResponse({
+        query: "明日の天気",
+        results: [
+          {
+            title: "鹿児島市の今日明日の天気 - 日本気象協会 tenki.jp",
+            content: "鹿児島市の今日と明日の天気、気温、降水確率を掲載。",
+            url: "https://tenki.jp/forecast/9/49/8810/46201/1hour.html",
+            engine: "bing",
+          },
+        ],
+      });
+    });
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "明日の天気を教えて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(result.reason).toBe("found");
+    expect(result.context?.text).not.toContain("の今日の天気は");
+  });
+
+  it("skips tenki.jp detail when the response has no streaming body", async () => {
+    const detailArrayBuffer = vi.fn(async () => {
+      const bytes = Buffer.from(TENKI_TODAY_FORECAST_HTML, "utf8");
+      return bytes.buffer.slice(
+        bytes.byteOffset,
+        bytes.byteOffset + bytes.byteLength
+      );
+    });
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "searxng.test") {
+        return jsonResponse({
+          query: "今日の天気",
+          results: [
+            {
+              title: "鹿児島市の1時間天気 - 日本気象協会 tenki.jp",
+              content: "鹿児島市の天気、気温、降水量を掲載しています。",
+              url: "https://tenki.jp/forecast/9/49/8810/46201/1hour.html",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      return {
+        ok: true,
+        body: null,
+        headers: { get: () => "text/html; charset=utf-8" },
+        arrayBuffer: detailArrayBuffer,
+      } as unknown as Response;
+    });
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "今日の天気を教えて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+    });
+
+    expect(detailArrayBuffer).not.toHaveBeenCalled();
+    expect(result.reason).toBe("found");
+    expect(result.context?.text).not.toContain("鹿児島市の今日の天気は");
   });
 
   it("does not treat two separate information questions as a comparison", async () => {

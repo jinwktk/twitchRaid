@@ -10,6 +10,32 @@ import { AnythingLlmLedger } from "../src/commands/anythingllm-ledger";
 
 let tmpDir: string | null = null;
 
+const TENKI_TODAY_FORECAST_HTML = `<script type="application/ld+json">${JSON.stringify(
+  {
+    "@type": "Dataset",
+    name: "鹿児島市の今日の天気予報",
+    temporalCoverage: "2026-07-27",
+    mainEntity: {
+      "csvw:tableSchema": {
+        "csvw:columns": [
+          {
+            "csvw:name": "今日の天気",
+            "csvw:cells": [{ "csvw:value": "雨のち晴" }],
+          },
+          {
+            "csvw:name": "今日の最高気温(℃)",
+            "csvw:cells": [{ "csvw:value": "36" }],
+          },
+          {
+            "csvw:name": "今日の最低気温(℃)",
+            "csvw:cells": [{ "csvw:value": "28" }],
+          },
+        ],
+      },
+    },
+  }
+)}</script>`;
+
 type MentionChatTestBot = Bot & {
   chatClient: { say: ReturnType<typeof vi.fn> };
   apiClient: {
@@ -293,9 +319,10 @@ function installAnythingLlmFetchMock(options: {
             query,
             results: [
               {
-                title: "東京都八王子市の天気予報",
-                content: "八王子市の天気予報を今日明日・週間で掲載中です。",
-                url: "https://example.test/weather",
+                title: "鹿児島市の1時間天気 - 日本気象協会 tenki.jp",
+                content:
+                  "鹿児島市の1時間ごとの天気、気温、降水量を掲載しています。",
+                url: "https://tenki.jp/forecast/9/49/8810/46201/1hour.html",
                 engine: "bing",
               },
             ],
@@ -312,6 +339,11 @@ function installAnythingLlmFetchMock(options: {
               engine: "bing",
             },
           ],
+        });
+      }
+      if (url.hostname === "tenki.jp") {
+        return new Response(TENKI_TODAY_FORECAST_HTML, {
+          headers: { "content-type": "text/html; charset=utf-8" },
         });
       }
       if (url.hostname !== "anythingllm.test") {
@@ -781,7 +813,9 @@ describe("Bot mention chat", () => {
     expect(state.searchQueries).toEqual(["今日の天気"]);
     expect(state.chatMessages).toHaveLength(1);
     expect(state.chatMessages[0]).toContain("外部検索結果");
-    expect(state.chatMessages[0]).toContain("東京都八王子市の天気予報");
+    expect(state.chatMessages[0]).toContain(
+      "鹿児島市の今日の天気は雨のち晴。最高気温36℃、最低気温28℃"
+    );
     expect(state.directOllamaCalls).toBe(0);
     expect(say).toHaveBeenLastCalledWith(
       "#rukalun",
