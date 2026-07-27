@@ -1054,7 +1054,7 @@ async function fetchMentionChatSearchContextDetailedWithinDeadline(
     currentDate = new Date(),
   }: FetchMentionChatSearchContextOptions,
   deadlineAt: number,
-  weatherRetryRemaining = 1
+  relevanceRetryRemaining = 1
 ): Promise<MentionChatSearchFetchResult> {
   const query = singleLine(queryText);
   const compactComparisonTerms = getCompactComparisonTerms(query);
@@ -1120,8 +1120,11 @@ async function fetchMentionChatSearchContextDetailedWithinDeadline(
     ) {
       const relativeWeatherDay =
         getSingleExplicitWeatherRelativeDay(searchQuery)?.relativeDay ?? null;
-      if (relativeWeatherDay) {
-        if (weatherRetryRemaining <= 0) {
+      const shouldRetrySameQuery =
+        relativeWeatherDay !== null ||
+        shouldAlwaysSynthesizeMentionChatSearchReply(query);
+      if (shouldRetrySameQuery) {
+        if (relevanceRetryRemaining <= 0) {
           return { context: null, reason: "no_result" };
         }
         return fetchMentionChatSearchContextDetailedWithinDeadline(
@@ -1130,7 +1133,7 @@ async function fetchMentionChatSearchContextDetailedWithinDeadline(
             provider,
             endpoint,
             engines,
-            queryText: searchQuery,
+            queryText: query,
             force: true,
             timeoutMs,
             maxQueryChars,
@@ -1140,7 +1143,7 @@ async function fetchMentionChatSearchContextDetailedWithinDeadline(
             currentDate,
           },
           deadlineAt,
-          weatherRetryRemaining - 1
+          relevanceRetryRemaining - 1
         );
       }
       if (

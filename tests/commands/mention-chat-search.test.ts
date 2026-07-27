@@ -369,6 +369,109 @@ describe("mention chat external search", () => {
     }
   );
 
+  it("retries the same explicit spoiler query once when SearXNG temporarily returns no relevant result", async () => {
+    let searxngCalls = 0;
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "searxng.test") {
+        searxngCalls += 1;
+        if (searxngCalls === 1) {
+          return jsonResponse({
+            query: "呪術廻戦 最終回 結末 ネタバレ",
+            results: [
+              {
+                title: "呪術廻戦 公式サイト",
+                content: "テレビアニメの最新情報を紹介します。",
+                url: "https://example.test/jujutsu-official",
+                engine: "bing",
+              },
+            ],
+          });
+        }
+        return jsonResponse({
+          query: "呪術廻戦 最終回 結末 ネタバレ",
+          results: [
+            {
+              title: "呪術廻戦 全話ネタバレ解説まとめ",
+              content: "呪術廻戦の結末と主要人物のその後を紹介する記事。",
+              url: "https://example.test/jujutsu-spoilers",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected fetch: ${url.toString()}`);
+    });
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "呪術廻戦のネタバレして",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+    });
+
+    expect(result.reason).toBe("found");
+    expect(result.context?.text).toContain(
+      "呪術廻戦 全話ネタバレ解説まとめ"
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(
+      fetchImpl.mock.calls.map((call) =>
+        new URL(String(call[0])).searchParams.get("q")
+      )
+    ).toEqual([
+      "呪術廻戦 最終回 結末 ネタバレ",
+      "呪術廻戦 最終回 結末 ネタバレ",
+    ]);
+  });
+
+  it("stops after one explicit spoiler retry when SearXNG remains unrelated", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        query: "呪術廻戦 最終回 結末 ネタバレ",
+        results: [
+          {
+            title: "呪術廻戦 公式サイト",
+            content: "テレビアニメの最新情報を紹介します。",
+            url: "https://example.test/jujutsu-official",
+            engine: "bing",
+          },
+        ],
+      })
+    );
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "呪術廻戦のネタバレして",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+    });
+
+    expect(result).toEqual({ context: null, reason: "no_result" });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(
+      fetchImpl.mock.calls.map((call) => {
+        const url = new URL(String(call[0]));
+        return [url.hostname, url.searchParams.get("q")];
+      })
+    ).toEqual([
+      ["searxng.test", "呪術廻戦 最終回 結末 ネタバレ"],
+      ["searxng.test", "呪術廻戦 最終回 結末 ネタバレ"],
+    ]);
+  });
+
   it("keeps no inside a Japanese work title when separating a spoiler modifier", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({
