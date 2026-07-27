@@ -104,7 +104,7 @@ import {
   writeBotRequestNotesDigestFile,
 } from "./commands/bot-request-notes";
 import {
-  applyMentionChatTodayWeatherReplyContract,
+  applyMentionChatWeatherReplyContract,
   fetchMentionChatSearchContext,
   fetchMentionChatSearchContextDetailed,
   shouldResearchMentionChatReply,
@@ -1260,6 +1260,87 @@ export class Bot {
     }
   }
 
+  private async _repairMentionChatReplyFromSearchContext({
+    request,
+    requestId,
+    searchContextText,
+    promptReplyLogEnabled,
+  }: {
+    request: MentionChatRequest;
+    requestId: string;
+    searchContextText: string;
+    promptReplyLogEnabled: boolean;
+  }): Promise<GenerateMentionChatReplyResult | null> {
+    const client = this.anythingLlmUtilityClient;
+    if (!client) return null;
+
+    const maxResponseChars =
+      this.config.chatAiMaxResponseChars ??
+      DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS;
+    const repairPrompt = [
+      buildMentionChatPrompt({
+        maxResponseChars,
+        channel: request.channel,
+        userName: request.userName,
+        userDisplayName: request.userDisplayName,
+        promptText: request.prompt,
+        memoryText: null,
+        conversationHistoryText: null,
+        searchContextText,
+        pendingCommentContextText: null,
+      }),
+      "検索回答の再生成指示: 検索結果に書かれた事実だけを使い、ユーザーの質問へ直接答えてください。",
+      "検索結果が具体的な回答を含む場合は、「詳しくない」「自分で調べて」「分からない」で終えないでください。",
+      "検索結果から確認できない事実は推測せず、確認できた範囲を明示してください。",
+      "完成した回答だけを返してください。",
+    ].join("\n");
+    const startedAt = Date.now();
+    try {
+      const repair = await client.chat({
+        message: repairPrompt,
+        mode: "chat",
+        sessionId: `${this.config.anythingLlmUtilitySessionId}-${requestId}`,
+        reset: true,
+      });
+      logMentionChatPromptAndReplyDiagnostic({
+        enabled: promptReplyLogEnabled,
+        requestId,
+        promptText: request.prompt,
+        builtPrompt: repairPrompt,
+        rawReply: repair.reply,
+        memoryText: null,
+        conversationHistoryText: null,
+        searchContextText,
+      });
+      const resolvedReply = resolveMentionChatProviderReply({
+        generated: repair.reply,
+        maxResponseChars,
+        promptText: request.prompt,
+        userName: request.userName,
+        userDisplayName: request.userDisplayName,
+      });
+      if (!resolvedReply) {
+        logger.warn(
+          `AnythingLLM 検索回答補正失敗: requestId=${requestId}, reason=policy_rejected, elapsedMs=${Math.max(0, Date.now() - startedAt)}`
+        );
+        return null;
+      }
+      logger.info(
+        `AnythingLLM 検索回答補正成功: requestId=${requestId}, sourceCount=${repair.sourceCount}, elapsedMs=${Math.max(0, Date.now() - startedAt)}`
+      );
+      return resolvedReply;
+    } catch (error) {
+      const reason =
+        error instanceof AnythingLlmClientError
+          ? error.reason
+          : "invalid_response";
+      logger.warn(
+        `AnythingLLM 検索回答補正失敗: requestId=${requestId}, reason=${reason}, elapsedMs=${Math.max(0, Date.now() - startedAt)}`
+      );
+      return null;
+    }
+  }
+
   private async _processMentionChatRequest(
     request: MentionChatRequest,
     now: number,
@@ -1459,8 +1540,7 @@ export class Bot {
         }
       }
       let selectedSearchContextText = searchContext?.text;
-      let selectedTodayWeatherForecast =
-        searchContext?.todayWeatherForecast ?? null;
+      let selectedWeatherForecast = searchContext?.weatherForecast ?? null;
       let generatedReply =
         await this._generateMentionChatReplyWithConfiguredProvider({
           request,
@@ -1473,6 +1553,24 @@ export class Bot {
           promptReplyLogEnabled,
           promptReplyConsoleLogMode: "deferred",
         });
+
+      if (
+        generatedReply?.source === "generated" &&
+        searchContext &&
+        !selectedWeatherForecast &&
+        shouldResearchMentionChatReply(generatedReply.reply)
+      ) {
+        const repairedSearchReply =
+          await this._repairMentionChatReplyFromSearchContext({
+            request,
+            requestId,
+            searchContextText: searchContext.text,
+            promptReplyLogEnabled,
+          });
+        if (repairedSearchReply) {
+          generatedReply = repairedSearchReply;
+        }
+      }
 
       if (
         generatedReply?.source === "generated" &&
@@ -1516,8 +1614,8 @@ export class Bot {
           if (researchedReply?.source === "generated") {
             generatedReply = researchedReply;
             selectedSearchContextText = researchSearchContext.text;
-            selectedTodayWeatherForecast =
-              researchSearchContext.todayWeatherForecast ?? null;
+            selectedWeatherForecast =
+              researchSearchContext.weatherForecast ?? null;
           }
         } else {
           logger.info(
@@ -1532,10 +1630,10 @@ export class Bot {
         );
         return;
       }
-      const weatherReply = selectedTodayWeatherForecast
-        ? applyMentionChatTodayWeatherReplyContract(
+      const weatherReply = selectedWeatherForecast
+        ? applyMentionChatWeatherReplyContract(
             generatedReply.reply,
-            selectedTodayWeatherForecast
+            selectedWeatherForecast
           )
         : null;
       const correctedWeatherReply = weatherReply?.corrected

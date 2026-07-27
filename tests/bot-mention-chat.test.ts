@@ -13,6 +13,13 @@ let tmpDir: string | null = null;
 const TEST_JST_TODAY = new Date(Date.now() + 9 * 60 * 60 * 1_000)
   .toISOString()
   .slice(0, 10);
+const TEST_JST_TOMORROW = new Date(
+  Date.now() + 9 * 60 * 60 * 1_000 + 24 * 60 * 60 * 1_000
+)
+  .toISOString()
+  .slice(0, 10);
+const [, TEST_TOMORROW_MONTH, TEST_TOMORROW_DAY] =
+  TEST_JST_TOMORROW.split("-");
 const TENKI_TODAY_FORECAST_HTML = `<script type="application/ld+json">${JSON.stringify(
   {
     "@type": "Dataset",
@@ -38,6 +45,20 @@ const TENKI_TODAY_FORECAST_HTML = `<script type="application/ld+json">${JSON.str
     },
   }
 )}</script>`;
+const TENKI_TOMORROW_FORECAST_HTML = `${TENKI_TODAY_FORECAST_HTML.replaceAll(
+  "鹿児島市",
+  "大阪市"
+)}
+<section class="tomorrow-weather">
+  <div class="date-box">明日&nbsp;${TEST_TOMORROW_MONTH}月${TEST_TOMORROW_DAY}日</div>
+  <p class="weather-telop">晴一時雨</p>
+  <dl>
+    <dt class="high-temp sumarry">最高</dt>
+    <dd class="high-temp temp"><span class="value">33</span><span class="unit">℃</span></dd>
+    <dt class="low-temp sumarry">最低</dt>
+    <dd class="low-temp temp"><span class="value">27</span><span class="unit">℃</span></dd>
+  </dl>
+</section>`;
 
 type MentionChatTestBot = Bot & {
   chatClient: { say: ReturnType<typeof vi.fn> };
@@ -331,7 +352,7 @@ function installAnythingLlmFetchMock(options: {
             ],
           });
         }
-        if (query === "呪術廻戦 ネタバレ") {
+        if (query === "呪術廻戦 最終回 結末 ネタバレ") {
           return json({
             query,
             results: [
@@ -340,6 +361,19 @@ function installAnythingLlmFetchMock(options: {
                 content:
                   "呪術廻戦の結末と主要人物のその後を紹介する記事。",
                 url: "https://example.test/jujutsu-spoilers",
+                engine: "bing",
+              },
+            ],
+          });
+        }
+        if (query === "大阪 明日 天気") {
+          return json({
+            query,
+            results: [
+              {
+                title: "大阪市の今日明日の天気 - 日本気象協会 tenki.jp",
+                content: "大阪市の今日と明日の天気、気温、降水確率を掲載。",
+                url: "https://tenki.jp/forecast/6/30/6200/27100/1hour.html",
                 engine: "bing",
               },
             ],
@@ -359,9 +393,14 @@ function installAnythingLlmFetchMock(options: {
         });
       }
       if (url.hostname === "tenki.jp") {
-        return new Response(TENKI_TODAY_FORECAST_HTML, {
-          headers: { "content-type": "text/html; charset=utf-8" },
-        });
+        return new Response(
+          url.pathname.startsWith("/forecast/6/30/6200/27100/")
+            ? TENKI_TOMORROW_FORECAST_HTML
+            : TENKI_TODAY_FORECAST_HTML,
+          {
+            headers: { "content-type": "text/html; charset=utf-8" },
+          }
+        );
       }
       if (url.hostname !== "anythingllm.test") {
         throw new Error(`unexpected fetch: ${url.toString()}`);
@@ -846,6 +885,46 @@ describe("Bot mention chat", () => {
     );
   });
 
+  it("normalizes an explicit tomorrow location and corrects the AnythingLLM reply", async () => {
+    const infoSpy = vi.spyOn(logger, "info");
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: ["大阪の明日の天気は分からないD！"],
+    });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "anythingllm-tomorrow-weather.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiSearchEngines: "bing",
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat Web検索して、あしたの大阪の天気を調べて",
+      makeChatMessage("tomorrow-weather-message-01")
+    );
+
+    expect(state.searchQueries).toEqual(["大阪 明日 天気"]);
+    expect(state.chatMessages).toHaveLength(1);
+    expect(state.chatMessages[0]).toContain(
+      "大阪市の明日の天気は晴一時雨。最高気温33℃、最低気温27℃"
+    );
+    expect(state.directOllamaCalls).toBe(0);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "大阪市の明日の天気は晴一時雨。最高気温33℃、最低気温27℃だよ！"
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining("source=weather_search")
+    );
+  });
+
   it("passes a normalized spoiler search result to AnythingLLM", async () => {
     const { state } = installAnythingLlmFetchMock({
       chatReplies: ["宿儺との最終決戦後についてまとめるD！"],
@@ -870,7 +949,9 @@ describe("Bot mention chat", () => {
       makeChatMessage("spoiler-message-01")
     );
 
-    expect(state.searchQueries).toEqual(["呪術廻戦 ネタバレ"]);
+    expect(state.searchQueries).toEqual([
+      "呪術廻戦 最終回 結末 ネタバレ",
+    ]);
     expect(state.chatMessages).toHaveLength(1);
     expect(state.chatMessages[0]).toContain("外部検索結果");
     expect(state.chatMessages[0]).toContain("呪術廻戦 全話ネタバレ解説まとめ");
@@ -878,6 +959,45 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenLastCalledWith(
       "#rukalun",
       "宿儺との最終決戦後についてまとめるD！"
+    );
+  });
+
+  it("repairs a refusal after a found search through the utility workspace", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: [
+        "ごめん、呪術廻戦の結末は詳しくないから自分で調べてD！",
+        "宿儺との最終決戦後、虎杖たちは日常へ戻るD！",
+      ],
+    });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "anythingllm-grounded-search-repair.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiSearchEngines: "bing",
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat 呪術廻戦のネタバレを調べて",
+      makeChatMessage("spoiler-repair-message-01")
+    );
+
+    expect(state.chatMessages).toHaveLength(2);
+    expect(state.chatMessages[1]).toContain("外部検索結果");
+    expect(state.chatMessages[1]).toContain(
+      "検索結果に書かれた事実だけを使い"
+    );
+    expect(state.directOllamaCalls).toBe(0);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "宿儺との最終決戦後、虎杖たちは日常へ戻るD！"
     );
   });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   applyMentionChatTodayWeatherReplyContract,
+  applyMentionChatWeatherReplyContract,
   fetchMentionChatSearchContext,
   fetchMentionChatSearchContextDetailed,
   shouldSearchMentionChat,
@@ -31,6 +32,21 @@ const TENKI_TODAY_FORECAST_HTML = `<script type="application/ld+json">${JSON.str
     },
   }
 )}</script>`;
+
+const TENKI_TOMORROW_FORECAST_HTML = `${TENKI_TODAY_FORECAST_HTML.replaceAll(
+  "鹿児島市",
+  "大阪市"
+)}
+<section class="tomorrow-weather"><!-- 明日の天気 -->
+  <div class="date-box">明日&nbsp;07月28日<span>（火）</span></div>
+  <p class="weather-telop">晴一時雨</p>
+  <dl class="date-value">
+    <dt class="high-temp sumarry">最高</dt>
+    <dd class="high-temp temp"><span class="value">33</span><span class="unit">℃</span></dd>
+    <dt class="low-temp sumarry">最低</dt>
+    <dd class="low-temp temp"><span class="value">27</span><span class="unit">℃</span></dd>
+  </dl>
+</section>`;
 
 function jsonResponse(value: unknown, headers: Record<string, string> = {}): Response {
   const bytes = Buffer.from(JSON.stringify(value), "utf8");
@@ -205,8 +221,14 @@ describe("mention chat external search", () => {
     async (queryText) => {
       const fetchImpl = vi.fn().mockResolvedValue(
         jsonResponse({
-          query: "呪術廻戦 ネタバレ",
+          query: "呪術廻戦 最終回 結末 ネタバレ",
           results: [
+            {
+              title: "呪術廻戦 公式サイト",
+              content: "テレビアニメの最新情報を紹介します。",
+              url: "https://example.test/jujutsu-official",
+              engine: "bing",
+            },
             {
               title: "呪術廻戦 全話ネタバレ解説まとめ",
               content: "呪術廻戦の結末と主要人物のその後を紹介する記事。",
@@ -232,13 +254,51 @@ describe("mention chat external search", () => {
 
       expect(fetchImpl).toHaveBeenCalledTimes(1);
       const url = new URL(String(fetchImpl.mock.calls[0][0]));
-      expect(url.searchParams.get("q")).toBe("呪術廻戦 ネタバレ");
+      expect(url.searchParams.get("q")).toBe(
+        "呪術廻戦 最終回 結末 ネタバレ"
+      );
       expect(result.reason).toBe("found");
       expect(result.context?.text).toContain(
         "呪術廻戦 全話ネタバレ解説まとめ"
       );
+      expect(result.context?.text).not.toContain("呪術廻戦 公式サイト");
     }
   );
+
+  it("keeps no inside a Japanese work title when separating a spoiler modifier", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        query: "進撃の巨人 最終回 結末 ネタバレ",
+        results: [
+          {
+            title: "進撃の巨人 最終回の結末ネタバレ",
+            content: "進撃の巨人の最終回と結末を解説。",
+            url: "https://example.test/attack-on-titan-ending",
+            engine: "bing",
+          },
+        ],
+      })
+    );
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "進撃の巨人のネタバレを調べて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+    });
+
+    const url = new URL(String(fetchImpl.mock.calls[0][0]));
+    expect(url.searchParams.get("q")).toBe(
+      "進撃の巨人 最終回 結末 ネタバレ"
+    );
+    expect(result.reason).toBe("found");
+  });
 
   it("removes the object particle from a natural weather request", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
@@ -286,6 +346,76 @@ describe("mention chat external search", () => {
               title: "東京都八王子市の天気予報",
               content: "八王子市の天気予報を今日明日・週間で掲載中です。",
               url: "https://example.test/weather",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      return { ok: false, status: 404 } as Response;
+    });
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "大阪の今日の天気を教えて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+    });
+
+    expect(result).toEqual({ context: null, reason: "no_result" });
+  });
+
+  it("does not match Kyoto weather results for Tokyo", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "searxng.test") {
+        return jsonResponse({
+          query: "京都 今日 天気",
+          results: [
+            {
+              title: "東京都の今日の天気",
+              content: "東京都の天気、最高気温、最低気温を掲載しています。",
+              url: "https://example.test/tokyo-weather",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      return { ok: false, status: 404 } as Response;
+    });
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "京都の今日の天気を教えて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+    });
+
+    expect(result).toEqual({ context: null, reason: "no_result" });
+  });
+
+  it("does not match Osaka weather results for Higashiosaka", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "searxng.test") {
+        return jsonResponse({
+          query: "大阪 今日 天気",
+          results: [
+            {
+              title: "東大阪市の今日の天気",
+              content: "東大阪市の天気、最高気温、最低気温を掲載しています。",
+              url: "https://example.test/higashiosaka-weather",
               engine: "bing",
             },
           ],
@@ -358,6 +488,97 @@ describe("mention chat external search", () => {
     expect(result.context?.text).toContain("大阪市の今日の天気");
     expect(result.context?.text).not.toContain("鹿児島市の今日の天気は");
     expect(result.context?.todayWeatherForecast).toBeUndefined();
+  });
+
+  it("does not trust a tenki.jp page whose structured location differs from the query", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "searxng.test") {
+        return jsonResponse({
+          query: "大阪 今日 天気",
+          results: [
+            {
+              title: "大阪市の今日の天気 - 日本気象協会 tenki.jp",
+              content: "大阪市の天気、気温、降水量を掲載しています。",
+              url: "https://tenki.jp/forecast/6/30/6200/27100/1hour.html",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      if (url.hostname === "tenki.jp") {
+        return new Response(TENKI_TODAY_FORECAST_HTML, {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${url.toString()}`);
+    });
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "大阪の今日の天気を教えて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+      currentDate: new Date("2026-07-27T12:00:00+09:00"),
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(result.reason).toBe("found");
+    expect(result.context?.weatherForecast).toBeUndefined();
+    expect(result.context?.todayWeatherForecast).toBeUndefined();
+    expect(result.context?.text).not.toContain("鹿児島市の今日の天気は");
+  });
+
+  it("does not trust Tokyo structured weather for a Kyoto query", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "searxng.test") {
+        return jsonResponse({
+          query: "京都 今日 天気",
+          results: [
+            {
+              title: "京都市の今日の天気 - 日本気象協会 tenki.jp",
+              content: "京都市の天気、気温、降水量を掲載しています。",
+              url: "https://tenki.jp/forecast/6/29/6100/26100/1hour.html",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      if (url.hostname === "tenki.jp") {
+        return new Response(
+          TENKI_TODAY_FORECAST_HTML.replaceAll("鹿児島市", "東京都"),
+          { headers: { "content-type": "text/html; charset=utf-8" } }
+        );
+      }
+      throw new Error(`unexpected fetch: ${url.toString()}`);
+    });
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "京都の今日の天気を教えて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+      currentDate: new Date("2026-07-27T12:00:00+09:00"),
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(result.reason).toBe("found");
+    expect(result.context?.weatherForecast).toBeUndefined();
+    expect(result.context?.todayWeatherForecast).toBeUndefined();
+    expect(result.context?.text).not.toContain("東京都の今日の天気は");
   });
 
   it("adds structured current forecast details from an allowlisted tenki.jp result", async () => {
@@ -497,23 +718,28 @@ describe("mention chat external search", () => {
     expect(result).toEqual({ corrected: false, reply: generatedReply });
   });
 
-  it("does not add today's structured forecast to a tomorrow weather request", async () => {
+  it("normalizes a leading web-search instruction and adds tomorrow's structured forecast", async () => {
     const fetchImpl = vi.fn().mockImplementation(async (input) => {
       const url = new URL(String(input));
-      if (url.hostname !== "searxng.test") {
-        throw new Error(`unexpected fetch: ${url.toString()}`);
+      if (url.hostname === "searxng.test") {
+        return jsonResponse({
+          query: "大阪 明日 天気",
+          results: [
+            {
+              title: "大阪市の今日明日の天気 - 日本気象協会 tenki.jp",
+              content: "大阪市の今日と明日の天気、気温、降水確率を掲載。",
+              url: "https://tenki.jp/forecast/6/30/6200/27100/1hour.html",
+              engine: "bing",
+            },
+          ],
+        });
       }
-      return jsonResponse({
-        query: "明日の天気",
-        results: [
-          {
-            title: "鹿児島市の今日明日の天気 - 日本気象協会 tenki.jp",
-            content: "鹿児島市の今日と明日の天気、気温、降水確率を掲載。",
-            url: "https://tenki.jp/forecast/9/49/8810/46201/1hour.html",
-            engine: "bing",
-          },
-        ],
-      });
+      if (url.hostname === "tenki.jp") {
+        return new Response(TENKI_TOMORROW_FORECAST_HTML, {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${url.toString()}`);
     });
 
     const result = await fetchMentionChatSearchContextDetailed({
@@ -521,7 +747,55 @@ describe("mention chat external search", () => {
       provider: "searxng",
       endpoint: "http://searxng.test/search",
       engines: "bing",
-      queryText: "明日の天気を教えて",
+      queryText: "Web検索して、あしたの大阪の天気を調べて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+      currentDate: new Date("2026-07-27T12:00:00+09:00"),
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(
+      new URL(String(fetchImpl.mock.calls[0][0])).searchParams.get("q")
+    ).toBe("大阪 明日 天気");
+    expect(result.reason).toBe("found");
+    expect(result.context?.text).toContain(
+      "大阪市の明日の天気は晴一時雨。最高気温33℃、最低気温27℃。予報日: 2026年7月28日。出典: tenki.jp"
+    );
+    expect(result.context?.weatherForecast).toEqual({
+      relativeDay: "tomorrow",
+      location: "大阪市",
+      weather: "晴一時雨",
+      highTemperatureCelsius: "33",
+      lowTemperatureCelsius: "27",
+      forecastDate: "2026-07-28",
+      source: "tenki.jp",
+    });
+  });
+
+  it("does not treat the characters in Asuka Village as a relative day", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        query: "奈良県明日香村 今日 天気",
+        results: [
+          {
+            title: "奈良県明日香村の今日の天気",
+            content: "奈良県明日香村の今日の天気予報です。",
+            url: "https://example.test/asuka-weather",
+            engine: "bing",
+          },
+        ],
+      })
+    );
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "奈良県明日香村の今日の天気を教えて",
       timeoutMs: 2500,
       maxQueryChars: 120,
       maxResponseBytes: 65536,
@@ -529,9 +803,142 @@ describe("mention chat external search", () => {
       fetchImpl,
     });
 
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(new URL(String(fetchImpl.mock.calls[0][0])).searchParams.get("q")).toBe(
+      "奈良県明日香村 今日 天気"
+    );
     expect(result.reason).toBe("found");
-    expect(result.context?.text).not.toContain("の今日の天気は");
+  });
+
+  it("keeps no inside the Hinode town name when normalizing weather", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        query: "東京都日の出町 今日 天気",
+        results: [
+          {
+            title: "東京都日の出町の今日の天気",
+            content: "東京都日の出町の今日の天気予報です。",
+            url: "https://example.test/hinode-weather",
+            engine: "bing",
+          },
+        ],
+      })
+    );
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "東京都日の出町の今日の天気を教えて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+    });
+
+    expect(new URL(String(fetchImpl.mock.calls[0][0])).searchParams.get("q")).toBe(
+      "東京都日の出町 今日 天気"
+    );
+    expect(result.reason).toBe("found");
+  });
+
+  it("keeps a request for both today and tomorrow out of single-day enrichment", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        query: "大阪の今日と明日の天気",
+        results: [
+          {
+            title: "大阪の今日と明日の天気",
+            content: "大阪の今日と明日の天気予報です。",
+            url: "https://example.test/osaka-two-day-weather",
+            engine: "bing",
+          },
+        ],
+      })
+    );
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "大阪の今日と明日の天気を教えて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+    });
+
+    expect(new URL(String(fetchImpl.mock.calls[0][0])).searchParams.get("q")).toBe(
+      "大阪の今日と明日の天気"
+    );
+    expect(result.reason).toBe("found");
+    expect(result.context?.weatherForecast).toBeUndefined();
+  });
+
+  it("replaces an incomplete tomorrow reply with verified structured values", () => {
+    const result = applyMentionChatWeatherReplyContract(
+      "大阪の明日の天気は分からないよ。",
+      {
+        relativeDay: "tomorrow",
+        location: "大阪市",
+        weather: "晴一時雨",
+        highTemperatureCelsius: "33",
+        lowTemperatureCelsius: "27",
+        forecastDate: "2026-07-28",
+        source: "tenki.jp",
+      }
+    );
+
+    expect(result).toEqual({
+      corrected: true,
+      reply:
+        "大阪市の明日の天気は晴一時雨。最高気温33℃、最低気温27℃だよ！",
+    });
+  });
+
+  it("replaces a tomorrow reply that incorrectly labels the forecast as today", () => {
+    const result = applyMentionChatWeatherReplyContract(
+      "大阪市の今日の天気は晴一時雨。最高気温33℃、最低気温27℃だよ！",
+      {
+        relativeDay: "tomorrow",
+        location: "大阪市",
+        weather: "晴一時雨",
+        highTemperatureCelsius: "33",
+        lowTemperatureCelsius: "27",
+        forecastDate: "2026-07-28",
+        source: "tenki.jp",
+      }
+    );
+
+    expect(result).toEqual({
+      corrected: true,
+      reply:
+        "大阪市の明日の天気は晴一時雨。最高気温33℃、最低気温27℃だよ！",
+    });
+  });
+
+  it("does not mistake Asuka in a location name for a tomorrow label", () => {
+    const result = applyMentionChatWeatherReplyContract(
+      "奈良県明日香村の昨日の天気は晴。最高気温33℃、最低気温27℃だよ！",
+      {
+        relativeDay: "tomorrow",
+        location: "奈良県明日香村",
+        weather: "晴",
+        highTemperatureCelsius: "33",
+        lowTemperatureCelsius: "27",
+        forecastDate: "2026-07-28",
+        source: "tenki.jp",
+      }
+    );
+
+    expect(result).toEqual({
+      corrected: true,
+      reply:
+        "奈良県明日香村の明日の天気は晴。最高気温33℃、最低気温27℃だよ！",
+    });
   });
 
   it("skips tenki.jp detail when the response has no streaming body", async () => {
