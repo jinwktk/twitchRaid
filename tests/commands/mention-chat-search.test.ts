@@ -879,6 +879,118 @@ describe("mention chat external search", () => {
     });
   });
 
+  it("retries the same weather query once when SearXNG temporarily returns no relevant result", async () => {
+    let searxngCalls = 0;
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "searxng.test") {
+        searxngCalls += 1;
+        if (searxngCalls === 1) {
+          return jsonResponse({
+            query: "大阪 明日 天気",
+            results: [
+              {
+                title: "大阪観光ガイド",
+                content: "大阪の観光スポットを紹介します。",
+                url: "https://example.test/osaka-sightseeing",
+                engine: "bing",
+              },
+            ],
+          });
+        }
+        return jsonResponse({
+          query: "大阪 明日 天気",
+          results: [
+            {
+              title: "大阪市の今日明日の天気 - 日本気象協会 tenki.jp",
+              content: "大阪市の今日と明日の天気、気温、降水確率を掲載。",
+              url: "https://tenki.jp/forecast/6/30/6200/27100/1hour.html",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      if (url.hostname === "tenki.jp") {
+        return new Response(TENKI_TOMORROW_FORECAST_HTML, {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${url.toString()}`);
+    });
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "Web検索して、あしたの大阪の天気を調べて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+      currentDate: new Date("2026-07-27T12:00:00+09:00"),
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(
+      fetchImpl.mock.calls
+        .slice(0, 2)
+        .map((call) => new URL(String(call[0])).searchParams.get("q"))
+    ).toEqual(["大阪 明日 天気", "大阪 明日 天気"]);
+    expect(result.reason).toBe("found");
+    expect(result.context?.weatherForecast).toEqual({
+      relativeDay: "tomorrow",
+      location: "大阪市",
+      weather: "晴一時雨",
+      highTemperatureCelsius: "33",
+      lowTemperatureCelsius: "27",
+      forecastDate: "2026-07-28",
+      source: "tenki.jp",
+    });
+  });
+
+  it("stops after one weather retry when SearXNG keeps returning unrelated results", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname !== "searxng.test") {
+        throw new Error(`unexpected fetch: ${url.toString()}`);
+      }
+      return jsonResponse({
+        query: "大阪 明日 天気",
+        results: [
+          {
+            title: "大阪観光ガイド",
+            content: "大阪の観光スポットを紹介します。",
+            url: "https://example.test/osaka-sightseeing",
+            engine: "bing",
+          },
+        ],
+      });
+    });
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "大阪の明日の天気を調べて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+    });
+
+    expect(result).toEqual({ context: null, reason: "no_result" });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(
+      fetchImpl.mock.calls.map((call) =>
+        new URL(String(call[0])).searchParams.get("q")
+      )
+    ).toEqual(["大阪 明日 天気", "大阪 明日 天気"]);
+  });
+
   it("does not treat the characters in Asuka Village as a relative day", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({

@@ -1053,7 +1053,8 @@ async function fetchMentionChatSearchContextDetailedWithinDeadline(
     fetchImpl = fetch,
     currentDate = new Date(),
   }: FetchMentionChatSearchContextOptions,
-  deadlineAt: number
+  deadlineAt: number,
+  weatherRetryRemaining = 1
 ): Promise<MentionChatSearchFetchResult> {
   const query = singleLine(queryText);
   const compactComparisonTerms = getCompactComparisonTerms(query);
@@ -1117,6 +1118,31 @@ async function fetchMentionChatSearchContextDetailedWithinDeadline(
       provider === "searxng" &&
       (results.length === 0 || !hasExactQueryResult(results, searchQuery))
     ) {
+      const relativeWeatherDay =
+        getSingleExplicitWeatherRelativeDay(searchQuery)?.relativeDay ?? null;
+      if (relativeWeatherDay) {
+        if (weatherRetryRemaining <= 0) {
+          return { context: null, reason: "no_result" };
+        }
+        return fetchMentionChatSearchContextDetailedWithinDeadline(
+          {
+            enabled,
+            provider,
+            endpoint,
+            engines,
+            queryText: searchQuery,
+            force: true,
+            timeoutMs,
+            maxQueryChars,
+            maxResponseBytes,
+            maxResults,
+            fetchImpl,
+            currentDate,
+          },
+          deadlineAt,
+          weatherRetryRemaining - 1
+        );
+      }
       if (
         compactComparisonTerms &&
         maxResults >= compactComparisonTerms.length
