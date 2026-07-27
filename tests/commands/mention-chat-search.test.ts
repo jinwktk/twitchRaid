@@ -47,6 +47,7 @@ function jsonResponse(value: unknown, headers: Record<string, string> = {}): Res
 describe("mention chat external search", () => {
   it("detects search-like mention prompts", () => {
     expect(shouldSearchMentionChat("TwitchConの日程を調べて")).toBe(true);
+    expect(shouldSearchMentionChat("呪術廻戦のネタバレして")).toBe(true);
     expect(shouldSearchMentionChat("最新ニュースは？")).toBe(true);
     expect(shouldSearchMentionChat("夏尾さんについて")).toBe(true);
     expect(shouldSearchMentionChat("夏尾さんについて知ってる？")).toBe(true);
@@ -76,6 +77,7 @@ describe("mention chat external search", () => {
     expect(shouldSearchMentionChat("次の配信いつ寝る？")).toBe(false);
     expect(shouldSearchMentionChat("イベントどこ行きたい？")).toBe(false);
     expect(shouldSearchMentionChat("イベント楽しかった？知らない")).toBe(false);
+    expect(shouldSearchMentionChat("ネタバレしてほしくない")).toBe(false);
   });
 
   it("formats DuckDuckGo-compatible results as untrusted context", async () => {
@@ -194,6 +196,49 @@ describe("mention chat external search", () => {
     expect(result?.resultCount).toBe(1);
     expect(result?.text).toContain("森のくまさん替え歌");
   });
+
+  it.each([
+    "呪術廻戦のネタバレを調べて",
+    "呪術廻戦のネタバレして",
+  ])(
+    "separates a Japanese spoiler modifier from the work title: %s",
+    async (queryText) => {
+      const fetchImpl = vi.fn().mockResolvedValue(
+        jsonResponse({
+          query: "呪術廻戦 ネタバレ",
+          results: [
+            {
+              title: "呪術廻戦 全話ネタバレ解説まとめ",
+              content: "呪術廻戦の結末と主要人物のその後を紹介する記事。",
+              url: "https://example.test/jujutsu-spoilers",
+              engine: "bing",
+            },
+          ],
+        })
+      );
+
+      const result = await fetchMentionChatSearchContextDetailed({
+        enabled: true,
+        provider: "searxng",
+        endpoint: "http://searxng.test/search",
+        engines: "bing",
+        queryText,
+        timeoutMs: 2500,
+        maxQueryChars: 120,
+        maxResponseBytes: 65536,
+        maxResults: 3,
+        fetchImpl,
+      });
+
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      const url = new URL(String(fetchImpl.mock.calls[0][0]));
+      expect(url.searchParams.get("q")).toBe("呪術廻戦 ネタバレ");
+      expect(result.reason).toBe("found");
+      expect(result.context?.text).toContain(
+        "呪術廻戦 全話ネタバレ解説まとめ"
+      );
+    }
+  );
 
   it("removes the object particle from a natural weather request", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(

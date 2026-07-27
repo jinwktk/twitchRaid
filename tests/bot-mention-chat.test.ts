@@ -331,6 +331,20 @@ function installAnythingLlmFetchMock(options: {
             ],
           });
         }
+        if (query === "呪術廻戦 ネタバレ") {
+          return json({
+            query,
+            results: [
+              {
+                title: "呪術廻戦 全話ネタバレ解説まとめ",
+                content:
+                  "呪術廻戦の結末と主要人物のその後を紹介する記事。",
+                url: "https://example.test/jujutsu-spoilers",
+                engine: "bing",
+              },
+            ],
+          });
+        }
         return json({
           query,
           results: [
@@ -829,6 +843,41 @@ describe("Bot mention chat", () => {
     );
     expect(infoSpy).toHaveBeenCalledWith(
       expect.stringContaining("source=weather_search")
+    );
+  });
+
+  it("passes a normalized spoiler search result to AnythingLLM", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: ["宿儺との最終決戦後についてまとめるD！"],
+    });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "anythingllm-spoiler.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiSearchEngines: "bing",
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat 呪術廻戦のネタバレを調べて",
+      makeChatMessage("spoiler-message-01")
+    );
+
+    expect(state.searchQueries).toEqual(["呪術廻戦 ネタバレ"]);
+    expect(state.chatMessages).toHaveLength(1);
+    expect(state.chatMessages[0]).toContain("外部検索結果");
+    expect(state.chatMessages[0]).toContain("呪術廻戦 全話ネタバレ解説まとめ");
+    expect(state.directOllamaCalls).toBe(0);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "宿儺との最終決戦後についてまとめるD！"
     );
   });
 
