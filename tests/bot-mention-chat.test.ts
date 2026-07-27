@@ -293,8 +293,8 @@ function installAnythingLlmFetchMock(options: {
             query,
             results: [
               {
-                title: "今日の天気予報",
-                content: "関東では晴れる見込みです。",
+                title: "東京都八王子市の天気予報",
+                content: "八王子市の天気予報を今日明日・週間で掲載中です。",
                 url: "https://example.test/weather",
                 engine: "bing",
               },
@@ -781,7 +781,7 @@ describe("Bot mention chat", () => {
     expect(state.searchQueries).toEqual(["今日の天気"]);
     expect(state.chatMessages).toHaveLength(1);
     expect(state.chatMessages[0]).toContain("外部検索結果");
-    expect(state.chatMessages[0]).toContain("今日の天気予報");
+    expect(state.chatMessages[0]).toContain("東京都八王子市の天気予報");
     expect(state.directOllamaCalls).toBe(0);
     expect(say).toHaveBeenLastCalledWith(
       "#rukalun",

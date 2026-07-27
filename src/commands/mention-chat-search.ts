@@ -373,6 +373,26 @@ function compactForRelevance(value: string): string {
   return value.replace(/\s+/gu, "").toLowerCase();
 }
 
+const WEATHER_RELATIVE_TIME_TERMS = new Set([
+  "今日",
+  "きょう",
+  "明日",
+  "あした",
+  "あす",
+  "明後日",
+]);
+
+function getWeatherRelevanceTerms(query: string): string[] | null {
+  if (!/天気/u.test(query)) return null;
+
+  const terms = query
+    .split(/[\sの]+/u)
+    .map(compactForRelevance)
+    .filter(Boolean)
+    .filter((term) => !WEATHER_RELATIVE_TIME_TERMS.has(term));
+  return terms.length > 0 ? terms : ["天気"];
+}
+
 function hasExactQueryResult(results: SearchResult[], query: string): boolean {
   const compactQuery = compactForRelevance(query);
   const queryTerms = query
@@ -383,9 +403,9 @@ function hasExactQueryResult(results: SearchResult[], query: string): boolean {
     queryTerms.length >= 3
       ? queryTerms.filter((term) => term !== "違い")
       : queryTerms;
-  const relevanceTerms = filteredRelevanceTerms.length
-    ? filteredRelevanceTerms
-    : queryTerms;
+  const relevanceTerms =
+    getWeatherRelevanceTerms(query) ??
+    (filteredRelevanceTerms.length ? filteredRelevanceTerms : queryTerms);
   return results.some((result) => {
     const compactResult = compactForRelevance(
       `${result.title} ${result.snippet} ${result.url ?? ""}`

@@ -174,8 +174,8 @@ describe("mention chat external search", () => {
         query: "今日の天気",
         results: [
           {
-            title: "今日の天気予報",
-            content: "関東では晴れる見込みです。",
+            title: "東京都八王子市の天気予報",
+            content: "八王子市の天気予報を今日明日・週間で掲載中です。",
             url: "https://example.test/weather",
             engine: "bing",
           },
@@ -200,7 +200,42 @@ describe("mention chat external search", () => {
     const url = new URL(String(fetchImpl.mock.calls[0][0]));
     expect(url.searchParams.get("q")).toBe("今日の天気");
     expect(result.reason).toBe("found");
-    expect(result.context?.text).toContain("今日の天気予報");
+    expect(result.context?.text).toContain("東京都八王子市の天気予報");
+  });
+
+  it("keeps an explicit weather location in the relevance check", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "searxng.test") {
+        return jsonResponse({
+          query: "大阪の今日の天気",
+          results: [
+            {
+              title: "東京都八王子市の天気予報",
+              content: "八王子市の天気予報を今日明日・週間で掲載中です。",
+              url: "https://example.test/weather",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      return { ok: false, status: 404 } as Response;
+    });
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "大阪の今日の天気を教えて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+    });
+
+    expect(result).toEqual({ context: null, reason: "no_result" });
   });
 
   it("does not treat two separate information questions as a comparison", async () => {
