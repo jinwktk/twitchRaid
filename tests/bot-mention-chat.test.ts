@@ -965,7 +965,7 @@ describe("Bot mention chat", () => {
   it("repairs an uncertain reply after a found search through the utility workspace", async () => {
     const { state } = installAnythingLlmFetchMock({
       chatReplies: [
-        "検索結果だと、最終回は生き残ったメンバーが日常に戻る後日談みたいな感じなのかな？俺はあんまり深く追ってないんだよね。",
+        "えーっと、ネタバレって聞かれたけど、私はそういうの得意じゃないんだよね。検索結果を見ても最終回の結末とか後日談についての情報はあるみたいだけど、私自身がちゃんと把握してるわけじゃないから、断言することはできないな。ごめんね。",
         "宿儺との最終決戦後、虎杖たちは日常へ戻るD！",
       ],
     });
