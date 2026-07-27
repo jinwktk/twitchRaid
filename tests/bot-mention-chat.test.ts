@@ -965,7 +965,7 @@ describe("Bot mention chat", () => {
   it("repairs a refusal after a found search through the utility workspace", async () => {
     const { state } = installAnythingLlmFetchMock({
       chatReplies: [
-        "ごめん、呪術廻戦の結末は詳しくないから自分で調べてD！",
+        "えーっと、私ってそういう外部検索とかする能力ないからさぁ。ネタバレとかは基本的に見てないし！",
         "宿儺との最終決戦後、虎杖たちは日常へ戻るD！",
       ],
     });

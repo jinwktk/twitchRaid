@@ -85,7 +85,7 @@ const PHONE_PATTERN = /(?:\+?\d[\d\s-]{8,}\d)/u;
 const SECRET_PATTERN =
   /\b(?:token|secret|password|passwd|api[\s_-]?key|access[\s_-]?token|refresh[\s_-]?token)\b|認証|パスワード|秘密|環境変数/iu;
 const RESEARCH_RETRY_REPLY_PATTERN =
-  /(?:わからない|分からない|知らない|詳しくない|把握して(?:い)?ない|確認できない|断定できない|情報(?:が)?(?:ない|足りない)|自分で調べて|調べてみ(?:る|ます)|調べないと|検索してみ(?:る|ます))/u;
+  /(?:わからない|分からない|知らない|詳しくない|把握して(?:い)?ない|確認できない|断定できない|情報(?:が)?(?:ない|足りない)|自分で調べて|調べてみ(?:る|ます)|調べないと|検索してみ(?:る|ます)|(?:外部|ウェブ|web)?検索[^\n。！？!?]{0,40}(?:できない|出来ない|(?:能力|機能)(?:が)?ない))/iu;
 const WIKIPEDIA_SUMMARY_ENDPOINT =
   "https://ja.wikipedia.org/api/rest_v1/page/summary/";
 const JST_OFFSET_MS = 9 * 60 * 60 * 1_000;

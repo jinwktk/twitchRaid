@@ -4,6 +4,7 @@ import {
   applyMentionChatWeatherReplyContract,
   fetchMentionChatSearchContext,
   fetchMentionChatSearchContextDetailed,
+  shouldResearchMentionChatReply,
   shouldSearchMentionChat,
 } from "../../src/commands/mention-chat-search";
 
@@ -94,6 +95,24 @@ describe("mention chat external search", () => {
     expect(shouldSearchMentionChat("イベントどこ行きたい？")).toBe(false);
     expect(shouldSearchMentionChat("イベント楽しかった？知らない")).toBe(false);
     expect(shouldSearchMentionChat("ネタバレしてほしくない")).toBe(false);
+  });
+
+  it("detects a generated refusal that claims external search is unavailable", () => {
+    expect(
+      shouldResearchMentionChatReply(
+        "えーっと、私ってそういう外部検索とかする能力ないからさぁ。"
+      )
+    ).toBe(true);
+    expect(
+      shouldResearchMentionChatReply(
+        "リアルタイムで外部検索とかはできないんだよね。"
+      )
+    ).toBe(true);
+    expect(
+      shouldResearchMentionChatReply(
+        "外部検索で確認した結果、宿儺との最終決戦後の話だよ。"
+      )
+    ).toBe(false);
   });
 
   it("formats DuckDuckGo-compatible results as untrusted context", async () => {
