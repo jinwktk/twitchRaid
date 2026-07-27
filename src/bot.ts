@@ -104,6 +104,7 @@ import {
   writeBotRequestNotesDigestFile,
 } from "./commands/bot-request-notes";
 import {
+  applyMentionChatTodayWeatherReplyContract,
   fetchMentionChatSearchContext,
   fetchMentionChatSearchContextDetailed,
   shouldResearchMentionChatReply,
@@ -1458,6 +1459,8 @@ export class Bot {
         }
       }
       let selectedSearchContextText = searchContext?.text;
+      let selectedTodayWeatherForecast =
+        searchContext?.todayWeatherForecast ?? null;
       let generatedReply =
         await this._generateMentionChatReplyWithConfiguredProvider({
           request,
@@ -1513,6 +1516,8 @@ export class Bot {
           if (researchedReply?.source === "generated") {
             generatedReply = researchedReply;
             selectedSearchContextText = researchSearchContext.text;
+            selectedTodayWeatherForecast =
+              researchSearchContext.todayWeatherForecast ?? null;
           }
         } else {
           logger.info(
@@ -1527,7 +1532,28 @@ export class Bot {
         );
         return;
       }
-      const reply = generatedReply.reply;
+      const weatherReply = selectedTodayWeatherForecast
+        ? applyMentionChatTodayWeatherReplyContract(
+            generatedReply.reply,
+            selectedTodayWeatherForecast
+          )
+        : null;
+      const correctedWeatherReply = weatherReply?.corrected
+        ? formatGeneratedMentionChatReply(
+            weatherReply.reply,
+            this.config.chatAiMaxResponseChars ??
+              DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS
+          )
+        : null;
+      const reply = correctedWeatherReply ?? generatedReply.reply;
+      const finalReplySource = correctedWeatherReply
+        ? "weather_search"
+        : generatedReply.source;
+      if (correctedWeatherReply) {
+        logger.info(
+          `AIメンション会話天気検索補正を適用: requestId=${requestId}, source=structured_forecast`
+        );
+      }
       const successDiagnosticLogged =
         promptReplyLogEnabled &&
         (generatedReply.source === "generated" ||
@@ -1559,7 +1585,7 @@ export class Bot {
         this.config.chatAiAnythingLlmEnabled
       ) {
         logger.info(
-          `AIメンション会話応答: requestId=${requestId}, user=${request.userName}, alias=${request.alias}, model=${model}, source=${generatedReply.source}, image=${Boolean(streamImageBase64)}, replyChars=${replyWithEmote.length}`
+          `AIメンション会話応答: requestId=${requestId}, user=${request.userName}, alias=${request.alias}, model=${model}, source=${finalReplySource}, image=${Boolean(streamImageBase64)}, replyChars=${replyWithEmote.length}`
         );
       } else {
         logger.info(

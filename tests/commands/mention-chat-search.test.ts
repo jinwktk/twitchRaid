@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  applyMentionChatTodayWeatherReplyContract,
   fetchMentionChatSearchContext,
   fetchMentionChatSearchContextDetailed,
   shouldSearchMentionChat,
@@ -311,6 +312,7 @@ describe("mention chat external search", () => {
     expect(result.reason).toBe("found");
     expect(result.context?.text).toContain("大阪市の今日の天気");
     expect(result.context?.text).not.toContain("鹿児島市の今日の天気は");
+    expect(result.context?.todayWeatherForecast).toBeUndefined();
   });
 
   it("adds structured current forecast details from an allowlisted tenki.jp result", async () => {
@@ -349,6 +351,7 @@ describe("mention chat external search", () => {
       maxResponseBytes: 65536,
       maxResults: 3,
       fetchImpl,
+      currentDate: new Date("2026-07-27T12:00:00+09:00"),
     });
 
     expect(fetchImpl).toHaveBeenCalledTimes(2);
@@ -360,6 +363,93 @@ describe("mention chat external search", () => {
     expect(result.context?.text).toContain(
       "鹿児島市の今日の天気は雨のち晴。最高気温36℃、最低気温28℃。予報日: 2026年7月27日。出典: tenki.jp"
     );
+    expect(result.context?.todayWeatherForecast).toEqual({
+      location: "鹿児島市",
+      weather: "雨のち晴",
+      highTemperatureCelsius: "36",
+      lowTemperatureCelsius: "28",
+      forecastDate: "2026-07-27",
+      source: "tenki.jp",
+    });
+  });
+
+  it("does not expose a stale tenki.jp forecast as today's structured data", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "searxng.test") {
+        return jsonResponse({
+          query: "今日の天気",
+          results: [
+            {
+              title: "鹿児島市の1時間天気 - 日本気象協会 tenki.jp",
+              content: "鹿児島市の天気、気温、降水量を掲載しています。",
+              url: "https://tenki.jp/forecast/9/49/8810/46201/1hour.html",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      if (url.hostname === "tenki.jp") {
+        return new Response(
+          TENKI_TODAY_FORECAST_HTML.replace("2026-07-27", "2026-07-26"),
+          { headers: { "content-type": "text/html; charset=utf-8" } }
+        );
+      }
+      throw new Error(`unexpected fetch: ${url.toString()}`);
+    });
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "今日の天気を教えて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+      currentDate: new Date("2026-07-27T12:00:00+09:00"),
+    });
+
+    expect(result.reason).toBe("found");
+    expect(result.context?.todayWeatherForecast).toBeUndefined();
+    expect(result.context?.text).not.toContain("最高気温36℃");
+  });
+
+  it("replaces an incomplete unknown weather reply with all structured values", () => {
+    const result = applyMentionChatTodayWeatherReplyContract(
+      "天気予報は知らないけど、鹿児島市は雨のち晴みたいだよ！",
+      {
+        location: "鹿児島市",
+        weather: "雨のち晴",
+        highTemperatureCelsius: "36",
+        lowTemperatureCelsius: "28",
+        forecastDate: "2026-07-27",
+        source: "tenki.jp",
+      }
+    );
+
+    expect(result).toEqual({
+      corrected: true,
+      reply:
+        "鹿児島市の今日の天気は雨のち晴。最高気温36℃、最低気温28℃だよ！",
+    });
+  });
+
+  it("keeps a complete weather reply without replacing its wording", () => {
+    const generatedReply =
+      "鹿児島市は雨のち晴だよ！最高気温は36度、最低気温は28℃の予報だよ。";
+    const result = applyMentionChatTodayWeatherReplyContract(generatedReply, {
+      location: "鹿児島市",
+      weather: "雨のち晴",
+      highTemperatureCelsius: "36",
+      lowTemperatureCelsius: "28",
+      forecastDate: "2026-07-27",
+      source: "tenki.jp",
+    });
+
+    expect(result).toEqual({ corrected: false, reply: generatedReply });
   });
 
   it("does not add today's structured forecast to a tomorrow weather request", async () => {

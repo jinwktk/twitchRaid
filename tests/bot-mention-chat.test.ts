@@ -10,11 +10,14 @@ import { AnythingLlmLedger } from "../src/commands/anythingllm-ledger";
 
 let tmpDir: string | null = null;
 
+const TEST_JST_TODAY = new Date(Date.now() + 9 * 60 * 60 * 1_000)
+  .toISOString()
+  .slice(0, 10);
 const TENKI_TODAY_FORECAST_HTML = `<script type="application/ld+json">${JSON.stringify(
   {
     "@type": "Dataset",
     name: "鹿児島市の今日の天気予報",
-    temporalCoverage: "2026-07-27",
+    temporalCoverage: TEST_JST_TODAY,
     mainEntity: {
       "csvw:tableSchema": {
         "csvw:columns": [
@@ -787,8 +790,11 @@ describe("Bot mention chat", () => {
   });
 
   it("passes a normalized weather search result to AnythingLLM", async () => {
+    const infoSpy = vi.spyOn(logger, "info");
     const { state } = installAnythingLlmFetchMock({
-      chatReplies: ["関東は晴れる見込みだよD！"],
+      chatReplies: [
+        "私、天気予報は知らないんだよね。鹿児島市は雨のち晴みたいだよ！",
+      ],
     });
     const { bot, say } = makeBot({
       chatAiAnythingLlmEnabled: true,
@@ -819,7 +825,10 @@ describe("Bot mention chat", () => {
     expect(state.directOllamaCalls).toBe(0);
     expect(say).toHaveBeenLastCalledWith(
       "#rukalun",
-      "関東は晴れる見込みだよD！"
+      "鹿児島市の今日の天気は雨のち晴。最高気温36℃、最低気温28℃だよ！"
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining("source=weather_search")
     );
   });
 
