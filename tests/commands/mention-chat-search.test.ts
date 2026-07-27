@@ -121,6 +121,10 @@ describe("mention chat external search", () => {
       "検索結果だと、最終回は生き残ったメンバーが日常に戻る後日談みたいな感じなのかな？俺はあんまり深く追ってないんだよね。";
     const liveRefusalReply =
       "えーっと、ネタバレって聞かれたけど、私はそういうの得意じゃないんだよね。検索結果を見ても最終回の結末とか後日談についての情報はあるみたいだけど、私自身がちゃんと把握してるわけじゃないから、断言することはできないな。ごめんね。";
+    const liveSoftRefusalReply =
+      "えーっと、ネタバレとかはちょっと難しいかな〜。でも、みんなが気になるのは最終回とかの結末なんだよね！";
+    const liveAvoidanceReply =
+      "えー、ネタバレとか怖いよ〜！今は色々やってるから、そういう話は後でゆっくり聞かせてくれると嬉しいな！";
 
     expect(shouldResearchMentionChatReply(uncertainReply)).toBe(false);
     expect(
@@ -135,6 +139,24 @@ describe("mention chat external search", () => {
     expect(
       shouldRepairMentionChatReplyFromSearchContext(liveRefusalReply)
     ).toBe(true);
+    expect(shouldResearchMentionChatReply(liveSoftRefusalReply)).toBe(false);
+    expect(
+      shouldRepairMentionChatReplyFromSearchContext(liveSoftRefusalReply)
+    ).toBe(true);
+    expect(shouldResearchMentionChatReply(liveAvoidanceReply)).toBe(false);
+    expect(
+      shouldRepairMentionChatReplyFromSearchContext(liveAvoidanceReply)
+    ).toBe(true);
+    expect(
+      shouldRepairMentionChatReplyFromSearchContext(
+        "このゲームは難しいかな？ホラーは怖いよ〜！後でゆっくり聞かせてくれると嬉しい。"
+      )
+    ).toBe(false);
+    expect(
+      shouldRepairMentionChatReplyFromSearchContext(
+        "ネタバレが怖い人向けに結末を説明すると、最終決戦後に虎杖たちは日常へ戻るよ。"
+      )
+    ).toBe(false);
   });
 
   it("formats DuckDuckGo-compatible results as untrusted context", async () => {
