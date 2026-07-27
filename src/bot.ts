@@ -107,6 +107,7 @@ import {
   applyMentionChatWeatherReplyContract,
   fetchMentionChatSearchContext,
   fetchMentionChatSearchContextDetailed,
+  shouldRepairMentionChatReplyFromSearchContext,
   shouldResearchMentionChatReply,
   shouldSearchMentionChat,
 } from "./commands/mention-chat-search";
@@ -1558,7 +1559,7 @@ export class Bot {
         generatedReply?.source === "generated" &&
         searchContext &&
         !selectedWeatherForecast &&
-        shouldResearchMentionChatReply(generatedReply.reply)
+        shouldRepairMentionChatReplyFromSearchContext(generatedReply.reply)
       ) {
         const repairedSearchReply =
           await this._repairMentionChatReplyFromSearchContext({

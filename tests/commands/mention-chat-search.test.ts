@@ -4,6 +4,7 @@ import {
   applyMentionChatWeatherReplyContract,
   fetchMentionChatSearchContext,
   fetchMentionChatSearchContextDetailed,
+  shouldRepairMentionChatReplyFromSearchContext,
   shouldResearchMentionChatReply,
   shouldSearchMentionChat,
 } from "../../src/commands/mention-chat-search";
@@ -110,6 +111,21 @@ describe("mention chat external search", () => {
     ).toBe(true);
     expect(
       shouldResearchMentionChatReply(
+        "外部検索で確認した結果、宿儺との最終決戦後の話だよ。"
+      )
+    ).toBe(false);
+  });
+
+  it("repairs uncertain wording only after search context was already found", () => {
+    const uncertainReply =
+      "検索結果だと、最終回は生き残ったメンバーが日常に戻る後日談みたいな感じなのかな？俺はあんまり深く追ってないんだよね。";
+
+    expect(shouldResearchMentionChatReply(uncertainReply)).toBe(false);
+    expect(
+      shouldRepairMentionChatReplyFromSearchContext(uncertainReply)
+    ).toBe(true);
+    expect(
+      shouldRepairMentionChatReplyFromSearchContext(
         "外部検索で確認した結果、宿儺との最終決戦後の話だよ。"
       )
     ).toBe(false);

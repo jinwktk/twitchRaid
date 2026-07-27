@@ -962,10 +962,10 @@ describe("Bot mention chat", () => {
     );
   });
 
-  it("repairs a refusal after a found search through the utility workspace", async () => {
+  it("repairs an uncertain reply after a found search through the utility workspace", async () => {
     const { state } = installAnythingLlmFetchMock({
       chatReplies: [
-        "えーっと、私ってそういう外部検索とかする能力ないからさぁ。ネタバレとかは基本的に見てないし！",
+        "検索結果だと、最終回は生き残ったメンバーが日常に戻る後日談みたいな感じなのかな？俺はあんまり深く追ってないんだよね。",
         "宿儺との最終決戦後、虎杖たちは日常へ戻るD！",
       ],
     });
@@ -2712,6 +2712,60 @@ describe("Bot mention chat", () => {
     expect(searchedPrompt).toContain("TwitchCon event schedule.");
     expect(casualPrompt).not.toContain("外部検索結果");
     expect(say).toHaveBeenCalledWith("#rukalun", "自然に答えるD！");
+  });
+
+  it("does not force-search casual chat solely because the generated reply is uncertain", async () => {
+    const { bot, say } = makeBot({
+      chatAiSearchEnabled: true,
+      chatAiSearchEndpoint: "https://api.duckduckgo.com/",
+      chatAiCooldownSeconds: 0,
+    });
+    const uncertainReply = "ローグライクみたいな感じなのかな？";
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        if (String(input).startsWith("https://api.duckduckgo.com/")) {
+          const bytes = Buffer.from(
+            JSON.stringify({
+              Heading: "ゲーム",
+              AbstractText: "検索結果",
+              AbstractURL: "https://example.test/game",
+            }),
+            "utf8"
+          );
+          return {
+            ok: true,
+            headers: { get: () => null },
+            arrayBuffer: async () =>
+              bytes.buffer.slice(
+                bytes.byteOffset,
+                bytes.byteOffset + bytes.byteLength
+              ),
+          } as Response;
+        }
+
+        return {
+          ok: true,
+          json: async () => ({ response: uncertainReply }),
+        } as Response;
+      });
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun このゲーム楽しそう？",
+      100
+    );
+
+    const searchCalls = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).startsWith("https://api.duckduckgo.com/")
+    );
+    const ollamaCalls = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    expect(searchCalls).toHaveLength(0);
+    expect(ollamaCalls).toHaveLength(1);
+    expect(say).toHaveBeenCalledWith("#rukalun", uncertainReply);
   });
 
   it("researches with free search and regenerates when Ollama says it does not know", async () => {
