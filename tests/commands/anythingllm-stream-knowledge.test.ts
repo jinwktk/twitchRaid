@@ -102,6 +102,7 @@ function embedAll(ledger: AnythingLlmLedger): void {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   if (tempDir) {
     fs.rmSync(tempDir, { recursive: true, force: true });
@@ -392,6 +393,61 @@ describe("AnythingLlmStreamKnowledge", () => {
     expect(secondChat).toHaveBeenCalledTimes(2);
 
     second.close();
+    ledger.close();
+  });
+
+  it("backs off automatic retries for recently failed stream jobs", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-28T00:00:00.000Z"));
+    const paths = makePaths();
+    const ledger = new AnythingLlmLedger(paths.ledgerPath);
+    ledger.acceptComment(makeEvent());
+    embedAll(ledger);
+    const chat = vi
+      .fn<AnythingLlmStreamKnowledgeClient["chat"]>()
+      .mockRejectedValueOnce(
+        new AnythingLlmClientError(
+          "timeout",
+          "AnythingLLM workspace chat timed out"
+        )
+      )
+      .mockResolvedValueOnce({
+        reply: JSON.stringify({
+          summary: "再試行後の要約",
+          facts: [],
+        }),
+        sourceCount: 0,
+      });
+    const knowledge = new AnythingLlmStreamKnowledge({
+      ledger,
+      client: makeClient({ chat }),
+      stateDbPath: paths.statePath,
+    });
+    knowledge.captureStreamEnd(captureInput());
+
+    expect(await knowledge.processStream("stream-1")).toMatchObject({
+      status: "failed",
+      lastFailureReason: "client_chat_timeout",
+    });
+    expect(await knowledge.resumePending()).toEqual([]);
+    expect(chat).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date("2026-07-28T05:59:59.999Z"));
+    expect(await knowledge.resumePending()).toEqual([]);
+    expect(chat).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date("2026-07-28T06:00:00.000Z"));
+
+    expect(await knowledge.resumePending()).toEqual([
+      expect.objectContaining({
+        streamId: "stream-1",
+        status: "complete",
+        finalSummary: "再試行後の要約",
+      }),
+    ]);
+    expect(chat).toHaveBeenCalledTimes(2);
+
+    knowledge.close();
     ledger.close();
   });
 

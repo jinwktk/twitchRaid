@@ -124,6 +124,7 @@ class StreamKnowledgeFailure extends Error {
 // room even when every Twitch comment is near the 500-character limit.
 const DEFAULT_LEAF_MAX_COMMENTS = 8;
 const DEFAULT_REDUCE_FAN_IN = 8;
+const FAILED_RETRY_COOLDOWN_MS = 6 * 60 * 60 * 1_000;
 const NO_COMMENT_SUMMARY = "記録されたコメントはありません。";
 const REPAIRABLE_RESPONSE_FAILURES = new Set([
   "invalid_json",
@@ -576,17 +577,24 @@ export class AnythingLlmStreamKnowledge {
       1,
       Math.min(1_000, Math.floor(limit))
     );
+    const failedRetryCutoff = new Date(
+      Date.now() - FAILED_RETRY_COOLDOWN_MS
+    ).toISOString();
     const rows = this.db
       .prepare(
         `
           SELECT *
           FROM anythingllm_stream_knowledge_jobs
           WHERE status <> 'complete'
+            AND (status <> 'failed' OR updated_at <= ?)
           ORDER BY created_at ASC, stream_id ASC
           LIMIT ?
         `
       )
-      .all(effectiveLimit) as unknown as StreamKnowledgeJobRow[];
+      .all(
+        failedRetryCutoff,
+        effectiveLimit
+      ) as unknown as StreamKnowledgeJobRow[];
     const results: AnythingLlmStreamKnowledgeJob[] = [];
     for (const row of rows) {
       results.push(await this.processStream(row.stream_id));
