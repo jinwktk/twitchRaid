@@ -168,6 +168,41 @@ describe("mention chat external search", () => {
     expect(result?.text).toContain("森のくまさん替え歌");
   });
 
+  it("removes the object particle from a natural weather request", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        query: "今日の天気",
+        results: [
+          {
+            title: "今日の天気予報",
+            content: "関東では晴れる見込みです。",
+            url: "https://example.test/weather",
+            engine: "bing",
+          },
+        ],
+      })
+    );
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "bing",
+      queryText: "今日の天気を教えて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const url = new URL(String(fetchImpl.mock.calls[0][0]));
+    expect(url.searchParams.get("q")).toBe("今日の天気");
+    expect(result.reason).toBe("found");
+    expect(result.context?.text).toContain("今日の天気予報");
+  });
+
   it("does not treat two separate information questions as a comparison", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({

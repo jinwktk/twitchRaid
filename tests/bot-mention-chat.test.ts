@@ -288,6 +288,19 @@ function installAnythingLlmFetchMock(options: {
       if (url.hostname === "searxng.test") {
         const query = url.searchParams.get("q") ?? "";
         state.searchQueries.push(query);
+        if (query === "今日の天気") {
+          return json({
+            query,
+            results: [
+              {
+                title: "今日の天気予報",
+                content: "関東では晴れる見込みです。",
+                url: "https://example.test/weather",
+                engine: "bing",
+              },
+            ],
+          });
+        }
         return json({
           query,
           results: [
@@ -738,6 +751,41 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenLastCalledWith(
       "#rukalun",
       "どちらも牛タン料理の呼び方だよD！"
+    );
+  });
+
+  it("passes a normalized weather search result to AnythingLLM", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: ["関東は晴れる見込みだよD！"],
+    });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "anythingllm-weather.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiSearchEngines: "bing",
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat 今日の天気を教えて",
+      makeChatMessage("weather-message-01")
+    );
+
+    expect(state.searchQueries).toEqual(["今日の天気"]);
+    expect(state.chatMessages).toHaveLength(1);
+    expect(state.chatMessages[0]).toContain("外部検索結果");
+    expect(state.chatMessages[0]).toContain("今日の天気予報");
+    expect(state.directOllamaCalls).toBe(0);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "関東は晴れる見込みだよD！"
     );
   });
 
