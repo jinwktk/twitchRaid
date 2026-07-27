@@ -927,7 +927,10 @@ describe("Bot mention chat", () => {
 
   it("passes a normalized spoiler search result to AnythingLLM", async () => {
     const { state } = installAnythingLlmFetchMock({
-      chatReplies: ["宿儺との最終決戦後についてまとめるD！"],
+      chatReplies: [
+        "宿儺との最終決戦後についてまとめるD！",
+        "最終決戦後に虎杖たちは日常へ戻るD！",
+      ],
     });
     const { bot, say } = makeBot({
       chatAiAnythingLlmEnabled: true,
@@ -952,20 +955,21 @@ describe("Bot mention chat", () => {
     expect(state.searchQueries).toEqual([
       "呪術廻戦 最終回 結末 ネタバレ",
     ]);
-    expect(state.chatMessages).toHaveLength(1);
+    expect(state.chatMessages).toHaveLength(2);
     expect(state.chatMessages[0]).toContain("外部検索結果");
     expect(state.chatMessages[0]).toContain("呪術廻戦 全話ネタバレ解説まとめ");
+    expect(state.chatMessages[1]).toContain("外部検索結果");
     expect(state.directOllamaCalls).toBe(0);
     expect(say).toHaveBeenLastCalledWith(
       "#rukalun",
-      "宿儺との最終決戦後についてまとめるD！"
+      "最終決戦後に虎杖たちは日常へ戻るD！"
     );
   });
 
-  it("repairs an uncertain reply after a found search through the utility workspace", async () => {
+  it("always synthesizes an explicit spoiler search through the utility workspace", async () => {
     const { state } = installAnythingLlmFetchMock({
       chatReplies: [
-        "えー、ネタバレとか怖いよ〜！今は色々やってるから、そういう話は後でゆっくり聞かせてくれると嬉しいな！",
+        "えー、ネタバレとかやだ〜！見てない人いるでしょ、絶対無理だよそれ！",
         "宿儺との最終決戦後、虎杖たちは日常へ戻るD！",
       ],
     });
@@ -993,6 +997,9 @@ describe("Bot mention chat", () => {
     expect(state.chatMessages[1]).toContain("外部検索結果");
     expect(state.chatMessages[1]).toContain(
       "検索結果に書かれた事実だけを使い"
+    );
+    expect(state.chatMessages[1]).toContain(
+      "具体的な結末をこの回答内で説明"
     );
     expect(state.directOllamaCalls).toBe(0);
     expect(say).toHaveBeenLastCalledWith(

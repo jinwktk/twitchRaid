@@ -64,7 +64,9 @@ type SearchRecord = Record<string, unknown>;
 const SEARCH_PROMPT_PATTERN =
   /検索|調べ|調べて|ググ|最新|ニュース|とは|価格|値段|天気|wiki|wikipedia|what|who|when|where|latest|news|search/iu;
 const SPOILER_REQUEST_PATTERN =
-  /ネタバレ(?:を)?して(?:ください)?[？?。!！\s]*$/u;
+  /ネタバレ(?:を)?(?:(?:検索(?:して)?|調べて|調べ|ググって|ググる)(?:ください)?|教えて(?:ください)?|して(?:ください)?)[？?。!！\s]*$/u;
+const NEGATED_SPOILER_SEARCH_PATTERN =
+  /ネタバレ[^\n。！？!?]{0,40}(?:ほしくない|欲しくない|しないで|(?:調べ|ググら|教え|話さ|言わ|明かさ)ないで|やめて|不要|いらない|避けて|なしで|禁止)/u;
 const ABOUT_PROMPT_PATTERN =
   /について(?:教えて|知りたい|知ってる|知っています|わかる|分かる|$|[？?])/u;
 const NATURAL_INFO_REQUEST_PATTERN =
@@ -138,6 +140,10 @@ function hasExplicitSearchIntent(query: string): boolean {
   return SEARCH_PROMPT_PATTERN.test(query) || SPOILER_REQUEST_PATTERN.test(query);
 }
 
+function isNegatedSpoilerSearchRequest(query: string): boolean {
+  return NEGATED_SPOILER_SEARCH_PATTERN.test(query);
+}
+
 function hasAboutInformationRequest(query: string): boolean {
   return ABOUT_PROMPT_PATTERN.test(query);
 }
@@ -162,10 +168,21 @@ export function shouldSearchMentionChat(value: string): boolean {
   const query = singleLine(value);
   return (
     !MEMORY_REQUEST_PATTERN.test(query) &&
+    !isNegatedSpoilerSearchRequest(query) &&
     (hasExplicitSearchIntent(query) ||
       hasAboutInformationRequest(query) ||
       hasQuestionWordRequest(query) ||
       hasExternalFactQuestion(query))
+  );
+}
+
+export function shouldAlwaysSynthesizeMentionChatSearchReply(
+  value: string
+): boolean {
+  const query = singleLine(value);
+  return (
+    !isNegatedSpoilerSearchRequest(query) &&
+    SPOILER_REQUEST_PATTERN.test(query)
   );
 }
 
@@ -1052,6 +1069,7 @@ async function fetchMentionChatSearchContextDetailedWithinDeadline(
     return { context: null, reason: "disabled" };
   }
   if (
+    isNegatedSpoilerSearchRequest(query) ||
     (!force && !shouldSearchMentionChat(query)) ||
     hasUnsafeExternalQueryContent(query) ||
     isUnsafeExternalQuery(searchQuery, maxQueryChars)

@@ -107,6 +107,7 @@ import {
   applyMentionChatWeatherReplyContract,
   fetchMentionChatSearchContext,
   fetchMentionChatSearchContextDetailed,
+  shouldAlwaysSynthesizeMentionChatSearchReply,
   shouldRepairMentionChatReplyFromSearchContext,
   shouldResearchMentionChatReply,
   shouldSearchMentionChat,
@@ -1292,6 +1293,8 @@ export class Bot {
       }),
       "検索回答の再生成指示: 検索結果に書かれた事実だけを使い、ユーザーの質問へ直接答えてください。",
       "検索結果が具体的な回答を含む場合は、「詳しくない」「自分で調べて」「分からない」で終えないでください。",
+      "ネタバレを求められている場合は、注意喚起や拒否をせず、検索結果にある具体的な結末をこの回答内で説明してください。",
+      "外部サイトを見るよう促さず、検索結果から確認できた内容だけで回答を完結させてください。",
       "検索結果から確認できない事実は推測せず、確認できた範囲を明示してください。",
       "完成した回答だけを返してください。",
     ].join("\n");
@@ -1559,7 +1562,8 @@ export class Bot {
         generatedReply?.source === "generated" &&
         searchContext &&
         !selectedWeatherForecast &&
-        shouldRepairMentionChatReplyFromSearchContext(generatedReply.reply)
+        (shouldAlwaysSynthesizeMentionChatSearchReply(request.prompt) ||
+          shouldRepairMentionChatReplyFromSearchContext(generatedReply.reply))
       ) {
         const repairedSearchReply =
           await this._repairMentionChatReplyFromSearchContext({

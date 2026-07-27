@@ -4,6 +4,7 @@ import {
   applyMentionChatWeatherReplyContract,
   fetchMentionChatSearchContext,
   fetchMentionChatSearchContextDetailed,
+  shouldAlwaysSynthesizeMentionChatSearchReply,
   shouldRepairMentionChatReplyFromSearchContext,
   shouldResearchMentionChatReply,
   shouldSearchMentionChat,
@@ -96,6 +97,15 @@ describe("mention chat external search", () => {
     expect(shouldSearchMentionChat("イベントどこ行きたい？")).toBe(false);
     expect(shouldSearchMentionChat("イベント楽しかった？知らない")).toBe(false);
     expect(shouldSearchMentionChat("ネタバレしてほしくない")).toBe(false);
+    expect(
+      shouldSearchMentionChat("呪術廻戦のネタバレを調べてほしくない")
+    ).toBe(false);
+    expect(
+      shouldSearchMentionChat("呪術廻戦のネタバレを検索しないで")
+    ).toBe(false);
+    expect(
+      shouldSearchMentionChat("呪術廻戦のネタバレをググってほしくない")
+    ).toBe(false);
   });
 
   it("detects a generated refusal that claims external search is unavailable", () => {
@@ -155,6 +165,37 @@ describe("mention chat external search", () => {
     expect(
       shouldRepairMentionChatReplyFromSearchContext(
         "ネタバレが怖い人向けに結末を説明すると、最終決戦後に虎杖たちは日常へ戻るよ。"
+      )
+    ).toBe(false);
+  });
+
+  it("always synthesizes an explicit spoiler request after search results were found", () => {
+    expect(
+      shouldAlwaysSynthesizeMentionChatSearchReply(
+        "呪術廻戦のネタバレを調べて"
+      )
+    ).toBe(true);
+    expect(
+      shouldAlwaysSynthesizeMentionChatSearchReply("呪術廻戦のネタバレして")
+    ).toBe(true);
+    expect(
+      shouldAlwaysSynthesizeMentionChatSearchReply(
+        "呪術廻戦のネタバレを教えてください"
+      )
+    ).toBe(true);
+    expect(
+      shouldAlwaysSynthesizeMentionChatSearchReply(
+        "呪術廻戦のネタバレを検索してください"
+      )
+    ).toBe(true);
+    expect(
+      shouldAlwaysSynthesizeMentionChatSearchReply(
+        "呪術廻戦のネタバレしてほしくない"
+      )
+    ).toBe(false);
+    expect(
+      shouldAlwaysSynthesizeMentionChatSearchReply(
+        "ネタバレが怖い人向けに結末を説明して"
       )
     ).toBe(false);
   });
@@ -1475,6 +1516,57 @@ describe("mention chat external search", () => {
         queryText: "API_KEY=abc123 を調べて",
       })
     ).resolves.toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "呪術廻戦のネタバレを調べてほしくない",
+    "呪術廻戦のネタバレを検索しないで",
+    "呪術廻戦のネタバレをググってほしくない",
+    "呪術廻戦のネタバレを調べないで",
+    "呪術廻戦のネタバレを調べないでください",
+    "呪術廻戦のネタバレをググらないで",
+  ])("does not externally search a negated spoiler request: %s", async (queryText) => {
+    const fetchImpl = vi.fn();
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      endpoint: "https://api.duckduckgo.com/",
+      queryText,
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 2,
+      fetchImpl,
+    });
+
+    expect(result).toEqual({ context: null, reason: "not_candidate" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "呪術廻戦のネタバレを調べてほしくない",
+    "呪術廻戦のネタバレを検索しないで",
+    "呪術廻戦のネタバレをググってほしくない",
+    "呪術廻戦のネタバレを調べないで",
+    "呪術廻戦のネタバレを調べないでください",
+    "呪術廻戦のネタバレをググらないで",
+  ])("does not force-search a negated spoiler request: %s", async (queryText) => {
+    const fetchImpl = vi.fn();
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      endpoint: "https://api.duckduckgo.com/",
+      queryText,
+      force: true,
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 2,
+      fetchImpl,
+    });
+
+    expect(result).toEqual({ context: null, reason: "not_candidate" });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
