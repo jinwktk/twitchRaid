@@ -67,9 +67,18 @@ describe("SearXNG self-hosting config", () => {
     expect(settings).toContain("formats:");
     expect(settings).toContain("- json");
     expect(settings).toContain("keep_only:");
-    expect(settings).toContain("- google");
-    expect(settings).toContain("- duckduckgo");
     expect(settings).toContain("- bing");
+    expect(settings).toContain("- yahoo japan");
+    expect(settings).not.toContain("- google");
+    expect(settings).not.toContain("- duckduckgo");
+    expect(settings).toContain("- name: yahoo japan");
+    expect(settings).toContain("engine: xpath");
+    expect(settings).toContain(
+      "search_url: https://search.yahoo.co.jp/search?p={query}"
+    );
+    expect(settings).toContain(
+      'results_xpath: \'//div[contains(concat(" ", normalize-space(@class), " "), " Algo ")]\''
+    );
     expect(settings).toContain("disabled: false");
     expect(settings).toContain("keepalive_expiry: 300.0");
   });
@@ -150,6 +159,15 @@ describe("SearXNG self-hosting config", () => {
     expect(benchmark).toContain("anythingllm");
     expect(benchmark).toContain('["CHAT_AI_ANYTHINGLLM_ENABLED", "true"]');
     expect(benchmark).toContain('["ANYTHING_LLM_BASE_URL", anythingLlmBaseUrl]');
+    expect(benchmark).toContain(
+      '["CHAT_AI_SEARCH_ENGINES", "yahoo japan,bing"]'
+    );
+    expect(benchmark).not.toContain(
+      '["CHAT_AI_SEARCH_ENGINES", "bing"]'
+    );
+    expect(benchmark).toContain(
+      'searxngUrl.searchParams.set("engines", "yahoo japan,bing")'
+    );
     expect(benchmark).not.toContain("sub-ai_mem0");
     expect(benchmark).not.toContain("CHAT_AI_MEM0_");
   });
@@ -163,7 +181,7 @@ describe("SearXNG self-hosting config", () => {
     expect(benchmark).toContain("generate: 770.54");
     expect(benchmark).toContain("embed: 32.49");
     expect(benchmark).toContain("anythingllm: 100");
-    expect(benchmark).toContain("searxng: 372.83");
+    expect(benchmark).toContain("searxng: 631.25");
   });
 
   it("uses the production WSL distribution for the LAN-only AnythingLLM UI", () => {

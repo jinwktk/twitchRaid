@@ -351,6 +351,21 @@ function normalizeSearchQuery(value: string): string {
   return applyKnownSearchAliases(query);
 }
 
+function buildWeatherRetrySearchQuery(searchQuery: string): string | null {
+  const weatherDay = getSingleExplicitWeatherRelativeDay(searchQuery);
+  if (!weatherDay) return null;
+
+  const queryWithoutDay = singleLine(
+    `${searchQuery.slice(0, weatherDay.start)} ${searchQuery.slice(
+      weatherDay.end
+    )}`
+  );
+  const location = trimWeatherLocationConnectors(
+    queryWithoutDay.replace(/天気(?:予報)?/gu, " ")
+  );
+  return location ? `${location} 天気` : null;
+}
+
 function applyKnownSearchAliases(query: string): string {
   if (/るっかるん/u.test(query) && !/\brukalun\b/iu.test(query)) {
     return singleLine(`${query} rukalun`);
@@ -1054,11 +1069,13 @@ async function fetchMentionChatSearchContextDetailedWithinDeadline(
     currentDate = new Date(),
   }: FetchMentionChatSearchContextOptions,
   deadlineAt: number,
-  relevanceRetryRemaining = 1
+  relevanceRetryRemaining = 1,
+  searchQueryOverride: string | null = null
 ): Promise<MentionChatSearchFetchResult> {
   const query = singleLine(queryText);
   const compactComparisonTerms = getCompactComparisonTerms(query);
   const searchQuery = normalizeSearchQuery(query);
+  const requestSearchQuery = searchQueryOverride ?? searchQuery;
   if (
     !enabled ||
     !endpoint.trim() ||
@@ -1073,12 +1090,13 @@ async function fetchMentionChatSearchContextDetailedWithinDeadline(
     isNegatedSpoilerSearchRequest(query) ||
     (!force && !shouldSearchMentionChat(query)) ||
     hasUnsafeExternalQueryContent(query) ||
-    isUnsafeExternalQuery(searchQuery, maxQueryChars)
+    isUnsafeExternalQuery(searchQuery, maxQueryChars) ||
+    isUnsafeExternalQuery(requestSearchQuery, maxQueryChars)
   ) {
     return { context: null, reason: "not_candidate" };
   }
 
-  const url = buildSearchUrl(endpoint, searchQuery, provider, engines);
+  const url = buildSearchUrl(endpoint, requestSearchQuery, provider, engines);
   if (!url) return { context: null, reason: "failed" };
 
   try {
@@ -1120,10 +1138,13 @@ async function fetchMentionChatSearchContextDetailedWithinDeadline(
     ) {
       const relativeWeatherDay =
         getSingleExplicitWeatherRelativeDay(searchQuery)?.relativeDay ?? null;
-      const shouldRetrySameQuery =
+      const weatherRetrySearchQuery = relativeWeatherDay
+        ? buildWeatherRetrySearchQuery(searchQuery)
+        : null;
+      const shouldRetrySearch =
         relativeWeatherDay !== null ||
         shouldAlwaysSynthesizeMentionChatSearchReply(query);
-      if (shouldRetrySameQuery) {
+      if (shouldRetrySearch) {
         if (relevanceRetryRemaining <= 0) {
           return { context: null, reason: "no_result" };
         }
@@ -1143,7 +1164,8 @@ async function fetchMentionChatSearchContextDetailedWithinDeadline(
             currentDate,
           },
           deadlineAt,
-          relevanceRetryRemaining - 1
+          relevanceRetryRemaining - 1,
+          weatherRetrySearchQuery
         );
       }
       if (

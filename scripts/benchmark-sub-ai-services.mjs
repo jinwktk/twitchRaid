@@ -90,7 +90,7 @@ const baselineP95Ms = {
   generate: 770.54,
   embed: 32.49,
   anythingllm: 100,
-  searxng: 372.83,
+  searxng: 631.25,
 };
 const limits = {
   generateP95Ms: baselineP95Ms.generate * 1.1,

@@ -982,7 +982,7 @@ describe("mention chat external search", () => {
     });
   });
 
-  it("retries the same weather query once when SearXNG temporarily returns no relevant result", async () => {
+  it("retries explicit weather without the relative day when SearXNG returns no relevant result", async () => {
     let searxngCalls = 0;
     const fetchImpl = vi.fn().mockImplementation(async (input) => {
       const url = new URL(String(input));
@@ -1002,7 +1002,7 @@ describe("mention chat external search", () => {
           });
         }
         return jsonResponse({
-          query: "大阪 明日 天気",
+          query: "大阪 天気",
           results: [
             {
               title: "大阪市の今日明日の天気 - 日本気象協会 tenki.jp",
@@ -1040,7 +1040,7 @@ describe("mention chat external search", () => {
       fetchImpl.mock.calls
         .slice(0, 2)
         .map((call) => new URL(String(call[0])).searchParams.get("q"))
-    ).toEqual(["大阪 明日 天気", "大阪 明日 天気"]);
+    ).toEqual(["大阪 明日 天気", "大阪 天気"]);
     expect(result.reason).toBe("found");
     expect(result.context?.weatherForecast).toEqual({
       relativeDay: "tomorrow",
@@ -1051,6 +1051,137 @@ describe("mention chat external search", () => {
       forecastDate: "2026-07-28",
       source: "tenki.jp",
     });
+  });
+
+  it("retries explicit current weather with a location-only weather query", async () => {
+    let searxngCalls = 0;
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "searxng.test") {
+        searxngCalls += 1;
+        if (searxngCalls === 1) {
+          return jsonResponse({
+            query: "大阪 今日 天気",
+            results: [
+              {
+                title: "大阪観光ガイド",
+                content: "大阪の観光スポットを紹介します。",
+                url: "https://example.test/osaka-sightseeing",
+                engine: "bing",
+              },
+            ],
+          });
+        }
+        return jsonResponse({
+          query: "大阪 天気",
+          results: [
+            {
+              title: "大阪市の今日の天気 - 日本気象協会 tenki.jp",
+              content: "大阪市の天気、気温、降水確率を掲載。",
+              url: "https://tenki.jp/forecast/6/30/6200/27100/1hour.html",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      if (url.hostname === "tenki.jp") {
+        return new Response(
+          TENKI_TODAY_FORECAST_HTML.replaceAll("鹿児島市", "大阪市"),
+          {
+            headers: { "content-type": "text/html; charset=utf-8" },
+          }
+        );
+      }
+      throw new Error(`unexpected fetch: ${url.toString()}`);
+    });
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "yahoo japan,bing",
+      queryText: "今日の大阪の天気は？",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+      currentDate: new Date("2026-07-27T12:00:00+09:00"),
+    });
+
+    expect(
+      fetchImpl.mock.calls
+        .filter((call) => new URL(String(call[0])).hostname === "searxng.test")
+        .map((call) => new URL(String(call[0])).searchParams.get("q"))
+    ).toEqual(["大阪 今日 天気", "大阪 天気"]);
+    expect(
+      new URL(String(fetchImpl.mock.calls[0][0])).searchParams.get("engines")
+    ).toBe("yahoo japan,bing");
+    expect(result.reason).toBe("found");
+    expect(result.context?.weatherForecast).toEqual({
+      relativeDay: "today",
+      location: "大阪市",
+      weather: "雨のち晴",
+      highTemperatureCelsius: "36",
+      lowTemperatureCelsius: "28",
+      forecastDate: "2026-07-27",
+      source: "tenki.jp",
+    });
+  });
+
+  it("keeps a relative-day substring inside a location during weather retry", async () => {
+    let searxngCalls = 0;
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname !== "searxng.test") {
+        throw new Error(`unexpected fetch: ${url.toString()}`);
+      }
+      searxngCalls += 1;
+      if (searxngCalls === 1) {
+        return jsonResponse({
+          query: "奈良県明日香村 今日 天気",
+          results: [
+            {
+              title: "奈良県の観光情報",
+              content: "奈良県の観光スポットを紹介します。",
+              url: "https://example.test/nara-sightseeing",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      return jsonResponse({
+        query: "奈良県明日香村 天気",
+        results: [
+          {
+            title: "奈良県明日香村の今日の天気",
+            content: "奈良県明日香村の天気予報です。",
+            url: "https://example.test/asuka-weather",
+            engine: "yahoo japan",
+          },
+        ],
+      });
+    });
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "yahoo japan,bing",
+      queryText: "奈良県明日香村の今日の天気を教えて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+    });
+
+    expect(
+      fetchImpl.mock.calls.map((call) =>
+        new URL(String(call[0])).searchParams.get("q")
+      )
+    ).toEqual(["奈良県明日香村 今日 天気", "奈良県明日香村 天気"]);
+    expect(result.reason).toBe("found");
   });
 
   it("stops after one weather retry when SearXNG keeps returning unrelated results", async () => {
@@ -1091,7 +1222,7 @@ describe("mention chat external search", () => {
       fetchImpl.mock.calls.map((call) =>
         new URL(String(call[0])).searchParams.get("q")
       )
-    ).toEqual(["大阪 明日 天気", "大阪 明日 天気"]);
+    ).toEqual(["大阪 明日 天気", "大阪 天気"]);
   });
 
   it("does not treat the characters in Asuka Village as a relative day", async () => {

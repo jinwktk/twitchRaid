@@ -1,9 +1,8 @@
 use_default_settings:
   engines:
     keep_only:
-      - google
-      - duckduckgo
       - bing
+      - yahoo japan
 
 general:
   debug: false
@@ -32,15 +31,22 @@ outgoing:
   keepalive_expiry: 300.0
 
 engines:
-  - name: google
-    disabled: false
-    shortcut: go
-    timeout: 8.0
-  - name: duckduckgo
-    disabled: false
-    shortcut: ddg
-    timeout: 8.0
   - name: bing
     disabled: false
     shortcut: bi
-    timeout: 8.0
+    timeout: 3.0
+  - name: yahoo japan
+    engine: xpath
+    disabled: false
+    shortcut: yjp
+    categories: general
+    paging: false
+    search_url: https://search.yahoo.co.jp/search?p={query}
+    results_xpath: '//div[contains(concat(" ", normalize-space(@class), " "), " Algo ")]'
+    url_xpath: './/div[contains(@class, "sw-Card__title")]//a[1]/@href'
+    title_xpath: './/h3[contains(@class, "sw-Card__titleMain")]'
+    content_xpath: './/p[contains(@class, "sw-Card__summary")]'
+    timeout: 3.0
+    headers:
+      User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36
+      Accept-Language: ja-JP,ja;q=0.9

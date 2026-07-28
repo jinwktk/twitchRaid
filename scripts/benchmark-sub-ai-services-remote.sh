@@ -86,7 +86,7 @@ function verifyEffectiveBotConfig() {
       "CHAT_AI_SEARCH_ENDPOINT",
       "http://searxng:8080/search?language=all&safesearch=0",
     ],
-    ["CHAT_AI_SEARCH_ENGINES", "bing"],
+    ["CHAT_AI_SEARCH_ENGINES", "yahoo japan,bing"],
   ]);
   for (const [name, expected] of required) {
     if (process.env[name] !== expected) {
@@ -199,7 +199,7 @@ async function main() {
   searxngUrl.searchParams.set("format", "json");
   searxngUrl.searchParams.set("language", "ja-JP");
   searxngUrl.searchParams.set("safesearch", "1");
-  searxngUrl.searchParams.set("engines", "bing");
+  searxngUrl.searchParams.set("engines", "yahoo japan,bing");
   const searxngInit = {
     headers: {
       "X-Forwarded-For": "127.0.0.1",
