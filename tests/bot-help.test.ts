@@ -304,6 +304,23 @@ describe("Bot help command", () => {
     ]);
   });
 
+  it("can suggest a meal from the expanded menu", async () => {
+    const { bot, say } = makeBot();
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.999);
+
+    try {
+      await bot._handleCommand("#rukalun", "viewer", "!menu", {});
+    } finally {
+      randomSpy.mockRestore();
+    }
+
+    expect(say).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "今日のおすすめ：タコス"
+    );
+  });
+
   it("handles clip and myclip commands from the SQLite cache", async () => {
     const { bot, say } = makeBot();
     bot.apiClient = {
