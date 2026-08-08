@@ -156,10 +156,10 @@ const COMMON_ENGLISH_GENERAL_WORDS = new Set([
 
 const MENTION_CHAT_SYSTEM_PROMPT = [
   "あなたはTwitchチャット1通で返事する、るっかるん本人として振る舞う日本語アシスタントです。",
-  "Botや第三者としてではなく、るっかるん本人の自認で一人称の自然な返事をしてください。",
+  "Botや第三者としてではなく、るっかるん本人の自認で返してください。一人称は必ず「私」を使い、自称として「俺」「僕」「オレ」「おれ」「ボク」「ぼく」は使わないでください。質問中の言葉や作品名を説明するための引用は除きます。",
   "返答は必ず日本語だけで書いてください。固有名詞やユーザーが指定した表記を除き、英語の一般語・中国語・ローマ字の説明語を混ぜないでください。",
   "症状名や専門語も日本語で言い換えてください。",
-  "返答は1通のTwitchチャット投稿だけ。説明、引用符、箇条書き、ハッシュタグは禁止です。",
+  "返答は1通のTwitchチャット投稿だけ。前置きの説明、返信全体を囲む引用符、箇条書き、ハッシュタグは禁止です。質問中の語句や作品名を示すための引用符は使えます。",
   "短く済む時は短く、説明や文脈整理が必要な時は500文字以内で複数文でも具体的に答えてください。",
   "一語だけ、相づちだけ、単語だけの返答は禁止です。質問に対して短くても中身のある文で返してください。",
   "ひらがなかカタカナを含む自然な日本語で、明るく返してください。",
@@ -856,7 +856,7 @@ export function buildMentionChatPrompt(
     ...(includeFixedInstructions
       ? [
           `TwitchチャットでBot宛てに届いたメンションへ、最大${maxResponseChars}文字以内で返事してください。`,
-          "Botの自認: るっかるん本人として、一人称で自然に返してください。",
+          "Botの自認: るっかるん本人として返してください。一人称は必ず「私」を使い、自称として「俺」「僕」「オレ」「おれ」「ボク」「ぼく」は使わないでください。質問中の言葉や作品名を説明するための引用は除きます。",
         ]
       : []),
     `チャンネル: ${options.channel}`,
@@ -961,6 +961,26 @@ function buildMentionChatRepairPrompt({
   return lines.join("\n");
 }
 
+function buildFirstPersonRepairPrompt({
+  promptText,
+  rejectedReply,
+  maxResponseChars,
+}: {
+  promptText: string;
+  rejectedReply: string;
+  maxResponseChars: number;
+}): string {
+  return [
+    "次のTwitchチャット返信案では、るっかるん本人が自分を「俺」「僕」「オレ」「おれ」「ボク」「ぼく」のいずれかで呼んでいるため不合格です。",
+    "意味、口調、事実関係を保ったまま、自分を指す一人称だけ「私」へ直してください。",
+    "ユーザーが尋ねた言葉や作品名を残す必要がある場合は、その部分だけを引用符で囲み、自称と区別してください。",
+    `必ず日本語だけ、最大${Math.max(1, Math.floor(maxResponseChars))}文字以内にしてください。`,
+    `ユーザーの発言: ${shorten(singleLine(promptText), PROMPT_TEXT_LIMIT)}`,
+    `修正前の返信案: ${shorten(singleLine(rejectedReply), PROMPT_TEXT_LIMIT)}`,
+    "完成したチャット返信だけを返してください。",
+  ].join("\n");
+}
+
 function buildSongPerformanceRepairPrompt({
   promptText,
   rejectedReply,
@@ -1046,6 +1066,275 @@ export function formatGeneratedMentionChatReply(
   return shorten(normalized, maxResponseChars);
 }
 
+const MASCULINE_FIRST_PERSON_TERMS = [
+  "俺",
+  "僕",
+  "オレ",
+  "おれ",
+  "ボク",
+  "ぼく",
+] as const;
+const MASCULINE_FIRST_PERSON_TERM_FAMILIES = [
+  ["俺", "オレ", "おれ"],
+  ["僕", "ボク", "ぼく"],
+] as const;
+const NON_SELF_MASCULINE_TERMS = ["下僕", "公僕", "忠僕", "奴僕", "従僕"] as const;
+const NON_SELF_KATAKANA_TERM_PREFIXES = [
+  "オレンジ",
+  "オレオ",
+  "オレガノ",
+  "オレゴン",
+  "オレイン",
+  "オレフィン",
+  "ボクシング",
+  "ボクサー",
+  "ボクササイズ",
+  "ボクチョイ",
+] as const;
+const KATAKANA_SELF_CONTINUATION_PATTERN =
+  /^(?:タチ|カラ|ヨリ|コソ|シカ|サエ|マデ|ナラ|ダケ|ナンテ|ナンカ|バカリ|ノミ|イガイ|ジシン|ジブン|トシテ|チャン|クン|サン|サマ|ッテ|テキ|ハ|ガ|モ|ヲ|ニ|ヘ|ノ|デ|ト|ダ|ジャ|ラ)/u;
+const REQUESTER_NAME_MASCULINE_SUFFIXES = [
+  "ちゃん",
+  "くん",
+  "君",
+  "さん",
+  "様",
+  "氏",
+  "チャン",
+  "クン",
+  "サン",
+  "サマ",
+] as const;
+const JAPANESE_WORD_SEGMENTER = new Intl.Segmenter("ja", {
+  granularity: "word",
+});
+const QUOTE_PAIRS = [
+  ["「", "」"],
+  ["『", "』"],
+  ["“", "”"],
+  ["‘", "’"],
+  ['"', '"'],
+] as const;
+
+interface QuotedTextRange {
+  contentStart: number;
+  contentEnd: number;
+  content: string;
+}
+
+function collectQuotedTextRanges(value: string): QuotedTextRange[] {
+  const ranges: QuotedTextRange[] = [];
+  for (const [open, close] of QUOTE_PAIRS) {
+    let searchFrom = 0;
+    while (searchFrom < value.length) {
+      const openIndex = value.indexOf(open, searchFrom);
+      if (openIndex < 0) break;
+      const contentStart = openIndex + open.length;
+      const closeIndex = value.indexOf(close, contentStart);
+      if (closeIndex < 0) break;
+      ranges.push({
+        contentStart,
+        contentEnd: closeIndex,
+        content: value.slice(contentStart, closeIndex).trim(),
+      });
+      searchFrom = closeIndex + close.length;
+    }
+  }
+  return ranges;
+}
+
+function occurrenceIsInsidePhrase(
+  value: string,
+  occurrenceIndex: number,
+  occurrenceLength: number,
+  phrase: string
+): boolean {
+  if (!phrase) return false;
+  let phraseIndex = value.indexOf(phrase);
+  while (phraseIndex >= 0) {
+    if (
+      occurrenceIndex >= phraseIndex &&
+      occurrenceIndex + occurrenceLength <= phraseIndex + phrase.length
+    ) {
+      return true;
+    }
+    phraseIndex = value.indexOf(phrase, phraseIndex + 1);
+  }
+  return false;
+}
+
+function occurrenceIsInsideRequesterCallout(
+  value: string,
+  occurrenceIndex: number,
+  term: (typeof MASCULINE_FIRST_PERSON_TERMS)[number],
+  requesterName: string
+): boolean {
+  if (!requesterName) return false;
+  let nameIndex = value.indexOf(requesterName);
+  while (nameIndex >= 0) {
+    const occurrenceOffset = occurrenceIndex - nameIndex;
+    const containsOccurrence =
+      occurrenceOffset >= 0 &&
+      occurrenceOffset + term.length <= requesterName.length;
+    const usesTermAsName = REQUESTER_NAME_MASCULINE_SUFFIXES.some(
+      (suffix) =>
+        requesterName.slice(occurrenceOffset + term.length) === suffix
+    );
+    const leftContext = value.slice(0, nameIndex);
+    const rightContext = value.slice(nameIndex + requesterName.length);
+    const hasLeftBoundary =
+      nameIndex === 0 || /[\s、。！？!?：:「『（【“‘"']/u.test(leftContext.at(-1) ?? "");
+    const hasRightCalloutBoundary =
+      /^\s*(?:(?:さん|ちゃん|くん|君|様|氏)\s*)?(?:[、，,:：。！？!?]|$)/u.test(
+        rightContext
+      );
+    if (
+      containsOccurrence &&
+      usesTermAsName &&
+      hasLeftBoundary &&
+      hasRightCalloutBoundary
+    ) {
+      return true;
+    }
+    nameIndex = value.indexOf(requesterName, nameIndex + 1);
+  }
+  return false;
+}
+
+function isProtectedMasculineTermOccurrence(
+  reply: string,
+  promptText: string,
+  occurrenceIndex: number,
+  term: (typeof MASCULINE_FIRST_PERSON_TERMS)[number],
+  protectedPhrases: readonly string[]
+): boolean {
+  if (
+    protectedPhrases.some(
+      (phrase) =>
+        phrase.length > term.length &&
+        occurrenceIsInsideRequesterCallout(
+          reply,
+          occurrenceIndex,
+          term,
+          phrase
+        )
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    NON_SELF_MASCULINE_TERMS.some((compound) =>
+      occurrenceIsInsidePhrase(reply, occurrenceIndex, term.length, compound)
+    )
+  ) {
+    return true;
+  }
+
+  const promptQuotedTerms = new Set(
+    collectQuotedTextRanges(promptText).map(({ content }) => content)
+  );
+  const equivalentTerms =
+    MASCULINE_FIRST_PERSON_TERM_FAMILIES.find((family) =>
+      family.some((familyTerm) => familyTerm === term)
+    ) ?? [];
+  const termExplanationRequested =
+    equivalentTerms.some((equivalentTerm) =>
+      promptText.includes(equivalentTerm)
+    ) &&
+    /意味|違い|使い分け|使い方|言葉|表現|一人称|読み方|どういう意味/u.test(
+      promptText
+    );
+  return collectQuotedTextRanges(reply).some(
+    ({ contentStart, contentEnd, content }) => {
+      if (
+        occurrenceIndex < contentStart ||
+        occurrenceIndex + term.length > contentEnd ||
+        content.length === 0
+      ) {
+        return false;
+      }
+      if (content === term) {
+        return promptQuotedTerms.has(term) || termExplanationRequested;
+      }
+      return promptText.includes(content);
+    }
+  );
+}
+
+function isMasculineFirstPersonCandidate(
+  occurrenceIndex: number,
+  term: (typeof MASCULINE_FIRST_PERSON_TERMS)[number],
+  wordSegments: readonly { index: number; segment: string }[]
+): boolean {
+  if (term === "俺" || term === "僕") return true;
+  const containingSegment = wordSegments.find(
+    ({ index, segment }) =>
+      occurrenceIndex >= index &&
+      occurrenceIndex + term.length <= index + segment.length
+  );
+  if (!containingSegment) return false;
+  if (
+    containingSegment.index === occurrenceIndex &&
+    containingSegment.segment === term
+  ) {
+    return true;
+  }
+  if (
+    (term !== "オレ" && term !== "ボク") ||
+    containingSegment.index !== occurrenceIndex ||
+    NON_SELF_KATAKANA_TERM_PREFIXES.some((prefix) =>
+      containingSegment.segment.startsWith(prefix)
+    )
+  ) {
+    return false;
+  }
+  return KATAKANA_SELF_CONTINUATION_PATTERN.test(
+    containingSegment.segment.slice(term.length)
+  );
+}
+
+function containsMasculineSelfReference(
+  generated: string,
+  promptText: string,
+  protectedPhrases: readonly string[] = []
+): boolean {
+  const normalizedReply = singleLine(generated);
+  const normalizedPrompt = singleLine(promptText);
+  const normalizedProtectedPhrases = protectedPhrases
+    .map((phrase) => singleLine(removeEmoji(phrase)))
+    .filter(Boolean);
+  const wordSegments = Array.from(
+    JAPANESE_WORD_SEGMENTER.segment(normalizedReply)
+  );
+  for (const term of MASCULINE_FIRST_PERSON_TERMS) {
+    let occurrenceIndex = normalizedReply.indexOf(term);
+    while (occurrenceIndex >= 0) {
+      if (
+        isMasculineFirstPersonCandidate(
+          occurrenceIndex,
+          term,
+          wordSegments
+        ) &&
+        !isProtectedMasculineTermOccurrence(
+          normalizedReply,
+          normalizedPrompt,
+          occurrenceIndex,
+          term,
+          normalizedProtectedPhrases
+        )
+      ) {
+        return true;
+      }
+      occurrenceIndex = normalizedReply.indexOf(
+        term,
+        occurrenceIndex + term.length
+      );
+    }
+  }
+  return false;
+}
+
 export function formatMentionChatProviderReply({
   generated,
   maxResponseChars,
@@ -1064,6 +1353,15 @@ export function formatMentionChatProviderReply({
       ],
     }
   );
+  if (
+    reply &&
+    containsMasculineSelfReference(reply, promptText, [
+      userName,
+      userDisplayName ?? "",
+    ])
+  ) {
+    return null;
+  }
   if (isSongPerformanceRequest(promptText)) {
     return isCompliantSongPerformanceReply(reply) ? reply : null;
   }
@@ -1156,6 +1454,91 @@ async function repairEnglishWordMentionChatReply({
       allowedLatinTokens,
     }
   );
+}
+
+async function repairFirstPersonMentionChatReply({
+  baseUrl,
+  model,
+  timeoutMs,
+  keepAlive,
+  contextLength,
+  maxResponseChars,
+  promptText,
+  rejectedReply,
+  allowedLatinTokens,
+  userName,
+  userDisplayName,
+  requestId,
+  fetchImpl,
+}: {
+  baseUrl: string;
+  model: string;
+  timeoutMs: number;
+  keepAlive?: string;
+  contextLength: number;
+  maxResponseChars: number;
+  promptText: string;
+  rejectedReply: string;
+  allowedLatinTokens?: readonly string[];
+  userName: string;
+  userDisplayName?: string | null;
+  requestId?: string;
+  fetchImpl: typeof fetch;
+}): Promise<string | null> {
+  const httpStartedAt = Date.now();
+  const response = await fetchImpl(buildOllamaGenerateUrl(baseUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      model,
+      system: MENTION_CHAT_SYSTEM_PROMPT,
+      prompt: buildFirstPersonRepairPrompt({
+        promptText,
+        rejectedReply,
+        maxResponseChars,
+      }),
+      stream: false,
+      think: false,
+      keep_alive: keepAlive,
+      options: {
+        temperature: 0.1,
+        num_predict: DEFAULT_OLLAMA_NUM_PREDICT,
+        num_ctx: normalizeOllamaContextLength(contextLength),
+      },
+    }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok) return null;
+
+  const body = (await response.json()) as OllamaGenerateResponse;
+  logOllamaPerformance(
+    body,
+    requestId,
+    Math.max(0, Date.now() - httpStartedAt),
+    "repair"
+  );
+  if (typeof body.response !== "string") return null;
+  const repairedReply = formatGeneratedMentionChatReply(
+    preferRequesterDisplayNameInReply(
+      body.response,
+      userName,
+      userDisplayName
+    ),
+    maxResponseChars,
+    { allowedLatinTokens }
+  );
+  if (
+    !repairedReply ||
+    containsMasculineSelfReference(repairedReply, promptText, [
+      userName,
+      userDisplayName ?? "",
+    ]) ||
+    (isSongPerformanceRequest(promptText) &&
+      !isCompliantSongPerformanceReply(repairedReply))
+  ) {
+    return null;
+  }
+  return repairedReply;
 }
 
 async function repairSongPerformanceReply({
@@ -1362,7 +1745,7 @@ export async function generateMentionChatReplyDetailed({
       return null;
     }
 
-    const reply = formatGeneratedMentionChatReply(
+    let reply = formatGeneratedMentionChatReply(
       preferRequesterDisplayNameInReply(
         body.response,
         userName,
@@ -1390,7 +1773,14 @@ export async function generateMentionChatReplyDetailed({
         requestId,
         fetchImpl,
       });
-      if (repairedReply && isCompliantSongPerformanceReply(repairedReply)) {
+      if (
+        repairedReply &&
+        isCompliantSongPerformanceReply(repairedReply) &&
+        !containsMasculineSelfReference(repairedReply, promptText, [
+          userName,
+          userDisplayName ?? "",
+        ])
+      ) {
         logPromptAndReplyIfEnabled(
           promptReplyLogEnabled,
           diagnosticPrompt,
@@ -1410,6 +1800,44 @@ export async function generateMentionChatReplyDetailed({
         { detail: repairedReply ? "reply_not_song" : "reply_empty" }
       );
       return null;
+    }
+    if (
+      reply &&
+      containsMasculineSelfReference(reply, promptText, [
+        userName,
+        userDisplayName ?? "",
+      ])
+    ) {
+      logger.warn(
+        `⚠️ AIメンション会話の一人称を再生成します: reason=masculine_first_person, requestId=${logRequestId}, prompt=${formatMentionChatLogValue(logPromptText)}, raw=${formatMentionChatLogValue(body.response)}`
+      );
+      reply = await repairFirstPersonMentionChatReply({
+        baseUrl,
+        model: trimmedModel,
+        timeoutMs,
+        keepAlive,
+        contextLength: normalizeOllamaContextLength(contextLength),
+        maxResponseChars,
+        promptText,
+        rejectedReply: body.response,
+        allowedLatinTokens,
+        userName,
+        userDisplayName,
+        requestId,
+        fetchImpl,
+      });
+      if (!reply) {
+        logger.warn(
+          `⚠️ AIメンション会話生成失敗: reason=first_person_repair_failed, requestId=${logRequestId}, prompt=${formatMentionChatLogValue(logPromptText)}`
+        );
+        logPromptFailureIfEnabled(
+          promptReplyLogEnabled,
+          diagnosticPrompt,
+          "first_person_repair_failed",
+          diagnosticSummary
+        );
+        return null;
+      }
     }
     const matchOutcomeFallback =
       isMatchOutcomeQuestion(promptText)
@@ -1441,7 +1869,13 @@ export async function generateMentionChatReplyDetailed({
         requestId,
         fetchImpl,
       });
-      if (repairedReply) {
+      if (
+        repairedReply &&
+        !containsMasculineSelfReference(repairedReply, promptText, [
+          userName,
+          userDisplayName ?? "",
+        ])
+      ) {
         logPromptAndReplyIfEnabled(
           promptReplyLogEnabled,
           diagnosticPrompt,

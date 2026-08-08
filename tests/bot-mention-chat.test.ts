@@ -717,6 +717,7 @@ describe("Bot mention chat", () => {
       "その内容を事実資料として最優先"
     );
     expect(state.workspaceSystemPrompts[0]).toContain("最大500文字以内");
+    expect(state.workspaceSystemPrompts[0]).toContain("一人称は必ず「私」");
 
     await bot.anythingLlmChannelMemory?.close();
     bot.anythingLlmLedger?.close();
@@ -1038,11 +1039,74 @@ describe("Bot mention chat", () => {
       ),
     ]);
     expect(state.chatMessages[1]).toContain("修正前候補");
+    expect(state.chatMessages[1]).toContain("一人称は必ず「私」");
+    expect(state.chatMessages[1]).toContain("「俺」「僕」");
     expect(state.directOllamaCalls).toBe(0);
     expect(say).toHaveBeenLastCalledWith(
       "#rukalun",
       "今夜はカレーがいいD！"
     );
+  });
+
+  it("repairs an AnythingLLM reply that uses a masculine first person before sending", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: [
+        "俺はそんなことしてないよD！",
+        "私はそんなことしてないよD！",
+      ],
+    });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "utility-first-person-repair.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat るっか詐欺してたよね？",
+      makeChatMessage("first-person-repair-message-01")
+    );
+
+    expect(state.chatMessages).toHaveLength(2);
+    expect(state.chatMessages[1]).toContain("修正前候補");
+    expect(state.chatMessages[1]).toContain("俺はそんなことしてないよD！");
+    expect(state.directOllamaCalls).toBe(0);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "私はそんなことしてないよD！"
+    );
+  });
+
+  it("does not send an AnythingLLM reply when the single repair still uses a masculine first person", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: [
+        "俺はそんなことしてないよD！",
+        "でも僕はそんなことしてないよD！",
+      ],
+    });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "utility-first-person-repair-failed.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat るっか詐欺してたよね？",
+      makeChatMessage("first-person-repair-failed-message-01")
+    );
+
+    expect(state.chatMessages).toHaveLength(2);
+    expect(state.directOllamaCalls).toBe(0);
+    expect(say).not.toHaveBeenCalled();
   });
 
   it("keeps fixed commands available and returns an explicit AI fallback while AnythingLLM is down", async () => {

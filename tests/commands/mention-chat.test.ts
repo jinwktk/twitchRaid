@@ -5,6 +5,7 @@ import {
   createMentionChatMatcher,
   extractMentionChatPrompt,
   formatGeneratedMentionChatReply,
+  formatMentionChatProviderReply,
   generateMentionChatReply,
   generateMentionChatReplyDetailed,
   resolveMentionChatAliases,
@@ -173,6 +174,221 @@ describe("formatGeneratedMentionChatReply", () => {
     expect(formatGeneratedMentionChatReply("左！", 200)).toBe("左！");
     expect(formatGeneratedMentionChatReply("年上！", 200)).toBe("年上！");
   });
+
+  it("rejects masculine self-reference without breaking prompt-owned terms", () => {
+    expect(
+      formatMentionChatProviderReply({
+        generated: "俺はそんなことしてないよD！",
+        maxResponseChars: 200,
+        promptText: "るっか詐欺してたよね？",
+        userName: "viewer",
+      })
+    ).toBeNull();
+    expect(
+      formatMentionChatProviderReply({
+        generated: "「俺」は強めで、「僕」はやわらかめの一人称だよD！",
+        maxResponseChars: 200,
+        promptText: "「俺」と「僕」の違いは？",
+        userName: "viewer",
+      })
+    ).toBe("「俺」は強めで、「僕」はやわらかめの一人称だよD！");
+    expect(
+      formatMentionChatProviderReply({
+        generated: "「おれ」と読むよD！",
+        maxResponseChars: 200,
+        promptText: "「俺」の読み方は？",
+        userName: "viewer",
+      })
+    ).toBe("「おれ」と読むよD！");
+    expect(
+      formatMentionChatProviderReply({
+        generated: "物語では魔王の下僕は城を守っているよD！",
+        maxResponseChars: 200,
+        promptText: "物語の続きを教えて",
+        userName: "viewer",
+      })
+    ).toBe("物語では魔王の下僕は城を守っているよD！");
+    expect(
+      formatMentionChatProviderReply({
+        generated: "俺は心配してるよD！",
+        maxResponseChars: 200,
+        promptText: "俺についてどう思う？",
+        userName: "viewer",
+      })
+    ).toBeNull();
+    expect(
+      formatMentionChatProviderReply({
+        generated: "「俺」は心配してるよD！",
+        maxResponseChars: 200,
+        promptText: "俺についてどう思う？",
+        userName: "viewer",
+      })
+    ).toBeNull();
+    expect(
+      formatMentionChatProviderReply({
+        generated: "俺は普段こう使う言葉だよD！",
+        maxResponseChars: 200,
+        promptText: "「俺」の意味は？",
+        userName: "viewer",
+      })
+    ).toBeNull();
+    for (const generated of [
+      "俺のせいじゃないよD！",
+      "僕の配信ではそうしてるよD！",
+      "俺から見ると大丈夫だよD！",
+      "オレはそう思うよD！",
+      "オレでよければ手伝うよD！",
+      "オレ思うに大丈夫だよD！",
+      "オレなんてまだまだだよD！",
+      "オレタチならできるよD！",
+      "オレモ大丈夫だよD！",
+      "オレデヨケレバ手伝うよD！",
+      "オレコソ適任だよD！",
+      "おれのせいじゃないよD！",
+      "おれこそ適任だよD！",
+      "ボクは配信してるよD！",
+      "ボクと一緒に行こうD！",
+      "ボク達で行こうD！",
+      "ボクタチは仲間だよD！",
+      "ボクト一緒に行こうD！",
+      "【歌】ボクハ元気に歩くよD！",
+      "ボクより詳しい人もいるよD！",
+      "ボクしか知らないよD！",
+      "ボクさえ分かればいいよD！",
+      "ボクまで呼ばれたよD！",
+      "ぼくから見ると大丈夫だよD！",
+    ]) {
+      expect(
+        formatMentionChatProviderReply({
+          generated,
+          maxResponseChars: 200,
+          promptText: "どう思う？",
+          userName: "viewer",
+        })
+      ).toBeNull();
+    }
+    for (const [promptText, generated] of [
+      ["俺のことを知ってる？", "俺のことはよく知ってるよD！"],
+      ["俺のことを知ってる？", "俺のことは作品の話じゃないよD！"],
+      ["僕の配信を知ってる？", "僕の配信は楽しいよD！"],
+      [
+        "僕の配信を知ってる？",
+        "僕の配信は番組じゃなくて個人配信だよD！",
+      ],
+    ]) {
+      expect(
+        formatMentionChatProviderReply({
+          generated,
+          maxResponseChars: 200,
+          promptText,
+          userName: "viewer",
+        })
+      ).toBeNull();
+    }
+    expect(
+      formatMentionChatProviderReply({
+        generated: "台詞は『俺は悪くない』だよD！",
+        maxResponseChars: 200,
+        promptText: "この台詞を引用して：『俺は悪くない』",
+        userName: "viewer",
+      })
+    ).toBe("台詞は『俺は悪くない』だよD！");
+    expect(
+      formatMentionChatProviderReply({
+        generated: "俺が好きなのは妹だけど妹じゃないはライトノベルだよD！",
+        maxResponseChars: 200,
+        promptText: "俺が好きなのは妹だけど妹じゃないを知ってる？",
+        userName: "viewer",
+      })
+    ).toBeNull();
+    expect(
+      formatMentionChatProviderReply({
+        generated:
+          "『俺が好きなのは妹だけど妹じゃない』はライトノベルだよD！",
+        maxResponseChars: 200,
+        promptText: "俺が好きなのは妹だけど妹じゃないを知ってる？",
+        userName: "viewer",
+      })
+    ).toBe("『俺が好きなのは妹だけど妹じゃない』はライトノベルだよD！");
+    expect(
+      formatMentionChatProviderReply({
+        generated: "俺ガイルは面白いアニメだよD！",
+        maxResponseChars: 200,
+        promptText: "俺ガイルって面白い？",
+        userName: "viewer",
+      })
+    ).toBeNull();
+    expect(
+      formatMentionChatProviderReply({
+        generated: "『俺ガイル』は面白いアニメだよD！",
+        maxResponseChars: 200,
+        promptText: "俺ガイルって面白い？",
+        userName: "viewer",
+      })
+    ).toBe("『俺ガイル』は面白いアニメだよD！");
+    expect(
+      formatMentionChatProviderReply({
+        generated: "オレンジとボクシングとオレガノが好きだよD！",
+        maxResponseChars: 200,
+        promptText: "好きな色とスポーツは？",
+        userName: "viewer",
+      })
+    ).toBe("オレンジとボクシングとオレガノが好きだよD！");
+    expect(
+      formatMentionChatProviderReply({
+        generated: "僕ちゃん、こんにちはD！",
+        maxResponseChars: 200,
+        promptText: "こんにちは",
+        userName: "viewer",
+        userDisplayName: "僕ちゃん",
+      })
+    ).toBe("僕ちゃん、こんにちはD！");
+    expect(
+      formatMentionChatProviderReply({
+        generated: "僕ちゃん、僕は元気だよD！",
+        maxResponseChars: 200,
+        promptText: "こんにちは",
+        userName: "viewer",
+        userDisplayName: "僕ちゃん",
+      })
+    ).toBeNull();
+    expect(
+      formatMentionChatProviderReply({
+        generated: "俺はそんなことしてないよD！",
+        maxResponseChars: 200,
+        promptText: "本当に？",
+        userName: "viewer",
+        userDisplayName: "俺は",
+      })
+    ).toBeNull();
+    expect(
+      formatMentionChatProviderReply({
+        generated: "俺は、そんなことしてないよD！",
+        maxResponseChars: 200,
+        promptText: "本当に？",
+        userName: "viewer",
+        userDisplayName: "俺は",
+      })
+    ).toBeNull();
+    expect(
+      formatMentionChatProviderReply({
+        generated: "僕の配信ではゲームをしてるよD！",
+        maxResponseChars: 200,
+        promptText: "何してるの？",
+        userName: "viewer",
+        userDisplayName: "僕の配信",
+      })
+    ).toBeNull();
+    expect(
+      formatMentionChatProviderReply({
+        generated: "僕の配信、今日は楽しいよD！",
+        maxResponseChars: 200,
+        promptText: "何してるの？",
+        userName: "viewer",
+        userDisplayName: "僕の配信",
+      })
+    ).toBeNull();
+  });
 });
 
 describe("generateMentionChatReply", () => {
@@ -222,18 +438,83 @@ describe("generateMentionChatReply", () => {
     expect(body.system).toContain("英語の一般語");
     expect(body.system).not.toContain("Output Japanese only");
     expect(body.system).toContain("るっかるん本人");
+    expect(body.system).toContain("一人称は必ず「私」");
+    expect(body.system).toContain("「俺」「僕」");
     expect(body.system).toContain("秘密");
     expect(body.system).toContain("Twitchチャット1通");
     expect(body.system).toContain("一語だけ");
     expect(body.prompt).toContain("viewer");
     expect(body.prompt).toContain("こんにちは");
     expect(body.prompt).toContain("るっかるん本人として");
+    expect(body.prompt).toContain("一人称は必ず「私」");
+    expect(body.prompt).toContain("「俺」「僕」");
     expect(body.prompt).toContain("200文字以内");
     expect(body.prompt).toContain("単語だけ");
     expect(body.prompt).toContain("英語の一般語");
     expect(body.prompt).not.toContain("配信画面画像");
     expect(body.prompt).not.toContain("TWITCH_ACCESS_TOKEN");
     expect(reply).toBe("こんにちはD！配信たのしんでいってね！");
+  });
+
+  it("repairs a masculine first-person reply before returning it", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "俺はそんなことしてないよD！" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "私はそんなことしてないよD！" }),
+      });
+
+    const reply = await generateMentionChatReply({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "gemma4:e4b-it-qat",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "るっか詐欺してたよね？",
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const repairBody = JSON.parse(fetchImpl.mock.calls[1][1].body as string);
+    expect(repairBody.prompt).toContain("自分を指す一人称だけ「私」");
+    expect(repairBody.prompt).toContain("俺はそんなことしてないよD！");
+    expect(reply).toBe("私はそんなことしてないよD！");
+  });
+
+  it("does not return a reply when first-person repair still self-identifies as masculine", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "俺はそんなことしてないよD！" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "でも僕はそんなことしてないよD！" }),
+      });
+
+    const reply = await generateMentionChatReply({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "gemma4:e4b-it-qat",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "るっか詐欺してたよね？",
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(reply).toBeNull();
   });
 
   it("adds mention chat memory to the Ollama prompt when provided", async () => {
@@ -277,6 +558,7 @@ describe("generateMentionChatReply", () => {
 
     expect(request.systemPrompt).toContain("Twitchチャット1通");
     expect(request.systemPrompt).toContain("るっかるん本人");
+    expect(request.systemPrompt).toContain("一人称は必ず「私」");
     expect(request.prompt).toContain("チャンネル: #prewarm");
     expect(request.prompt).toContain("ユーザー表示名: 起動確認");
     expect(request.prompt).toContain("ユーザーの発言: 短くあいさつして");
@@ -390,6 +672,41 @@ describe("generateMentionChatReply", () => {
     expect(repairBody.prompt).toContain("【歌】");
     expect(result).toEqual({
       reply: "【歌】るっかの笑顔がきらきら光るよ、みんなと一緒に明るく進もうD！",
+      source: "generated",
+    });
+  });
+
+  it("uses the song repair when a non-song reply also uses a masculine first person", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "俺なら猫の歌がいいかな？" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "【歌】私は猫と一緒に歩くよD！" }),
+      });
+
+    const result = await generateMentionChatReplyDetailed({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "gemma4:e4b-it-qat",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 500,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "猫の歌を作って",
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const repairBody = JSON.parse(fetchImpl.mock.calls[1][1].body as string);
+    expect(repairBody.prompt).toContain("歌や曲を作らず");
+    expect(repairBody.prompt).toContain("【歌】");
+    expect(result).toEqual({
+      reply: "【歌】私は猫と一緒に歩くよD！",
       source: "generated",
     });
   });
@@ -1174,6 +1491,33 @@ describe("generateMentionChatReply", () => {
     expect(body.prompt).toContain("呼びかける時はユーザー表示名を使い");
     expect(result).toEqual({
       reply: "かのんのんさん、1時間後でお会いできるね",
+      source: "generated",
+    });
+  });
+
+  it("keeps a requester display name that contains a masculine first-person term", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "viewer、こんにちはD！" }),
+    });
+
+    const result = await generateMentionChatReplyDetailed({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5:7b",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      userDisplayName: "僕ちゃん",
+      promptText: "こんにちは",
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      reply: "僕ちゃん、こんにちはD！",
       source: "generated",
     });
   });
