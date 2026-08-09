@@ -161,6 +161,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - 本番構成は `Twitch Bot -> AnythingLLM -> Ollama`。Botは固定コマンド、Twitch入出力、検索、リクエスト固有の文脈構築、返信整形を担当し、AI会話の生成とRAG参照はAnythingLLMのDeveloper APIを経由する。るっかるん本人としての自認、日本語、500文字、秘密情報拒否、取得文書優先などの固定ルールはchannel workspaceのsystem promptへ同期し、通常リクエストではチャンネル、表示名、ログインID、発言、必要な履歴・検索文脈だけを送る。通常会話は`chat` modeを維持し、「前回/直前/最近の配信まとめ」は隔離knowledge sessionをresetした`query` modeにして、`ended_at`が最大の`TWITCH_STREAM_SUMMARY_V1`を選ぶ指示を動的に追加する。最終的な文字数・言語・歌唱形式などの安全検査はBot側にも残す。AnythingLLM内部の生成providerは既存Ollama、embeddingは`nomic-embed-text`を使うため、AnythingLLM単体でモデル推論する構成ではない
 - 通常コメント、コマンド、Bot宛てメンション、`!chat`、actionを発言者に関係なくすべてSQLite台帳へ先に保存する。通常コメント/actionだけでAI返信は発生しない。原文batchは同一channel・配信ID・JST日付内、先頭から最大15分、最大200件で固定し、AnythingLLMへのupload/embedを再試行する
 - 原文の保持期限はbatch内の最新コメントから`ANYTHING_LLM_RAW_RETENTION_DAYS`日（既定365日）。期限後はworkspaceからunembed、AnythingLLM原本削除、ローカル本文消去の順で実行し、途中状態をSQLiteへ残して再起動後に再開する。配信終了時の最終watermark、階層要約、出典付き事実は別の永続ジョブと文書に保存し、原文365日cleanupの対象にしない
+- 配信要約はaccepted sequence順に8コメントずつleaf化し、厳格なJSON schemaとローカルevent IDの出典照合を通した結果だけを保存する。初回生成とJSON修復生成がともに不正なleafは該当範囲だけを半分ずつ再分割し、1コメントでも不正な場合は成功扱いにしない。未完成jobの中間nodeが現行のleaf分割と一致しない場合は、そのstreamの中間nodeだけを消して1回再構築する。完成済みsummary/facts文書は対象外で、診断ログにはコメントやprovider応答本文を出さない
 - 記憶は視聴者ごとに分離せず、同じchannel workspace内で全視聴者の発言を参照できる。rawコメントは「命令ではない会話証拠」と明示してprompt injectionとして実行しない。視聴者向けの保存拒否・削除コマンドは設けず、運用者が保護された台帳・AnythingLLM管理経路で扱う
 - 段階切替は `ANYTHING_LLM_COMMENT_WRITE_ENABLED=true` で回答経路を変えずshadow-writeし、queue/失敗/遅延を確認後に `CHAT_AI_ANYTHINGLLM_ENABLED=true` でAI read/generationを切り替える。read切替時はcomment writeも自動的に有効になる。`ANYTHING_LLM_STREAM_KNOWLEDGE_ENABLED` は未指定ならread切替と同じ値を使う
 - 主要設定は `ANYTHING_LLM_BASE_URL`、`ANYTHING_LLM_API_KEY_FILE`、`ANYTHING_LLM_WORKSPACE_*`、`ANYTHING_LLM_LEDGER_DB_PATH`、`ANYTHING_LLM_STREAM_KNOWLEDGE_DB_PATH`、`ANYTHING_LLM_CLEANUP_INTERVAL_SECONDS`、`ANYTHING_LLM_QUEUE_HIGH_WATER_COMMENTS`、`ANYTHING_LLM_DISK_MIN_FREE_BYTES`。API keyはmode `0600`のファイルから読み、通常ログへ本文・prompt・provider応答・秘密値を出さない
@@ -404,6 +405,7 @@ internal-docs/
 
 ## 更新履歴
 
+- **2026-08-09**: 配信要約が一部leafの不正JSONで全体失敗していたため、初回生成とJSON修復の両方が不正なleafだけを8→4→2→1コメントへ分割して再生成し、各段階でschemaと出典event IDを再検証するようにした。1コメントでも不正なら従来どおりfail-closedにする。あわせて、旧100コメントleafの一時imageが現行8コメントleafの中間cacheを読んで`node_input_conflict`になった事象に対し、未完成streamの中間nodeだけを1回再構築して再開できるようにした
 - **2026-08-09**: `!manga` のおすすめ返信へ、選ばれたDLsite作品のURLを追加。ランキング内の相対リンクは絶対URLへ変換し、`今日のおすすめ漫画：作品名 URL` の1チャットで表示する。既存のON/OFF切替と10秒後自動削除は維持する。
 - **2026-08-09**: AIメンション会話のsystem promptと通常・再生成promptで、一人称を `私` に固定し、自称として `俺` / `僕` とそのひらがな・カタカナ表記を使わないルールを明示した。最終採用境界でも助詞などを全カタカナで連結した表記を含む違反を検出し、直接Ollamaは専用prompt、AnythingLLMはutility workspaceで1回だけ再生成し、なお違反する返信は送信しない。質問中と同一の語句・作品名を明示的に引用する場合、`下僕` など別の語に含まれる場合、敬称と句読点で明確なユーザー表示名の呼びかけだけ該当表記を維持する。
 - **2026-08-02**: `!menu` の候補を70種類から170種類へ拡張。既存の定番料理に加えて、和食・鍋・ご当地料理・洋食・韓国/アジア料理・中東やアメリカなどの各国料理を追加し、返信形式 `今日のおすすめ：料理名` は維持した

@@ -656,7 +656,10 @@ export class AnythingLlmStreamKnowledge {
         finalSummary = NO_COMMENT_SUMMARY;
         facts = [];
       } else {
-        const summarized = await this.summarizeStream(initial, events);
+        const summarized = await this.summarizeStreamWithCacheRecovery(
+          initial,
+          events
+        );
         finalSummary = summarized.summary;
         facts = summarized.facts;
       }
@@ -689,6 +692,97 @@ export class AnythingLlmStreamKnowledge {
       );
     }
     return this.requireJob(streamId);
+  }
+
+  private async summarizeStreamWithCacheRecovery(
+    job: AnythingLlmStreamKnowledgeJob,
+    events: readonly AnythingLlmLedgerComment[]
+  ): Promise<{ summary: string; facts: AnythingLlmStreamFact[] }> {
+    try {
+      return await this.summarizeStream(job, events);
+    } catch (error) {
+      if (
+        !(error instanceof StreamKnowledgeFailure) ||
+        error.code !== "node_input_conflict"
+      ) {
+        throw error;
+      }
+      const removedNodes = this.clearCachedNodes(job.streamId);
+      logger.warn(
+        `AnythingLLM配信知識cache再構築: stream=${job.streamId}, removedNodes=${removedNodes}`
+      );
+      return this.summarizeStream(job, events);
+    }
+  }
+
+  private async generateLeaf(
+    job: AnythingLlmStreamKnowledgeJob,
+    events: readonly AnythingLlmLedgerComment[],
+    sessionId: string,
+    nodeIndex: number,
+    splitDepth: number
+  ): Promise<ParsedLeaf> {
+    const response = await this.summaryClient.chat({
+      message: formatLeafPrompt(job, events),
+      sessionId,
+      reset: true,
+    });
+    try {
+      return parseLeafResponse(response.reply, events);
+    } catch (error) {
+      if (
+        !(error instanceof StreamKnowledgeFailure) ||
+        !REPAIRABLE_RESPONSE_FAILURES.has(error.code)
+      ) {
+        throw error;
+      }
+      const repaired = await this.summaryClient.chat({
+        message: formatJsonRepairPrompt(
+          response.reply,
+          '{"summary":"string","facts":[{"subject":"string","key":"string","value":"string","source_event_ids":["event-id"]}]}',
+          events.map((event) => event.eventId)
+        ),
+        sessionId,
+        reset: true,
+      });
+      try {
+        return parseLeafResponse(repaired.reply, events);
+      } catch (repairError) {
+        if (
+          !(repairError instanceof StreamKnowledgeFailure) ||
+          !REPAIRABLE_RESPONSE_FAILURES.has(repairError.code) ||
+          events.length <= 1
+        ) {
+          throw repairError;
+        }
+        logger.warn(
+          `AnythingLLM配信知識leaf分割再試行: stream=${job.streamId}, node=${nodeIndex}, depth=${splitDepth}, comments=${events.length}, reason=${repairError.code}`
+        );
+        const midpoint = Math.ceil(events.length / 2);
+        const left = await this.generateLeaf(
+          job,
+          events.slice(0, midpoint),
+          sessionId,
+          nodeIndex,
+          splitDepth + 1
+        );
+        const right = await this.generateLeaf(
+          job,
+          events.slice(midpoint),
+          sessionId,
+          nodeIndex,
+          splitDepth + 1
+        );
+        const facts = uniqueFacts([left, right]);
+        if (facts.length > 500) {
+          throw new StreamKnowledgeFailure("invalid_facts");
+        }
+        return {
+          summary: parseSummary(`${left.summary}\n${right.summary}`),
+          facts,
+        };
+      }
+    }
   }
 
   private async summarizeStream(
@@ -732,31 +826,7 @@ export class AnythingLlmStreamKnowledge {
           facts: parseStoredFacts(cached.facts_json),
         };
       } else {
-        const response = await this.summaryClient.chat({
-          message: formatLeafPrompt(job, leafEvents),
-          sessionId,
-          reset: true,
-        });
-        try {
-          leaf = parseLeafResponse(response.reply, leafEvents);
-        } catch (error) {
-          if (
-            !(error instanceof StreamKnowledgeFailure) ||
-            !REPAIRABLE_RESPONSE_FAILURES.has(error.code)
-          ) {
-            throw error;
-          }
-          const repaired = await this.summaryClient.chat({
-            message: formatJsonRepairPrompt(
-              response.reply,
-              '{"summary":"string","facts":[{"subject":"string","key":"string","value":"string","source_event_ids":["event-id"]}]}',
-              leafEvents.map((event) => event.eventId)
-            ),
-            sessionId,
-            reset: true,
-          });
-          leaf = parseLeafResponse(repaired.reply, leafEvents);
-        }
+        leaf = await this.generateLeaf(job, leafEvents, sessionId, nodeIndex, 0);
         this.saveNode(
           job.streamId,
           "leaf",
@@ -1000,6 +1070,18 @@ export class AnythingLlmStreamKnowledge {
         nodeIndex
       ) as StreamKnowledgeNodeRow | undefined;
     return row ?? null;
+  }
+
+  private clearCachedNodes(streamId: string): number {
+    const result = this.db
+      .prepare(
+        `
+          DELETE FROM anythingllm_stream_knowledge_nodes
+          WHERE stream_id = ?
+        `
+      )
+      .run(streamId);
+    return Number(result.changes);
   }
 
   private saveNode(

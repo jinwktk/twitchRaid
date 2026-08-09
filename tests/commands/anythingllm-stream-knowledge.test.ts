@@ -263,6 +263,79 @@ describe("AnythingLlmStreamKnowledge", () => {
     ledger.close();
   });
 
+  it("splits a repeatedly malformed leaf and preserves citations", async () => {
+    const paths = makePaths();
+    const ledger = new AnythingLlmLedger(paths.ledgerPath);
+    for (let index = 1; index <= 8; index += 1) {
+      ledger.acceptComment(
+        makeEvent({
+          eventId: `message-${index}`,
+          occurredAt: `2026-07-25T08:00:0${index - 1}.000Z`,
+          body: `コメント${index}`,
+        })
+      );
+    }
+    embedAll(ledger);
+    const malformed = '{"summary":"壊れた"},"facts":[]}';
+    const chat = vi
+      .fn<AnythingLlmStreamKnowledgeClient["chat"]>()
+      .mockResolvedValueOnce({ reply: malformed, sourceCount: 0 })
+      .mockResolvedValueOnce({ reply: malformed, sourceCount: 0 })
+      .mockResolvedValueOnce({
+        reply: JSON.stringify({
+          summary: "前半の要約",
+          facts: [
+            {
+              subject: "viewer",
+              key: "前半",
+              value: "コメント1",
+              source_event_ids: ["message-1"],
+            },
+          ],
+        }),
+        sourceCount: 0,
+      })
+      .mockResolvedValueOnce({
+        reply: JSON.stringify({
+          summary: "後半の要約",
+          facts: [
+            {
+              subject: "viewer",
+              key: "後半",
+              value: "コメント5",
+              source_event_ids: ["message-5"],
+            },
+          ],
+        }),
+        sourceCount: 0,
+      });
+    const knowledge = new AnythingLlmStreamKnowledge({
+      ledger,
+      client: makeClient({ chat }),
+      stateDbPath: paths.statePath,
+    });
+    knowledge.captureStreamEnd(captureInput());
+
+    await expect(knowledge.processStream("stream-1")).resolves.toMatchObject({
+      status: "complete",
+      finalSummary: "前半の要約\n後半の要約",
+      factCount: 2,
+      lastFailureReason: null,
+    });
+    expect(chat).toHaveBeenCalledTimes(4);
+    expect(chat.mock.calls[2]?.[0].message).toContain('"event_id":"message-1"');
+    expect(chat.mock.calls[2]?.[0].message).not.toContain(
+      '"event_id":"message-5"'
+    );
+    expect(chat.mock.calls[3]?.[0].message).toContain('"event_id":"message-5"');
+    expect(chat.mock.calls[3]?.[0].message).not.toContain(
+      '"event_id":"message-4"'
+    );
+
+    knowledge.close();
+    ledger.close();
+  });
+
   it("repairs a missing source_event_ids closing bracket without another model call", async () => {
     const paths = makePaths();
     const ledger = new AnythingLlmLedger(paths.ledgerPath);
@@ -296,14 +369,13 @@ describe("AnythingLlmStreamKnowledge", () => {
     const ledger = new AnythingLlmLedger(paths.ledgerPath);
     ledger.acceptComment(makeEvent());
     embedAll(ledger);
+    const chat = vi.fn(async () => ({
+      reply: '<THINK>未完了 {"summary":"危険","facts":[]}',
+      sourceCount: 1,
+    }));
     const knowledge = new AnythingLlmStreamKnowledge({
       ledger,
-      client: makeClient({
-        chat: vi.fn(async () => ({
-          reply: '<THINK>未完了 {"summary":"危険","facts":[]}',
-          sourceCount: 1,
-        })),
-      }),
+      client: makeClient({ chat }),
       stateDbPath: paths.statePath,
     });
     knowledge.captureStreamEnd(captureInput());
@@ -311,7 +383,10 @@ describe("AnythingLlmStreamKnowledge", () => {
     await expect(knowledge.processStream("stream-1")).resolves.toMatchObject({
       status: "failed",
       lastFailureReason: "invalid_json",
+      finalSummary: null,
+      factCount: 0,
     });
+    expect(chat).toHaveBeenCalledTimes(2);
 
     knowledge.close();
     ledger.close();
@@ -391,6 +466,68 @@ describe("AnythingLlmStreamKnowledge", () => {
       finalSummary: "順序どおりの最終要約",
     });
     expect(secondChat).toHaveBeenCalledTimes(2);
+
+    second.close();
+    ledger.close();
+  });
+
+  it("rebuilds incomplete cached nodes when the leaf partition changes", async () => {
+    const paths = makePaths();
+    const ledger = new AnythingLlmLedger(paths.ledgerPath);
+    ledger.acceptComment(makeEvent({ eventId: "message-1", body: "一番目" }));
+    ledger.acceptComment(
+      makeEvent({
+        eventId: "message-2",
+        occurredAt: "2026-07-25T08:00:01.000Z",
+        body: "二番目",
+      })
+    );
+    embedAll(ledger);
+
+    const firstChat = vi
+      .fn<AnythingLlmStreamKnowledgeClient["chat"]>()
+      .mockResolvedValueOnce({
+        reply: JSON.stringify({ summary: "一番目の要約", facts: [] }),
+        sourceCount: 1,
+      })
+      .mockRejectedValueOnce(
+        new AnythingLlmClientError(
+          "unavailable",
+          "AnythingLLM workspace chat failed"
+        )
+      );
+    const first = new AnythingLlmStreamKnowledge({
+      ledger,
+      client: makeClient({ chat: firstChat }),
+      stateDbPath: paths.statePath,
+      leafMaxComments: 1,
+    });
+    first.captureStreamEnd(captureInput());
+    expect((await first.processStream("stream-1")).status).toBe("failed");
+    first.close();
+
+    const secondChat = vi.fn(async (input: AnythingLlmChatInput) => {
+      expect(input.message).toContain("TWITCH_STREAM_LEAF_V1");
+      expect(input.message).toContain('"accepted_sequence":1');
+      expect(input.message).toContain('"accepted_sequence":2');
+      return {
+        reply: JSON.stringify({ summary: "再構築後の要約", facts: [] }),
+        sourceCount: 2,
+      };
+    });
+    const second = new AnythingLlmStreamKnowledge({
+      ledger,
+      client: makeClient({ chat: secondChat }),
+      stateDbPath: paths.statePath,
+      leafMaxComments: 2,
+    });
+
+    await expect(second.processStream("stream-1")).resolves.toMatchObject({
+      status: "complete",
+      finalSummary: "再構築後の要約",
+      lastFailureReason: null,
+    });
+    expect(secondChat).toHaveBeenCalledTimes(1);
 
     second.close();
     ledger.close();
