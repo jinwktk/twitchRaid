@@ -1,72 +1,119 @@
 import logger from "../utils/logger";
 
+const MANGA_RANKING_URL =
+  "https://www.dlsite.com/maniax/ranking/day/=/date/30d/category/comic";
+
+export interface MangaRecommendation {
+  title: string;
+  url: string;
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'");
+}
+
+function selectRandom<T>(items: readonly T[]): T | null {
+  if (items.length === 0) return null;
+  const idx = Math.floor(Math.random() * items.length);
+  return items[idx];
+}
+
 /**
- * DLsiteランキングHTMLからマンガタイトルを抽出する
+ * DLsiteランキングHTMLからマンガタイトルと作品URLを抽出する
  * product_idを含む作品リンクのみを対象にする
  */
-export function extractMangaTitles(rankingHtml: string): string[] {
+export function extractMangaRecommendations(
+  rankingHtml: string
+): MangaRecommendation[] {
   // product_idを含む作品リンクのみ抽出（ナビ・ジャンル等を除外）
-  const anchorRegex = /<a\s+href="[^"]*\/product_id\/[^"]*"[^>]*>([^<]+)<\/a>/g;
-  const titles: string[] = [];
+  const anchorRegex =
+    /<a\s+href="([^"]*\/product_id\/[^"]*)"[^>]*>([^<]+)<\/a>/g;
+  const recommendations: MangaRecommendation[] = [];
   let match: RegExpExecArray | null;
 
   while ((match = anchorRegex.exec(rankingHtml)) !== null) {
-    const raw = match[1]
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .replace(/&#039;/g, "'")
-      .trim();
+    const url = new URL(
+      decodeHtmlEntities(match[1]),
+      MANGA_RANKING_URL
+    ).toString();
+    const title = decodeHtmlEntities(match[2]).trim();
     // ボタン・レビュー件数等を除外（作品タイトルのみ）
     if (
-      raw &&
-      !titles.includes(raw) &&
-      !raw.match(/^[\d()（）]+$/) &&
-      !["カートに追加", "お気に入りに追加", "無料サンプル"].includes(raw)
+      title &&
+      !recommendations.some(
+        (recommendation) => recommendation.title === title
+      ) &&
+      !title.match(/^[\d()（）]+$/) &&
+      !["カートに追加", "お気に入りに追加", "無料サンプル"].includes(title)
     ) {
-      titles.push(raw);
+      recommendations.push({ title, url });
     }
   }
 
-  return titles;
+  return recommendations;
+}
+
+/**
+ * DLsiteランキングHTMLからマンガタイトルを抽出する
+ */
+export function extractMangaTitles(rankingHtml: string): string[] {
+  return extractMangaRecommendations(rankingHtml).map(({ title }) => title);
 }
 
 /**
  * タイトルリストからランダムに1つ選択する
  */
 export function selectMangaTitle(titles: string[]): string | null {
-  if (titles.length === 0) return null;
-  const idx = Math.floor(Math.random() * titles.length);
-  return titles[idx];
+  return selectRandom(titles);
 }
 
 /**
- * DLsiteからランダムなマンガタイトルを取得する
+ * マンガ候補からランダムに1作品を選択する
  */
-export async function fetchRandomMangaTitle(): Promise<string | null> {
+export function selectMangaRecommendation(
+  recommendations: MangaRecommendation[]
+): MangaRecommendation | null {
+  return selectRandom(recommendations);
+}
+
+/**
+ * DLsiteからランダムなマンガタイトルと作品URLを取得する
+ */
+export async function fetchRandomMangaRecommendation(): Promise<
+  MangaRecommendation | null
+> {
   try {
-    const response = await fetch(
-      "https://www.dlsite.com/maniax/ranking/day/=/date/30d/category/comic",
-      {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
-      }
-    );
+    const response = await fetch(MANGA_RANKING_URL, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+    });
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
 
     const html = await response.text();
-    const titles = extractMangaTitles(html);
-    return selectMangaTitle(titles);
+    const recommendations = extractMangaRecommendations(html);
+    return selectMangaRecommendation(recommendations);
   } catch (e) {
     logger.error(`❌ mangaランキング取得失敗: ${e}`);
     throw e;
   }
+}
+
+/**
+ * DLsiteからランダムなマンガタイトルを取得する
+ */
+export async function fetchRandomMangaTitle(): Promise<string | null> {
+  const recommendation = await fetchRandomMangaRecommendation();
+  return recommendation?.title ?? null;
 }
 
 /**

@@ -119,7 +119,7 @@ import {
 } from "./commands/stream-notify";
 import { calculateAge } from "./commands/age";
 import {
-  fetchRandomMangaTitle,
+  fetchRandomMangaRecommendation,
   isMangaAdmin,
 } from "./commands/manga";
 import {
@@ -2080,10 +2080,12 @@ export class Bot {
     }
 
     try {
-      const manga = await fetchRandomMangaTitle();
+      const manga = await fetchRandomMangaRecommendation();
       await this._sendMangaReply(
         channel,
-        manga ? `今日のおすすめ漫画：${manga}` : "⚠️ 漫画が見つかりませんでした。"
+        manga
+          ? `今日のおすすめ漫画：${manga.title} ${manga.url}`
+          : "⚠️ 漫画が見つかりませんでした。"
       );
     } catch {
       await this._sendMangaReply(

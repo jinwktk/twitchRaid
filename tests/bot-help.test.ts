@@ -484,7 +484,7 @@ describe("Bot help command", () => {
     );
     expect(sendChatMessage).toHaveBeenCalledWith(
       "broadcaster-id",
-      "今日のおすすめ漫画：作品A"
+      "今日のおすすめ漫画：作品A https://www.dlsite.com/maniax/work/=/product_id/RJ123456.html"
     );
     expect(deleteChatMessages).not.toHaveBeenCalled();
 
