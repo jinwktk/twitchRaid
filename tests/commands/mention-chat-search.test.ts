@@ -78,6 +78,10 @@ describe("mention chat external search", () => {
     expect(shouldSearchMentionChat("TwitchConは誰が出る？")).toBe(true);
     expect(shouldSearchMentionChat("次はいつ配信？")).toBe(true);
     expect(shouldSearchMentionChat("イベントはどこでやる？")).toBe(true);
+    expect(
+      shouldSearchMentionChat("アップルウォッチの充電時間って何時間かかる？")
+    ).toBe(true);
+    expect(shouldSearchMentionChat("今日は充電時間だね")).toBe(false);
     expect(shouldSearchMentionChat("覚えて: 最新情報=配信中")).toBe(false);
     expect(shouldSearchMentionChat("こんにちは")).toBe(false);
     expect(shouldSearchMentionChat("好きな食べ物教えて")).toBe(false);
@@ -281,6 +285,57 @@ describe("mention chat external search", () => {
     expect(result?.text).toContain("るっかるんさんのTwitchチャンネル。");
     expect(result?.text).toContain("https://www.twitch.tv/rukalun");
   });
+
+  it.each([
+    "アップルウォッチの充電時間って何時間かかる？",
+    "アップルウォッチの充電時間ってどれくらい？",
+    "アップルウォッチの充電時間はどのくらいかかる？",
+  ])(
+    "normalizes a natural Apple Watch charging-time question for a forced follow-up search: %s",
+    async (queryText) => {
+      const fetchImpl = vi.fn().mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.hostname === "searxng.test") {
+          return jsonResponse({
+            query: url.searchParams.get("q"),
+            results: [
+              {
+                title: "Apple Watch のバッテリーを高速充電する",
+                content:
+                  "Apple Watch の充電時間はモデルや電源アダプタによって異なります。",
+                url: "https://example.test/apple-watch-charging",
+                engine: "bing",
+              },
+            ],
+          });
+        }
+        if (url.hostname === "ja.wikipedia.org") {
+          return { ok: false, status: 404 } as Response;
+        }
+        throw new Error(`unexpected fetch: ${url.toString()}`);
+      });
+
+      const result = await fetchMentionChatSearchContextDetailed({
+        enabled: true,
+        provider: "searxng",
+        endpoint: "http://searxng.test/search",
+        engines: "yahoo japan,bing",
+        queryText,
+        force: true,
+        timeoutMs: 2500,
+        maxQueryChars: 120,
+        maxResponseBytes: 65536,
+        maxResults: 3,
+        fetchImpl,
+      });
+
+      const searchUrl = new URL(String(fetchImpl.mock.calls[0][0]));
+      expect(searchUrl.searchParams.get("q")).toBe("Apple Watch 充電時間");
+      expect(result.reason).toBe("found");
+      expect(result.context?.resultCount).toBe(1);
+      expect(result.context?.text).toContain("Apple Watch の充電時間");
+    }
+  );
 
   it("searches the subject when an explicit search request is followed by another action", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(

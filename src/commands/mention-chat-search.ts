@@ -79,7 +79,7 @@ const CASUAL_QUESTION_WORD_PATTERN =
   /(?:(?:誰|だれ).{0,12}好き|いつ.{0,12}(?:寝る|起きる|遊ぶ)|どこ.{0,12}(?:行きたい|行く|遊ぶ|住む))/u;
 const QUESTION_MARK_PATTERN = /[？?]/u;
 const EXTERNAL_FACT_PROMPT_PATTERN =
-  /日程|開催|主催|運営|開発|作者|作成者|発売元|開始日|開始時期|活動開始|リリース|発売|公開|発表|価格|値段|天気|ニュース|最新|公式|会場|場所|期限|いつから|いつまで|何年|wiki|wikipedia|バージョン|モデル|由来|意味/iu;
+  /日程|開催|主催|運営|開発|作者|作成者|発売元|開始日|開始時期|活動開始|リリース|発売|公開|発表|価格|値段|充電時間|天気|ニュース|最新|公式|会場|場所|期限|いつから|いつまで|何年|wiki|wikipedia|バージョン|モデル|由来|意味/iu;
 const MEMORY_REQUEST_PATTERN = /(?:^|\s)(?:覚えて|メモして|忘れないで)/u;
 const URL_PATTERN = /(?:https?:\/\/|www\.)/iu;
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu;
@@ -278,6 +278,15 @@ function trimWeatherLocationConnectors(value: string): string {
     .replace(/(?:\s*[のはをがでに])+$/u, "");
 }
 
+function normalizeNaturalDurationQuestion(value: string): string {
+  return singleLine(
+    value.replace(
+      /^(.+)の(.+?時間)(?:って|は)(?:(?:何|なん)時間(?:くらい|ぐらい)?|(?:どれ|どの)(?:くらい|ぐらい)(?:時間)?)(?:かかる|かかります)?(?:の)?$/u,
+      "$1 $2"
+    )
+  );
+}
+
 function normalizeSearchQuery(value: string): string {
   const originalQuery = singleLine(value);
   const isComparisonQuestion = isCompactComparisonQuestion(originalQuery);
@@ -326,6 +335,7 @@ function normalizeSearchQuery(value: string): string {
   query = singleLine(
     query.replace(/の(?=(?:替え歌|ネタバレ)(?:$|\s))/gu, " ")
   );
+  query = normalizeNaturalDurationQuestion(query);
   const weatherDay = getSingleExplicitWeatherRelativeDay(query);
   if (weatherDay) {
     const relativeDay = weatherDay.relativeDay === "tomorrow" ? "明日" : "今日";
@@ -367,11 +377,14 @@ function buildWeatherRetrySearchQuery(searchQuery: string): string | null {
 }
 
 function applyKnownSearchAliases(query: string): string {
-  if (/るっかるん/u.test(query) && !/\brukalun\b/iu.test(query)) {
-    return singleLine(`${query} rukalun`);
+  let normalized = singleLine(
+    query.replace(/アップル(?:[・\s]*)ウォッチ/gu, "Apple Watch")
+  );
+  if (/るっかるん/u.test(normalized) && !/\brukalun\b/iu.test(normalized)) {
+    normalized = singleLine(`${normalized} rukalun`);
   }
 
-  return query;
+  return normalized;
 }
 
 function applySearxngSearchPath(url: URL): void {

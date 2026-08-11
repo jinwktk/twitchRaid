@@ -3937,6 +3937,86 @@ describe("Bot mention chat", () => {
     expect(historyLog).not.toContain("Bがすきだよ！");
   });
 
+  it("finds Apple Watch charging results when a follow-up omits the subject", async () => {
+    const { bot, say } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiSearchEngines: "yahoo japan,bing",
+    });
+    const ollamaResponses = [
+      "Apple Watchの充電時間はモデルによって違うよD！",
+      "Apple Watchの充電時間はモデルによって違うよD！",
+    ];
+    const searchQueries: string[] = [];
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.hostname === "searxng.test") {
+          searchQueries.push(url.searchParams.get("q") ?? "");
+          return new Response(
+            JSON.stringify({
+              query: url.searchParams.get("q"),
+              results: [
+                {
+                  title: "Apple Watch のバッテリーを高速充電する",
+                  content:
+                    "Apple Watch の充電時間はモデルや電源アダプタによって異なります。",
+                  url: "https://example.test/apple-watch-charging",
+                  engine: "bing",
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (url.hostname === "ja.wikipedia.org") {
+          return new Response("", { status: 404 });
+        }
+        if (url.pathname.endsWith("/api/generate")) {
+          return new Response(
+            JSON.stringify({ response: ollamaResponses.shift() ?? "回答D！" }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        throw new Error(`unexpected fetch: ${url.toString()}`);
+      });
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat アップルウォッチの充電時間って何時間かかる？",
+      {}
+    );
+    await bot._handleCommand("#rukalun", "viewer", "!chat 調べて", {});
+
+    expect(searchQueries).toEqual([
+      "Apple Watch 充電時間",
+      "Apple Watch 充電時間",
+    ]);
+    const ollamaCalls = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).endsWith("/api/generate")
+    );
+    expect(ollamaCalls).toHaveLength(2);
+    const researchedPrompts = ollamaCalls.map((call) =>
+      JSON.parse(call[1].body as string).prompt
+    );
+    expect(researchedPrompts).toEqual([
+      expect.stringContaining("Apple Watch のバッテリーを高速充電する"),
+      expect.stringContaining("Apple Watch のバッテリーを高速充電する"),
+    ]);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "Apple Watchの充電時間はモデルによって違うよD！"
+    );
+    expect(say).not.toHaveBeenCalledWith(
+      "#rukalun",
+      "ごめん、検索結果がなくて分からないD！"
+    );
+  });
+
   it.each(["調べて？", "どっちが正しいのか調べてほしい"])(
     "uses the same user's previous chat topic when the research follow-up omits the subject: %s",
     async (followUp) => {
