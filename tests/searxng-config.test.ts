@@ -1,8 +1,159 @@
+import { spawnSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
 
 const repoRoot = path.resolve(__dirname, "..");
+const keepaliveScriptPath = path.join(
+  repoRoot,
+  "ops/sub-ai-services/keep-wsl-dokploy-alive.ps1"
+);
+const windowsIt = process.platform === "win32" ? it : it.skip;
+
+interface PortProxyRecoveryFixtureResult {
+  Result: Record<string, unknown>;
+  RestartCount: number;
+  StartCount: number;
+  SleepCount: number;
+  ListenerChecks: number;
+}
+
+function toPowerShellLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function runPowerShellFixture<T>(fixture: string): T {
+  const scriptPathLiteral = toPowerShellLiteral(keepaliveScriptPath);
+  const command = `
+$ErrorActionPreference = "Stop"
+$scriptPath = ${scriptPathLiteral}
+$source = Get-Content -Raw -LiteralPath $scriptPath
+if ($source -notmatch '(?im)^\\s*function\\s+Invoke-PortProxyListenerRecovery\\b') {
+    [Console]::Error.WriteLine("Invoke-PortProxyListenerRecovery is not implemented")
+    exit 41
+}
+. $scriptPath
+if (-not (Get-Command Invoke-PortProxyListenerRecovery -ErrorAction SilentlyContinue)) {
+    [Console]::Error.WriteLine("Invoke-PortProxyListenerRecovery was not exported by dot-sourcing")
+    exit 42
+}
+${fixture}
+`;
+  const encodedCommand = Buffer.from(command, "utf16le").toString("base64");
+  const execution = spawnSync(
+    "powershell.exe",
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-EncodedCommand",
+      encodedCommand,
+    ],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 10_000,
+      windowsHide: true,
+    }
+  );
+
+  if (execution.error || execution.status !== 0) {
+    throw new Error(
+      [
+        `PowerShell fixture failed with status ${execution.status ?? "none"}`,
+        execution.error?.message ?? "",
+        execution.stderr.trim(),
+      ]
+        .filter(Boolean)
+        .join("\n")
+    );
+  }
+
+  return JSON.parse(execution.stdout.trim()) as T;
+}
+
+function runPortProxyRecoveryFixture(options: {
+  managedPorts: number[];
+  mappingPorts: number[];
+  listenerProviderBody: string;
+  serviceStatus?: "Running" | "Stopped";
+  restartThrows?: boolean;
+}): PortProxyRecoveryFixtureResult {
+  const mappingRows = options.mappingPorts
+    .map(
+      (port) =>
+        `[pscustomobject]@{ ListenAddress = "192.168.0.99"; ListenPort = ${port} }`
+    )
+    .join("\n        ");
+  const managedPorts = options.managedPorts.join(", ");
+  const restartFailure = options.restartThrows
+    ? 'throw "restart failed"'
+    : "";
+
+  return runPowerShellFixture<PortProxyRecoveryFixtureResult>(`
+$script:restartCount = 0
+$script:startCount = 0
+$script:sleepCount = 0
+$script:listenerChecks = 0
+$script:logs = @()
+$mappingProvider = {
+    @(
+        ${mappingRows}
+    )
+}
+$listenerProvider = {
+    ${options.listenerProviderBody}
+}
+$serviceStatusProvider = { "${options.serviceStatus ?? "Running"}" }
+$restartIpHelper = {
+    $script:restartCount += 1
+    ${restartFailure}
+}
+$startIpHelper = { $script:startCount += 1 }
+$sleepAction = {
+    param($Seconds)
+    $script:sleepCount += 1
+}
+$logAction = {
+    param($Message)
+    $script:logs += [string]$Message
+}
+$arguments = @{
+    LanAddress = "192.168.0.99"
+    ManagedPorts = @(${managedPorts})
+    MappingProvider = $mappingProvider
+    ListenerProvider = $listenerProvider
+    ServiceStatusProvider = $serviceStatusProvider
+    RestartIpHelper = $restartIpHelper
+    StartIpHelper = $startIpHelper
+    SleepAction = $sleepAction
+    LogAction = $logAction
+}
+$result = Invoke-PortProxyListenerRecovery @arguments
+[pscustomobject]@{
+    Result = $result
+    RestartCount = $script:restartCount
+    StartCount = $script:startCount
+    SleepCount = $script:sleepCount
+    ListenerChecks = $script:listenerChecks
+} | ConvertTo-Json -Depth 8 -Compress
+`);
+}
+
+function expectRecoveryResultShape(result: Record<string, unknown>): void {
+  expect(Object.keys(result)).toEqual(
+    expect.arrayContaining([
+      "Status",
+      "ConfiguredPorts",
+      "MissingPorts",
+      "Action",
+    ])
+  );
+  expect(result.ConfiguredPorts).toEqual(expect.any(Array));
+  expect(result.MissingPorts).toEqual(expect.any(Array));
+}
 
 describe("SearXNG self-hosting config", () => {
   it("keeps SearXNG inside the SUB AI Services Docker Compose stack", () => {
@@ -99,6 +250,10 @@ describe("SearXNG self-hosting config", () => {
     const keepaliveIndex = script.indexOf("while ($true)");
     const refreshIndex = script.indexOf("& $RefreshScript");
     const catchIndex = script.indexOf("catch", refreshIndex);
+    const recoveryIndex = script.indexOf(
+      "Invoke-PortProxyListenerRecovery",
+      refreshIndex
+    );
     const wslIndex = script.indexOf("& wsl.exe", catchIndex);
 
     expect(writeLogTryIndex).toBeGreaterThan(writeLogIndex);
@@ -108,11 +263,17 @@ describe("SearXNG self-hosting config", () => {
     expect(refreshIndex).toBeGreaterThan(keepaliveIndex);
     expect(refreshIndex).toBeGreaterThan(-1);
     expect(catchIndex).toBeGreaterThan(refreshIndex);
+    expect(recoveryIndex).toBeGreaterThan(refreshIndex);
+    expect(recoveryIndex).toBeLessThan(wslIndex);
     expect(wslIndex).toBeGreaterThan(catchIndex);
+    expect(script.slice(refreshIndex, catchIndex)).not.toContain("Out-String");
+    expect(script.slice(refreshIndex, catchIndex)).not.toContain("Add-Content");
     expect(script).toContain("continuing WSL keepalive");
     expect(script).toContain(
-      "systemctl start docker && systemctl is-active --quiet docker && while true; do sleep 3600; done"
+      "systemctl start docker && systemctl is-active --quiet docker && sleep $PortProxyHealthIntervalSeconds"
     );
+    expect(script).not.toContain("while true; do sleep 3600; done");
+    expect(script).toContain("$refreshRequired = $false");
     expect(script).toContain("Start-Sleep -Seconds $RestartDelaySeconds");
   });
 
@@ -128,12 +289,165 @@ describe("SearXNG self-hosting config", () => {
       .replace(/\r\n?/gu, "\n");
     const paramEndIndex = script.indexOf("\n)\n");
     const refreshResolutionIndex = script.indexOf(
-      '$RefreshScript = Join-Path $PSScriptRoot "refresh_wsl_dokploy_portproxy.ps1"'
+      '$RefreshScript = Join-Path $PSScriptRoot "refresh-wsl-dokploy-portproxy.ps1"'
     );
 
     expect(paramEndIndex).toBeGreaterThan(-1);
     expect(script.slice(0, paramEndIndex)).not.toContain("$PSScriptRoot");
     expect(refreshResolutionIndex).toBeGreaterThan(paramEndIndex);
+  });
+
+  it("tracks the boot-time portproxy refresh for the LAN-only Web UIs", () => {
+    const refreshPath = path.join(
+      repoRoot,
+      "ops/sub-ai-services/refresh-wsl-dokploy-portproxy.ps1"
+    );
+
+    expect(fs.existsSync(refreshPath)).toBe(true);
+    const refresh = fs.readFileSync(refreshPath, "utf8");
+
+    expect(refresh).toContain("$LanUiPorts = @(3220, 3221)");
+    expect(refresh).toContain('$LanAddress = "192.168.0.99"');
+    expect(refresh).toContain('$LanSubnet = "192.168.0.0/24"');
+    expect(refresh).toContain("foreach ($Port in $LanUiPorts)");
+    expect(refresh).toContain(
+      "listenaddress=0.0.0.0 listenport=$Port"
+    );
+    expect(refresh).toContain(
+      "listenaddress=$LanAddress listenport=$Port connectaddress=$WslIp connectport=$Port"
+    );
+    expect(refresh).not.toContain('$ListenAddress = "0.0.0.0"');
+    expect(refresh.match(/-LocalAddress \$LanAddress/gu)).toHaveLength(2);
+    expect(refresh.match(/-RemoteAddress \$LanSubnet/gu)).toHaveLength(2);
+  });
+
+  describe("Windows portproxy listener recovery", () => {
+    windowsIt("dot-sourceしても無限ループを開始せず回復関数を公開する", () => {
+      const output = runPowerShellFixture<{
+        DotSourced: boolean;
+        FunctionAvailable: boolean;
+      }>(`
+[pscustomobject]@{
+    DotSourced = $true
+    FunctionAvailable = [bool](Get-Command Invoke-PortProxyListenerRecovery -ErrorAction SilentlyContinue)
+} | ConvertTo-Json -Compress
+`);
+
+      expect(output).toEqual({
+        DotSourced: true,
+        FunctionAvailable: true,
+      });
+    });
+
+    windowsIt(
+      "mappingがありlistenerが欠落していればIP Helperを1回だけ再起動して回復する",
+      () => {
+        const output = runPortProxyRecoveryFixture({
+          managedPorts: [3220],
+          mappingPorts: [3220],
+          listenerProviderBody: `
+$script:listenerChecks += 1
+if ($script:listenerChecks -ge 2) {
+    @([pscustomobject]@{ LocalAddress = "192.168.0.99"; LocalPort = 3220; State = "Listen" })
+}
+`,
+        });
+
+        expectRecoveryResultShape(output.Result);
+        expect(output.Result.Status).toBe("recovered");
+        expect(output.Result.ConfiguredPorts).toEqual([3220]);
+        expect(output.RestartCount).toBe(1);
+        expect(output.StartCount).toBe(0);
+        expect(output.SleepCount).toBe(1);
+      }
+    );
+
+    windowsIt("listenerが既にあればservice操作を行わない", () => {
+      const output = runPortProxyRecoveryFixture({
+        managedPorts: [3220],
+        mappingPorts: [3220],
+        listenerProviderBody: `
+$script:listenerChecks += 1
+@([pscustomobject]@{ LocalAddress = "192.168.0.99"; LocalPort = 3220; State = "Listen" })
+`,
+      });
+
+      expectRecoveryResultShape(output.Result);
+      expect(output.RestartCount).toBe(0);
+      expect(output.StartCount).toBe(0);
+      expect(output.SleepCount).toBe(0);
+    });
+
+    windowsIt("mappingが無ければservice操作を行わない", () => {
+      const output = runPortProxyRecoveryFixture({
+        managedPorts: [3220],
+        mappingPorts: [],
+        listenerProviderBody: "$script:listenerChecks += 1",
+      });
+
+      expectRecoveryResultShape(output.Result);
+      expect(output.Result.ConfiguredPorts).toEqual([]);
+      expect(output.RestartCount).toBe(0);
+      expect(output.StartCount).toBe(0);
+      expect(output.SleepCount).toBe(0);
+    });
+
+    windowsIt("複数portのlistenerが欠落してもIP Helperの再起動は合計1回にする", () => {
+      const output = runPortProxyRecoveryFixture({
+        managedPorts: [3220, 3221],
+        mappingPorts: [3220, 3221],
+        listenerProviderBody: `
+$script:listenerChecks += 1
+if ($script:listenerChecks -ge 2) {
+    @(
+        [pscustomobject]@{ LocalAddress = "192.168.0.99"; LocalPort = 3220; State = "Listen" }
+        [pscustomobject]@{ LocalAddress = "192.168.0.99"; LocalPort = 3221; State = "Listen" }
+    )
+}
+`,
+      });
+
+      expectRecoveryResultShape(output.Result);
+      expect(output.Result.Status).toBe("recovered");
+      expect(output.Result.ConfiguredPorts).toEqual([3220, 3221]);
+      expect(output.RestartCount).toBe(1);
+      expect(output.StartCount).toBe(0);
+      expect(output.SleepCount).toBe(1);
+    });
+
+    windowsIt("IP Helperが停止中なら再起動せず1回だけ開始する", () => {
+      const output = runPortProxyRecoveryFixture({
+        managedPorts: [3220],
+        mappingPorts: [3220],
+        serviceStatus: "Stopped",
+        listenerProviderBody: `
+$script:listenerChecks += 1
+if ($script:listenerChecks -ge 2) {
+    @([pscustomobject]@{ LocalAddress = "192.168.0.99"; LocalPort = 3220; State = "Listen" })
+}
+`,
+      });
+
+      expectRecoveryResultShape(output.Result);
+      expect(output.Result.Status).toBe("recovered");
+      expect(output.RestartCount).toBe(0);
+      expect(output.StartCount).toBe(1);
+      expect(output.SleepCount).toBe(1);
+    });
+
+    windowsIt("IP Helperの再起動例外をthrowせずfailed結果として返す", () => {
+      const output = runPortProxyRecoveryFixture({
+        managedPorts: [3220],
+        mappingPorts: [3220],
+        restartThrows: true,
+        listenerProviderBody: "$script:listenerChecks += 1",
+      });
+
+      expectRecoveryResultShape(output.Result);
+      expect(output.Result.Status).toBe("failed");
+      expect(output.RestartCount).toBe(1);
+      expect(output.StartCount).toBe(0);
+    });
   });
 
   it("benchmarks SearXNG with reverse-proxy client headers", () => {
@@ -182,6 +496,19 @@ describe("SearXNG self-hosting config", () => {
     expect(benchmark).toContain("embed: 32.49");
     expect(benchmark).toContain("anythingllm: 100");
     expect(benchmark).toContain("searxng: 631.25");
+    expect(benchmark).toContain(
+      "refresh-wsl-dokploy-portproxy.ps1"
+    );
+    expect(benchmark).toContain("expectedRefreshHash");
+    expect(benchmark).toContain(
+      "keepaliveTask.refreshFileHash !== expectedRefreshHash"
+    );
+    expect(benchmark).toContain(
+      "deployed SUB AI portproxy refresh script does not match the repository"
+    );
+    expect(benchmark).toContain(
+      "portproxyRefreshScriptHashMatches: true"
+    );
   });
 
   it("uses the production WSL distribution for the LAN-only AnythingLLM UI", () => {

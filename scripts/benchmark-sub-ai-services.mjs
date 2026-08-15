@@ -12,6 +12,16 @@ const expectedKeepaliveHash = crypto
   .createHash("sha256")
   .update(keepaliveScript)
   .digest("hex");
+const refreshScript = fs.readFileSync(
+  new URL(
+    "../ops/sub-ai-services/refresh-wsl-dokploy-portproxy.ps1",
+    import.meta.url
+  )
+);
+const expectedRefreshHash = crypto
+  .createHash("sha256")
+  .update(refreshScript)
+  .digest("hex");
 const remoteScript = fs.readFileSync(
   new URL("./benchmark-sub-ai-services-remote.sh", import.meta.url),
   "utf8"
@@ -23,6 +33,7 @@ $task = Get-ScheduledTask -TaskName "KeepDokployWslAlive"
 $info = Get-ScheduledTaskInfo -TaskName "KeepDokployWslAlive"
 $action = $task.Actions | Select-Object -First 1
 $expectedScript = "E:\\GitHub\\BotManager\\scripts\\keep_wsl_dokploy_alive.ps1"
+$expectedRefreshScript = "E:\\GitHub\\BotManager\\scripts\\refresh-wsl-dokploy-portproxy.ps1"
 $actionMatches =
   $action.Execute -ieq "powershell.exe" -and
   $action.Arguments -like "*$expectedScript*"
@@ -34,6 +45,7 @@ if ($task.State -ne "Running" -or $info.LastTaskResult -ne 267009 -or -not $acti
   lastTaskResult = $info.LastTaskResult
   actionMatches = $actionMatches
   fileHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $expectedScript).Hash.ToLowerInvariant()
+  refreshFileHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $expectedRefreshScript).Hash.ToLowerInvariant()
 } | ConvertTo-Json -Compress
 `;
 const encodedPreflight = Buffer.from(keepalivePreflight, "utf16le").toString(
@@ -58,6 +70,9 @@ if (preflightExecution.status !== 0) {
 const keepaliveTask = JSON.parse(preflightExecution.stdout.trim());
 if (keepaliveTask.fileHash !== expectedKeepaliveHash) {
   throw new Error("deployed SUB AI WSL keepalive script does not match the repository");
+}
+if (keepaliveTask.refreshFileHash !== expectedRefreshHash) {
+  throw new Error("deployed SUB AI portproxy refresh script does not match the repository");
 }
 
 const execution = spawnSync(
@@ -141,6 +156,7 @@ console.log(
       measurementChecks: {
         keepaliveTaskRunning: keepaliveTask.state === "Running",
         keepaliveScriptHashMatches: true,
+        portproxyRefreshScriptHashMatches: true,
         taskSetStable: true,
         restartCountZero: true,
         errorLogsZero: true,

@@ -13,6 +13,7 @@
     "perf:hot-paths": "npm run build && node scripts/benchmark-hot-paths.mjs --assert",
     "perf:sub-ai-services": "node scripts/benchmark-sub-ai-services.mjs --assert",
     "contract:anythingllm": "node scripts/verify-anythingllm-contract.mjs",
+    "verify:anythingllm-lan-ui": "node scripts/verify-anythingllm-lan-ui.mjs",
     "docs:export-clips": "node scripts/export-clip-search-data.mjs",
     "request-notes:web": "node scripts/bot-request-notes-web.mjs",
     "memory:web": "node scripts/anythingllm-memory-web.mjs",

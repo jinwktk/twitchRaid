@@ -28,6 +28,23 @@
 
 接続先は `http://192.168.0.99:3220/`。旧`twitchraid-memory-web`は同portを使用するため、AnythingLLM公開前に停止・削除する。
 
+### Windows起動後のLAN公開
+
+Scheduled Task `KeepDokployWslAlive` では、次の追跡元2ファイルを同じbasenameで本番配置する。
+
+- `ops/sub-ai-services/keep-wsl-dokploy-alive.ps1` → `E:\GitHub\BotManager\scripts\keep_wsl_dokploy_alive.ps1`
+- `ops/sub-ai-services/refresh-wsl-dokploy-portproxy.ps1` → `E:\GitHub\BotManager\scripts\refresh-wsl-dokploy-portproxy.ps1`
+
+refresh scriptはWSL/Docker起動後の現在IPへportproxyを張り直す。Windows側のlisten addressは `192.168.0.99`、Firewallの送信元は `192.168.0.0/24` に限定し、旧 `0.0.0.0` mappingを残さない。keepaliveは60秒間隔で、3220/3221と設定済み3222について「mappingあり・LAN listenerなし」の時だけIP HelperをStart/Restartする。mapping欠落やHTTP/app障害は別障害として扱い、IP Helperを操作しない。
+
+反映時は両ファイルのSHA-256が追跡元と一致すること、Taskが `Running` であること、listenerとLAN APIを確認する。
+
+```powershell
+npm run verify:anythingllm-lan-ui
+```
+
+成功時は `/api/ping` のHTTP 200と `online=true` を検証した安全な1行JSONだけを出す。失敗時も応答本文、認証値、query/hash付きURLは出力しない。
+
 ## 初期化
 
 リポジトリの次のscriptをサブPCのWSL内で実行する。
