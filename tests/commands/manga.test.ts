@@ -27,11 +27,11 @@ describe("fetchRandomMangaRecommendation", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://www.dlsite.com/maniax/ranking/day/=/date/30d/category/comic",
+      "https://www.dlsite.com/maniax/ranking/day?category=comic",
       expect.any(Object)
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://www.dlsite.com/girls/ranking/day",
+      "https://www.dlsite.com/girls/ranking/day?category=comic",
       expect.any(Object)
     );
   });

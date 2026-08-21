@@ -1,8 +1,8 @@
 import logger from "../utils/logger";
 
 const MANGA_RANKING_URLS = [
-  "https://www.dlsite.com/maniax/ranking/day/=/date/30d/category/comic",
-  "https://www.dlsite.com/girls/ranking/day",
+  "https://www.dlsite.com/maniax/ranking/day?category=comic",
+  "https://www.dlsite.com/girls/ranking/day?category=comic",
 ] as const;
 
 export interface MangaRecommendation {
