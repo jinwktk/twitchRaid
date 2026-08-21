@@ -131,7 +131,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!clip` | 過去のクリップをランダム表示 | 30分クールダウン（特別ユーザー除外） |
 | `!myclip` | 自分が作成したクリップをランダム表示 | 30分クールダウン（`!clip`とは独立） |
 | `!clipsearch <キーワード>` | Clipタイトル/作成者名/ゲーム名から過去クリップを検索して1件表示 | SQLiteキャッシュ検索、クールダウンなし |
-| `!manga` | DLsite日間ランキングからランダムに1作品のタイトルと作品URLを表示 | ON/OFF切替可、10秒後自動削除 |
+| `!manga` | DLsiteの男性向けコミック・女性向け日間ランキングを合わせた候補から、ランダムに1作品のタイトルと作品URLを表示 | ON/OFF切替可、10秒後自動削除 |
 | `!mangaon` | `!manga` コマンドを有効化 | 管理者のみ |
 | `!mangaoff` | `!manga` コマンドを無効化 | 管理者のみ |
 | `!shoutout <ユーザー名>` | 指定ユーザーへ手動 shoutout を実行 | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ |
@@ -405,6 +405,7 @@ internal-docs/
 
 ## 更新履歴
 
+- **2026-08-22**: `!manga` の取得先へDLsite女性向け日間ランキング（`https://www.dlsite.com/girls/ranking/day`）を追加。既存の男性向けコミックランキングと並列取得して候補を統合し、片方のランキング取得が失敗しても、もう片方が取得できればおすすめを返す。返信形式、ON/OFF切替、10秒後自動削除は変更しない。
 - **2026-08-16**: PC再起動後にAnythingLLMとWSL内HTTPは正常なのに `http://192.168.0.99:3220/` だけ到達不能になった再発を修正。起動時portproxy更新の対象から3220/3221が漏れ、IP HelperがRunningでもLAN listenerが作られていなかった。追跡可能な更新scriptで3220/3221を現在のWSL IPへ張り直し、全公開mapping/FirewallをLAN IP・LAN subnetへ限定する。keepaliveは設定済みmappingのlistener欠落だけを60秒間隔で検出してIP Helperを限定的に自己修復する。`npm run verify:anythingllm-lan-ui` はLAN経由の `/api/ping` がHTTP 200かつ `online=true` かを本文・credential非表示で確認する。
 - **2026-08-11**: `アップルウォッチの充電時間って何時間かかる？` と、その直後の `!chat 調べて` がSearXNGの関連結果を全件棄却していた問題を修正。充電時間の質問を初回検索候補にし、会話的な時間質問と製品名表記を `Apple Watch 充電時間` へ正規化して、初回と対象省略の追質問の両方へ検索結果を渡すようにした。
 - **2026-08-09**: 配信要約が一部leafの不正JSONで全体失敗していたため、初回生成とJSON修復の両方が不正なleafだけを8→4→2→1コメントへ分割して再生成し、各段階でschemaと出典event IDを再検証するようにした。1コメントでも不正なら従来どおりfail-closedにする。あわせて、旧100コメントleafの一時imageが現行8コメントleafの中間cacheを読んで`node_input_conflict`になった事象に対し、未完成streamの中間nodeだけを1回再構築して再開できるようにした

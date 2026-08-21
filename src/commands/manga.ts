@@ -1,7 +1,9 @@
 import logger from "../utils/logger";
 
-const MANGA_RANKING_URL =
-  "https://www.dlsite.com/maniax/ranking/day/=/date/30d/category/comic";
+const MANGA_RANKING_URLS = [
+  "https://www.dlsite.com/maniax/ranking/day/=/date/30d/category/comic",
+  "https://www.dlsite.com/girls/ranking/day",
+] as const;
 
 export interface MangaRecommendation {
   title: string;
@@ -28,7 +30,8 @@ function selectRandom<T>(items: readonly T[]): T | null {
  * product_idを含む作品リンクのみを対象にする
  */
 export function extractMangaRecommendations(
-  rankingHtml: string
+  rankingHtml: string,
+  rankingUrl: string = MANGA_RANKING_URLS[0]
 ): MangaRecommendation[] {
   // product_idを含む作品リンクのみ抽出（ナビ・ジャンル等を除外）
   const anchorRegex =
@@ -39,7 +42,7 @@ export function extractMangaRecommendations(
   while ((match = anchorRegex.exec(rankingHtml)) !== null) {
     const url = new URL(
       decodeHtmlEntities(match[1]),
-      MANGA_RANKING_URL
+      rankingUrl
     ).toString();
     const title = decodeHtmlEntities(match[2]).trim();
     // ボタン・レビュー件数等を除外（作品タイトルのみ）
@@ -88,19 +91,35 @@ export async function fetchRandomMangaRecommendation(): Promise<
   MangaRecommendation | null
 > {
   try {
-    const response = await fetch(MANGA_RANKING_URL, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      },
-    });
+    const rankingResults = await Promise.allSettled(
+      MANGA_RANKING_URLS.map(async (rankingUrl) => {
+        const response = await fetch(rankingUrl, {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          },
+        });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const html = await response.text();
+        return extractMangaRecommendations(html, rankingUrl);
+      })
+    );
+    const failedResults = rankingResults.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected"
+    );
+    if (failedResults.length === rankingResults.length) {
+      throw failedResults[0].reason;
     }
-
-    const html = await response.text();
-    const recommendations = extractMangaRecommendations(html);
+    for (const failure of failedResults) {
+      logger.warn(`⚠️ mangaランキングの一部取得失敗: ${failure.reason}`);
+    }
+    const recommendations = rankingResults.flatMap((result) =>
+      result.status === "fulfilled" ? result.value : []
+    );
     return selectMangaRecommendation(recommendations);
   } catch (e) {
     logger.error(`❌ mangaランキング取得失敗: ${e}`);
