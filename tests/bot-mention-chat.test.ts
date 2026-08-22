@@ -290,6 +290,7 @@ function installAnythingLlmFetchMock(options: {
   chatReplies?: string[];
   failAnythingLlm?: boolean;
   directOllamaReply?: string;
+  emptySearchResults?: boolean;
 } = {}): {
   fetchSpy: ReturnType<typeof vi.spyOn>;
   state: AnythingLlmFetchMockState;
@@ -338,6 +339,9 @@ function installAnythingLlmFetchMock(options: {
       if (url.hostname === "searxng.test") {
         const query = url.searchParams.get("q") ?? "";
         state.searchQueries.push(query);
+        if (options.emptySearchResults) {
+          return json({ query, results: [] });
+        }
         if (query === "今日の天気") {
           return json({
             query,
@@ -401,6 +405,9 @@ function installAnythingLlmFetchMock(options: {
             headers: { "content-type": "text/html; charset=utf-8" },
           }
         );
+      }
+      if (url.hostname === "ja.wikipedia.org") {
+        return new Response("", { status: 404 });
       }
       if (url.hostname !== "anythingllm.test") {
         throw new Error(`unexpected fetch: ${url.toString()}`);
@@ -2527,10 +2534,6 @@ describe("Bot mention chat", () => {
       "TwitchConの好物: ピザ"
     );
     expect(say).toHaveBeenCalledWith("#rukalun", "メモから答えるD！");
-    expect(say).not.toHaveBeenCalledWith(
-      "#rukalun",
-      "ごめん、検索結果がなくて分からないD！"
-    );
     expect(infoSpy).toHaveBeenCalledWith(
       expect.stringContaining("searchReason=failed")
     );
@@ -3063,7 +3066,7 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "通常返信D！");
   });
 
-  it("replies with a no-result fallback when external search returns no usable context", async () => {
+  it("continues to normal AI generation when external search returns no usable context", async () => {
     const { bot, say } = makeBot({
       chatAiSearchEnabled: true,
       chatAiSearchEndpoint: "https://api.duckduckgo.com/",
@@ -3084,7 +3087,9 @@ describe("Bot mention chat", () => {
 
       return {
         ok: true,
-        json: async () => ({ response: "レゲエパンチって何？調べてみるね♪" }),
+        json: async () => ({
+          response: "検索では確認できなかったけど、分かる範囲で答えるD！",
+        }),
       } as Response;
     });
 
@@ -3095,7 +3100,12 @@ describe("Bot mention chat", () => {
       100
     );
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(
+      fetchSpy.mock.calls.filter(([input]) =>
+        String(input).endsWith("/api/generate")
+      )
+    ).toHaveLength(1);
     expect(infoSpy).toHaveBeenCalledWith(
       "AIメンション会話外部検索は未適用: reason=no_result"
     );
@@ -3104,12 +3114,54 @@ describe("Bot mention chat", () => {
     );
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "ごめん、検索結果がなくて分からないD！"
+      "検索では確認できなかったけど、分かる範囲で答えるD！"
     );
     expect(infoSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        'prompt="レゲエパンチについて調べて", reply="ごめん、検索結果がなくて分からないD！"'
-      )
+      expect.stringContaining("source=generated")
+    );
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("source=search_no_result")
+    );
+  });
+
+  it("continues to AnythingLLM when external search returns no usable context", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: ["検索結果がなくても通常会話で答えるD！"],
+      emptySearchResults: true,
+    });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiSearchEngines: "yahoo japan,bing",
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "anythingllm-search-no-result.sqlite"
+      ),
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat レゲエパンチについて調べて",
+      {}
+    );
+
+    expect(state.searchQueries).toEqual(["レゲエパンチ"]);
+    expect(state.directOllamaCalls).toBe(0);
+    expect(state.chatMessages).toHaveLength(1);
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "検索結果がなくても通常会話で答えるD！"
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining("searchReason=no_result")
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining("source=generated")
     );
   });
 
@@ -4011,10 +4063,6 @@ describe("Bot mention chat", () => {
       "#rukalun",
       "Apple Watchの充電時間はモデルによって違うよD！"
     );
-    expect(say).not.toHaveBeenCalledWith(
-      "#rukalun",
-      "ごめん、検索結果がなくて分からないD！"
-    );
   });
 
   it("passes latest earthquake search results to chat generation", async () => {
@@ -4068,10 +4116,6 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
       "最新の地震情報を確認したよD！"
-    );
-    expect(say).not.toHaveBeenCalledWith(
-      "#rukalun",
-      "ごめん、検索結果がなくて分からないD！"
     );
   });
 

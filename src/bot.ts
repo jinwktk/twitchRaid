@@ -160,8 +160,6 @@ const WORK_SEND_OFF_REPLY =
 const HELP_MESSAGE =
   "!使えるコマンド: 基本 !help / !age / !goods / !7days / !die / !work / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
 const MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE = "[memory-request]";
-const MENTION_CHAT_SEARCH_NO_RESULT_REPLY =
-  "ごめん、検索結果がなくて分からないD！";
 const MENTION_CHAT_MEMORY_KEYWORD_PATTERN =
   /(?:覚えて(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|覚えといて(?:ください|下さい|ね)?|覚えとけ|記憶して(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|記憶しといて(?:ください|下さい|ね)?|メモして(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|メモしといて(?:ください|下さい|ね)?|メモっといて(?:ください|下さい|ね)?|忘れないで(?!いる|いた|います|た|しょ))/u;
 
@@ -1484,29 +1482,6 @@ export class Bot {
         logger.info(
           `AIメンション会話外部検索は未適用: reason=${searchOutcome.result.reason}`
         );
-        if (searchOutcome.result.reason === "no_result") {
-          const replyWithEmote = appendContextualChatReplyEmote(
-            MENTION_CHAT_SEARCH_NO_RESULT_REPLY,
-            this.config.chatReplyEmotes,
-            {
-              source: "mention",
-              promptText: request.prompt,
-            }
-          );
-          const model = this.config.chatAiAnythingLlmEnabled
-            ? `anythingllm:${this.config.anythingLlmWorkspaceSlug}`
-            : (this.config.chatAiModel ?? "");
-          logger.info(
-            this.config.chatAiAnythingLlmEnabled
-              ? `AIメンション会話応答: user=${request.userName}, alias=${request.alias}, model=${model}, source=search_no_result, image=false, replyChars=${replyWithEmote.length}`
-              : `AIメンション会話応答: user=${request.userName}, alias=${request.alias}, model=${model}, image=false, prompt=${formatMentionChatLogValue(request.prompt)}, reply=${formatMentionChatLogValue(replyWithEmote)}`
-          );
-          await this.chatClient.say(request.channel, replyWithEmote);
-          logger.info(
-            `✅ AIメンション会話を送信: user=${request.userName}, alias=${request.alias}`
-          );
-          return;
-        }
       }
       const model = this.config.chatAiAnythingLlmEnabled
         ? `anythingllm:${this.config.anythingLlmWorkspaceSlug}`

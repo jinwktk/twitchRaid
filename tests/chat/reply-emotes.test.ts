@@ -52,14 +52,14 @@ describe("chat reply emotes", () => {
   it("prioritizes uncertain or apologetic replies over upbeat prompt context", () => {
     expect(
       appendContextualChatReplyEmote(
-        "ごめん、検索結果がなくて分からないD！",
+        "検索では確認できなかったD！",
         ["rukkaNikoniko"],
         {
           source: "mention",
           promptText: "GGだった？",
         }
       )
-    ).toBe("ごめん、検索結果がなくて分からないD！ rukkaShobobo");
+    ).toBe("検索では確認できなかったD！ rukkaShobobo");
   });
 
   it("keeps an upbeat fallback for informative replies", () => {
