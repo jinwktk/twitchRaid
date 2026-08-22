@@ -4017,6 +4017,64 @@ describe("Bot mention chat", () => {
     );
   });
 
+  it("passes latest earthquake search results to chat generation", async () => {
+    const { bot, say } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiSearchEngines: "yahoo japan,bing",
+    });
+    const searchQueries: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "searxng.test") {
+        searchQueries.push(url.searchParams.get("q") ?? "");
+        return new Response(
+          JSON.stringify({
+            query: url.searchParams.get("q"),
+            results: [
+              {
+                title: "最新の地震情報",
+                content: "国内で観測された地震の最新状況を掲載しています。",
+                url: "https://example.test/earthquake/latest",
+                engine: "bing",
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (url.hostname === "ja.wikipedia.org") {
+        return new Response("", { status: 404 });
+      }
+      if (url.pathname.endsWith("/api/generate")) {
+        return new Response(
+          JSON.stringify({ response: "最新の地震情報を確認したよD！" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      throw new Error(`unexpected fetch: ${url.toString()}`);
+    });
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat 地震の最新情報を教えて",
+      {}
+    );
+
+    expect(searchQueries).toEqual(["地震 最新"]);
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "最新の地震情報を確認したよD！"
+    );
+    expect(say).not.toHaveBeenCalledWith(
+      "#rukalun",
+      "ごめん、検索結果がなくて分からないD！"
+    );
+  });
+
   it.each(["調べて？", "どっちが正しいのか調べてほしい"])(
     "uses the same user's previous chat topic when the research follow-up omits the subject: %s",
     async (followUp) => {

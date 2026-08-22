@@ -287,6 +287,10 @@ function normalizeNaturalDurationQuestion(value: string): string {
   );
 }
 
+function normalizeNaturalLatestInformationRequest(value: string): string {
+  return singleLine(value.replace(/^(.+?)の最新情報$/u, "$1 最新"));
+}
+
 function normalizeSearchQuery(value: string): string {
   const originalQuery = singleLine(value);
   const isComparisonQuestion = isCompactComparisonQuestion(originalQuery);
@@ -335,6 +339,7 @@ function normalizeSearchQuery(value: string): string {
   query = singleLine(
     query.replace(/の(?=(?:替え歌|ネタバレ)(?:$|\s))/gu, " ")
   );
+  query = normalizeNaturalLatestInformationRequest(query);
   query = normalizeNaturalDurationQuestion(query);
   const weatherDay = getSingleExplicitWeatherRelativeDay(query);
   if (weatherDay) {

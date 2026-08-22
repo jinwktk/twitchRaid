@@ -337,6 +337,62 @@ describe("mention chat external search", () => {
     }
   );
 
+  it("normalizes a natural latest-information request without weakening relevance", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "searxng.test") {
+        return jsonResponse({
+          query: url.searchParams.get("q"),
+          results: [
+            {
+              title: "最新の台風情報",
+              content: "台風の最新状況を掲載しています。",
+              url: "https://example.test/typhoon/latest",
+              engine: "bing",
+            },
+            {
+              title: "過去の地震情報",
+              content: "国内で観測された過去の地震を掲載しています。",
+              url: "https://example.test/earthquake/archive",
+              engine: "bing",
+            },
+            {
+              title: "最新の地震情報",
+              content: "国内で観測された地震の最新状況を掲載しています。",
+              url: "https://example.test/earthquake/latest",
+              engine: "bing",
+            },
+          ],
+        });
+      }
+      if (url.hostname === "ja.wikipedia.org") {
+        return { ok: false, status: 404 } as Response;
+      }
+      throw new Error(`unexpected fetch: ${url.toString()}`);
+    });
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "yahoo japan,bing",
+      queryText: "地震の最新情報を教えて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+    });
+
+    const searchUrl = new URL(String(fetchImpl.mock.calls[0][0]));
+    expect(searchUrl.searchParams.get("q")).toBe("地震 最新");
+    expect(result.reason).toBe("found");
+    expect(result.context?.resultCount).toBe(1);
+    expect(result.context?.text).toContain("最新の地震情報");
+    expect(result.context?.text).not.toContain("最新の台風情報");
+    expect(result.context?.text).not.toContain("過去の地震情報");
+  });
+
   it("searches the subject when an explicit search request is followed by another action", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({
