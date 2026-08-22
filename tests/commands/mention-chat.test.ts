@@ -169,6 +169,20 @@ describe("formatGeneratedMentionChatReply", () => {
     ).toBe(reply);
   });
 
+  it("allows structured Latin identifiers quoted from the prompt", () => {
+    const reply =
+      "ごめん、その「codex-no-result-probe-7704a15」については情報がないみたいD！";
+
+    expect(
+      formatMentionChatProviderReply({
+        generated: reply,
+        maxResponseChars: 200,
+        promptText: "codex-no-result-probe-7704a15について調べて",
+        userName: "viewer",
+      })
+    ).toBe(reply);
+  });
+
   it("allows short Japanese kanji-only replies from chat prompts", () => {
     expect(formatGeneratedMentionChatReply("猫！", 200)).toBe("猫！");
     expect(formatGeneratedMentionChatReply("左！", 200)).toBe("左！");

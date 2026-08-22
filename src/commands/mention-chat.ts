@@ -251,10 +251,11 @@ function buildAllowedLatinTokenSet(
 }
 
 function extractPromptSpecifiedLatinTokens(promptText: string): string[] {
-  if (!ENGLISH_TERM_EXPLANATION_PATTERN.test(promptText)) return [];
+  const allowsExplanationTerms = ENGLISH_TERM_EXPLANATION_PATTERN.test(promptText);
 
   const tokens = new Set<string>();
   for (const match of promptText.matchAll(LATIN_TOKEN_PATTERN)) {
+    if (!allowsExplanationTerms && !/[0-9_+-]/u.test(match[0])) continue;
     const token = normalizeName(match[0]);
     if (token.length > 1) tokens.add(token);
   }

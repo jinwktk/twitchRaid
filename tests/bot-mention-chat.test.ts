@@ -3165,6 +3165,42 @@ describe("Bot mention chat", () => {
     );
   });
 
+  it("keeps a prompt-owned structured identifier when no-result AnythingLLM replies quote it", async () => {
+    const generatedReply =
+      "ごめん、その「codex-no-result-probe-7704a15」については情報がないみたいD！";
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: [generatedReply, generatedReply],
+      emptySearchResults: true,
+    });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiSearchEngines: "yahoo japan,bing",
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "anythingllm-search-no-result-structured-id.sqlite"
+      ),
+    });
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat codex-no-result-probe-7704a15について調べて",
+      {}
+    );
+
+    expect(state.searchQueries).toEqual([
+      "codex-no-result-probe-7704a15",
+      "codex-no-result-probe-7704a15",
+    ]);
+    expect(state.directOllamaCalls).toBe(0);
+    expect(state.chatMessages).toHaveLength(1);
+    expect(say).toHaveBeenCalledWith("#rukalun", generatedReply);
+  });
+
   it.skip("legacy: stores learned memory with audit metadata and replies without calling Ollama", async () => {
     const memoryPath = path.join(ensureTempDir(), "chat-ai-memory.json");
     const { bot, say } = makeBot({
