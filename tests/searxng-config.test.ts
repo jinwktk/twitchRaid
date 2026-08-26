@@ -290,7 +290,7 @@ describe("SearXNG self-hosting config", () => {
     expect(script.slice(refreshIndex, catchIndex)).not.toContain("Add-Content");
     expect(script).toContain("continuing WSL keepalive");
     expect(script).toContain(
-      "& wsl.exe -d $Distribution -u root -- bash -lc $wslKeepaliveCommand"
+      "& wsl.exe -d $Distribution -u root -- bash -lc $wslKeepaliveLaunchCommand"
     );
     expect(script).not.toContain("while true; do sleep 3600; done");
     expect(script).toContain("$refreshRequired = $false");
@@ -334,6 +334,7 @@ describe("SearXNG self-hosting config", () => {
       '[string]$MountRecoveryStateFile = "E:\\GitHub\\BotManager\\logs\\dokploy-wsl-mount-recovery-state.json"'
     );
     expect(startFunction).toContain("New-WslDockerKeepaliveCommand");
+    expect(startFunction).toContain("ConvertTo-WslEncodedBashCommand");
     expect(startFunction).toContain("Get-WslKeepaliveLoopTransition");
     expect(startFunction).toContain(
       "Get-WslMountRecoveryAttempt -StateFile $MountRecoveryStateFile"
@@ -557,6 +558,34 @@ $command = New-WslDockerKeepaliveCommand \
         );
       }
     );
+
+    windowsIt("base64 wrapperが入れ子quoteとexit codeを保持してdecode失敗を拒否する", () => {
+      const output = runPowerShellFixture<{
+        Launch86: string;
+        Launch87: string;
+        Launch88: string;
+      }>(`
+[pscustomobject]@{
+    Launch86 = ConvertTo-WslEncodedBashCommand -Command 'printf "nested=%s" "Invalid argument"; exit 86'
+    Launch87 = ConvertTo-WslEncodedBashCommand -Command 'exit 87'
+    Launch88 = ConvertTo-WslEncodedBashCommand -Command 'exit 88'
+} | ConvertTo-Json -Compress
+`);
+
+      expect(output.Launch86).toMatch(
+        /^command -v base64 >\/dev\/null 2>&1 \|\| exit 89; set -o pipefail; printf %s [A-Za-z0-9+/=]+ \| base64 -d \| bash$/u
+      );
+      expect(runBashFixture(output.Launch86)).toBe(86);
+      expect(runBashFixture(output.Launch87)).toBe(87);
+      expect(runBashFixture(output.Launch88)).toBe(88);
+
+      const invalidPayloadLaunch = output.Launch86.replace(
+        /(printf %s )[A-Za-z0-9+/=]+/u,
+        "$1%%%"
+      );
+      expect(runBashFixture(invalidPayloadLaunch)).not.toBe(0);
+      expect(runBashFixture(`PATH=/nonexistent; ${output.Launch86}`)).toBe(89);
+    });
 
     windowsIt(
       "nsenter自体のInvalid argumentをPID 1内stat不整合へ誤分類しない",

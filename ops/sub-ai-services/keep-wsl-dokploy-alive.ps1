@@ -119,6 +119,16 @@ function New-WslDockerKeepaliveCommand {
     ) -join "; "
 }
 
+function ConvertTo-WslEncodedBashCommand {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Command)
+
+    $commandBytes = [Text.Encoding]::UTF8.GetBytes($Command)
+    $encodedCommand = [Convert]::ToBase64String($commandBytes)
+    return "command -v base64 >/dev/null 2>&1 || exit 89; set -o pipefail; " +
+        "printf %s $encodedCommand | base64 -d | bash"
+}
+
 function Get-ManagedPortProxyMappings {
     $output = @(& netsh.exe interface portproxy show v4tov4)
     if ($LASTEXITCODE -ne 0) {
@@ -487,6 +497,7 @@ function Start-WslDokployKeepalive {
     $wslKeepaliveCommand = New-WslDockerKeepaliveCommand `
         -CriticalMountPath $CriticalWslMountPath `
         -HealthIntervalSeconds $PortProxyHealthIntervalSeconds
+    $wslKeepaliveLaunchCommand = ConvertTo-WslEncodedBashCommand -Command $wslKeepaliveCommand
 
     while ($true) {
         if ($refreshRequired) {
@@ -513,7 +524,7 @@ function Start-WslDokployKeepalive {
         }
         $exitCode = 0
         try {
-            & wsl.exe -d $Distribution -u root -- bash -lc $wslKeepaliveCommand
+            & wsl.exe -d $Distribution -u root -- bash -lc $wslKeepaliveLaunchCommand
             $exitCode = $LASTEXITCODE
         }
         catch {
