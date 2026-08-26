@@ -18,6 +18,13 @@ interface PortProxyRecoveryFixtureResult {
   ListenerChecks: number;
 }
 
+interface WslMountRecoveryFixtureResult {
+  Result: Record<string, unknown>;
+  PersistCount: number;
+  TerminateCount: number;
+  SleepCount: number;
+}
+
 function toPowerShellLiteral(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
@@ -72,6 +79,19 @@ ${fixture}
   }
 
   return JSON.parse(execution.stdout.trim()) as T;
+}
+
+function runBashFixture(script: string): number | null {
+  const execution = spawnSync("bash", ["-lc", script], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    timeout: 10_000,
+    windowsHide: true,
+  });
+  if (execution.error) {
+    throw execution.error;
+  }
+  return execution.status;
 }
 
 function runPortProxyRecoveryFixture(options: {
@@ -270,11 +290,14 @@ describe("SearXNG self-hosting config", () => {
     expect(script.slice(refreshIndex, catchIndex)).not.toContain("Add-Content");
     expect(script).toContain("continuing WSL keepalive");
     expect(script).toContain(
-      "systemctl start docker && systemctl is-active --quiet docker && sleep $PortProxyHealthIntervalSeconds"
+      "& wsl.exe -d $Distribution -u root -- bash -lc $wslKeepaliveCommand"
     );
     expect(script).not.toContain("while true; do sleep 3600; done");
     expect(script).toContain("$refreshRequired = $false");
-    expect(script).toContain("Start-Sleep -Seconds $RestartDelaySeconds");
+    expect(script).toContain("-RestartDelaySeconds $RestartDelaySeconds");
+    expect(script).toContain(
+      "Start-Sleep -Seconds $transition.RetryDelaySeconds"
+    );
   });
 
   it("resolves the default refresh script after PowerShell initializes PSScriptRoot", () => {
@@ -295,6 +318,41 @@ describe("SearXNG self-hosting config", () => {
     expect(paramEndIndex).toBeGreaterThan(-1);
     expect(script.slice(0, paramEndIndex)).not.toContain("$PSScriptRoot");
     expect(refreshResolutionIndex).toBeGreaterThan(paramEndIndex);
+  });
+
+  it("mount namespace不整合だけを連続回数とcooldown付きで自動復旧する", () => {
+    const script = fs
+      .readFileSync(keepaliveScriptPath, "utf8")
+      .replace(/\r\n?/gu, "\n");
+    const startIndex = script.indexOf("function Start-WslDokployKeepalive");
+    const startFunction = script.slice(startIndex);
+
+    expect(script).toContain(
+      '[string]$CriticalWslMountPath = "/mnt/e/GitHub/RukalunPage"'
+    );
+    expect(script).toContain(
+      '[string]$MountRecoveryStateFile = "E:\\GitHub\\BotManager\\logs\\dokploy-wsl-mount-recovery-state.json"'
+    );
+    expect(startFunction).toContain("New-WslDockerKeepaliveCommand");
+    expect(startFunction).toContain("Get-WslKeepaliveLoopTransition");
+    expect(startFunction).toContain(
+      "Get-WslMountRecoveryAttempt -StateFile $MountRecoveryStateFile"
+    );
+    expect(startFunction).toContain("$exitCode -eq 86");
+    expect(startFunction).toContain("$exitCode -eq 87");
+    expect(startFunction).toContain("$exitCode -eq 88");
+    expect(startFunction).toContain("$staleMountFailureCount += 1");
+    expect(startFunction).toContain("Invoke-WslMountNamespaceRecovery");
+    expect(startFunction).toContain("-LastRecoveryAt $lastMountRecoveryAt");
+    expect(startFunction).toContain("-RecoveryCooldownSeconds $MountRecoveryCooldownSeconds");
+    expect(script).toContain(
+      "Set-WslMountRecoveryAttempt -StateFile $MountRecoveryStateFile"
+    );
+    expect(startFunction).toContain("-RecoveryStatus $recovery.Status");
+    expect(startFunction).toContain("$mountRecoveryAwaitingConfirmation");
+    expect(startFunction).toContain(
+      "WSL mount namespace recovery result=success"
+    );
   });
 
   it("tracks the boot-time portproxy refresh for the LAN-only Web UIs", () => {
@@ -447,6 +505,299 @@ if ($script:listenerChecks -ge 2) {
       expect(output.Result.Status).toBe("failed");
       expect(output.RestartCount).toBe(1);
       expect(output.StartCount).toBe(0);
+    });
+  });
+
+  describe("Windows WSL mount namespace recovery", () => {
+    windowsIt("復旧試行時刻をWindows側stateへ永続化して再読込できる", () => {
+      const output = runPowerShellFixture<{
+        LoadedAttemptAt: string;
+      }>(`
+$stateDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("twitchraid-wsl-recovery-" + [Guid]::NewGuid().ToString("N"))
+$stateFile = Join-Path $stateDirectory "state.json"
+try {
+    Set-WslMountRecoveryAttempt \
+        -StateFile $stateFile \
+        -Distribution "Ubuntu-Backup" \
+        -AttemptAt ([DateTimeOffset]::Parse("2026-08-26T16:00:00+09:00"))
+    $loaded = Get-WslMountRecoveryAttempt -StateFile $stateFile
+    [pscustomobject]@{
+        LoadedAttemptAt = $loaded.ToString("o")
+    } | ConvertTo-Json -Compress
+}
+finally {
+    if (Test-Path -LiteralPath $stateDirectory) {
+        Remove-Item -LiteralPath $stateDirectory -Recurse -Force
+    }
+}
+`);
+
+      expect(output.LoadedAttemptAt).toBe("2026-08-26T16:00:00.0000000+09:00");
+    });
+
+    windowsIt(
+      "通常shellとPID 1のmount状態を別々のexit codeで判定する",
+      () => {
+        const output = runPowerShellFixture<{ Command: string }>(`
+$command = New-WslDockerKeepaliveCommand \
+    -CriticalMountPath "/mnt/e/GitHub/RukalunPage" \
+    -HealthIntervalSeconds 60
+[pscustomobject]@{ Command = $command } | ConvertTo-Json -Compress
+`);
+
+        expect(output.Command).toBe(
+          "systemctl start docker && systemctl is-active --quiet docker || exit 1; " +
+            "stat -- '/mnt/e/GitHub/RukalunPage' >/dev/null 2>&1 || exit 87; " +
+            "pid1_mount_error=\"$(nsenter -t 1 -m -- sh -c 'pid1_stat_error=\"$(LC_ALL=C stat -- \"$1\" 2>&1)\" || " +
+            "{ printf \"__PID1_STAT_ERROR__%s\" \"$pid1_stat_error\"; exit 86; }' sh '/mnt/e/GitHub/RukalunPage' 2>&1)\"; " +
+            "pid1_mount_exit=$?; if [ \"$pid1_mount_exit\" -ne 0 ]; then " +
+            "case \"$pid1_mount_error\" in __PID1_STAT_ERROR__stat:*\": Invalid argument\") exit 86 ;; " +
+            "*) exit 88 ;; esac; fi; " +
+            "sleep 60"
+        );
+      }
+    );
+
+    windowsIt(
+      "nsenter自体のInvalid argumentをPID 1内stat不整合へ誤分類しない",
+      () => {
+        const output = runPowerShellFixture<{ Command: string }>(`
+$command = New-WslDockerKeepaliveCommand \
+    -CriticalMountPath "/mnt/e/GitHub/RukalunPage" \
+    -HealthIntervalSeconds 60
+[pscustomobject]@{ Command = $command } | ConvertTo-Json -Compress
+`);
+        const probeStart = output.Command.indexOf("pid1_mount_error=");
+        const probeEnd = output.Command.lastIndexOf("; sleep 60");
+        expect(probeStart).toBeGreaterThan(-1);
+        expect(probeEnd).toBeGreaterThan(probeStart);
+        const probe = output.Command.slice(probeStart, probeEnd);
+
+        const nsenterFailureStatus = runBashFixture(`
+nsenter() {
+    printf '%s' 'nsenter: reassociate to namespace failed: Invalid argument' >&2
+    return 1
+}
+${probe}
+`);
+        const innerStatFailureStatus = runBashFixture(`
+nsenter() {
+    printf '%s' '__PID1_STAT_ERROR__stat: cannot statx /mnt/e/GitHub/RukalunPage: Invalid argument' >&2
+    return 86
+}
+${probe}
+`);
+        const otherProbeFailureStatus = runBashFixture(`
+nsenter() {
+    printf '%s' 'nsenter: cannot open /proc/1/ns/mnt: Permission denied' >&2
+    return 1
+}
+${probe}
+`);
+
+        expect(nsenterFailureStatus).toBe(88);
+        expect(innerStatFailureStatus).toBe(86);
+        expect(otherProbeFailureStatus).toBe(88);
+        expect(probe).toContain("LC_ALL=C stat");
+      }
+    );
+
+    windowsIt(
+      "復旧待機・再起動・失敗・未知probe・復旧確認のloop遷移を分離する",
+      () => {
+        const output = runPowerShellFixture<{
+          Pending: Record<string, unknown>;
+          Terminated: Record<string, unknown>;
+          Failed: Record<string, unknown>;
+          UnknownProbe: Record<string, unknown>;
+          Confirmed: Record<string, unknown>;
+        }>(`
+$common = @{
+    PortProxyHealthIntervalSeconds = 60
+    RestartDelaySeconds = 5
+}
+$pending = Get-WslKeepaliveLoopTransition @common -ExitCode 86 -RecoveryStatus "pending"
+$terminated = Get-WslKeepaliveLoopTransition @common -ExitCode 86 -RecoveryStatus "terminated"
+$failed = Get-WslKeepaliveLoopTransition @common -ExitCode 86 -RecoveryStatus "failed"
+$unknownProbe = Get-WslKeepaliveLoopTransition @common -ExitCode 88
+$confirmed = Get-WslKeepaliveLoopTransition @common -ExitCode 0 -MountRecoveryAwaitingConfirmation $true
+[pscustomobject]@{
+    Pending = $pending
+    Terminated = $terminated
+    Failed = $failed
+    UnknownProbe = $unknownProbe
+    Confirmed = $confirmed
+} | ConvertTo-Json -Depth 8 -Compress
+`);
+
+        expect(output.Pending).toMatchObject({
+          RetryDelaySeconds: 60,
+          ResetFailureCount: false,
+          AwaitingConfirmation: false,
+          ConfirmedRecovery: false,
+          RememberRecoveryAttempt: false,
+          FailureReason: "stale_mount",
+        });
+        expect(output.Terminated).toMatchObject({
+          RetryDelaySeconds: 0,
+          ResetFailureCount: true,
+          AwaitingConfirmation: true,
+          RememberRecoveryAttempt: true,
+        });
+        expect(output.Failed).toMatchObject({
+          RetryDelaySeconds: 60,
+          ResetFailureCount: true,
+          AwaitingConfirmation: false,
+          RememberRecoveryAttempt: true,
+        });
+        expect(output.UnknownProbe).toMatchObject({
+          RetryDelaySeconds: 60,
+          ResetFailureCount: true,
+          FailureReason: "pid1_probe_failed",
+        });
+        expect(output.Confirmed).toMatchObject({
+          RetryDelaySeconds: 0,
+          ResetFailureCount: true,
+          AwaitingConfirmation: false,
+          ConfirmedRecovery: true,
+          FailureReason: "healthy",
+        });
+      }
+    );
+
+    windowsIt(
+      "mount namespace不整合が2回続けばdistributionを1回だけterminateする",
+      () => {
+        const output = runPowerShellFixture<WslMountRecoveryFixtureResult>(`
+$script:terminateCount = 0
+$script:persistCount = 0
+$script:sleepCount = 0
+$persistRecoveryAttempt = {
+    param($DistributionName, $AttemptAt)
+    $script:persistCount += 1
+}
+$terminateDistribution = {
+    param($DistributionName)
+    $script:terminateCount += 1
+}
+$sleepAction = {
+    param($Seconds)
+    $script:sleepCount += 1
+}
+$logAction = { param($Message) }
+$result = Invoke-WslMountNamespaceRecovery \
+    -Distribution "Ubuntu-Backup" \
+    -ConsecutiveFailureCount 2 \
+    -RequiredConsecutiveFailures 2 \
+    -LastRecoveryAt $null \
+    -RecoveryDelaySeconds 10 \
+    -PersistRecoveryAttempt $persistRecoveryAttempt \
+    -TerminateDistribution $terminateDistribution \
+    -SleepAction $sleepAction \
+    -LogAction $logAction
+[pscustomobject]@{
+    Result = $result
+    PersistCount = $script:persistCount
+    TerminateCount = $script:terminateCount
+    SleepCount = $script:sleepCount
+} | ConvertTo-Json -Depth 8 -Compress
+`);
+
+        expect(output.Result.Status).toBe("terminated");
+        expect(output.Result.Action).toBe("terminate_distribution");
+        expect(output.PersistCount).toBe(1);
+        expect(output.TerminateCount).toBe(1);
+        expect(output.SleepCount).toBe(1);
+      }
+    );
+
+    windowsIt("前回復旧から15分以内ならdistributionを再terminateしない", () => {
+      const output = runPowerShellFixture<WslMountRecoveryFixtureResult>(`
+$script:terminateCount = 0
+$script:persistCount = 0
+$script:sleepCount = 0
+$persistRecoveryAttempt = {
+    param($DistributionName, $AttemptAt)
+    $script:persistCount += 1
+}
+$terminateDistribution = {
+    param($DistributionName)
+    $script:terminateCount += 1
+}
+$sleepAction = {
+    param($Seconds)
+    $script:sleepCount += 1
+}
+$logAction = { param($Message) }
+$result = Invoke-WslMountNamespaceRecovery \
+    -Distribution "Ubuntu-Backup" \
+    -ConsecutiveFailureCount 2 \
+    -RequiredConsecutiveFailures 2 \
+    -LastRecoveryAt ([DateTimeOffset]::Parse("2026-08-26T16:00:00+09:00")) \
+    -Now ([DateTimeOffset]::Parse("2026-08-26T16:01:00+09:00")) \
+    -RecoveryCooldownSeconds 900 \
+    -RecoveryDelaySeconds 10 \
+    -PersistRecoveryAttempt $persistRecoveryAttempt \
+    -TerminateDistribution $terminateDistribution \
+    -SleepAction $sleepAction \
+    -LogAction $logAction
+[pscustomobject]@{
+    Result = $result
+    PersistCount = $script:persistCount
+    TerminateCount = $script:terminateCount
+    SleepCount = $script:sleepCount
+} | ConvertTo-Json -Depth 8 -Compress
+`);
+
+      expect(output.Result.Status).toBe("cooldown");
+      expect(output.Result.Action).toBe("none");
+      expect(output.PersistCount).toBe(0);
+      expect(output.TerminateCount).toBe(0);
+      expect(output.SleepCount).toBe(0);
+    });
+
+    windowsIt("復旧試行時刻を永続化できなければdistributionをterminateしない", () => {
+      const output = runPowerShellFixture<WslMountRecoveryFixtureResult>(`
+$script:terminateCount = 0
+$script:persistCount = 0
+$script:sleepCount = 0
+$persistRecoveryAttempt = {
+    param($DistributionName, $AttemptAt)
+    $script:persistCount += 1
+    throw "state unavailable"
+}
+$terminateDistribution = {
+    param($DistributionName)
+    $script:terminateCount += 1
+}
+$sleepAction = {
+    param($Seconds)
+    $script:sleepCount += 1
+}
+$logAction = { param($Message) }
+$result = Invoke-WslMountNamespaceRecovery \
+    -Distribution "Ubuntu-Backup" \
+    -ConsecutiveFailureCount 2 \
+    -RequiredConsecutiveFailures 2 \
+    -LastRecoveryAt $null \
+    -RecoveryDelaySeconds 10 \
+    -PersistRecoveryAttempt $persistRecoveryAttempt \
+    -TerminateDistribution $terminateDistribution \
+    -SleepAction $sleepAction \
+    -LogAction $logAction
+[pscustomobject]@{
+    Result = $result
+    PersistCount = $script:persistCount
+    TerminateCount = $script:terminateCount
+    SleepCount = $script:sleepCount
+} | ConvertTo-Json -Depth 8 -Compress
+`);
+
+      expect(output.Result.Status).toBe("failed");
+      expect(output.Result.Action).toBe("none");
+      expect(output.PersistCount).toBe(1);
+      expect(output.TerminateCount).toBe(0);
+      expect(output.SleepCount).toBe(0);
     });
   });
 
