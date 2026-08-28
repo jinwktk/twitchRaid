@@ -1785,7 +1785,7 @@ export class Bot {
         await this.chatClient.say(channel, WORK_SEND_OFF_REPLY);
         break;
       case "site":
-        await this.chatClient.say(channel, "https://www.rukalun.mydns.jp");
+        await this.chatClient.say(channel, "https://rukalun-page.vercel.app/");
         break;
       case "x":
         await this.chatClient.say(channel, "https://x.com/rukalunlol");

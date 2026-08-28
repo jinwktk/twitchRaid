@@ -8,7 +8,7 @@ describe("PeriodicRecommendationNotifier", () => {
   it("keeps every default recommendation URL-backed", () => {
     expect(DEFAULT_RECOMMENDATION_TARGETS).toHaveLength(2);
     expect(DEFAULT_RECOMMENDATION_TARGETS[0]).toBe(
-      "るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp"
+      "るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/"
     );
     expect(DEFAULT_RECOMMENDATION_TARGETS[1]).toBe(
       "るっかるんのグッズはこちら！→ https://rukalun.booth.pm"
@@ -45,7 +45,7 @@ describe("PeriodicRecommendationNotifier", () => {
 
     expect(sender).toHaveBeenNthCalledWith(
       1,
-      "【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp"
+      "【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/"
     );
     expect(sender).toHaveBeenNthCalledWith(
       2,
@@ -72,7 +72,7 @@ describe("PeriodicRecommendationNotifier", () => {
     await expect(notifier.notifyIfReady(161, retrySender)).resolves.toBe(true);
 
     expect(retrySender).toHaveBeenCalledWith(
-      expect.stringContaining("https://www.rukalun.mydns.jp")
+      expect.stringContaining("https://rukalun-page.vercel.app/")
     );
   });
 
@@ -114,7 +114,7 @@ describe("PeriodicRecommendationNotifier", () => {
     expect(await notifier.notifyIfReady(360, sender)).toBe(true);
 
     expect(sender).toHaveBeenCalledWith(
-      "【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp"
+      "【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/"
     );
   });
 
@@ -131,7 +131,7 @@ describe("PeriodicRecommendationNotifier", () => {
     expect(await notifier.notifyIfReady(7300, sender)).toBe(true);
 
     expect(sender).toHaveBeenCalledWith(
-      "【定期】配信開始から2時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp"
+      "【定期】配信開始から2時間経過しました。るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/"
     );
   });
 

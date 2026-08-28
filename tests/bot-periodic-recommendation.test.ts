@@ -174,7 +174,7 @@ describe("Bot periodic recommendations", () => {
     await vi.advanceTimersByTimeAsync(45_000);
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp"
+      "【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/"
     );
     expect(say.mock.calls[0][1]).toMatch(/^【定期】/);
     expect(say.mock.calls[0][1]).not.toMatch(/^!/);
@@ -1174,7 +1174,7 @@ describe("Bot periodic recommendations", () => {
     await vi.advanceTimersByTimeAsync(45_000);
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp"
+      "【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/"
     );
   });
 
@@ -1217,7 +1217,7 @@ describe("Bot periodic recommendations", () => {
     await vi.advanceTimersByTimeAsync(45_000);
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp"
+      "【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/"
     );
   });
 });

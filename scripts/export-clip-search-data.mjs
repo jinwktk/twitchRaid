@@ -50,7 +50,7 @@ function printHelp() {
 Usage:
   node scripts/export-clip-search-data.mjs [--db data/clips.sqlite] [--out docs/clip-search-data.json] [--limit 3000] [--enrich-from-twitch] [--env .env]
 
-Exports public clip search data for GitHub Pages.
+Exports public clip search data for Vercel.
 `);
 }
 

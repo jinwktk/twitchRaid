@@ -1,5 +1,6 @@
 # TwitchRaid
 
+> 2026-08-28: るっかるんページの公開先をVercelの `https://rukalun-page.vercel.app/` へ移行しました。`!site`、配信中の定期Clip案内、twitchRaid側の旧互換ページはすべて新URLを案内します。
 > 2026-08-26: `KeepDokployWslAlive` は、通常WSL shellからは読めるのにsystemd PID 1だけ `/mnt/e/GitHub/RukalunPage` が厳密に `Invalid argument` となるmount namespace不整合も監視します。60秒間隔の確認で2回連続した時だけ、試行時刻をWindows側へ永続化してから `Ubuntu-Backup` をterminateし、10秒待って次のloopでWSL/Docker/portproxyを再起動します。正常probe後だけ復旧成功を記録し、試行後15分は再terminateしません。mount元自体やPID 1 probeが別理由で失敗した場合は再起動せず待機します。
 > 2026-07-26: AI会話の記憶基盤はAnythingLLMへ完全移行しました。旧SQLiteプロフィール記憶、mem0、旧Memory WebUIはランタイムから撤去済みです。管理画面は認証付きAnythingLLM標準UIをLAN内の `http://192.168.0.99:3220/` で使用します。全Twitchコメントは発言者を問わず台帳へ保存され、原文365日、配信要約・出典付き事実は無期限保持です。
 > 配信終了時の知識化は8コメント単位で階層要約し、文書を持たないutility workspaceで各leaf/reduce呼び出しの専用session履歴をリセットします。配信知識専用clientだけtimeoutを最低180秒とし、通常の `!chat` timeoutは延長しません。生成済み要約・事実文書だけはchannel workspaceへ保存します。
@@ -45,12 +46,12 @@ npm run pm2:logs    # ログ確認
 - SQLiteキャッシュ系の調査では、サブPC側の `data/clips.sqlite` の作成状況と更新時刻も確認する
 
 ### 技術設計書
-- GitHub Pagesで公開するClip検索画面の正本は別リポジトリ `C:\Users\mlove\Documents\GitHub\RukalunPage` の `index.html` です
+- Vercelで公開するClip検索画面の正本は別リポジトリ `C:\Users\mlove\Documents\GitHub\RukalunPage` の `index.html` です
 - 現行TypeScript版 Twitch Bot の内部仕様書は `internal-docs/twitchraid-bot-zukan.html` に移動しています
-- Clip検索画面は `RukalunPage/clip-search-data.json` を読み込み、GitHub Pages上でタイトル/作成者名/ゲーム名検索できます。OGP/Twitter Card/JSON-LD、`RukalunPage/assets/rukalun/clip-search-og.png`、`RukalunPage/assets/rukalun` 配下のfavicon画像を使い、検索エンジンとSNS共有向けの公開情報を持たせています
+- Clip検索画面は `RukalunPage/clip-search-data.json` を読み込み、Vercel上でタイトル/作成者名/ゲーム名検索できます。OGP/Twitter Card/JSON-LD、`RukalunPage/assets/rukalun/clip-search-og.png`、`RukalunPage/assets/rukalun` 配下のfavicon画像を使い、検索エンジンとSNS共有向けの公開情報を持たせています
 - Clip検索画面は公開URLで使うため、画面上には仕様書、内部運用、JSON生成手順への導線を出しません
-- twitchRaid側の `docs/index.html` / `docs/clip-search.html` / `docs/typescript-bot-spec.html` は `https://jinwktk.github.io/RukalunPage/` へ案内するだけの旧URL互換ページです
-- RukalunPageの `main` ブランチ更新時にRukalunPage側の `.github/workflows/pages.yml` がGitHub Pagesへ公開します
+- twitchRaid側の `docs/index.html` / `docs/clip-search.html` / `docs/typescript-bot-spec.html` は `https://rukalun-page.vercel.app/` へ案内するだけの旧URL互換ページです
+- RukalunPageの公開正本URLは `https://rukalun-page.vercel.app/` です
 - Markdown設計資料は `internal-docs/ARCHITECTURE.md` / `internal-docs/COMMANDS.md` / `internal-docs/DESIGN_PATTERNS.md` / `internal-docs/TECH_STACK.md` / `internal-docs/SUBPC_DOCKER.md` に補助資料として残しています
 
 ### 直接起動
@@ -120,7 +121,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!7days` | 7 Days to Die用のチャネポ案内と画像アルバムURLを表示 | `7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN rukkaEeeee` |
 | `!die` | 7 Days to Die用の固定セリフを表示 | `簡単に死んでたまるかッ🧟` |
 | `!work` | お仕事の見送り固定セリフを表示 | `るっかるん、今日もお仕事気を付けて、いってらっしゃい` |
-| `!site` | Clip検索サイトのURLを表示 | [rukalun.mydns.jp](https://www.rukalun.mydns.jp) |
+| `!site` | Clip検索サイトのURLを表示 | [rukalun-page.vercel.app](https://rukalun-page.vercel.app/) |
 | `!x` | XアカウントのURLを表示 | [x.com/rukalunlol](https://x.com/rukalunlol) |
 | `!youtube` | YouTubeチャンネルのURLを表示 | [is.gd/rukalunyt](https://is.gd/rukalunyt) |
 | `!game` | ランダムなゲーム候補を表示 | Twitchに残っている過去アーカイブVODで配信したゲームからランダム、権限不要、クールダウンなし |
@@ -148,7 +149,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - 投稿文は読み上げ対象にしてよいため先頭に `!` を付けず、配信開始からの経過時間を入れて次の2種類をローテーションする
 
 ```text
-【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp
+【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/
 【定期】配信開始から2時間経過しました。るっかるんのグッズはこちら！→ https://rukalun.booth.pm
 ```
 
@@ -292,10 +293,10 @@ SQLiteストアへ初回移行できるJSON例:
 - `!clipsearch` の表示履歴は `clipsearch:<検索語>` ごとに保存する
 - Clip全期間バックフィルは通常30日単位で完了済み期間をスキップするが、`now` で終わる末尾の移動窓だけは既定3日単位に事前分割する。起動ごとに `end_at` が変わる末尾窓を大きいままTwitch APIへ投げず、初回の `Premature close` を避けるための運用。
 
-## GitHub Pages Clip検索
-- 公開Clip検索画面の正本は別リポジトリ `C:\Users\mlove\Documents\GitHub\RukalunPage`。GitHub Pages URLは `https://jinwktk.github.io/RukalunPage/`
+## Vercel Clip検索
+- 公開Clip検索画面の正本は別リポジトリ `C:\Users\mlove\Documents\GitHub\RukalunPage`。公開URLは `https://rukalun-page.vercel.app/`
 - twitchRaid 側の `docs/index.html` / `docs/clip-search.html` / `docs/typescript-bot-spec.html` は旧URL互換のリダイレクトだけを持つ。公開ページ本体、公開JSON、公開用 `assets/rukalun` はこのリポジトリでは管理しない
-- `RukalunPage/index.html` は静的GitHub Pages上で動くClip検索画面。るっかるん向けに淡いピンク、ミント、空色、レモン色を使ったゆるふわ系デザインにしている。提供画像から作った `assets/rukalun/clip-search-hero.png` をヒーロー背景、`assets/rukalun/clip-search-og.png` をOG画像、`assets/rukalun/clip-search-favicon.png` / `assets/rukalun/clip-search-favicon.ico` / `assets/rukalun/clip-search-apple-touch-icon.png` をfaviconやホーム画面アイコンに使う。画面内のブランドマークやボタン小アイコンも `assets/rukalun/Hi-112px.png`、`assets/rukalun/プレゼント-112px.png`、`assets/rukalun/bikkuri-112px.png` を使う
+- `RukalunPage/index.html` はVercel上で動く静的Clip検索画面。るっかるん向けに淡いピンク、ミント、空色、レモン色を使ったゆるふわ系デザインにしている。提供画像から作った `assets/rukalun/clip-search-hero.png` をヒーロー背景、`assets/rukalun/clip-search-og.png` をOG画像、`assets/rukalun/clip-search-favicon.png` / `assets/rukalun/clip-search-favicon.ico` / `assets/rukalun/clip-search-apple-touch-icon.png` をfaviconやホーム画面アイコンに使う。画面内のブランドマークやボタン小アイコンも `assets/rukalun/Hi-112px.png`、`assets/rukalun/プレゼント-112px.png`、`assets/rukalun/bikkuri-112px.png` を使う
 - 検索エンジン/SNS向けに、description、canonical、robots、OGP、Twitter Card、JSON-LD `CollectionPage` / `SearchAction` を設定する。`?q=検索語` がある場合は検索欄へ初期入力する
 - 検索データは `RukalunPage/clip-search-data.json`。ブラウザ内でタイトル/作成者表示名/ゲーム名を検索し、作成者フィルタ、新しい順/古い順/お気に入り順/再生数順/タイトル順の並び替え、件数表示、追加表示、Clip最終同期時刻の秒単位表示に対応する
 - スマホ幅では上部の検索条件を「検索条件を開く」ボタン配下へ折りたたみ、必要な時だけ開けるようにする。トグル内は条件概要と右端固定の `▽` を分け、長い検索条件でもアイコン位置が崩れないようにする。PC/タブレット幅では従来通り検索条件を常時表示する
@@ -307,7 +308,7 @@ SQLiteストアへ初回移行できるJSON例:
 - サブPCでは `CLIP_SEARCH_PUBLISH_REPO_DIR=E:\GitHub\RukalunPage` と `CLIP_SEARCH_DATA_PATH=E:\GitHub\RukalunPage\clip-search-data.json` を明示しておく。`E:\GitHub\RukalunPage` はGit repoである必要があり、JSON単体のフォルダでは自動commit/pushできない
 - 公開JSONへ含めるClip項目は `id`、`url`、`title`、`creator`、`gameName`、`thumbnailUrl`、`createdAt`、`views` のみ。同期stateは `clipSync.recentSyncedAt` のみ公開し、`creator_id`、ゲームID、履歴、その他の内部state、認証情報は含めない
 - `unavailable_at` が入った削除/非公開Clipは公開JSONから除外する。そのためログの `clip全期間バックフィル完了: total=...` はDB内総件数、Clip検索画面の件数は公開対象件数として差が出ることがある
-- サブPCの実データをPagesへ反映する場合は、サブPCの `data/clips.sqlite` を元にJSONを生成し、`RukalunPage` の `main` へコミット・プッシュする
+- サブPCの実データをVercel公開ページへ反映する場合は、サブPCの `data/clips.sqlite` を元にJSONを生成し、`RukalunPage` の `main` へコミット・プッシュする
 
 ## Boomコマンドメモ
 - `!boom` は既定で過去30日間、`!boom 7` のように1〜60の整数を付けた場合は指定日数分のアーカイブ配信を対象に、Twitch GraphQL の VOD チャプターからゲーム別の配信時間と総配信時間を集計する
@@ -390,7 +391,7 @@ docs/
 ├── index.html                     # RukalunPageへの公開ルートリダイレクト
 └── typescript-bot-spec.html       # RukalunPageへの旧URL互換リダイレクト
 ../RukalunPage/
-├── .github/workflows/pages.yml    # RukalunPage GitHub Pages公開
+├── .github/workflows/pages.yml    # 旧GitHub Pages公開workflow（Vercel移行前）
 ├── assets/rukalun/                # Clip検索画面用の軽量画像と小アイコン
 ├── clip-search-data.json          # 公開用Clip検索データ
 ├── clip-search.html               # 新repo内の互換リダイレクト
@@ -406,6 +407,7 @@ internal-docs/
 
 ## 更新履歴
 
+- **2026-08-28**: るっかるんページをVercelへ移行。`!site`、配信中の定期Clip案内、twitchRaid側の旧互換HTML 3ページのredirect/canonical/手動リンクを `https://rukalun-page.vercel.app/` へ統一した。旧互換ページは従来どおり検索queryを転送先へ引き継ぐ。
 - **2026-08-23**: 検索0件の確認用 `!chat codex-no-result-probe-7704a15について調べて` で、AnythingLLMが質問中の構造化IDを回答へ引用すると英語一般語filterが初回・再生成の両方を拒否し、チャット送信なしで終了していた問題を修正。質問文に実在する数字・ハイフン・アンダースコア・プラス記号を含むLatin IDだけを引用許可し、通常の小文字英単語や質問にない英語一般語の修正・拒否は維持する。
 - **2026-08-23**: 外部検索が `no_result` の時にBot側の固定文を即送信していた分岐を廃止。`searchReason=no_result` / `AIメンション会話外部検索は未適用: reason=no_result` の診断は維持し、検索文脈なしの通常AI生成へ継続する。
 - **2026-08-23**: `!chat 地震の最新情報を教えて` でSearXNGが候補を返しているのに、検索語 `地震の最新情報` の連続完全一致を要求して全件除外していた問題を修正。自然な `Xの最新情報` を `X 最新` へ限定正規化し、対象語と `最新` の両方がある結果だけを従来の厳格判定で採用する。
@@ -569,8 +571,8 @@ internal-docs/
 - **2026-06-15**: 定期おすすめコメントを読み上げ対象にするため、投稿文の先頭 `!` を外し、`【定期】配信開始から...` で送るよう変更
 - **2026-06-15**: `!game` コマンドを追加。固定候補ではなくTwitchに残っている過去アーカイブVODのゲーム名から1件を選び、`ゲーム候補：...` 形式でチャットへ返すようにした。候補一覧は5分キャッシュし、`!help` の一覧にも `!game` を追加
 - **2026-06-14**: `!x` コマンドを追加し、`https://x.com/rukalunlol` をチャットへ返せるようにした。`!help` の一覧にも `!x` を追加
-- **2026-06-14**: `!site` コマンドを追加し、`https://www.rukalun.mydns.jp` をチャットへ返せるようにした。`!help` の一覧にも `!site` を追加
-- **2026-06-13**: 配信中に `!【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://www.rukalun.mydns.jp` と `!【定期】配信開始から2時間経過しました。るっかるんのグッズはこちら！→ https://rukalun.booth.pm` のような定期おすすめコメントを投稿する機能を追加。投稿文は読み上げ回避のため先頭 `!` 付きにし、配信開始から1時間後、以降1時間ごとに2種類をローテーションする。`CHAT_RECOMMENDATION_ENABLED=false` で停止、`CHAT_RECOMMENDATION_INTERVAL_MINUTES` で間隔変更できる
+- **2026-06-14**: `!site` コマンドを追加し、Clip検索サイトのURLをチャットへ返せるようにした。`!help` の一覧にも `!site` を追加。現在の返却先は2026-08-28にVercelへ移行済み
+- **2026-06-13**: 配信中にClip検索サイトとグッズを交互に案内する定期おすすめコメントを投稿する機能を追加。投稿文は読み上げ回避のため先頭 `!` 付きにし、配信開始から1時間後、以降1時間ごとに2種類をローテーションする。`CHAT_RECOMMENDATION_ENABLED=false` で停止、`CHAT_RECOMMENDATION_INTERVAL_MINUTES` で間隔変更できる。Clip検索の案内先は2026-08-28にVercelへ移行済み
 - **2026-06-13**: Discord配信開始通知EmbedのTwitchプレビュー画像URLに、配信ID優先の `stream_id` または開始時刻fallbackの `stream_started_at` クエリを付けるよう変更。通常通知と `!streamnotify` の両方でDiscordの画像キャッシュを配信単位に分け、同じ過去画像が表示され続ける問題を抑止する。投稿確認ログに `streamPreviewImage` も出し、サブPCで実URLを確認できるようにした
 - **2026-06-12**: RukalunPage側の履歴を手動で戻した後、サブPCの公開repoが古い `origin/main` を見たまま `--force-with-lease` して `stale info` になったため、Clip検索JSON自動公開の前に公開repoで `git fetch origin main` を行うようにした。ローカルだけに残ったcommitがBot同期commitだけなら `origin/main` へ戻してから再生成し、開発commitや未コミット変更がある場合はスキップして破壊しない
 - **2026-06-12**: Clip検索JSON自動公開で、保存0件かつ無効化0件の同期時刻だけの更新は、直前HEADがBotの `Clip検索JSONを同期時刻更新` commitの場合だけamendして `--force-with-lease` でpushするようにした。直前HEADがCodexなどの開発commitの場合や、Clip追加・復活・削除/非公開化がある同期は通常commit/pushのままにした

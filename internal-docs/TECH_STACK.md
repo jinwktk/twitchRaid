@@ -14,7 +14,7 @@
 | ログ | `winston` / `winston-daily-rotate-file` | 日次ローテーションログ |
 | テスト | Vitest / pytest | TS版テストと旧Python互換テスト |
 | プロセス | PM2 | サブPC本番常駐 |
-| 公開ページ | GitHub Pages | `RukalunPage/index.html` を公開。twitchRaidの `docs/` は旧URL互換リダイレクト |
+| 公開ページ | Vercel | `RukalunPage/index.html` を `https://rukalun-page.vercel.app/` で公開。twitchRaidの `docs/` は旧URL互換リダイレクト |
 
 ## 運用環境
 
@@ -22,7 +22,7 @@
 |---|---|---|
 | 本番 | `E:\GitHub\twitchRaid` | サブPC。PM2プロセス名は `twitchRaid` |
 | 開発 | `C:\Users\mlove\Documents\GitHub\twitchRaid` | メイン作業PC |
-| 公開ページ | `C:\Users\mlove\Documents\GitHub\RukalunPage` | Clip検索用GitHub Pagesリポジトリ |
+| 公開ページ | `C:\Users\mlove\Documents\GitHub\RukalunPage` | Vercelで公開するClip検索リポジトリ |
 
 ## 主なコマンド
 

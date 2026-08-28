@@ -206,7 +206,7 @@ describe("Bot help command", () => {
     expect(say).toHaveBeenCalledTimes(1);
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "https://www.rukalun.mydns.jp"
+      "https://rukalun-page.vercel.app/"
     );
   });
 

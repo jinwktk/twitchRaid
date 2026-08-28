@@ -9,7 +9,7 @@
 | `!help` | 主要コマンド一覧を1通で表示 | 返信文頭に `!` を付けて読み上げ回避、権限不要、クールダウンなし |
 | `!age` | 年齢を表示 | `src/commands/age.ts` |
 | `!goods` | グッズ販売ページURLを表示 | `https://rukalun.booth.pm` |
-| `!site` | Clip検索サイトURLを表示 | `https://www.rukalun.mydns.jp` |
+| `!site` | Clip検索サイトURLを表示 | `https://rukalun-page.vercel.app/` |
 | `!x` | XアカウントURLを表示 | `https://x.com/rukalunlol` |
 | `!youtube` | YouTubeチャンネルURLを表示 | `https://is.gd/rukalunyt` |
 | `!game` | ゲーム候補を表示 | Twitchに残っている過去アーカイブVODで配信したゲームからランダム。候補一覧は5分キャッシュ |
@@ -59,9 +59,9 @@
 - `!clipsearch` の表示履歴は `clipsearch:<検索語>` ごとに保存する。
 - 削除/非公開化でTwitch APIから返らなくなったClipは、日次再走査で `unavailable_at` を付けて候補から外す。直近同期でもDB既存Clipが一覧から消えた場合は `getClipsByIds` で確認し、返らないClipだけ無効化する。ただし作成から2時間以内のClipはTwitch API反映揺れとして直近同期の無効化対象から外し、すでに無効化されていた場合も有効へ戻す。
 
-## GitHub Pages Clip検索
+## Vercel Clip検索
 
-- Clip検索画面の正本は `RukalunPage/index.html`。twitchRaid側の `docs/` は旧URL互換リダイレクトだけを持つ。
+- Clip検索画面の正本は `RukalunPage/index.html`、公開URLは `https://rukalun-page.vercel.app/`。twitchRaid側の `docs/` は旧URL互換リダイレクトだけを持つ。
 - `RukalunPage/clip-search-data.json` を読み込み、ブラウザ内でClipタイトル/作成者表示名/ゲーム名を検索する。
 - 公開データは `scripts/export-clip-search-data.mjs --out C:\Users\mlove\Documents\GitHub\RukalunPage\clip-search-data.json` で `data/clips.sqlite` から生成する。必要時は `--enrich-from-twitch` でTwitch APIからサムネイルURLとゲーム名を補完する。
 - Bot自動公開では `CLIP_SEARCH_PUBLISH_REPO_DIR` をRukalunPage repoに向け、差分があればRukalunPageの `main` へcommit/pushする。

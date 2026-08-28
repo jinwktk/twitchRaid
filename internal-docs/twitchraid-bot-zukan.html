@@ -570,7 +570,7 @@
         <p class="section-lead">
           このBotは Twitch チャンネル <code>rukalun</code> のチャット、配信開始/終了、
           Raid、Clipを見張る常駐プログラムです。現行の運用対象はTypeScript版だけです。
-          Python版のファイルは過去資産とテスト互換のため残っていますが、仕様書とGitHub Pagesは
+          Python版のファイルは過去資産とテスト互換のため残っていますが、仕様書と公開ページは
           TypeScript版へ一本化しています。
         </p>
         <div class="grid three">
@@ -982,7 +982,7 @@
             </tr>
             <tr>
               <td><code>scripts/export-clip-search-data.mjs</code> / <code>RukalunPage/index.html</code></td>
-              <td>SQLite Clipキャッシュから公開用JSONを生成し、別リポジトリのGitHub Pages上でタイトル/作成者名/ゲーム名検索できる画面を提供。</td>
+              <td>SQLite Clipキャッシュから公開用JSONを生成し、別リポジトリのVercel公開ページ上でタイトル/作成者名/ゲーム名検索できる画面を提供。</td>
             </tr>
             <tr>
               <td><code>src/commands/boom.ts</code></td>
@@ -1061,7 +1061,7 @@
             </ul>
           </article>
           <article class="card">
-            <h3>GitHub Pages Clip検索データ</h3>
+            <h3>Vercel Clip検索データ</h3>
             <p>
               <code>RukalunPage/clip-search-data.json</code> は
               <code>data/clips.sqlite</code> から生成する公開用データです。
@@ -1231,13 +1231,13 @@ npm run lint</code></pre>
       </section>
 
       <section id="pages">
-        <h2>10. GitHub PagesのURL</h2>
+        <h2>10. Vercel公開URL</h2>
         <div class="note">
           <p>
             内部仕様書の本体は <code>internal-docs/twitchraid-bot-zukan.html</code> です。
             公開Clip検索画面の正本は別リポジトリ <code>RukalunPage/index.html</code> です。
             twitchRaid側の <code>docs/index.html</code> と <code>docs/clip-search.html</code> は
-            <code>https://jinwktk.github.io/RukalunPage/</code> への互換リダイレクトだけにしています。
+            <code>https://rukalun-page.vercel.app/</code> への互換リダイレクトだけにしています。
             以前の <code>docs/typescript-bot-spec.html</code> は、分割管理をやめるため、
             RukalunPageへ案内する互換ページにしています。
           </p>

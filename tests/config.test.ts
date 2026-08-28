@@ -188,7 +188,7 @@ TWITCH_MODERATOR_ID=moderator
     expect(config.gitAutoUpdateEnabled).toBe(true);
   });
 
-  it("loads clip search auto-publish settings for GitHub Pages JSON updates", () => {
+  it("loads clip search auto-publish settings for Vercel JSON updates", () => {
     const envPath = writeEnvFile(`
 TWITCH_CLIENT_ID=client
 TWITCH_ACCESS_TOKEN=access
