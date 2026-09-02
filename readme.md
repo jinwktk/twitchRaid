@@ -121,6 +121,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!7days` | 7 Days to Die用のチャネポ案内と画像アルバムURLを表示 | `7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN rukkaEeeee` |
 | `!die` | 7 Days to Die用の固定セリフを表示 | `簡単に死んでたまるかッ🧟` |
 | `!work` | お仕事の見送り固定セリフを表示 | `るっかるん、今日もお仕事気を付けて、いってらっしゃい` |
+| `!pvp` | 今日のフロントラインルールを表示 | 2026-04-29 JST基準の8日周期を毎日0:00 JSTに切替。返信は `今日のフロントライン：正式ルール名`。ローテーションは[FFXIV フロントライン カレンダー](https://ffxiv-frontline-calendar.tuyurukai.info/)を参照 |
 | `!site` | Clip検索サイトのURLを表示 | [rukalun-page.vercel.app](https://rukalun-page.vercel.app/) |
 | `!x` | XアカウントのURLを表示 | [x.com/rukalunlol](https://x.com/rukalunlol) |
 | `!youtube` | YouTubeチャンネルのURLを表示 | [is.gd/rukalunyt](https://is.gd/rukalunyt) |
@@ -142,7 +143,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!boom [日数]` | 指定期間（省略時30日）で1時間以上遊んだゲーム別トータル時間と総配信時間を表示 | 日数は1〜60の整数、VODチャプター情報を集計 |
 | `!streamnotify` | 現在の配信開始通知をDiscordへ手動送信 | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ |
 
-2026-07-09時点の全コマンド検証では、上記25コマンドをBot dispatcher経由のスモークテスト対象にし、外部副作用が大きい `!shoutout` と `!streamnotify` は権限拒否・usage・offline応答で安全に確認しています。併せて `!clip` / `!myclip` / `!clipsearch` はSQLiteキャッシュ、`!chat` はAI生成スタブ、`!boom` / `!game` はHelix identity fetchスタブで確認します。
+2026-09-03時点の全コマンド検証では、`!help` 自身を除く上記26コマンドをBot dispatcher経由のスモークテスト対象にし、外部副作用が大きい `!shoutout` と `!streamnotify` は権限拒否・usage・offline応答で安全に確認しています。併せて `!pvp` は固定JST日時、`!clip` / `!myclip` / `!clipsearch` はSQLiteキャッシュ、`!chat` はAI生成スタブ、`!boom` / `!game` はHelix identity fetchスタブで確認します。
 
 ## 定期おすすめコメント
 - 配信中のみ、配信開始から1時間後に最初のおすすめコメントを投稿し、それ以降は既定1時間ごとに1通ずつ投稿する。起動直後や配信開始直後には即投稿しない
@@ -351,6 +352,7 @@ src/
 │   ├── mention-chat-memory.ts     # AIメンション用ローカルJSON/SQLite記憶
 │   ├── mention-chat-mem0.ts       # 任意mem0補助記憶の検索/保存
 │   ├── mention-chat-search.ts     # AIメンション用外部検索
+│   ├── pvp.ts                     # !pvp フロントライン日替わりルール
 │   ├── raid-info.ts               # Raid元配信情報文言
 │   ├── random-commands.ts         # !weight / !height / !mood / !menu
 │   ├── shoutout-introduction.ts   # OllamaによるRaid挨拶文生成
@@ -407,6 +409,7 @@ internal-docs/
 
 ## 更新履歴
 
+- **2026-09-03**: `!pvp` コマンドを追加。パッチ7.5以降のフロントライン8日ローテーションを2026-04-29 JST基準で計算し、毎日0:00 JSTに切り替えて `今日のフロントライン：正式ルール名` を返す。実行時の外部HTTP取得は行わず、参照サイト停止時も固定コマンドとして応答する。`!help` の基本コマンド一覧にも追加した。
 - **2026-08-28**: るっかるんページをVercelへ移行。`!site`、配信中の定期Clip案内、twitchRaid側の旧互換HTML 3ページのredirect/canonical/手動リンクを `https://rukalun-page.vercel.app/` へ統一した。旧互換ページは従来どおり検索queryを転送先へ引き継ぐ。
 - **2026-08-23**: 検索0件の確認用 `!chat codex-no-result-probe-7704a15について調べて` で、AnythingLLMが質問中の構造化IDを回答へ引用すると英語一般語filterが初回・再生成の両方を拒否し、チャット送信なしで終了していた問題を修正。質問文に実在する数字・ハイフン・アンダースコア・プラス記号を含むLatin IDだけを引用許可し、通常の小文字英単語や質問にない英語一般語の修正・拒否は維持する。
 - **2026-08-23**: 外部検索が `no_result` の時にBot側の固定文を即送信していた分岐を廃止。`searchReason=no_result` / `AIメンション会話外部検索は未適用: reason=no_result` の診断は維持し、検索文脈なしの通常AI生成へ継続する。

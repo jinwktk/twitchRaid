@@ -156,6 +156,7 @@ describe("Bot help command", () => {
       "!7days",
       "!die",
       "!work",
+      "!pvp",
       "!site",
       "!x",
       "!youtube",
@@ -240,6 +241,20 @@ describe("Bot help command", () => {
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
       "るっかるん、今日もお仕事気を付けて、いってらっしゃい"
+    );
+  });
+
+  it("sends today's Frontline rule for pvp command", async () => {
+    const { bot, say } = makeBot();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-02T15:00:00.000Z"));
+
+    await bot._handleCommand("#rukalun", "viewer", "!pvp", {});
+
+    expect(say).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "今日のフロントライン：シールロック（争奪戦）"
     );
   });
 
