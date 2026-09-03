@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  formatTodayFrontlineRule,
+  formatTodayAndTomorrowFrontlineRules,
   getFrontlineRuleAt,
 } from "../../src/commands/pvp";
 
@@ -37,9 +37,23 @@ describe("Frontline daily rule", () => {
     expect(getFrontlineRuleAt(new Date(instant)).fullName).toBe(expectedRule);
   });
 
-  it("formats today's rule for Twitch chat", () => {
+  it("formats a regular transition from today to tomorrow", () => {
     expect(
-      formatTodayFrontlineRule(new Date("2026-09-02T15:00:00.000Z"))
-    ).toBe("今日のフロントライン：シールロック（争奪戦）");
+      formatTodayAndTomorrowFrontlineRules(
+        new Date("2026-04-28T15:00:00.000Z")
+      )
+    ).toBe(
+      "今日のフロントライン：外縁遺跡群（制圧戦） / 明日：オンサル・ハカイル（終節戦）"
+    );
+  });
+
+  it("formats today's and tomorrow's rules for Twitch chat", () => {
+    expect(
+      formatTodayAndTomorrowFrontlineRules(
+        new Date("2026-09-02T15:00:00.000Z")
+      )
+    ).toBe(
+      "今日のフロントライン：シールロック（争奪戦） / 明日：外縁遺跡群（制圧戦）"
+    );
   });
 });

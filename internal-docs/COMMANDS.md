@@ -9,7 +9,7 @@
 | `!help` | 主要コマンド一覧を1通で表示 | 返信文頭に `!` を付けて読み上げ回避、権限不要、クールダウンなし |
 | `!age` | 年齢を表示 | `src/commands/age.ts` |
 | `!goods` | グッズ販売ページURLを表示 | `https://rukalun.booth.pm` |
-| `!pvp` | 今日のフロントラインルールを表示 | 2026-04-29 JST基準の8日周期。毎日0:00 JST切替。`今日のフロントライン：正式ルール名` |
+| `!pvp` | 今日と明日のフロントラインルールを表示 | 2026-04-29 JST基準の8日周期。毎日0:00 JST切替。`今日のフロントライン：正式ルール名 / 明日：正式ルール名` |
 | `!site` | Clip検索サイトURLを表示 | `https://rukalun-page.vercel.app/` |
 | `!x` | XアカウントURLを表示 | `https://x.com/rukalunlol` |
 | `!youtube` | YouTubeチャンネルURLを表示 | `https://is.gd/rukalunyt` |

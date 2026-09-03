@@ -29,7 +29,12 @@ export function getFrontlineRuleAt(instant: Date): FrontlineRule {
   return CURRENT_ROTATION[index];
 }
 
-export function formatTodayFrontlineRule(instant: Date = new Date()): string {
-  const rule = getFrontlineRuleAt(instant);
-  return `今日のフロントライン：${rule.fullName}`;
+export function formatTodayAndTomorrowFrontlineRules(
+  instant: Date = new Date()
+): string {
+  const todayRule = getFrontlineRuleAt(instant);
+  const tomorrowRule = getFrontlineRuleAt(
+    new Date(instant.getTime() + MS_PER_DAY)
+  );
+  return `今日のフロントライン：${todayRule.fullName} / 明日：${tomorrowRule.fullName}`;
 }

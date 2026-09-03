@@ -244,7 +244,7 @@ describe("Bot help command", () => {
     );
   });
 
-  it("sends today's Frontline rule for pvp command", async () => {
+  it("sends today's and tomorrow's Frontline rules for pvp command", async () => {
     const { bot, say } = makeBot();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-02T15:00:00.000Z"));
@@ -254,7 +254,7 @@ describe("Bot help command", () => {
     expect(say).toHaveBeenCalledTimes(1);
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "今日のフロントライン：シールロック（争奪戦）"
+      "今日のフロントライン：シールロック（争奪戦） / 明日：外縁遺跡群（制圧戦）"
     );
   });
 

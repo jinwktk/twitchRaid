@@ -118,7 +118,7 @@ import {
   type ManualStreamNotificationStream,
 } from "./commands/stream-notify";
 import { calculateAge } from "./commands/age";
-import { formatTodayFrontlineRule } from "./commands/pvp";
+import { formatTodayAndTomorrowFrontlineRules } from "./commands/pvp";
 import {
   fetchRandomMangaRecommendation,
   isMangaAdmin,
@@ -1786,7 +1786,10 @@ export class Bot {
         await this.chatClient.say(channel, WORK_SEND_OFF_REPLY);
         break;
       case "pvp":
-        await this.chatClient.say(channel, formatTodayFrontlineRule());
+        await this.chatClient.say(
+          channel,
+          formatTodayAndTomorrowFrontlineRules()
+        );
         break;
       case "site":
         await this.chatClient.say(channel, "https://rukalun-page.vercel.app/");
