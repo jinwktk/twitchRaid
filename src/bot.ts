@@ -1,5 +1,5 @@
 import { ChatClient, ChatMessage } from "@twurple/chat";
-import { ApiClient } from "@twurple/api";
+import { ApiClient, type ApiConfig } from "@twurple/api";
 import { RefreshingAuthProvider } from "@twurple/auth";
 import { EventSubWsListener } from "@twurple/eventsub-ws";
 import { createHash } from "node:crypto";
@@ -30,6 +30,11 @@ import {
 } from "./streams/stream-summary-state-store";
 import { StreamSummaryCountBuffer } from "./streams/stream-summary-count-buffer";
 import { createEventSubAuthProvider } from "./streams/eventsub-auth-provider";
+import {
+  isEventSubSubscriptionLimitError,
+  reconcileStreamEventSubSubscriptions,
+  type EventSubSubscriptionRecoveryResult,
+} from "./streams/eventsub-subscription-recovery";
 import {
   buildStreamSummaryThreadName,
   ensureStreamSummaryStartThread,
@@ -150,6 +155,7 @@ const DEFAULT_MENTION_CHAT_COOLDOWN_SECONDS = 5;
 const STREAM_SUMMARY_THREAD_RETRY_INITIAL_MS = 60_000;
 const STREAM_SUMMARY_THREAD_RETRY_MAX_MS = 15 * 60_000;
 const STREAM_STATUS_POLL_INTERVAL_MS = 60_000;
+const EVENTSUB_API_REQUEST_TIMEOUT_MS = 15_000;
 const MENTION_CHAT_SKIP_PROMPT_LIMIT = 80;
 const CHAT_AI_COMMAND_USAGE = "⚠️ 使い方: !chat <メッセージ>";
 const YOUTUBE_CHANNEL_URL = "https://is.gd/rukalunyt";
@@ -179,6 +185,12 @@ function formatMentionChatCooldownReply(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function formatSanitizedErrorName(error: unknown): string {
+  if (!(error instanceof Error)) return "unknown_error";
+  const name = error.name.trim();
+  return /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(name) ? name : "Error";
 }
 
 function isMentionChatMemoryRequest(prompt: string): boolean {
@@ -213,6 +225,27 @@ interface StreamSummaryThreadRetryState {
 type StreamSummaryThreadEnsurer = (
   options: EnsureStreamSummaryStartThreadOptions
 ) => Promise<StartStreamSummaryThreadResult>;
+
+type StreamEventSubLifecycleState =
+  | { status: "inactive" }
+  | {
+      status: "active";
+      generation: number;
+      listener: EventSubWsListener;
+      apiClient: ApiClient;
+    }
+  | { status: "recovering"; generation: number }
+  | { status: "recovery-blocked" }
+  | { status: "stopping" };
+
+type StreamEventSubSubscriptionReconciler = (
+  apiClient: ApiClient,
+  broadcasterId: string
+) => Promise<EventSubSubscriptionRecoveryResult>;
+
+type StreamEventSubApiConfig = Omit<ApiConfig, "fetchOptions"> & {
+  fetchOptions: NonNullable<ApiConfig["fetchOptions"]> & { timeout: number };
+};
 
 interface MentionChatInput {
   channel: string;
@@ -438,7 +471,25 @@ export class Bot {
     ensureStreamSummaryStartThread;
   private streamEventSubListenerFactory = (apiClient: ApiClient) =>
     new EventSubWsListener({ apiClient });
-  private streamEventSubListener: EventSubWsListener | null = null;
+  private streamEventSubApiClientFactory = (config: StreamEventSubApiConfig) =>
+    new ApiClient(config);
+  private streamEventSubSubscriptionReconciler: StreamEventSubSubscriptionReconciler =
+    (apiClient, broadcasterId) =>
+      reconcileStreamEventSubSubscriptions(
+        {
+          getSubscriptionsForType: async (type) =>
+            apiClient.eventSub.getSubscriptionsForTypePaginated(type).getAll(),
+          deleteSubscription: (id) =>
+            apiClient.eventSub.deleteSubscription(id),
+        },
+        broadcasterId
+      );
+  private streamEventSubState: StreamEventSubLifecycleState = {
+    status: "inactive",
+  };
+  private streamEventSubGeneration = 0;
+  private streamEventSubRecoveryAttempted = false;
+  private streamEventSubRecoveryInFlight: Promise<void> | null = null;
   private streamStatusCheckInFlight: Promise<void> | null = null;
   private streamStatusCheckRerunRequested = false;
   private streamStatusErrorCount = 0;
@@ -682,13 +733,24 @@ export class Bot {
   }
 
   async stop(): Promise<void> {
-    if (this.stopping) return;
+    if (this.stopping) {
+      await this.streamEventSubRecoveryInFlight;
+      return;
+    }
     this.stopping = true;
+    const recoveryToJoin = this.streamEventSubRecoveryInFlight;
+    const activeListener =
+      this.streamEventSubState.status === "active"
+        ? this.streamEventSubState.listener
+        : null;
+    this.streamEventSubState = { status: "stopping" };
     this.chatClient.quit();
     if (this.keepAliveTimer) clearInterval(this.keepAliveTimer);
-    if (this.streamMonitorTimer) clearInterval(this.streamMonitorTimer);
-    this.streamEventSubListener?.stop();
-    this.streamEventSubListener = null;
+    if (this.streamMonitorTimer) {
+      clearInterval(this.streamMonitorTimer);
+      this.streamMonitorTimer = null;
+    }
+    activeListener?.stop();
     if (this.commentSaveTimer) clearTimeout(this.commentSaveTimer);
     // 停止前にコメント状態を即座に保存
     this._flushCommentState();
@@ -696,6 +758,7 @@ export class Bot {
     await this.clipCacheSynchronizer?.stop();
     await Promise.allSettled([...this.incomingChatHandlers]);
     await this.anythingLlmStreamKnowledgeInFlight;
+    await recoveryToJoin;
     this.anythingLlmStreamKnowledge?.close();
     await this.anythingLlmChannelMemory?.close();
     this.anythingLlmLedger?.close();
@@ -2607,10 +2670,12 @@ export class Bot {
   }
 
   private _startStreamMonitor(): void {
+    if (this.stopping) return;
     if (this.streamMonitorTimer) clearInterval(this.streamMonitorTimer);
 
     this._startStreamEventSub();
     void this._checkStreamStatus();
+    if (this.stopping) return;
     this.streamMonitorTimer = setInterval(
       () => void this._checkStreamStatus(),
       STREAM_STATUS_POLL_INTERVAL_MS
@@ -2618,7 +2683,7 @@ export class Bot {
   }
 
   private _startStreamEventSub(): void {
-    if (this.streamEventSubListener) return;
+    if (this.stopping || this.streamEventSubState.status !== "inactive") return;
 
     const broadcasterId = (this.config.twitchBroadcasterId ?? "").trim();
     if (!broadcasterId) {
@@ -2626,14 +2691,17 @@ export class Bot {
       return;
     }
 
+    const generation = ++this.streamEventSubGeneration;
+    let listener: EventSubWsListener | null = null;
     try {
-      const eventSubApiClient = new ApiClient({
+      const eventSubApiClient = this.streamEventSubApiClientFactory({
         authProvider: createEventSubAuthProvider(
           this.authProvider,
           this.botUserId
         ),
+        fetchOptions: { timeout: EVENTSUB_API_REQUEST_TIMEOUT_MS },
       });
-      const listener = this.streamEventSubListenerFactory(eventSubApiClient);
+      listener = this.streamEventSubListenerFactory(eventSubApiClient);
       listener.onStreamOnline(broadcasterId, () => {
         logger.info("⚡ Twitch EventSubで配信開始を受信しました。");
         void this._checkStreamStatus();
@@ -2643,8 +2711,10 @@ export class Bot {
         void this._checkStreamStatus();
       });
       listener.onSubscriptionCreateFailure((_subscription, error) => {
-        logger.warn(
-          `⚠️ Twitch EventSub購読作成に失敗しました。60秒ポーリングで継続します: ${error.name}`
+        this._handleStreamEventSubSubscriptionFailure(
+          generation,
+          error,
+          broadcasterId
         );
       });
       listener.onSubscriptionCreateSuccess((subscription) => {
@@ -2655,14 +2725,142 @@ export class Bot {
           `⚠️ Twitch EventSub購読が無効化されました。60秒ポーリングで継続します: status=${status}`
         );
       });
+      listener.onUserSocketConnect(() => {
+        logger.info("✅ Twitch EventSub WebSocketへ接続しました。");
+      });
+      listener.onUserSocketDisconnect((_userId, error) => {
+        const state = this.streamEventSubState;
+        const isActiveGeneration =
+          state.status === "active" && state.generation === generation;
+        if (!error && !isActiveGeneration) {
+          logger.info("ℹ️ Twitch EventSub WebSocketを正常に切断しました。");
+          return;
+        }
+        logger.warn(
+          `⚠️ Twitch EventSub WebSocketが予期せず切断されました: ${formatSanitizedErrorName(error)}`
+        );
+      });
+      this.streamEventSubState = {
+        status: "active",
+        generation,
+        listener,
+        apiClient: eventSubApiClient,
+      };
       listener.start();
-      this.streamEventSubListener = listener;
-      logger.info("✅ Twitch EventSub配信開始・終了監視を開始しました。");
+      if (
+        this.streamEventSubState.status === "active" &&
+        this.streamEventSubState.generation === generation
+      ) {
+        logger.info("✅ Twitch EventSub配信開始・終了監視を開始しました。");
+      }
     } catch (error) {
+      if (
+        this.streamEventSubState.status === "active" &&
+        this.streamEventSubState.generation === generation
+      ) {
+        this.streamEventSubState = this.streamEventSubRecoveryAttempted
+          ? { status: "recovery-blocked" }
+          : { status: "inactive" };
+        listener?.stop();
+      } else if (
+        this.streamEventSubState.status === "inactive" &&
+        this.streamEventSubRecoveryAttempted
+      ) {
+        this.streamEventSubState = { status: "recovery-blocked" };
+      }
       logger.warn(
-        `⚠️ Twitch EventSub監視を開始できませんでした。60秒ポーリングで継続します: ${error instanceof Error ? error.name : "unknown_error"}`
+        `⚠️ Twitch EventSub監視を開始できませんでした。60秒ポーリングで継続します: ${formatSanitizedErrorName(error)}`
       );
     }
+  }
+
+  private _handleStreamEventSubSubscriptionFailure(
+    generation: number,
+    error: unknown,
+    broadcasterId: string
+  ): void {
+    const activeState = this.streamEventSubState;
+    if (
+      activeState.status !== "active" ||
+      activeState.generation !== generation
+    ) {
+      return;
+    }
+
+    if (!isEventSubSubscriptionLimitError(error)) {
+      logger.warn(
+        `⚠️ Twitch EventSub購読作成に失敗しました。60秒ポーリングで継続します: ${formatSanitizedErrorName(error)}`
+      );
+      return;
+    }
+
+    if (this.streamEventSubRecoveryAttempted) {
+      this.streamEventSubState = { status: "recovery-blocked" };
+      activeState.listener.stop();
+      logger.warn(
+        "⚠️ Twitch EventSub購読上限が再発したため、このプロセスでの自動復旧を停止しました。60秒ポーリングで継続します。"
+      );
+      return;
+    }
+
+    this.streamEventSubRecoveryAttempted = true;
+    this.streamEventSubState = { status: "recovering", generation };
+    activeState.listener.stop();
+    logger.warn(
+      "⚠️ Twitch EventSub購読上限を検知したため、対象購読を再照合して1回だけ自動復旧します。60秒ポーリングは継続します。"
+    );
+
+    const attempt = this._recoverStreamEventSubSubscriptions(
+      generation,
+      activeState.apiClient,
+      broadcasterId
+    );
+    const trackedAttempt = attempt.finally(() => {
+      if (this.streamEventSubRecoveryInFlight === trackedAttempt) {
+        this.streamEventSubRecoveryInFlight = null;
+      }
+    });
+    this.streamEventSubRecoveryInFlight = trackedAttempt;
+  }
+
+  private async _recoverStreamEventSubSubscriptions(
+    generation: number,
+    apiClient: ApiClient,
+    broadcasterId: string
+  ): Promise<void> {
+    let result: EventSubSubscriptionRecoveryResult;
+    try {
+      result = await this.streamEventSubSubscriptionReconciler(
+        apiClient,
+        broadcasterId
+      );
+    } catch (error) {
+      if (
+        !this.stopping &&
+        this.streamEventSubState.status === "recovering" &&
+        this.streamEventSubState.generation === generation
+      ) {
+        this.streamEventSubState = { status: "recovery-blocked" };
+        logger.warn(
+          `⚠️ Twitch EventSub自動復旧に失敗しました。このプロセスでは再試行せず、60秒ポーリングで継続します: ${formatSanitizedErrorName(error)}`
+        );
+      }
+      return;
+    }
+
+    if (
+      this.stopping ||
+      this.streamEventSubState.status !== "recovering" ||
+      this.streamEventSubState.generation !== generation
+    ) {
+      return;
+    }
+
+    this.streamEventSubState = { status: "inactive" };
+    logger.info(
+      `✅ Twitch EventSub購読を再照合しました: deleted=${result.deletedSubscriptionCount}`
+    );
+    this._startStreamEventSub();
   }
 
   private _checkStreamStatus(): Promise<void> {

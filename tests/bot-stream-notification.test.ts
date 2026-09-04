@@ -24,6 +24,130 @@ let activeBot:
     })
   | null = null;
 
+type EventSubFailureHandler = (
+  subscription: { id: string },
+  error: Error
+) => void;
+
+interface EventSubListenerMock {
+  onStreamOnline: ReturnType<typeof vi.fn>;
+  onStreamOffline: ReturnType<typeof vi.fn>;
+  onSubscriptionCreateFailure: ReturnType<typeof vi.fn>;
+  onSubscriptionCreateSuccess: ReturnType<typeof vi.fn>;
+  onRevoke: ReturnType<typeof vi.fn>;
+  onUserSocketConnect: ReturnType<typeof vi.fn>;
+  onUserSocketDisconnect: ReturnType<typeof vi.fn>;
+  start: ReturnType<typeof vi.fn>;
+  stop: ReturnType<typeof vi.fn>;
+  failureHandler?: EventSubFailureHandler;
+  socketConnectHandler?: (userId: string) => void;
+  socketDisconnectHandler?: (userId: string, error?: Error) => void;
+}
+
+type EventSubTestBot = Bot & {
+  apiClient: {
+    streams: {
+      getStreamByUserName: ReturnType<typeof vi.fn>;
+    };
+  };
+  authProvider: {
+    clientId: string;
+    getCurrentScopesForUser: ReturnType<typeof vi.fn>;
+    getAccessTokenForUser: ReturnType<typeof vi.fn>;
+    getAnyAccessToken: ReturnType<typeof vi.fn>;
+    refreshAccessTokenForUser: ReturnType<typeof vi.fn>;
+  };
+  botUserId: string;
+  chatClient: { quit: ReturnType<typeof vi.fn> };
+  clipCacheStore: { close: () => void };
+  streamEventSubListenerFactory: ReturnType<typeof vi.fn>;
+  streamEventSubApiClientFactory: ReturnType<typeof vi.fn>;
+  streamEventSubSubscriptionReconciler: ReturnType<typeof vi.fn>;
+  _startStreamMonitor: () => void;
+};
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function createEventSubListenerMock(): EventSubListenerMock {
+  const listener: EventSubListenerMock = {
+    onStreamOnline: vi.fn(),
+    onStreamOffline: vi.fn(),
+    onSubscriptionCreateFailure: vi.fn(
+      (handler: EventSubFailureHandler) => {
+        listener.failureHandler = handler;
+      }
+    ),
+    onSubscriptionCreateSuccess: vi.fn(),
+    onRevoke: vi.fn(),
+    onUserSocketConnect: vi.fn((handler: (userId: string) => void) => {
+      listener.socketConnectHandler = handler;
+    }),
+    onUserSocketDisconnect: vi.fn(
+      (handler: (userId: string, error?: Error) => void) => {
+        listener.socketDisconnectHandler = handler;
+      }
+    ),
+    start: vi.fn(),
+    stop: vi.fn(),
+  };
+  return listener;
+}
+
+function createEventSubLimitError(): Error {
+  const error = Object.assign(
+    new Error(
+      "Encountered HTTP status code 429: Too Many Requests; maximum subscriptions with type and condition exceeded"
+    ),
+    { statusCode: 429 }
+  );
+  error.name = "HttpStatusCodeError";
+  return error;
+}
+
+function createEventSubTestBot(options: {
+  listeners: EventSubListenerMock[];
+  reconcile?: ReturnType<typeof vi.fn>;
+  getStreamByUserName?: ReturnType<typeof vi.fn>;
+}): EventSubTestBot {
+  const bot = new Bot(makeConfig()) as unknown as EventSubTestBot;
+  activeBot = bot;
+  bot.apiClient = {
+    streams: {
+      getStreamByUserName:
+        options.getStreamByUserName ?? vi.fn().mockResolvedValue(null),
+    },
+  };
+  bot.botUserId = "bot-user-id";
+  bot.chatClient = { quit: vi.fn() };
+  bot.authProvider = {
+    clientId: "client-id",
+    getCurrentScopesForUser: vi.fn(() => []),
+    getAccessTokenForUser: vi.fn(),
+    getAnyAccessToken: vi.fn(),
+    refreshAccessTokenForUser: vi.fn(),
+  };
+  let listenerIndex = 0;
+  bot.streamEventSubListenerFactory = vi.fn(
+    () => options.listeners[listenerIndex++]
+  );
+  bot.streamEventSubSubscriptionReconciler =
+    options.reconcile ??
+    vi.fn().mockResolvedValue({ deletedSubscriptionCount: 0 });
+  return bot;
+}
+
 function makeConfig(): Config {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "twitch-raid-notify-"));
   return {
@@ -116,6 +240,8 @@ describe("Bot stream start notification", () => {
       onSubscriptionCreateFailure: vi.fn(),
       onSubscriptionCreateSuccess: vi.fn(),
       onRevoke: vi.fn(),
+      onUserSocketConnect: vi.fn(),
+      onUserSocketDisconnect: vi.fn(),
       start: vi.fn(),
       stop: vi.fn(),
     };
@@ -173,6 +299,299 @@ describe("Bot stream start notification", () => {
     await vi.advanceTimersByTimeAsync(59_999);
     expect(getStreamByUserName).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(1);
+    expect(getStreamByUserName).toHaveBeenCalledTimes(3);
+  });
+
+  it("stops one failed generation and shares one exact-limit recovery", async () => {
+    vi.useFakeTimers();
+    const firstListener = createEventSubListenerMock();
+    const replacementListener = createEventSubListenerMock();
+    const cleanup = deferred<{ deletedSubscriptionCount: number }>();
+    const reconcile = vi.fn().mockReturnValue(cleanup.promise);
+    const bot = createEventSubTestBot({
+      listeners: [firstListener, replacementListener],
+      reconcile,
+    });
+    firstListener.stop.mockImplementationOnce(() => {
+      firstListener.failureHandler?.(
+        { id: "during-stop" },
+        createEventSubLimitError()
+      );
+    });
+
+    bot._startStreamMonitor();
+    await vi.advanceTimersByTimeAsync(0);
+    firstListener.failureHandler?.({ id: "stream.online" }, createEventSubLimitError());
+    firstListener.failureHandler?.({ id: "stream.offline" }, createEventSubLimitError());
+
+    expect(firstListener.stop).toHaveBeenCalledOnce();
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect(bot.streamEventSubListenerFactory).toHaveBeenCalledOnce();
+    bot._startStreamMonitor();
+    expect(bot.streamEventSubListenerFactory).toHaveBeenCalledOnce();
+
+    cleanup.resolve({ deletedSubscriptionCount: 6 });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(bot.streamEventSubListenerFactory).toHaveBeenCalledTimes(2);
+    expect(replacementListener.start).toHaveBeenCalledOnce();
+
+    firstListener.failureHandler?.({ id: "stale" }, createEventSubLimitError());
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect(replacementListener.stop).not.toHaveBeenCalled();
+  });
+
+  it("blocks later listener creation after recovery request timeout while polling continues", async () => {
+    vi.useFakeTimers();
+    const listener = createEventSubListenerMock();
+    const getStreamByUserName = vi.fn().mockResolvedValue(null);
+    const reconcile = vi.fn().mockRejectedValue(
+      Object.assign(new Error("private cleanup detail"), {
+        name: "FetchError",
+      })
+    );
+    const bot = createEventSubTestBot({
+      listeners: [listener],
+      reconcile,
+      getStreamByUserName,
+    });
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => logger);
+
+    bot._startStreamMonitor();
+    await vi.advanceTimersByTimeAsync(0);
+    listener.failureHandler?.({ id: "stream.online" }, createEventSubLimitError());
+    await vi.advanceTimersByTimeAsync(0);
+
+    listener.failureHandler?.({ id: "stream.offline" }, createEventSubLimitError());
+    bot._startStreamMonitor();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(listener.stop).toHaveBeenCalledOnce();
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect(bot.streamEventSubListenerFactory).toHaveBeenCalledOnce();
+    expect(getStreamByUserName).toHaveBeenCalledTimes(2);
+    expect(warnSpy.mock.calls.flat().join("\n")).not.toContain(
+      "private cleanup detail"
+    );
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(getStreamByUserName).toHaveBeenCalledTimes(3);
+  });
+
+  it("stops a replacement exact-limit failure without a second cleanup", async () => {
+    vi.useFakeTimers();
+    const firstListener = createEventSubListenerMock();
+    const replacementListener = createEventSubListenerMock();
+    const reconcile = vi
+      .fn()
+      .mockResolvedValue({ deletedSubscriptionCount: 6 });
+    const bot = createEventSubTestBot({
+      listeners: [firstListener, replacementListener],
+      reconcile,
+    });
+
+    bot._startStreamMonitor();
+    await vi.advanceTimersByTimeAsync(0);
+    firstListener.failureHandler?.({ id: "first" }, createEventSubLimitError());
+    await vi.advanceTimersByTimeAsync(0);
+    replacementListener.failureHandler?.(
+      { id: "replacement" },
+      createEventSubLimitError()
+    );
+    bot._startStreamMonitor();
+
+    expect(firstListener.stop).toHaveBeenCalledOnce();
+    expect(replacementListener.stop).toHaveBeenCalledOnce();
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect(bot.streamEventSubListenerFactory).toHaveBeenCalledTimes(2);
+  });
+
+  it("blocks a third listener when replacement construction fails", async () => {
+    vi.useFakeTimers();
+    const firstListener = createEventSubListenerMock();
+    const unexpectedThirdListener = createEventSubListenerMock();
+    const bot = createEventSubTestBot({
+      listeners: [firstListener],
+      reconcile: vi
+        .fn()
+        .mockResolvedValue({ deletedSubscriptionCount: 6 }),
+    });
+    bot.streamEventSubListenerFactory = vi
+      .fn()
+      .mockReturnValueOnce(firstListener)
+      .mockImplementationOnce(() => {
+        throw new Error("replacement construction failed");
+      })
+      .mockReturnValue(unexpectedThirdListener);
+
+    bot._startStreamMonitor();
+    await vi.advanceTimersByTimeAsync(0);
+    firstListener.failureHandler?.({ id: "first" }, createEventSubLimitError());
+    await vi.advanceTimersByTimeAsync(0);
+    bot._startStreamMonitor();
+
+    expect(bot.streamEventSubListenerFactory).toHaveBeenCalledTimes(2);
+    expect(unexpectedThirdListener.start).not.toHaveBeenCalled();
+  });
+
+  it("ignores non-target subscription failures", async () => {
+    vi.useFakeTimers();
+    const listener = createEventSubListenerMock();
+    const reconcile = vi.fn();
+    const bot = createEventSubTestBot({ listeners: [listener], reconcile });
+
+    bot._startStreamMonitor();
+    await vi.advanceTimersByTimeAsync(0);
+    listener.failureHandler?.(
+      { id: "unrelated" },
+      Object.assign(new Error("another rate limit"), { statusCode: 429 })
+    );
+
+    expect(listener.stop).not.toHaveBeenCalled();
+    expect(reconcile).not.toHaveBeenCalled();
+  });
+
+  it("joins pending recovery on stop and prevents delayed monitor startup", async () => {
+    vi.useFakeTimers();
+    const listener = createEventSubListenerMock();
+    const cleanup = deferred<{ deletedSubscriptionCount: number }>();
+    const bot = createEventSubTestBot({
+      listeners: [listener],
+      reconcile: vi.fn().mockReturnValue(cleanup.promise),
+    });
+
+    bot._startStreamMonitor();
+    await vi.advanceTimersByTimeAsync(0);
+    listener.failureHandler?.({ id: "first" }, createEventSubLimitError());
+    const stopAttempt = bot.stop();
+    let stopped = false;
+    void stopAttempt.then(() => {
+      stopped = true;
+    });
+
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+
+    cleanup.resolve({ deletedSubscriptionCount: 6 });
+    await stopAttempt;
+    bot._startStreamMonitor();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(stopped).toBe(true);
+    expect(bot.streamEventSubListenerFactory).toHaveBeenCalledOnce();
+    expect(bot.apiClient.streams.getStreamByUserName).toHaveBeenCalledOnce();
+    activeBot = null;
+  });
+
+  it("keeps polling available after a synchronous listener start failure", async () => {
+    vi.useFakeTimers();
+    const failedListener = createEventSubListenerMock();
+    const nextListener = createEventSubListenerMock();
+    failedListener.start.mockImplementation(() => {
+      throw new Error("start secret detail");
+    });
+    const getStreamByUserName = vi.fn().mockResolvedValue(null);
+    const bot = createEventSubTestBot({
+      listeners: [failedListener, nextListener],
+      getStreamByUserName,
+    });
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    failedListener.stop.mockImplementation(() => {
+      failedListener.socketDisconnectHandler?.("bot-user-id");
+    });
+
+    bot._startStreamMonitor();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getStreamByUserName).toHaveBeenCalledOnce();
+    expect(failedListener.stop).toHaveBeenCalledOnce();
+    expect(infoSpy).toHaveBeenCalledWith(
+      "ℹ️ Twitch EventSub WebSocketを正常に切断しました。"
+    );
+
+    bot._startStreamMonitor();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(bot.streamEventSubListenerFactory).toHaveBeenCalledTimes(2);
+    expect(nextListener.start).toHaveBeenCalledOnce();
+    expect(getStreamByUserName).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(getStreamByUserName).toHaveBeenCalledTimes(3);
+  });
+
+  it("registers sanitized WebSocket connect and disconnect logs", async () => {
+    vi.useFakeTimers();
+    const listener = createEventSubListenerMock();
+    const bot = createEventSubTestBot({ listeners: [listener] });
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => logger);
+
+    bot._startStreamMonitor();
+    await vi.advanceTimersByTimeAsync(0);
+    listener.socketConnectHandler?.("sensitive-user-id");
+    listener.socketDisconnectHandler?.("sensitive-user-id");
+    listener.socketDisconnectHandler?.(
+      "sensitive-user-id",
+      Object.assign(new Error("wss://secret.example/session/token"), {
+        name: "SocketTimeoutError-wss://secret.example/session/token",
+      })
+    );
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      "✅ Twitch EventSub WebSocketへ接続しました。"
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      "⚠️ Twitch EventSub WebSocketが予期せず切断されました: unknown_error"
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      "⚠️ Twitch EventSub WebSocketが予期せず切断されました: Error"
+    );
+    const logs = [...infoSpy.mock.calls, ...warnSpy.mock.calls]
+      .flat()
+      .join("\n");
+    expect(logs).not.toContain("sensitive-user-id");
+    expect(logs).not.toContain("secret.example");
+    expect(logs).not.toContain("session/token");
+  });
+
+  it("configures a finite timeout on the dedicated EventSub ApiClient", async () => {
+    vi.useFakeTimers();
+    const listener = createEventSubListenerMock();
+    const bot = createEventSubTestBot({ listeners: [listener] });
+    const dedicatedApiClient = { marker: "eventsub-client" };
+    bot.streamEventSubApiClientFactory = vi.fn(() => dedicatedApiClient);
+
+    bot._startStreamMonitor();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(bot.streamEventSubApiClientFactory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authProvider: expect.any(Object),
+        fetchOptions: { timeout: 15_000 },
+      })
+    );
+    expect(bot.streamEventSubListenerFactory).toHaveBeenCalledWith(
+      dedicatedApiClient
+    );
+  });
+
+  it("reuses one active listener across repeated monitor starts", async () => {
+    vi.useFakeTimers();
+    const listener = createEventSubListenerMock();
+    const getStreamByUserName = vi.fn().mockResolvedValue(null);
+    const bot = createEventSubTestBot({
+      listeners: [listener],
+      getStreamByUserName,
+    });
+
+    bot._startStreamMonitor();
+    await vi.advanceTimersByTimeAsync(0);
+    bot._startStreamMonitor();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(bot.streamEventSubListenerFactory).toHaveBeenCalledOnce();
+    expect(getStreamByUserName).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(getStreamByUserName).toHaveBeenCalledTimes(3);
   });
 

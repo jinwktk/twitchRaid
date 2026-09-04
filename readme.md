@@ -409,6 +409,7 @@ internal-docs/
 
 ## 更新履歴
 
+- **2026-09-04**: Twitch EventSub WebSocketが異常切断後に古い`stream.online` / `stream.offline`購読を残し、同一type・conditionの上限3件へ達してHTTP 429を繰り返す事象へ自動復旧を追加。上限を示す正確な429だけを対象に、専用EventSub認証で同一配信者・対象2type・`enabled`・`websocket`に一致する購読を全件再照合して削除し、再取得で0件を確認してからlistenerを1回だけ作り直す。404は削除済みとして扱い、一覧・削除・再確認の失敗、置換listenerでの再発、または15秒のAPI timeout時は追加復旧せず60秒Helix pollだけで継続する。意図しないWebSocket切断はerror本文・user IDを出さず種類だけWARNへ記録する。
 - **2026-09-03**: `!pvp` コマンドを追加。パッチ7.5以降のフロントライン8日ローテーションを2026-04-29 JST基準で計算し、毎日0:00 JSTに切り替えて `今日のフロントライン：正式ルール名` を返す。実行時の外部HTTP取得は行わず、参照サイト停止時も固定コマンドとして応答する。`!help` の基本コマンド一覧にも追加した。
 - **2026-09-03**: `!pvp` の返信へ翌日のルールも追加し、`今日のフロントライン：正式ルール名 / 明日：正式ルール名` の1チャットで予定まで確認できるようにした。
 - **2026-08-28**: るっかるんページをVercelへ移行。`!site`、配信中の定期Clip案内、twitchRaid側の旧互換HTML 3ページのredirect/canonical/手動リンクを `https://rukalun-page.vercel.app/` へ統一した。旧互換ページは従来どおり検索queryを転送先へ引き継ぐ。
