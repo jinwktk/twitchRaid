@@ -59,6 +59,7 @@ npm run pm2:logs    # ログ確認
 npm start           # ビルド済みを実行
 npm run dev         # ts-nodeで開発実行
 npm run perf:hot-paths # メンション検出・コメント風速・Clip SQLite選択の性能回帰を検証
+npm run perf:anythingllm-ledger -- --baseline-module <変更前のanythingllm-ledger.js> # 合成台帳で旧新の結果と性能を比較
 npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生成
 # 本番反映例: node scripts/export-clip-search-data.mjs --out C:\Users\mlove\Documents\GitHub\RukalunPage\clip-search-data.json
 # 必要時: node scripts/export-clip-search-data.mjs --enrich-from-twitch
@@ -214,6 +215,19 @@ SQLiteストアへ初回移行できるJSON例:
     }
   }
 }
+```
+
+台帳の性能比較は、4万件の合成コメントを持つ一時SQLiteだけを使用します。未反映0件・少量・大量・大量未バッチの各ケースで公開APIの結果一致を確認し、時間は1操作あたりで比較します。少量時の各取得は2倍以上、大量時の20/100件取得は追加0.25ms以内、1000件取得は旧比0.9倍以上を基準とします。最大32行の先行取得により、大量時には小さな固定コストが増える選択です。実データやAI生成時間の測定とは区別してください。
+
+2026-09-05のWindows合成計測では、少量取得が約115〜147倍、配信読込が約2.7倍、キュー統計が約457倍になりました。追加索引により4万件DBは約823KB増え、初回移行は約89ms、200コメント受信と10小バッチ更新の合計は約26msから51msへ増加しました。読込待ちの削減を優先するトレードオフです。
+
+比較用の変更前モジュールが無いcheckoutでは、次のPowerShellコマンドで今回の変更前commitから生成できます。Git履歴に`18e84e6`が必要です。
+
+```powershell
+New-Item -ItemType Directory -Force .omx/perf-baselines | Out-Null
+git show 18e84e697f6b0406986ad185ce9b1f0481c283a1:src/commands/anythingllm-ledger.ts | Set-Content -Encoding utf8 .omx/perf-baselines/anythingllm-ledger-before-20260905.ts
+npx tsc .omx/perf-baselines/anythingllm-ledger-before-20260905.ts --target ES2022 --module commonjs --esModuleInterop --skipLibCheck --outDir .omx/perf-baselines
+npm run perf:anythingllm-ledger -- --baseline-module .omx/perf-baselines/anythingllm-ledger-before-20260905.js
 ```
 
 - AIメンション会話は配信画像入力を使わない。OBS画面の直接キャプチャ、画像保存、Twitchプレビュー画像取得、連続フレーム解析、画面内個人情報のマスクはいずれも現行AI返信経路では行わない
@@ -409,6 +423,7 @@ internal-docs/
 
 ## 更新履歴
 
+- **2026-09-05**: AnythingLLMの未反映コメント取得は既存索引で最大32行を先行取得し、少量なら全候補を並べ替えて返すように変更。候補が多い場合は従来の順序付き取得へ戻し、全候補の並べ替えによる遅延を避ける。キュー件数と最古時刻は1回の集計で求め、配信別コメントの取得・埋込確認には`stream_id / accepted_sequence`索引を追加した。コメントの表示順・チャンネル分離・保存期限・再試行・AI回答の設定は維持する。合成台帳の公開API比較は`npm run perf:anythingllm-ledger -- --baseline-module <変更前モジュール>`で実施する。
 - **2026-09-04**: Twitch EventSub WebSocketが異常切断後に古い`stream.online` / `stream.offline`購読を残し、同一type・conditionの上限3件へ達してHTTP 429を繰り返す事象へ自動復旧を追加。上限を示す正確な429だけを対象に、専用EventSub認証で同一配信者・対象2type・`enabled`・`websocket`に一致する購読を全件再照合して削除し、再取得で0件を確認してからlistenerを1回だけ作り直す。404は削除済みとして扱い、一覧・削除・再確認の失敗、置換listenerでの再発、または15秒のAPI timeout時は追加復旧せず60秒Helix pollだけで継続する。意図しないWebSocket切断はerror本文・user IDを出さず種類だけWARNへ記録する。
 - **2026-09-03**: `!pvp` コマンドを追加。パッチ7.5以降のフロントライン8日ローテーションを2026-04-29 JST基準で計算し、毎日0:00 JSTに切り替えて `今日のフロントライン：正式ルール名` を返す。実行時の外部HTTP取得は行わず、参照サイト停止時も固定コマンドとして応答する。`!help` の基本コマンド一覧にも追加した。
 - **2026-09-03**: `!pvp` の返信へ翌日のルールも追加し、`今日のフロントライン：正式ルール名 / 明日：正式ルール名` の1チャットで予定まで確認できるようにした。

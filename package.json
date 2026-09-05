@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "perf:hot-paths": "npm run build && node scripts/benchmark-hot-paths.mjs --assert",
+    "perf:anythingllm-ledger": "npm run build && node scripts/benchmark-anythingllm-ledger.mjs --assert",
     "perf:sub-ai-services": "node scripts/benchmark-sub-ai-services.mjs --assert",
     "contract:anythingllm": "node scripts/verify-anythingllm-contract.mjs",
     "verify:anythingllm-lan-ui": "node scripts/verify-anythingllm-lan-ui.mjs",

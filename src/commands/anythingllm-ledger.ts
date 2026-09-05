@@ -554,6 +554,34 @@ export class AnythingLlmLedger {
       1,
       Math.min(1_000, Math.floor(limit))
     );
+    const normalizedChannel = normalizeChannel(channel);
+    // Small queues can be read through the batch indexes without scanning history.
+    // Cap the probe so a large backlog still uses the ordered, early-LIMIT query.
+    const probeLimit = Math.min(32, effectiveLimit + 1);
+    const candidates = this.db
+      .prepare(`
+          SELECT events.* FROM anythingllm_comment_events AS events
+          WHERE events.batch_id IS NULL
+            AND events.channel = ? AND events.body_purged_at IS NULL
+          UNION ALL
+          SELECT events.* FROM anythingllm_ingestion_batches AS batches
+          CROSS JOIN anythingllm_comment_events AS events
+            ON events.batch_id = batches.batch_id
+          WHERE batches.status IN ('pending', 'uploaded', 'failed')
+            AND batches.cleanup_status <> 'body_purged'
+            AND events.channel = ? AND events.body_purged_at IS NULL
+          LIMIT ?
+      `)
+      .all(
+        normalizedChannel,
+        normalizedChannel,
+        probeLimit
+      ) as unknown as CommentEventRow[];
+    if (candidates.length < probeLimit) {
+      return candidates
+        .sort((left, right) => left.accepted_sequence - right.accepted_sequence)
+        .map(mapEventRow);
+    }
     const rows = this.db
       .prepare(
         `
@@ -576,7 +604,7 @@ export class AnythingLlmLedger {
         `
       )
       .all(
-        normalizeChannel(channel),
+        normalizedChannel,
         effectiveLimit
       ) as unknown as CommentEventRow[];
     return rows.map(mapEventRow);
@@ -590,21 +618,8 @@ export class AnythingLlmLedger {
       .prepare(
         `
           SELECT
-            (
-              SELECT COUNT(*)
-              FROM anythingllm_comment_events AS events
-              LEFT JOIN anythingllm_ingestion_batches AS batches
-                ON batches.batch_id = events.batch_id
-              WHERE
-                events.body_purged_at IS NULL
-                AND (
-                  events.batch_id IS NULL
-                  OR (
-                    batches.status <> 'embedded'
-                    AND batches.cleanup_status <> 'body_purged'
-                  )
-                )
-            ) AS unembedded_comment_count,
+            COUNT(*) AS unembedded_comment_count,
+            MIN(events.occurred_at) AS oldest_unembedded_occurred_at,
             (
               SELECT COUNT(*)
               FROM anythingllm_ingestion_batches
@@ -625,22 +640,19 @@ export class AnythingLlmLedger {
               WHERE
                 status = 'failed'
                 AND cleanup_status <> 'body_purged'
-            ) AS failed_batch_count,
-            (
-              SELECT MIN(events.occurred_at)
-              FROM anythingllm_comment_events AS events
-              LEFT JOIN anythingllm_ingestion_batches AS batches
-                ON batches.batch_id = events.batch_id
-              WHERE
-                events.body_purged_at IS NULL
-                AND (
-                  events.batch_id IS NULL
-                  OR (
-                    batches.status <> 'embedded'
-                    AND batches.cleanup_status <> 'body_purged'
-                  )
-                )
-            ) AS oldest_unembedded_occurred_at
+            ) AS failed_batch_count
+          FROM anythingllm_comment_events AS events
+          WHERE
+            events.body_purged_at IS NULL
+            AND (
+              events.batch_id IS NULL
+              OR events.batch_id IN (
+                SELECT batch_id
+                FROM anythingllm_ingestion_batches
+                WHERE status IN ('pending', 'uploaded', 'failed')
+                  AND cleanup_status <> 'body_purged'
+              )
+            )
         `
       )
       .get(normalizedNow) as unknown as IngestionQueueStatsRow;
@@ -1498,6 +1510,9 @@ export class AnythingLlmLedger {
       "TEXT"
     );
     this.db.exec(`
+      CREATE INDEX IF NOT EXISTS anythingllm_stream_sequence_idx
+      ON anythingllm_comment_events (stream_id, accepted_sequence);
+
       UPDATE anythingllm_ingestion_batches
       SET newest_occurred_at = (
         SELECT MAX(occurred_at)
