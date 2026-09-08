@@ -49,6 +49,7 @@
 | `!clip` | 過去Clipをランダム表示 | 一般ユーザー30分、特別ユーザーなし |
 | `!myclip` | 実行者が作成したClipをランダム表示 | `!clip` とは独立して30分 |
 | `!clipsearch <キーワード>` | Clipタイトル/作成者表示名/ゲーム名から検索して1件表示 | なし |
+| `!reset` | `!clip`・`!myclip`・`!manga` の待ち時間と保存済み時刻を一括解除し、予約済みリキャスト通知を停止 | `CLIP_SPECIAL_USERS` のみ |
 
 - 特別ユーザーは `.env` の `CLIP_SPECIAL_USERS` で管理する。既定値は `nyme_ia,rukalun`。
 - 通常は `data/clips.sqlite` のキャッシュから選ぶ。
@@ -74,11 +75,12 @@
 
 | コマンド | 機能 | 権限 |
 |---|---|---|
-| `!manga` | DLsiteがるまに日間ランキングからランダム1作品を表示 | `MANGA_COMMAND_ENABLED=true` の時のみ |
+| `!manga` | DLsiteの男性向け・女性向けコミック日間ランキングからランダム1作品のタイトルとURLを表示 | 有効時のみ。一般ユーザー共通で1時間に1回、`CLIP_SPECIAL_USERS` は無制限 |
 | `!mangaon` | `!manga` をONにする | broadcaster / mod / `MANGA_ADMIN_USERS` |
 | `!mangaoff` | `!manga` をOFFにする | broadcaster / mod / `MANGA_ADMIN_USERS` |
 
 - `!manga` の返信はBot APIで送信できた場合、10秒後にTwitch chat message delete APIで削除する。
+- 一般ユーザーの成功時刻は `LAST_MANGA_TIME` に保存し再起動後も引き継ぐ。特別ユーザーの利用、取得失敗、送信不達、候補なし、OFF時は待ち時間を消費・延長しない。
 - Bot API送信に失敗した場合は `chatClient.say` へフォールバックする。
 
 ## 統計コマンド

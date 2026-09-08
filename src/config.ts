@@ -134,6 +134,7 @@ export class Config {
   // システム設定
   lastClipTime: number;
   lastMyclipTime: number;
+  lastMangaTime: number;
   lastStreamTitle: string;
   readonly restartInterval: number;
   readonly restartFile: string;
@@ -274,6 +275,7 @@ export class Config {
     // システム設定
     this.lastClipTime = parseFloat(env["LAST_CLIP_TIME"] ?? "0") || 0;
     this.lastMyclipTime = parseFloat(env["LAST_MYCLIP_TIME"] ?? "0") || 0;
+    this.lastMangaTime = parseFloat(env["LAST_MANGA_TIME"] ?? "0") || 0;
     this.lastStreamTitle = env["LAST_STREAM_TITLE"] ?? "";
     this.restartInterval = 60 * 60 * 24; // 24時間
     this.restartFile = path.resolve(BASE_DIR, "last_restart.txt");
@@ -650,6 +652,12 @@ export class Config {
     this.lastMyclipTime = timestamp;
     process.env["LAST_MYCLIP_TIME"] = String(timestamp);
     updateEnvFile(this.envFile, { LAST_MYCLIP_TIME: String(timestamp) });
+  }
+
+  updateLastMangaTime(timestamp: number): void {
+    this.lastMangaTime = timestamp;
+    process.env["LAST_MANGA_TIME"] = String(timestamp);
+    updateEnvFile(this.envFile, { LAST_MANGA_TIME: String(timestamp) });
   }
 
   updateLastStreamTitle(title: string): void {

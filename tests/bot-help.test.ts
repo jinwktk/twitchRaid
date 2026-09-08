@@ -25,6 +25,19 @@ type HelpTestBot = Bot & {
     };
   };
   botUserId: string;
+  commandCooldownState: {
+    lastUsed: (command: string) => number | null;
+  };
+  recastNotifiers: Record<
+    string,
+    {
+      arm: (
+        startedAt: number,
+        sendCoroutine: (message: string) => Promise<void>
+      ) => void;
+      notifyIfReady: (currentTime: number) => Promise<void>;
+    }
+  >;
   clipCacheStore: {
     saveClips: (clips: unknown[]) => number;
     close: () => void;
@@ -74,6 +87,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     discordSummaryWebhookThreadEnabled: false,
     lastClipTime: 0,
     lastMyclipTime: 0,
+    lastMangaTime: 0,
     lastStreamTitle: "",
     restartInterval: 0,
     restartFile: path.join(tmpDir, "last_restart.txt"),
@@ -100,6 +114,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     setActiveAuthScopes: vi.fn(),
     updateLastClipTime: vi.fn(),
     updateLastMyclipTime: vi.fn(),
+    updateLastMangaTime: vi.fn(),
     updateLastStreamTitle: vi.fn(),
     updateMangaCommandEnabled: vi.fn(),
     getLastStreamTitle: vi.fn(() => ""),
@@ -175,6 +190,7 @@ describe("Bot help command", () => {
       "!manga",
       "!mangaon",
       "!mangaoff",
+      "!reset",
       "!shoutout",
       "!streamnotify",
     ]) {
@@ -511,6 +527,275 @@ describe("Bot help command", () => {
       "broadcaster-id",
       "manga-message-id"
     );
+  });
+
+  it("does not consume manga cooldown when the Bot API reports an unsent reply", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(900_000_000);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () =>
+          '<a href="/maniax/work/=/product_id/RJ123456.html">作品A</a>',
+      })
+    );
+    const { bot, say, config } = makeBot({ mangaCommandEnabled: true });
+    const sendChatMessage = vi.fn().mockResolvedValue({
+      isSent: false,
+      id: "",
+    });
+    bot.botUserId = "bot-user-id";
+    bot.apiClient = {
+      asUser: vi.fn(async (_userId, callback) =>
+        callback({ chat: { sendChatMessage } })
+      ),
+    };
+
+    await bot._handleCommand("#rukalun", "viewer", "!manga", {});
+
+    expect(sendChatMessage).toHaveBeenCalledTimes(1);
+    expect(say).not.toHaveBeenCalled();
+    expect(config.updateLastMangaTime).not.toHaveBeenCalled();
+  });
+
+  it("restores manga cooldown and enforces the exact one-hour boundary", async () => {
+    vi.useFakeTimers();
+    const startedAtMs = 1_000_000;
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () =>
+        '<a href="/maniax/work/=/product_id/RJ123456.html">作品A</a>',
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const { bot, say, config } = makeBot({
+      mangaCommandEnabled: true,
+      lastMangaTime: startedAtMs / 1000,
+    });
+
+    vi.setSystemTime(startedAtMs + 3_599_999);
+    await bot._handleCommand("#rukalun", "viewer", "!manga", {});
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "⚠️ `manga` コマンドは1時間に1回のみ使用できます。あと 0分 1秒 待ってください。"
+    );
+
+    vi.setSystemTime(startedAtMs + 3_600_000);
+    await bot._handleCommand("#rukalun", "viewer", "!manga", {});
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(config.updateLastMangaTime).toHaveBeenCalledWith(
+      (startedAtMs + 3_600_000) / 1000
+    );
+  });
+
+  it("shares the manga cooldown across ordinary users", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(2_000_000);
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () =>
+        '<a href="/maniax/work/=/product_id/RJ123456.html">作品A</a>',
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const { bot, say, config } = makeBot({ mangaCommandEnabled: true });
+
+    await bot._handleCommand("#rukalun", "viewer-a", "!manga", {});
+    await bot._handleCommand("#rukalun", "viewer-b", "!manga", {});
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(config.updateLastMangaTime).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "⚠️ `manga` コマンドは1時間に1回のみ使用できます。あと 60分 0秒 待ってください。"
+    );
+  });
+
+  it("lets CLIP_SPECIAL_USERS use manga repeatedly without consuming cooldown", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(3_000_000);
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () =>
+        '<a href="/maniax/work/=/product_id/RJ123456.html">作品A</a>',
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const { bot, config } = makeBot({
+      mangaCommandEnabled: true,
+      clipSpecialUsers: ["nyme_ia"],
+      lastMangaTime: 3_000,
+    });
+
+    await bot._handleCommand("#rukalun", "NyMe_Ia", "!manga", {});
+    await bot._handleCommand("#rukalun", "nyme_ia", "!manga", {});
+
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    expect(config.updateLastMangaTime).not.toHaveBeenCalled();
+  });
+
+  it("does not consume manga cooldown while disabled, empty, or failed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(4_000_000);
+    const emptyResponse = {
+      ok: true,
+      status: 200,
+      text: async () => "<html>候補なし</html>",
+    };
+    const successResponse = {
+      ok: true,
+      status: 200,
+      text: async () =>
+        '<a href="/maniax/work/=/product_id/RJ123456.html">作品A</a>',
+    };
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(emptyResponse)
+      .mockResolvedValueOnce(emptyResponse)
+      .mockRejectedValueOnce(new Error("network failure"))
+      .mockRejectedValueOnce(new Error("network failure"))
+      .mockResolvedValueOnce(successResponse)
+      .mockResolvedValueOnce(successResponse);
+    vi.stubGlobal("fetch", fetchSpy);
+    const { bot, config } = makeBot({ mangaCommandEnabled: false });
+
+    await bot._handleCommand("#rukalun", "viewer", "!manga", {});
+    config.mangaCommandEnabled = true;
+    await bot._handleCommand("#rukalun", "viewer", "!manga", {});
+    await bot._handleCommand("#rukalun", "viewer", "!manga", {});
+
+    expect(config.updateLastMangaTime).not.toHaveBeenCalled();
+
+    await bot._handleCommand("#rukalun", "viewer", "!manga", {});
+
+    expect(fetchSpy).toHaveBeenCalledTimes(6);
+    expect(config.updateLastMangaTime).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks a second ordinary manga request while ranking fetch is in flight", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(5_000_000);
+    let resolveFetch!: (response: Response) => void;
+    const pendingFetch = new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
+    const fetchSpy = vi.fn().mockReturnValue(pendingFetch);
+    vi.stubGlobal("fetch", fetchSpy);
+    const { bot, say, config } = makeBot({ mangaCommandEnabled: true });
+
+    const firstRequest = bot._handleCommand(
+      "#rukalun",
+      "viewer-a",
+      "!manga",
+      {}
+    );
+    await Promise.resolve();
+    const secondRequest = bot._handleCommand(
+      "#rukalun",
+      "viewer-b",
+      "!manga",
+      {}
+    );
+    await secondRequest;
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "⚠️ `manga` コマンドを処理中です。しばらくお待ちください。"
+    );
+
+    resolveFetch({
+      ok: true,
+      status: 200,
+      text: async () =>
+        '<a href="/maniax/work/=/product_id/RJ123456.html">作品A</a>',
+    } as Response);
+    await firstRequest;
+
+    expect(config.updateLastMangaTime).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps manga cooldown independent from clip cooldown", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(6_000_000);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () =>
+          '<a href="/maniax/work/=/product_id/RJ123456.html">作品A</a>',
+      })
+    );
+    const { bot, config } = makeBot({
+      mangaCommandEnabled: true,
+      lastClipTime: 6_000,
+      lastMyclipTime: 6_000,
+    });
+
+    await bot._handleCommand("#rukalun", "viewer", "!manga", {});
+
+    expect(config.updateLastMangaTime).toHaveBeenCalledWith(6_000);
+    expect(config.updateLastClipTime).not.toHaveBeenCalled();
+    expect(config.updateLastMyclipTime).not.toHaveBeenCalled();
+    expect(bot.commandCooldownState.lastUsed("clip")).toBe(6_000);
+    expect(bot.commandCooldownState.lastUsed("myclip")).toBe(6_000);
+  });
+
+  it("lets only CLIP_SPECIAL_USERS reset all command cooldowns and notifications", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(7_000_000);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () =>
+          '<a href="/maniax/work/=/product_id/RJ123456.html">作品A</a>',
+      })
+    );
+    const { bot, say, config } = makeBot({
+      mangaCommandEnabled: true,
+      clipSpecialUsers: ["nyme_ia"],
+      lastClipTime: 6_900,
+      lastMyclipTime: 6_900,
+      lastMangaTime: 6_900,
+    });
+    const readySender = vi.fn().mockResolvedValue(undefined);
+    bot.recastNotifiers.clip.arm(6_900, readySender);
+    bot.recastNotifiers.myclip.arm(6_900, readySender);
+
+    await bot._handleCommand("#rukalun", "viewer", "!reset", {});
+
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "⚠️ `reset` は管理者のみ実行できます。"
+    );
+    expect(config.updateLastClipTime).not.toHaveBeenCalled();
+    expect(config.updateLastMyclipTime).not.toHaveBeenCalled();
+    expect(config.updateLastMangaTime).not.toHaveBeenCalled();
+
+    await bot._handleCommand("#rukalun", "NyMe_Ia", "!reset", {});
+
+    expect(config.updateLastClipTime).toHaveBeenCalledWith(0);
+    expect(config.updateLastMyclipTime).toHaveBeenCalledWith(0);
+    expect(config.updateLastMangaTime).toHaveBeenCalledWith(0);
+    expect(bot.commandCooldownState.lastUsed("clip")).toBeNull();
+    expect(bot.commandCooldownState.lastUsed("myclip")).toBeNull();
+    expect(bot.commandCooldownState.lastUsed("manga")).toBeNull();
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "✅ `clip` / `myclip` / `manga` のリキャストをリセットしました。"
+    );
+
+    await bot.recastNotifiers.clip.notifyIfReady(10_000);
+    await bot.recastNotifiers.myclip.notifyIfReady(10_000);
+    expect(readySender).not.toHaveBeenCalled();
   });
 
   it("sends a random game suggestion from streamed VOD games", async () => {

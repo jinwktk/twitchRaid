@@ -16,6 +16,10 @@ export class CommandCooldownState {
     this.times.set(command, now);
   }
 
+  clear(command: string): void {
+    this.times.delete(command);
+  }
+
   remainingSeconds(
     command: string,
     currentTime: number,

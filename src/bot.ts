@@ -151,6 +151,7 @@ import { restartProcess } from "./utils/process-restart";
 
 
 const MANGA_DELETE_DELAY_SECONDS = 10;
+const MANGA_COOLDOWN_SECONDS = 60 * 60;
 const DEFAULT_MENTION_CHAT_COOLDOWN_SECONDS = 5;
 const STREAM_SUMMARY_THREAD_RETRY_INITIAL_MS = 60_000;
 const STREAM_SUMMARY_THREAD_RETRY_MAX_MS = 15 * 60_000;
@@ -165,7 +166,7 @@ const DIE_SURVIVAL_REPLY = "簡単に死んでたまるかッ🧟";
 const WORK_SEND_OFF_REPLY =
   "るっかるん、今日もお仕事気を付けて、いってらっしゃい";
 const HELP_MESSAGE =
-  "!使えるコマンド: 基本 !help / !age / !goods / !7days / !die / !work / !pvp / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga / !mangaon / !mangaoff | 管理 !shoutout <ユーザー名> / !streamnotify";
+  "!使えるコマンド: 基本 !help / !age / !goods / !7days / !die / !work / !pvp / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga / !mangaon / !mangaoff | 管理 !reset / !shoutout <ユーザー名> / !streamnotify";
 const MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE = "[memory-request]";
 const MENTION_CHAT_MEMORY_KEYWORD_PATTERN =
   /(?:覚えて(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|覚えといて(?:ください|下さい|ね)?|覚えとけ|記憶して(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|記憶しといて(?:ください|下さい|ね)?|メモして(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|メモしといて(?:ください|下さい|ね)?|メモっといて(?:ください|下さい|ね)?|忘れないで(?!いる|いた|います|た|しょ))/u;
@@ -449,6 +450,7 @@ export class Bot {
   private readonly clipSearchDataPublisher: ClipSearchDataPublisher | null;
   private clipCacheSynchronizer: ClipCacheSynchronizer | null = null;
   private mentionChatInFlight = false;
+  private mangaCommandInFlight = false;
   private mentionChatQueueDraining = false;
   private readonly mentionChatQueue: MentionChatRequest[] = [];
   private readonly mentionChatConversationHistory = new Map<
@@ -529,6 +531,7 @@ export class Bot {
     this.commandCooldownState = new CommandCooldownState({
       clip: config.lastClipTime,
       myclip: config.lastMyclipTime,
+      manga: config.lastMangaTime,
     });
     this.commentSpeedMeter = new CommentSpeedMeter(60);
     this.mentionChatMatcher = createMentionChatMatcher(
@@ -1915,6 +1918,9 @@ export class Bot {
       case "mangaoff":
         await this._handleMangaToggle(channel, user, msg, false);
         break;
+      case "reset":
+        await this._handleCommandCooldownReset(channel, user);
+        break;
       case "shoutout":
         await this._handleShoutoutCommand(channel, user, args[1], msg);
         break;
@@ -2114,7 +2120,7 @@ export class Bot {
 
   private async _handleMangaCommand(
     channel: string,
-    _user: string
+    user: string
   ): Promise<void> {
     if (!this.config.mangaCommandEnabled) {
       await this._sendMangaReply(
@@ -2124,20 +2130,80 @@ export class Bot {
       return;
     }
 
+    const isSpecialUser = this.config.clipSpecialUsers.includes(
+      user.toLowerCase()
+    );
+    const now = Date.now() / 1000;
+    const lastUsed = this.commandCooldownState.lastUsed("manga");
+    const remaining =
+      lastUsed === null || lastUsed <= 0
+        ? 0
+        : Math.max(0, Math.ceil(MANGA_COOLDOWN_SECONDS - (now - lastUsed)));
+
+    if (!isSpecialUser && remaining > 0) {
+      const mins = Math.floor(remaining / 60);
+      const secs = remaining % 60;
+      await this._sendMangaReply(
+        channel,
+        `⚠️ \`manga\` コマンドは1時間に1回のみ使用できます。あと ${mins}分 ${secs}秒 待ってください。`
+      );
+      return;
+    }
+
+    if (!isSpecialUser && this.mangaCommandInFlight) {
+      await this._sendMangaReply(
+        channel,
+        "⚠️ `manga` コマンドを処理中です。しばらくお待ちください。"
+      );
+      return;
+    }
+
+    if (!isSpecialUser) this.mangaCommandInFlight = true;
     try {
       const manga = await fetchRandomMangaRecommendation();
-      await this._sendMangaReply(
+      const sent = await this._sendMangaReply(
         channel,
         manga
           ? `今日のおすすめ漫画：${manga.title} ${manga.url}`
           : "⚠️ 漫画が見つかりませんでした。"
       );
+      if (manga && sent && !isSpecialUser) {
+        this.commandCooldownState.markUsed("manga", now);
+        this._persistCommandCooldown("manga", now);
+      }
     } catch {
       await this._sendMangaReply(
         channel,
         "⚠️ 漫画ランキングの取得に失敗しました。時間をおいて再試行してください。"
       );
+    } finally {
+      if (!isSpecialUser) this.mangaCommandInFlight = false;
     }
+  }
+
+  private async _handleCommandCooldownReset(
+    channel: string,
+    user: string
+  ): Promise<void> {
+    if (!this.config.clipSpecialUsers.includes(user.toLowerCase())) {
+      await this.chatClient.say(
+        channel,
+        "⚠️ `reset` は管理者のみ実行できます。"
+      );
+      return;
+    }
+
+    for (const commandName of ["clip", "myclip", "manga"] as const) {
+      this.commandCooldownState.clear(commandName);
+      this._persistCommandCooldown(commandName, 0);
+    }
+    this.recastNotifiers.clip.disarm();
+    this.recastNotifiers.myclip.disarm();
+
+    await this.chatClient.say(
+      channel,
+      "✅ `clip` / `myclip` / `manga` のリキャストをリセットしました。"
+    );
   }
 
   private async _handleMangaToggle(
@@ -2273,17 +2339,22 @@ export class Bot {
   private async _sendMangaReply(
     channel: string,
     content: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       if (!this.config.twitchBroadcasterId || !this.botUserId) {
         await this.chatClient.say(channel, content);
-        return;
+        return true;
       }
 
       // Bot自身のユーザーコンテキストでAPI経由送信し、一定時間後に削除
       const result = await this.apiClient.asUser(this.botUserId, async (ctx) =>
         ctx.chat.sendChatMessage(this.config.twitchBroadcasterId, content)
       );
+
+      if (result?.isSent === false) {
+        logger.warn("⚠️ manga返信は送信されませんでした。");
+        return false;
+      }
 
       const messageId = result?.id;
       if (messageId) {
@@ -2303,9 +2374,11 @@ export class Bot {
           }
         }, MANGA_DELETE_DELAY_SECONDS * 1000);
       }
+      return true;
     } catch (e) {
       logger.error(`❌ manga返信のAPI送信失敗。chatClient.sayへフォールバック: ${e}`);
       await this.chatClient.say(channel, content);
+      return true;
     }
   }
 
@@ -2470,6 +2543,8 @@ export class Bot {
       this.config.updateLastClipTime(timestamp);
     } else if (commandName === "myclip") {
       this.config.updateLastMyclipTime(timestamp);
+    } else if (commandName === "manga") {
+      this.config.updateLastMangaTime(timestamp);
     }
   }
 

@@ -472,6 +472,39 @@ BOT_REQUEST_NOTES_DIGEST_DISCORD_ENABLED=true
     expect(config.botRequestNotesDigestDiscordEnabled).toBe(true);
   });
 
+  it("loads and persists the manga cooldown timestamp", () => {
+    const envPath = writeEnvFile(`
+TWITCH_CLIENT_ID=client
+TWITCH_ACCESS_TOKEN=access
+TWITCH_REFRESH_TOKEN=refresh
+TWITCH_SECRET_TOKEN=secret
+TWITCH_BROADCASTER_ID=broadcaster
+TWITCH_MODERATOR_ID=moderator
+LAST_MANGA_TIME=123.5
+`);
+    const previous = process.env.LAST_MANGA_TIME;
+
+    try {
+      const config = new Config(envPath);
+
+      expect(config.lastMangaTime).toBe(123.5);
+
+      config.updateLastMangaTime(456.75);
+
+      expect(config.lastMangaTime).toBe(456.75);
+      expect(process.env.LAST_MANGA_TIME).toBe("456.75");
+      expect(fs.readFileSync(envPath, "utf8")).toContain(
+        "LAST_MANGA_TIME=456.75"
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env.LAST_MANGA_TIME;
+      } else {
+        process.env.LAST_MANGA_TIME = previous;
+      }
+    }
+  });
+
   it("keeps chat AI disabled by default", () => {
     const envPath = writeEnvFile(`
 TWITCH_CLIENT_ID=client
