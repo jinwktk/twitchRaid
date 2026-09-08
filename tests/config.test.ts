@@ -72,7 +72,7 @@ describe("Config", () => {
       "TWITCH_MODERATOR_ID",
       "TWITCH_RUNTIME_ENV_FILE",
       "MANGA_COMMAND_ENABLED",
-      "MANGA_ADMIN_USERS",
+      "CLIP_SPECIAL_USERS",
     ];
     const previous = new Map(keys.map((key) => [key, process.env[key]]));
 
@@ -85,8 +85,8 @@ describe("Config", () => {
         "TWITCH_SECRET_TOKEN=packed-secret",
         "TWITCH_BROADCASTER_ID=packed-broadcaster",
         "TWITCH_MODERATOR_ID=packed-moderator",
-        "MANGA_COMMAND_ENABLED=true",
-        "MANGA_ADMIN_USERS=rukalun,nyme_ia",
+        "MANGA_COMMAND_ENABLED=false",
+        "CLIP_SPECIAL_USERS=Rukalun,NYME_IA",
       ].join("\\n");
 
       const config = new Config(path.join(os.tmpdir(), "missing-packed.env"));
@@ -97,8 +97,7 @@ describe("Config", () => {
       expect(config.twitchSecretToken).toBe("packed-secret");
       expect(config.twitchBroadcasterId).toBe("packed-broadcaster");
       expect(config.twitchModeratorId).toBe("packed-moderator");
-      expect(config.mangaCommandEnabled).toBe(true);
-      expect(config.mangaAdminUsers).toEqual(["rukalun", "nyme_ia"]);
+      expect(config.clipSpecialUsers).toEqual(["rukalun", "nyme_ia"]);
     } finally {
       for (const [key, value] of previous) {
         if (value === undefined) {

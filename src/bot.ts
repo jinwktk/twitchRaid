@@ -124,10 +124,7 @@ import {
 } from "./commands/stream-notify";
 import { calculateAge } from "./commands/age";
 import { formatTodayAndTomorrowFrontlineRules } from "./commands/pvp";
-import {
-  fetchRandomMangaRecommendation,
-  isMangaAdmin,
-} from "./commands/manga";
+import { fetchRandomMangaRecommendation } from "./commands/manga";
 import {
   randomWeight,
   randomHeight,
@@ -166,7 +163,7 @@ const DIE_SURVIVAL_REPLY = "簡単に死んでたまるかッ🧟";
 const WORK_SEND_OFF_REPLY =
   "るっかるん、今日もお仕事気を付けて、いってらっしゃい";
 const HELP_MESSAGE =
-  "!使えるコマンド: 基本 !help / !age / !goods / !7days / !die / !work / !pvp / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga / !mangaon / !mangaoff | 管理 !reset / !shoutout <ユーザー名> / !streamnotify";
+  "!使えるコマンド: 基本 !help / !age / !goods / !7days / !die / !work / !pvp / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga | 管理 !reset / !shoutout <ユーザー名> / !streamnotify";
 const MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE = "[memory-request]";
 const MENTION_CHAT_MEMORY_KEYWORD_PATTERN =
   /(?:覚えて(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|覚えといて(?:ください|下さい|ね)?|覚えとけ|記憶して(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|記憶しといて(?:ください|下さい|ね)?|メモして(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|メモしといて(?:ください|下さい|ね)?|メモっといて(?:ください|下さい|ね)?|忘れないで(?!いる|いた|います|た|しょ))/u;
@@ -1912,12 +1909,6 @@ export class Bot {
       case "manga":
         await this._handleMangaCommand(channel, user);
         break;
-      case "mangaon":
-        await this._handleMangaToggle(channel, user, msg, true);
-        break;
-      case "mangaoff":
-        await this._handleMangaToggle(channel, user, msg, false);
-        break;
       case "reset":
         await this._handleCommandCooldownReset(channel, user);
         break;
@@ -2122,14 +2113,6 @@ export class Bot {
     channel: string,
     user: string
   ): Promise<void> {
-    if (!this.config.mangaCommandEnabled) {
-      await this._sendMangaReply(
-        channel,
-        "⚠️ `manga` コマンドは現在OFFです。"
-      );
-      return;
-    }
-
     const isSpecialUser = this.config.clipSpecialUsers.includes(
       user.toLowerCase()
     );
@@ -2203,45 +2186,6 @@ export class Bot {
     await this.chatClient.say(
       channel,
       "✅ `clip` / `myclip` / `manga` のリキャストをリセットしました。"
-    );
-  }
-
-  private async _handleMangaToggle(
-    channel: string,
-    user: string,
-    msg: ChatMessage,
-    enable: boolean
-  ): Promise<void> {
-    const isMod = msg.userInfo.isMod;
-    const isBroadcaster = msg.userInfo.isBroadcaster;
-
-    if (!isMangaAdmin(user, this.config.mangaAdminUsers, isMod, isBroadcaster)) {
-      await this.chatClient.say(
-        channel,
-        `⚠️ \`manga${enable ? "on" : "off"}\` は管理者のみ実行できます。`
-      );
-      return;
-    }
-
-    if (enable && this.config.mangaCommandEnabled) {
-      await this.chatClient.say(
-        channel,
-        "ℹ️ `manga` コマンドはすでにONです。"
-      );
-      return;
-    }
-    if (!enable && !this.config.mangaCommandEnabled) {
-      await this.chatClient.say(
-        channel,
-        "ℹ️ `manga` コマンドはすでにOFFです。"
-      );
-      return;
-    }
-
-    this.config.updateMangaCommandEnabled(enable);
-    await this.chatClient.say(
-      channel,
-      `✅ \`manga\` コマンドを${enable ? "ON" : "OFF"}にしました。`
     );
   }
 

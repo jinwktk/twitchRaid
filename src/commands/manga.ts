@@ -134,18 +134,3 @@ export async function fetchRandomMangaTitle(): Promise<string | null> {
   const recommendation = await fetchRandomMangaRecommendation();
   return recommendation?.title ?? null;
 }
-
-/**
- * mangaコマンドの管理者判定
- */
-export function isMangaAdmin(
-  userName: string | undefined,
-  adminUsers: string[],
-  isMod: boolean,
-  isBroadcaster: boolean
-): boolean {
-  if (isBroadcaster) return true;
-  if (isMod) return true;
-  if (userName && adminUsers.includes(userName.toLowerCase())) return true;
-  return false;
-}

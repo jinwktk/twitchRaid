@@ -75,12 +75,10 @@
 
 | コマンド | 機能 | 権限 |
 |---|---|---|
-| `!manga` | DLsiteの男性向け・女性向けコミック日間ランキングからランダム1作品のタイトルとURLを表示 | 有効時のみ。一般ユーザー共通で1時間に1回、`CLIP_SPECIAL_USERS` は無制限 |
-| `!mangaon` | `!manga` をONにする | broadcaster / mod / `MANGA_ADMIN_USERS` |
-| `!mangaoff` | `!manga` をOFFにする | broadcaster / mod / `MANGA_ADMIN_USERS` |
+| `!manga` | DLsiteの男性向け・女性向けコミック日間ランキングからランダム1作品のタイトルとURLを表示 | 常時利用可能。一般ユーザー共通で1時間に1回、`CLIP_SPECIAL_USERS` は無制限 |
 
 - `!manga` の返信はBot APIで送信できた場合、10秒後にTwitch chat message delete APIで削除する。
-- 一般ユーザーの成功時刻は `LAST_MANGA_TIME` に保存し再起動後も引き継ぐ。特別ユーザーの利用、取得失敗、送信不達、候補なし、OFF時は待ち時間を消費・延長しない。
+- 一般ユーザーの成功時刻は `LAST_MANGA_TIME` に保存し再起動後も引き継ぐ。特別ユーザーの利用、取得失敗、送信不達、候補なしでは待ち時間を消費・延長しない。
 - Bot API送信に失敗した場合は `chatClient.say` へフォールバックする。
 
 ## 統計コマンド

@@ -42,8 +42,6 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     ollamaShoutoutKeepAlive: "5m",
     chatReplyEmotes: [],
     clipSpecialUsers: [],
-    mangaCommandEnabled: false,
-    mangaAdminUsers: [],
     shoutoutAdminUsers: [],
     activeAuthScopes: [],
     updateAccessToken: vi.fn(),
@@ -55,7 +53,6 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     updateLastClipTime: vi.fn(),
     updateLastMyclipTime: vi.fn(),
     updateLastStreamTitle: vi.fn(),
-    updateMangaCommandEnabled: vi.fn(),
     getLastStreamTitle: vi.fn(() => ""),
     ...overrides,
   } as unknown as Config;

@@ -102,8 +102,6 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     ollamaShoutoutTimeoutMs: 8000,
     ollamaShoutoutKeepAlive: "5m",
     clipSpecialUsers: [],
-    mangaCommandEnabled: false,
-    mangaAdminUsers: [],
     shoutoutAdminUsers: [],
     activeAuthScopes: [],
     updateAccessToken: vi.fn(),
@@ -116,7 +114,6 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     updateLastMyclipTime: vi.fn(),
     updateLastMangaTime: vi.fn(),
     updateLastStreamTitle: vi.fn(),
-    updateMangaCommandEnabled: vi.fn(),
     getLastStreamTitle: vi.fn(() => ""),
     ...overrides,
   } as unknown as Config;
@@ -138,6 +135,7 @@ function makeBot(overrides: Partial<Config> = {}): {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   activeBot?.clipCacheStore.close();
   activeBot = null;
 
@@ -188,14 +186,26 @@ describe("Bot help command", () => {
       "!commentcount",
       "!boom",
       "!manga",
-      "!mangaon",
-      "!mangaoff",
       "!reset",
       "!shoutout",
       "!streamnotify",
     ]) {
       expect(message).toContain(command);
     }
+    expect(message).not.toContain("!mangaon");
+    expect(message).not.toContain("!mangaoff");
+  });
+
+  it("ignores the removed manga toggle commands", async () => {
+    const { bot, say } = makeBot();
+    const message = {
+      userInfo: { isMod: false, isBroadcaster: true },
+    };
+
+    await bot._handleCommand("#rukalun", "rukalun", "!mangaon", message);
+    await bot._handleCommand("#rukalun", "rukalun", "!mangaoff", message);
+
+    expect(say).not.toHaveBeenCalled();
   });
 
   it("keeps the response static when extra text follows the command", async () => {
@@ -439,9 +449,6 @@ describe("Bot help command", () => {
       userInfo: { isMod: false, isBroadcaster: true },
     };
 
-    await bot._handleCommand("#rukalun", "viewer", "!manga", viewerMessage);
-    await bot._handleCommand("#rukalun", "viewer", "!mangaon", viewerMessage);
-    await bot._handleCommand("#rukalun", "rukalun", "!mangaoff", broadcasterMessage);
     await bot._handleCommand("#rukalun", "viewer", "!shoutout", viewerMessage);
     await bot._handleCommand(
       "#rukalun",
@@ -463,9 +470,6 @@ describe("Bot help command", () => {
     );
 
     expect(say.mock.calls.map((call) => call[1])).toEqual([
-      "⚠️ `manga` コマンドは現在OFFです。",
-      "⚠️ `mangaon` は管理者のみ実行できます。",
-      "ℹ️ `manga` コマンドはすでにOFFです。",
       "⚠️ `shoutout` は管理者のみ実行できます。",
       "⚠️ 使い方: !shoutout <ユーザー名>",
       "⚠️ `streamnotify` は管理者のみ実行できます。",
@@ -473,8 +477,9 @@ describe("Bot help command", () => {
     ]);
   });
 
-  it("lets nyme_ia enable manga and deletes the manga reply after 10 seconds", async () => {
+  it("keeps manga available despite a legacy OFF flag and deletes the reply after 10 seconds", async () => {
     vi.useFakeTimers();
+    vi.stubEnv("MANGA_COMMAND_ENABLED", "false");
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -484,13 +489,7 @@ describe("Bot help command", () => {
       })
     );
 
-    const { bot, say, config } = makeBot({
-      mangaCommandEnabled: false,
-      mangaAdminUsers: ["rukalun", "nyme_ia"],
-    });
-    config.updateMangaCommandEnabled = vi.fn((enabled: boolean) => {
-      config.mangaCommandEnabled = enabled;
-    });
+    const { bot } = makeBot();
     const sendChatMessage = vi.fn().mockResolvedValue({ id: "manga-message-id" });
     const deleteChatMessages = vi.fn().mockResolvedValue(undefined);
     const asUser = vi.fn(async (_userId, callback) =>
@@ -501,18 +500,8 @@ describe("Bot help command", () => {
     );
     bot.botUserId = "bot-user-id";
     bot.apiClient = { asUser };
-    const message = {
-      userInfo: { isMod: false, isBroadcaster: false },
-    };
+    await bot._handleCommand("#rukalun", "nyme_ia", "!manga", {});
 
-    await bot._handleCommand("#rukalun", "nyme_ia", "!mangaon", message);
-    await bot._handleCommand("#rukalun", "nyme_ia", "!manga", message);
-
-    expect(config.updateMangaCommandEnabled).toHaveBeenCalledWith(true);
-    expect(say).toHaveBeenCalledWith(
-      "#rukalun",
-      "✅ `manga` コマンドをONにしました。"
-    );
     expect(sendChatMessage).toHaveBeenCalledWith(
       "broadcaster-id",
       "今日のおすすめ漫画：作品A https://www.dlsite.com/maniax/work/=/product_id/RJ123456.html"
@@ -541,7 +530,7 @@ describe("Bot help command", () => {
           '<a href="/maniax/work/=/product_id/RJ123456.html">作品A</a>',
       })
     );
-    const { bot, say, config } = makeBot({ mangaCommandEnabled: true });
+    const { bot, say, config } = makeBot();
     const sendChatMessage = vi.fn().mockResolvedValue({
       isSent: false,
       id: "",
@@ -571,7 +560,6 @@ describe("Bot help command", () => {
     });
     vi.stubGlobal("fetch", fetchSpy);
     const { bot, say, config } = makeBot({
-      mangaCommandEnabled: true,
       lastMangaTime: startedAtMs / 1000,
     });
 
@@ -603,7 +591,7 @@ describe("Bot help command", () => {
         '<a href="/maniax/work/=/product_id/RJ123456.html">作品A</a>',
     });
     vi.stubGlobal("fetch", fetchSpy);
-    const { bot, say, config } = makeBot({ mangaCommandEnabled: true });
+    const { bot, say, config } = makeBot();
 
     await bot._handleCommand("#rukalun", "viewer-a", "!manga", {});
     await bot._handleCommand("#rukalun", "viewer-b", "!manga", {});
@@ -627,7 +615,6 @@ describe("Bot help command", () => {
     });
     vi.stubGlobal("fetch", fetchSpy);
     const { bot, config } = makeBot({
-      mangaCommandEnabled: true,
       clipSpecialUsers: ["nyme_ia"],
       lastMangaTime: 3_000,
     });
@@ -639,7 +626,7 @@ describe("Bot help command", () => {
     expect(config.updateLastMangaTime).not.toHaveBeenCalled();
   });
 
-  it("does not consume manga cooldown while disabled, empty, or failed", async () => {
+  it("does not consume manga cooldown when the ranking is empty or failed", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(4_000_000);
     const emptyResponse = {
@@ -662,10 +649,8 @@ describe("Bot help command", () => {
       .mockResolvedValueOnce(successResponse)
       .mockResolvedValueOnce(successResponse);
     vi.stubGlobal("fetch", fetchSpy);
-    const { bot, config } = makeBot({ mangaCommandEnabled: false });
+    const { bot, config } = makeBot();
 
-    await bot._handleCommand("#rukalun", "viewer", "!manga", {});
-    config.mangaCommandEnabled = true;
     await bot._handleCommand("#rukalun", "viewer", "!manga", {});
     await bot._handleCommand("#rukalun", "viewer", "!manga", {});
 
@@ -686,7 +671,7 @@ describe("Bot help command", () => {
     });
     const fetchSpy = vi.fn().mockReturnValue(pendingFetch);
     vi.stubGlobal("fetch", fetchSpy);
-    const { bot, say, config } = makeBot({ mangaCommandEnabled: true });
+    const { bot, say, config } = makeBot();
 
     const firstRequest = bot._handleCommand(
       "#rukalun",
@@ -733,7 +718,6 @@ describe("Bot help command", () => {
       })
     );
     const { bot, config } = makeBot({
-      mangaCommandEnabled: true,
       lastClipTime: 6_000,
       lastMyclipTime: 6_000,
     });
@@ -760,7 +744,6 @@ describe("Bot help command", () => {
       })
     );
     const { bot, say, config } = makeBot({
-      mangaCommandEnabled: true,
       clipSpecialUsers: ["nyme_ia"],
       lastClipTime: 6_900,
       lastMyclipTime: 6_900,

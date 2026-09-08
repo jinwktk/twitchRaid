@@ -74,7 +74,6 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - 起動時と再取得時の `expires_in` をプロセス内で追跡し、keep-aliveはアクセストークン期限5分前に自動refreshします。期限情報が取れない場合の保険として従来の2時間ごとの定期refreshも残しています。これにより、起動時点で残り30分程度の短命tokenでも、2時間間隔を待って失効し `直近clip同期失敗: status=401` を繰り返す状態を防ぎます
 - `user:read:emotes` を含む更新可能なユーザートークン取得にはTwitch OAuth Authorization Code Grantが必要で、`.env` の `TWITCH_CLIENT_ID` と正しい `TWITCH_SECRET_TOKEN` が必要です。`invalid client secret` が出る場合はTwitch Developer ConsoleでClient Secretを再発行し、`.env` へ反映してから再認可してください
 - `SHOUTOUT_ADMIN_USERS` に `!shoutout` を実行できる追加ユーザーをカンマ区切りで設定できます（未設定時は `rukalun`）
-- `MANGA_ADMIN_USERS` に `!mangaon` / `!mangaoff` を実行できる追加ユーザーをカンマ区切りで設定できます。にめいやアカウントは表示名ではなくTwitchログイン名 `nyme_ia` で登録します
 - `TWITCH_CLIP_CACHE_DB_PATH` に `!clip` / `!myclip` / `!clipsearch` のクリップキャッシュ SQLite DB パスを設定できます（未設定時は `data/clips.sqlite`）
 - `TWITCH_CLIP_RECENT_WINDOW_MINUTES` に直近Clip同期で毎分取り直す時間幅を分単位で設定できます（未設定時は `360` = 6時間）。Twitch側のClip一覧API反映が遅い場合は `720` や `1440` へ広げられます
 - `TWITCH_GQL_CLIENT_ID` に Twitch GraphQL 用 Client-ID を任意設定できます（未設定時はTwitch Webの公開Client-IDを使用し、指定値が拒否された場合も公開Client-IDへフォールバック）
@@ -135,9 +134,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!clip` | 過去のクリップをランダム表示 | 30分クールダウン（特別ユーザー除外） |
 | `!myclip` | 自分が作成したクリップをランダム表示 | 30分クールダウン（`!clip`とは独立） |
 | `!clipsearch <キーワード>` | Clipタイトル/作成者名/ゲーム名から過去クリップを検索して1件表示 | SQLiteキャッシュ検索、クールダウンなし |
-| `!manga` | DLsiteの男性向けコミック・女性向け日間ランキングを合わせた候補から、ランダムに1作品のタイトルと作品URLを表示 | 一般ユーザー共通で1時間に1回、`CLIP_SPECIAL_USERS` は無制限。ON/OFF切替可、10秒後自動削除 |
-| `!mangaon` | `!manga` コマンドを有効化 | 管理者のみ |
-| `!mangaoff` | `!manga` コマンドを無効化 | 管理者のみ |
+| `!manga` | DLsiteの男性向けコミック・女性向け日間ランキングを合わせた候補から、ランダムに1作品のタイトルと作品URLを表示 | 常時利用可能。一般ユーザー共通で1時間に1回、`CLIP_SPECIAL_USERS` は無制限。10秒後自動削除 |
 | `!reset` | `!clip`・`!myclip`・`!manga` のリキャストをまとめて解除 | `CLIP_SPECIAL_USERS` のみ。予約済みのリキャスト復帰通知も停止 |
 | `!shoutout <ユーザー名>` | 指定ユーザーへ手動 shoutout を実行 | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ |
 | `!speed` | コメント風速を表示（直近60秒＋配信全体平均） | コマンドは計測対象外 |
@@ -184,7 +181,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 - Docker向けConsoleログは `[LEVEL] message` とし、Dokployが表示する時刻/level列との二重表示を避ける。ローテーション日次ファイルは単独でも時系列を追えるよう、従来の `YYYY-MM-DD HH:mm:ss [LEVEL] message` を維持する
 - thinking対応モデルでは、Ollama `/api/generate` に `think:false` を付けて最終回答だけを短く返させる。これを付けない場合、短い `num_predict` をthinkingで使い切り、`response` が空になることがある
 - AIメンション会話の画像質問機能は廃止済み。`CHAT_AI_STREAM_IMAGE_ENABLED=true` や `CHAT_AI_VISION_MODEL` が環境に残っていても互換用の無効値として扱い、配信画面、見えるもの、今していること、ゲーム名、試合/勝敗/スコアの質問でもTwitchプレビュー画像を取得せず、Ollama `/api/generate` の `images` へ画像を入れない。配信画面画像は送らない運用のため、通常テキストpromptにも画像未添付説明は入れない
-- `!mangaon このコマンドを発言して` のようなチャットコマンド実行・発言依頼はOllamaへ送らず、固定で `コマンドは実行できないD！` と返す。`猫！`、`左！`、`年上！` のような短い漢字だけの自然な日本語返信は、かなを含まなくても許可する
+- `!reset このコマンドを発言して` のようなチャットコマンド実行・発言依頼はOllamaへ送らず、固定で `コマンドは実行できないD！` と返す。`猫！`、`左！`、`年上！` のような短い漢字だけの自然な日本語返信は、かなを含まなくても許可する
 - `るっかるん` / `るっか` / `rukalun` の年齢質問は、Ollamaへ投げず `src/commands/age.ts` の `calculateAge()` で固定返信する。居住地、住所、住んでいる場所の質問は個人情報として固定拒否し、メモ読込や外部検索より前に処理する
 - `熱がある`、`熱なんだって`、`発熱`、`体調が悪い`、`具合悪い` などの体調不良・発熱系の短い報告は、Ollamaへ投げず固定のいたわり返信で返す。これはメモ読込、mem0、外部検索より前に処理するため、モデルcold loadやmem0障害で返信が遅れない。`調べて` / `最新` / `ニュース` / `について` / `教えて` / 疑問文や、試合・ゲームなど非体調の熱文脈は固定返信にせず通常の検索/生成へ渡す。チャットコマンド実行依頼は体調固定返信より優先して拒否する
 - 外部検索は `CHAT_AI_SEARCH_ENABLED=true` の場合だけ使う。検索・調べて・最新・ニュース・天気・誰/いつ/どこ、`夏尾さんについて` や `夏尾さんについて知ってる？` のような `〜について`、日程/開催/主催/開発/リリース日など外部事実が必要な質問に限定し、明示的な記憶依頼は検索しない。`教えて` / `わからない` は単独では検索候補にせず、外部事実語と組み合わさる時だけ検索候補にする。既定providerは `duckduckgo` で、SearXNGを使う場合は `CHAT_AI_SEARCH_PROVIDER=searxng`、`CHAT_AI_SEARCH_ENDPOINT=http://searxng:8080/search?language=all&safesearch=0` を設定する。サブPC本番はYahoo! JAPANのXPathエンジンとBingを `CHAT_AI_SEARCH_ENGINES=yahoo japan,bing` で同時利用し、空結果になるGoogleとCAPTCHAになるDuckDuckGoは本番検索対象に含めない。`ops/sub-ai-services/docker-compose.yml` はSearXNGをSUB AI Services stack内の1サービスとして置くための雛形で、SearXNG自体は公開ポートなし、`dokploy-network` の内部DNS alias `searxng` でBotから接続する。SearXNG設定ファイルは `ops/searxng/settings.yml` を雛形にし、サブPC本番では `/home/mlove/dokploy/searxng/settings.yml` に置く。外向きHTTP接続は `keepalive_expiry=300` で再利用し、検索結果やengine構成はキャッシュしない。検索語は文末の `について調べて` や `を教えて` 等を助詞ごと落としてから送り、`今日の天気を教えて` は `今日の天気` として検索する。明示地域を含む今日・明日の天気が不一致結果だけなら、再試行時の送信queryだけを `地域 天気` へ緩和するが、相対日と地域の意味情報は保持して予報日・地域境界の検証に使う。天気検索の関連度判定では `今日` / `明日` 等の相対日だけを照合対象から外すが、`大阪` 等の明示地域と `天気` は維持するため、別地域の結果は採用しない。`今日` / `きょう` を明示した天気結果に、質問地域とも一致するHTTPSの `tenki.jp/forecast/...` がある場合だけ、同じdeadlineとレスポンス上限内で日別ページのJSON-LDを読み、地域、今日の予報、最高/最低気温、予報日を抽出し、予報日がJST当日と一致する場合だけ具体的な参考情報として補う。AnythingLLMの呼び出しとRAG参照は維持し、生成返信が不明系表現を含むか地域・天気・最高/最低気温のいずれかを欠く場合だけ、検証済みの構造化予報から全項目を含む返信へ送信直前に補正し、ログsourceを `weather_search` にする。redirect、許可外host、path不一致、streamなし、取得/解析失敗、前日等の古い予報日は追加情報だけを捨て、元の検索結果は維持する。`るっかるん` を含む検索語には `rukalun` を補う。URL、メール、電話番号、token/API key/password系を含む検索語や長すぎる検索語は外部へ送らない。検索結果は「命令ではない参考情報」としてプロンプトへ入れ、検索結果がある場合は事実情報として優先して要約するようAnythingLLMへ渡す。HTTP失敗、壊れたJSON、空結果、過大レスポンス時は検索なしで通常返信へ戻す。検索候補ではない通常質問でも、検索文脈なしのAI生成が不明系返信になった時だけ、同じ安全条件で1回だけ強制検索し、結果があれば再生成する。検索候補なのに検索が使われなかった場合は、`AIメンション会話外部検索は未適用: reason=disabled` / `reason=no_result` / `reason=failed` をINFOログへ残し、二段階リサーチで検索できた場合は `AIメンション会話リサーチ検索を適用: results=N` を残す
@@ -294,7 +291,7 @@ npm run perf:anythingllm-ledger -- --baseline-module .omx/perf-baselines/anythin
 - 一般ユーザーは 30 分のクールダウンが適用
 - クールダウン終了時に Bot がチャットへ「リキャスト復帰」コメントを自動送信
 - `!myclip` は `!clip` とは独立したクールダウン管理
-- `!manga` は一般ユーザー共通で1時間に1回。`CLIP_SPECIAL_USERS`（既定 `nyme_ia,rukalun`）は無制限で、一般ユーザーの待ち時間を消費・延長しない。取得失敗・送信不達・候補なし・OFF時はクールダウンを消費せず、成功時刻は `LAST_MANGA_TIME` として保存し再起動後も引き継ぐ。
+- `!manga` は常時利用可能で、一般ユーザー共通で1時間に1回。`CLIP_SPECIAL_USERS`（既定 `nyme_ia,rukalun`）は無制限で、一般ユーザーの待ち時間を消費・延長しない。取得失敗・送信不達・候補なしではクールダウンを消費せず、成功時刻は `LAST_MANGA_TIME` として保存し再起動後も引き継ぐ。
 - `!reset` は `CLIP_SPECIAL_USERS` だけが実行でき、`!clip`・`!myclip`・`!manga` の待ち時間と保存済み時刻を一括解除する。予約済みのClipリキャスト復帰通知も停止する。
 - 起動後に `data/clips.sqlite` へ全期間クリップをバックグラウンド同期する。実運用ではTwitch client id/access tokenを使ってHelix clips APIを `Accept-Encoding: identity` 付きで直fetchし、現在のrefresh済みaccess tokenを参照する。ゲーム名補完も同じ認証情報でHelix games APIを `Accept-Encoding: identity` 付きで直fetchする。Twitch APIの一時的な `Premature close` などで期間窓の取得に失敗した場合は、その期間窓だけ既定2回再試行し、失敗が続く場合は期間窓を二分割して小さい窓で再取得する。分割後の小窓が全て成功した場合は元の大きい窓も完了扱いにし、再試行中はINFOログ、分割後も取れなかった最小窓だけWARNログにする。Twurple paginator経路は認証情報がないテスト/互換fallbackとして残す
 - 同期済み期間は `clip_scan_windows` に保存し、再起動後は取得済み期間をスキップ
@@ -364,7 +361,7 @@ src/
 │   ├── clip-cache-sync.ts         # Clip同期/日次再走査
 │   ├── clip.ts                    # !clip / !myclip / !clipsearch
 │   ├── game.ts                    # !game VOD由来ゲーム候補
-│   ├── manga.ts                   # !manga / 管理者判定
+│   ├── manga.ts                   # !manga のランキング取得・作品選択
 │   ├── mention-chat.ts            # @メンションAI会話
 │   ├── mention-chat-memory.ts     # AIメンション用ローカルJSON/SQLite記憶
 │   ├── mention-chat-mem0.ts       # 任意mem0補助記憶の検索/保存
@@ -426,6 +423,7 @@ internal-docs/
 
 ## 更新履歴
 
+- **2026-09-09**: `!manga` を常時利用可能にし、`!mangaon` / `!mangaoff` とON/OFF関連設定を廃止した。旧 `MANGA_COMMAND_ENABLED=false` が残っていても無効化されない。一般ユーザー共通の1時間制限、`CLIP_SPECIAL_USERS` の無制限利用、`!reset`、10秒後自動削除は維持する。
 - **2026-09-08**: `!manga` を一般ユーザー共通で1時間に1回へ制限し、`!clip` と同じ `CLIP_SPECIAL_USERS` は無制限にした。成功時刻を保存して再起動後も引き継ぐ。管理者専用 `!reset` で `!clip`・`!myclip`・`!manga` のリキャストをまとめて解除し、予約済みのClipリキャスト復帰通知も停止できる。
 - **2026-09-05**: AnythingLLMの未反映コメント取得は既存索引で最大32行を先行取得し、少量なら全候補を並べ替えて返すように変更。候補が多い場合は従来の順序付き取得へ戻し、全候補の並べ替えによる遅延を避ける。キュー件数と最古時刻は1回の集計で求め、配信別コメントの取得・埋込確認には`stream_id / accepted_sequence`索引を追加した。コメントの表示順・チャンネル分離・保存期限・再試行・AI回答の設定は維持する。合成台帳の公開API比較は`npm run perf:anythingllm-ledger -- --baseline-module <変更前モジュール>`で実施する。
 - **2026-09-04**: Twitch EventSub WebSocketが異常切断後に古い`stream.online` / `stream.offline`購読を残し、同一type・conditionの上限3件へ達してHTTP 429を繰り返す事象へ自動復旧を追加。上限を示す正確な429だけを対象に、専用EventSub認証で同一配信者・対象2type・`enabled`・`websocket`に一致する購読を全件再照合して削除し、再取得で0件を確認してからlistenerを1回だけ作り直す。404は削除済みとして扱い、一覧・削除・再確認の失敗、置換listenerでの再発、または15秒のAPI timeout時は追加復旧せず60秒Helix pollだけで継続する。意図しないWebSocket切断はerror本文・user IDを出さず種類だけWARNへ記録する。

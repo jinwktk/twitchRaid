@@ -74,10 +74,6 @@ function parseBoundedInt(
     : fallback;
 }
 
-function toEnvFlag(enabled: boolean): string {
-  return enabled ? "true" : "false";
-}
-
 function parseNameList(raw: string | undefined, fallback: string[]): string[] {
   const source = raw?.trim() ? raw : fallback.join(",");
   return source
@@ -222,8 +218,6 @@ export class Config {
 
   // 特別ユーザー設定
   readonly clipSpecialUsers: string[];
-  mangaCommandEnabled: boolean;
-  readonly mangaAdminUsers: string[];
   readonly shoutoutAdminUsers: string[];
 
   // スコープ管理
@@ -589,15 +583,6 @@ export class Config {
       .map((u) => u.trim().toLowerCase())
       .filter(Boolean);
 
-    this.mangaCommandEnabled = parseEnabledFlag(
-      env["MANGA_COMMAND_ENABLED"] ?? "0"
-    );
-    const mangaAdminStr = env["MANGA_ADMIN_USERS"] ?? "rukalun";
-    this.mangaAdminUsers = mangaAdminStr
-      .split(",")
-      .map((u) => u.trim().toLowerCase())
-      .filter(Boolean);
-
     const shoutoutAdminStr = env["SHOUTOUT_ADMIN_USERS"] ?? "rukalun";
     this.shoutoutAdminUsers = shoutoutAdminStr
       .split(",")
@@ -665,13 +650,6 @@ export class Config {
     this.lastStreamTitle = normalized;
     process.env["LAST_STREAM_TITLE"] = normalized;
     updateEnvFile(this.envFile, { LAST_STREAM_TITLE: normalized });
-  }
-
-  updateMangaCommandEnabled(enabled: boolean): void {
-    this.mangaCommandEnabled = enabled;
-    const envValue = toEnvFlag(enabled);
-    process.env["MANGA_COMMAND_ENABLED"] = envValue;
-    updateEnvFile(this.envFile, { MANGA_COMMAND_ENABLED: envValue });
   }
 
   getLastStreamTitle(): string {

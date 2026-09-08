@@ -181,8 +181,6 @@ function makeConfig(): Config {
     ollamaShoutoutTimeoutMs: 8000,
     ollamaShoutoutKeepAlive: "5m",
     clipSpecialUsers: [],
-    mangaCommandEnabled: false,
-    mangaAdminUsers: [],
     shoutoutAdminUsers: [],
     activeAuthScopes: [],
     updateAccessToken: vi.fn(),
@@ -194,7 +192,6 @@ function makeConfig(): Config {
     updateLastClipTime: vi.fn(),
     updateLastMyclipTime: vi.fn(),
     updateLastStreamTitle: vi.fn(),
-    updateMangaCommandEnabled: vi.fn(),
     getLastStreamTitle: vi.fn(() => ""),
   } as unknown as Config;
 }
