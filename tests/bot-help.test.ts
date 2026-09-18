@@ -239,6 +239,8 @@ describe("Bot help command", () => {
 
   it("sends the 7days image album message for 7days command", async () => {
     const { bot, say } = makeBot();
+    vi.spyOn(bot as unknown as { _getAvailableChatEmotes(): Promise<unknown[]> },
+      "_getAvailableChatEmotes").mockResolvedValue([{ name: "rukkaEeeee" }]);
 
     await bot._handleCommand("#rukalun", "viewer", "!7days", {});
 
@@ -247,6 +249,17 @@ describe("Bot help command", () => {
       "#rukalun",
       "7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN rukkaEeeee"
     );
+  });
+
+  it("does not send a locked 7days emote as a literal code", async () => {
+    const { bot, say } = makeBot();
+
+    await bot._handleCommand("#rukalun", "viewer", "!7days", {});
+
+    const message = say.mock.calls[0][1] as string;
+    expect(message).not.toContain("rukkaEeeee");
+    expect(message).toContain("https://imgur.com/a/w9Y9GbN");
+    expect(message).toContain("😊");
   });
 
   it("sends the die survival phrase for die command", async () => {
@@ -334,7 +347,7 @@ describe("Bot help command", () => {
     expect(say.mock.calls.map((call) => call[1])).toEqual([
       expect.stringMatching(/^\d+$/),
       "https://rukalun.booth.pm",
-      "7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN rukkaEeeee",
+      "7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN 😊",
       "簡単に死んでたまるかッ🧟",
       "るっかるん、今日もお仕事気を付けて、いってらっしゃい",
       "15kg",

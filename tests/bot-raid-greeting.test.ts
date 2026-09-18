@@ -147,6 +147,8 @@ describe("Bot raid greeting", () => {
   });
 
   it("appends a configured Twitch emote to raid greetings", async () => {
+    vi.spyOn(Bot.prototype as unknown as { _getAvailableChatEmotes(): Promise<unknown[]> },
+      "_getAvailableChatEmotes").mockResolvedValue([{ name: "rukkaHi" }]);
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
     stubRaidStreamFetch();
     const bot = new Bot(
@@ -190,6 +192,8 @@ describe("Bot raid greeting", () => {
   });
 
   it("uses a contextual rukka emote for raid greetings", async () => {
+    vi.spyOn(Bot.prototype as unknown as { _getAvailableChatEmotes(): Promise<unknown[]> },
+      "_getAvailableChatEmotes").mockResolvedValue([{ name: "rukkaNiceraido" }]);
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
     stubRaidStreamFetch();
     const bot = new Bot(
@@ -227,7 +231,11 @@ describe("Bot raid greeting", () => {
     );
   });
 
-  it("keeps the raid URL when a long AI greeting receives a contextual emote", async () => {
+  it.each([true, false])("keeps the long raid greeting URL and emoji with subscription=%s", async (subscribed) => {
+    vi.spyOn(Bot.prototype as unknown as { _getAvailableChatEmotes(): Promise<unknown[]> },
+      "_getAvailableChatEmotes").mockResolvedValue(
+        subscribed ? [{ name: "rukkaNiceraido" }] : []
+      );
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => logger);
     const longGreeting = `レイドありがとうD！！ @raiduser さん、Minecraftでたのしい建築配信をしてたD！${"建築の工夫やのんびりした雰囲気が伝わる配信で、初見さんにも見どころが分かりやすく、作業の進み方も楽しく追える内容だったD！".repeat(8)}来てくれてありがとうD！チャンネルはこD→https://www.twitch.tv/raiduser`;
     const fetchImpl = vi.fn().mockResolvedValue({
@@ -267,7 +275,8 @@ describe("Bot raid greeting", () => {
 
     const sentMessage = bot.chatClient.say.mock.calls[0][1] as string;
     expect(sentMessage).toContain("https://www.twitch.tv/raiduser");
-    expect(sentMessage).toContain("rukkaNiceraido");
+    expect(sentMessage).toContain(subscribed ? "rukkaNiceraido" : "🎉");
+    if (!subscribed) expect(sentMessage).not.toMatch(/rukka[A-Za-z]+/);
     expect(sentMessage.length).toBeGreaterThan(450);
     expect(sentMessage.length).toBeLessThanOrEqual(500);
     expect(infoSpy).toHaveBeenCalledWith(

@@ -1231,6 +1231,8 @@ describe("Bot mention chat", () => {
 
   it("appends a configured Twitch emote to AI mention replies", async () => {
     const { bot, say } = makeBot({ chatReplyEmotes: ["rukkaHi"] });
+    vi.spyOn(bot as unknown as { _getAvailableChatEmotes(): Promise<unknown[]> },
+      "_getAvailableChatEmotes").mockResolvedValue([{ name: "rukkaHi" }]);
     const infoSpy = vi.spyOn(logger, "info");
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
@@ -1250,8 +1252,24 @@ describe("Bot mention chat", () => {
     );
   });
 
+  it("uses a Unicode emoji when the Bot has no verified emote entitlement", async () => {
+    const { bot, say } = makeBot({ chatReplyEmotes: ["rukkaNikoniko"] });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "GG！" }),
+    } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun", "viewer", "@rukalun GG", Date.now() / 1000
+    );
+
+    expect(say).toHaveBeenCalledWith("#rukalun", "GG！ 😊");
+  });
+
   it("uses a contextual rukka emote for AI mention replies", async () => {
     const { bot, say } = makeBot({ chatReplyEmotes: ["rukkaNikoniko"] });
+    vi.spyOn(bot as unknown as { _getAvailableChatEmotes(): Promise<unknown[]> },
+      "_getAvailableChatEmotes").mockResolvedValue([{ name: "rukkaGg" }]);
     const infoSpy = vi.spyOn(logger, "info");
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
@@ -1269,6 +1287,63 @@ describe("Bot mention chat", () => {
     expect(infoSpy).toHaveBeenCalledWith(
       expect.stringContaining('reply="GG！ rukkaGg"')
     );
+  });
+
+  it("keeps subscribed emotes, restricts them after expiry, and restores them after renewal", async () => {
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    let subscribed = true;
+    const catalogCalls: URL[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.origin === "https://api.twitch.tv") {
+        catalogCalls.push(url);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: subscribed
+              ? [{ id: "gg-id", name: "rukkaGg", emote_type: "subscriptions" }]
+              : [{ id: "hello-id", name: "rukkaOhanyo", emote_type: "follower" }],
+            pagination: {},
+          }),
+        } as Response;
+      }
+      return { ok: true, json: async () => ({ response: "GG！" }) } as Response;
+    });
+    const { bot, say } = makeBot({
+      chatReplyEmotes: ["rukkaNikoniko"],
+      chatAiCooldownSeconds: 0,
+    });
+    Object.assign(bot, { botUserId: "bot-user" });
+
+    for (const active of [true, false, true]) {
+      subscribed = active;
+      now += 300_001;
+      await bot._handleRegularMessage(
+        "#rukalun", "viewer", "@rukalun GG", now / 1000
+      );
+    }
+
+    expect(say.mock.calls.map((call) => call[1])).toEqual([
+      "GG！ rukkaGg", "GG！ 😊", "GG！ rukkaGg",
+    ]);
+    expect(catalogCalls).toHaveLength(3);
+    expect(catalogCalls.every((url) =>
+      url.pathname === "/helix/chat/emotes/user" &&
+      url.searchParams.get("user_id") === "bot-user" &&
+      url.searchParams.get("broadcaster_id") === "broadcaster-id"
+    )).toBe(true);
+  });
+
+  it("also avoids locked emotes on immediate replies without generating an answer", async () => {
+    const { bot, say } = makeBot({ chatReplyEmotes: ["rukkaNikoniko"] });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await bot._handleCommand(
+      "#rukalun", "viewer", "!chat !mangaon を実行して", {}
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(say).toHaveBeenCalledWith("#rukalun", "コマンドは実行できないD！ 😔");
   });
 
   it("replies to a full-width at-mark bot mention", async () => {

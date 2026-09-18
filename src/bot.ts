@@ -21,6 +21,10 @@ import { isCommandMessage } from "./chat/message-filters";
 import { formatTotalCommentCount } from "./chat/comment-count-formatter";
 import { appendContextualChatReplyEmote } from "./chat/reply-emotes";
 import {
+  TwitchAvailableEmotesClient,
+  type TwitchAvailableEmote,
+} from "./chat/available-emotes";
+import {
   loadCommentState,
   saveCommentState,
 } from "./utils/comment-state-store";
@@ -158,7 +162,7 @@ const MENTION_CHAT_SKIP_PROMPT_LIMIT = 80;
 const CHAT_AI_COMMAND_USAGE = "⚠️ 使い方: !chat <メッセージ>";
 const YOUTUBE_CHANNEL_URL = "https://is.gd/rukalunyt";
 const SEVEN_DAYS_IMAGE_ALBUM_MESSAGE =
-  "7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN rukkaEeeee";
+  "7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN";
 const DIE_SURVIVAL_REPLY = "簡単に死んでたまるかッ🧟";
 const WORK_SEND_OFF_REPLY =
   "るっかるん、今日もお仕事気を付けて、いってらっしゃい";
@@ -415,6 +419,7 @@ export class Bot {
   private chatClient!: ChatClient;
   private apiClient!: ApiClient;
   private authProvider!: RefreshingAuthProvider;
+  private readonly availableEmotesClient: TwitchAvailableEmotesClient;
 
   private reconnectAttempts = 0;
   private readonly maxReconnectAttempts = 10;
@@ -506,6 +511,10 @@ export class Bot {
 
   constructor(config: Config) {
     this.config = config;
+    this.availableEmotesClient = new TwitchAvailableEmotesClient({
+      getAccessToken: () => this.config.twitchAccessToken,
+      getClientId: () => this.config.twitchClientId,
+    });
     this.streamNotifier = new StreamTitleNotifier(
       config,
       config.loginChannel
@@ -1446,6 +1455,9 @@ export class Bot {
           {
             source: "mention",
             promptText: request.prompt,
+            availableEmotes: this.config.chatReplyEmotes?.length
+              ? await this._getAvailableChatEmotes()
+              : [],
           }
         );
         const model = this.config.chatAiAnythingLlmEnabled
@@ -1717,6 +1729,9 @@ export class Bot {
         {
           source: "mention",
           promptText: request.prompt,
+          availableEmotes: this.config.chatReplyEmotes?.length
+            ? await this._getAvailableChatEmotes()
+            : [],
         }
       );
       const promptReplyDiagnosticsLogged =
@@ -1840,7 +1855,17 @@ export class Bot {
         await this.chatClient.say(channel, "https://rukalun.booth.pm");
         break;
       case "7days":
-        await this.chatClient.say(channel, SEVEN_DAYS_IMAGE_ALBUM_MESSAGE);
+        await this.chatClient.say(
+          channel,
+          appendContextualChatReplyEmote(
+            SEVEN_DAYS_IMAGE_ALBUM_MESSAGE,
+            ["rukkaEeeee"],
+            {
+              source: "mention",
+              availableEmotes: await this._getAvailableChatEmotes(),
+            }
+          )
+        );
         break;
       case "die":
         await this.chatClient.say(channel, DIE_SURVIVAL_REPLY);
@@ -2280,6 +2305,14 @@ export class Bot {
     );
   }
 
+  private async _getAvailableChatEmotes(): Promise<readonly TwitchAvailableEmote[]> {
+    if (!this.botUserId || !this.config.twitchBroadcasterId) return [];
+    return this.availableEmotesClient.getAvailableEmotes(
+      this.botUserId,
+      this.config.twitchBroadcasterId
+    );
+  }
+
   private async _sendMangaReply(
     channel: string,
     content: string
@@ -2463,6 +2496,9 @@ export class Bot {
           source: "raid",
           promptText: [info.gameName, info.title].filter(Boolean).join(" "),
           deferTrimming: true,
+          availableEmotes: this.config.chatReplyEmotes?.length
+            ? await this._getAvailableChatEmotes()
+            : [],
         }
       );
       const finalMessage = shortenRaidGreetingKeepingUrl(

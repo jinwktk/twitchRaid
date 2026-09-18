@@ -1,9 +1,12 @@
+import type { TwitchAvailableEmote } from "./available-emotes";
+
 const TWITCH_CHAT_MESSAGE_LIMIT = 500;
 
 export type ChatReplyEmoteSource = "mention" | "raid";
 
 export interface ChatReplyEmoteContext {
   source: ChatReplyEmoteSource;
+  availableEmotes: readonly TwitchAvailableEmote[];
   promptText?: string;
   maxChars?: number;
   deferTrimming?: boolean;
@@ -164,6 +167,7 @@ function selectFirstAvailable(
 function selectContextualEmote(
   reply: string,
   emotes: readonly string[],
+  configuredEmotes: readonly string[],
   context: ChatReplyEmoteContext
 ): string | null {
   const availableEmotes = new Set(emotes);
@@ -183,10 +187,25 @@ function selectContextualEmote(
   }
 
   return (
+    selectFirstAvailable(configuredEmotes, availableEmotes) ??
     selectFirstAvailable(["rukkaNikoniko"], availableEmotes) ??
-    emotes[0] ??
     null
   );
+}
+
+function selectUnicodeFallback(
+  reply: string,
+  context: ChatReplyEmoteContext
+): string {
+  if (context.source === "raid") return "🎉";
+  if (
+    /(?:ごめん|すま|申し訳|わからな|分からな|知らな|不明|検索結果(?:が)?(?:なく|なし)|結果(?:が)?(?:なく|なし)|見つから|確認でき|断定でき|情報(?:が)?(?:足り|ない)|答えられ|できない)/u.test(
+      reply
+    )
+  ) {
+    return "😔";
+  }
+  return "😊";
 }
 
 function selectUncertainReplyEmote(
@@ -212,9 +231,23 @@ export function appendContextualChatReplyEmote(
   emotes: readonly string[] | undefined,
   context: ChatReplyEmoteContext
 ): string {
-  const contextualEmotes = resolveContextualEmotes(emotes);
-  const emote = selectContextualEmote(reply, contextualEmotes, context);
-  if (!emote) return reply;
+  const configuredEmotes = normalizeChatReplyEmotes(emotes);
+  if (configuredEmotes.length === 0) return reply;
+
+  const availableNames = new Set(context.availableEmotes.map((emote) => emote.name));
+  const contextualEmotes = resolveContextualEmotes(configuredEmotes).filter((emote) =>
+    availableNames.has(emote)
+  );
+  const availableConfiguredEmotes = configuredEmotes.filter((emote) =>
+    availableNames.has(emote)
+  );
+  const emote =
+    selectContextualEmote(
+      reply,
+      contextualEmotes,
+      availableConfiguredEmotes,
+      context
+    ) ?? selectUnicodeFallback(reply, context);
   if (includesStandaloneEmote(reply, emote)) return reply;
 
   const maxChars = context.maxChars ?? TWITCH_CHAT_MESSAGE_LIMIT;

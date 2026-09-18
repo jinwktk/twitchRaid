@@ -45,6 +45,7 @@ describe("chat reply emotes", () => {
       appendContextualChatReplyEmote("GG！", ["rukkaNikoniko"], {
         source: "mention",
         promptText: "GG",
+        availableEmotes: [{ id: "1", name: "rukkaGg", emoteType: "follower" }],
       })
     ).toBe("GG！ rukkaGg");
   });
@@ -57,6 +58,9 @@ describe("chat reply emotes", () => {
         {
           source: "mention",
           promptText: "GGだった？",
+          availableEmotes: [
+            { id: "2", name: "rukkaShobobo", emoteType: "subscriptions" },
+          ],
         }
       )
     ).toBe("検索では確認できなかったD！ rukkaShobobo");
@@ -70,6 +74,9 @@ describe("chat reply emotes", () => {
         {
           source: "mention",
           promptText: "TwitchConの日程教えて",
+          availableEmotes: [
+            { id: "3", name: "rukkaNikoniko", emoteType: "follower" },
+          ],
         }
       )
     ).toBe("TwitchConは配信者向けイベントだよD！ rukkaNikoniko");
@@ -79,6 +86,9 @@ describe("chat reply emotes", () => {
     expect(
       appendContextualChatReplyEmote("レイドありがとうD！", ["rukkaNikoniko"], {
         source: "raid",
+        availableEmotes: [
+          { id: "4", name: "rukkaNiceraido", emoteType: "subscriptions" },
+        ],
       })
     ).toBe("レイドありがとうD！ rukkaNiceraido");
   });
@@ -88,18 +98,71 @@ describe("chat reply emotes", () => {
     const result = appendContextualChatReplyEmote(longReply, ["rukkaNikoniko"], {
       source: "raid",
       deferTrimming: true,
+      availableEmotes: [
+        { id: "4", name: "rukkaNiceraido", emoteType: "subscriptions" },
+      ],
     });
 
     expect(result.length).toBeGreaterThan(500);
     expect(result.endsWith(" rukkaNiceraido")).toBe(true);
   });
 
-  it("keeps legacy first-emote behavior for unknown configured emotes", () => {
+  it("uses an available configured emote as the informative fallback", () => {
     expect(
       appendContextualChatReplyEmote("GG！", ["rukkaHi"], {
         source: "mention",
         promptText: "GG",
+        availableEmotes: [{ id: "5", name: "rukkaHi", emoteType: "follower" }],
       })
     ).toBe("GG！ rukkaHi");
+  });
+
+  it("filters expanded built-in candidates by exact case-sensitive availability", () => {
+    expect(
+      appendContextualChatReplyEmote("GG！", ["rukkaNikoniko"], {
+        source: "mention",
+        promptText: "GG",
+        availableEmotes: [
+          { id: "6", name: "rukkaGG", emoteType: "follower" },
+          { id: "7", name: "rukkaNikoniko", emoteType: "follower" },
+        ],
+      })
+    ).toBe("GG！ rukkaNikoniko");
+  });
+
+  it("uses Unicode fallbacks instead of unavailable Twitch emote codes", () => {
+    expect(
+      appendContextualChatReplyEmote("検索では確認できなかったD！", ["rukkaNikoniko"], {
+        source: "mention",
+        availableEmotes: [],
+      })
+    ).toBe("検索では確認できなかったD！ 😔");
+
+    expect(
+      appendContextualChatReplyEmote("レイドありがとうD！", ["rukkaNikoniko"], {
+        source: "raid",
+        availableEmotes: [],
+      })
+    ).toBe("レイドありがとうD！ 🎉");
+  });
+
+  it("does not pick an unrelated available built-in emote as a generic fallback", () => {
+    expect(
+      appendContextualChatReplyEmote("今日は配信日だよD！", ["rukkaNikoniko"], {
+        source: "mention",
+        availableEmotes: [
+          { id: "8", name: "rukkaOhanyo", emoteType: "follower" },
+        ],
+      })
+    ).toBe("今日は配信日だよD！ 😊");
+  });
+
+  it("does not add a Unicode fallback when emotes are not configured", () => {
+    expect(
+      appendContextualChatReplyEmote("今日は配信日だよD！", [], {
+        source: "mention",
+        availableEmotes: [],
+      })
+    ).toBe("今日は配信日だよD！");
   });
 });
