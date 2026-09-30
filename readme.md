@@ -423,6 +423,7 @@ internal-docs/
 
 ## 更新履歴
 
+- **2026-10-01**: SUB AI ServicesのOllamaを0.35.0へ更新し、公式イメージのdigestを固定。Gemmaとnomicの既存モデル・設定を維持し、Decision API対応モデルの導入とBotの分類機能への接続は別途行う。
 - **2026-09-19**: BotのTwitchエモート利用可否を定期的に再確認するように修正。サブスク有効中の文脈選択を維持し、期限切れ時に対象を制限、再加入時に自動復帰する。AI返信・Raid・`!7days` で使えないコードが文字表示される場合は通常の絵文字へ切り替える。
 
 - **2026-09-09**: `!manga` を常時利用可能にし、`!mangaon` / `!mangaoff` とON/OFF関連設定を廃止した。旧 `MANGA_COMMAND_ENABLED=false` が残っていても無効化されない。一般ユーザー共通の1時間制限、`CLIP_SPECIAL_USERS` の無制限利用、`!reset`、10秒後自動削除は維持する。

@@ -182,7 +182,10 @@ describe("SearXNG self-hosting config", () => {
       "utf8"
     );
 
-    expect(compose).toContain("ollama/ollama:latest");
+    expect(compose).toContain(
+      "ollama/ollama:0.35.0@sha256:2a6e883b917fc543389599dae79918f5cac9e1438890506982f44aa4f5625d01"
+    );
+    expect(compose).not.toContain("ollama/ollama:latest");
     expect(compose).toContain("localhost:5050/sub-whisper-api:local");
     expect(compose).toContain("localhost:5050/sub-sbvits2:local");
     expect(compose).toContain("searxng/searxng:latest");
