@@ -490,7 +490,7 @@ describe("Bot help command", () => {
     ]);
   });
 
-  it("keeps manga available despite a legacy OFF flag and deletes the reply after 10 seconds", async () => {
+  it("keeps manga available despite a legacy OFF flag and deletes the reply after 15 seconds", async () => {
     vi.useFakeTimers();
     vi.stubEnv("MANGA_COMMAND_ENABLED", "false");
     vi.stubGlobal(
@@ -521,7 +521,10 @@ describe("Bot help command", () => {
     );
     expect(deleteChatMessages).not.toHaveBeenCalled();
 
-    await vi.advanceTimersByTimeAsync(9_999);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(deleteChatMessages).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(4_999);
     expect(deleteChatMessages).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1);
@@ -529,6 +532,7 @@ describe("Bot help command", () => {
       "broadcaster-id",
       "manga-message-id"
     );
+    expect(deleteChatMessages).toHaveBeenCalledTimes(1);
   });
 
   it("does not consume manga cooldown when the Bot API reports an unsent reply", async () => {
