@@ -211,7 +211,7 @@ CLIP_SEARCH_AUTO_PUBLISH_ENABLED=true
 CLIP_SEARCH_DATA_PATH=/mnt/e/GitHub/RukalunPage/clip-search-data.json
 CLIP_SEARCH_PUBLISH_REPO_DIR=/mnt/e/GitHub/RukalunPage
 CLIP_SEARCH_PUBLISH_REMOTE=origin
-CLIP_SEARCH_PUBLISH_BRANCH=main
+CLIP_SEARCH_PUBLISH_BRANCH=clip-data
 CLIP_SEARCH_PUBLISH_MIN_INTERVAL_MS=300000
 OLLAMA_BASE_URL=http://192.168.0.99:11434
 OLLAMA_MODEL=gemma4:e4b-it-qat
@@ -242,6 +242,8 @@ CHAT_REPLY_EMOTES=rukkaNikoniko
 SHOUTOUT_ADMIN_USERS=rukalun,nyme_ia
 DISCORD_SUMMARY_CHANNEL_ID=438258034825887744
 ```
+
+Clip公開clone `/mnt/e/GitHub/RukalunPage` は `clip-data` ブランチをcheckoutする。この値はSwarmだけでなくDokployのapplication envにも保存し、次回再デプロイで `main` に戻さない。RukalunPage側はデータブランチのVercelデプロイを無効にし、`/live-clips.json` から動的取得する。
 
 `CHAT_AI_VISION_MODEL` は過去の画像質問設定として残る場合があるが、現行BotはAIメンション会話で配信画像を取得せず、Ollama payloadへ `images` を送らない。
 
