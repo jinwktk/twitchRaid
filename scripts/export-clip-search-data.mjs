@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { DatabaseSync } from "node:sqlite";
+import { isDeepStrictEqual } from "node:util";
 
 const RECENT_SYNC_STATE_KEY = "recent_sync_at";
 
@@ -183,6 +184,38 @@ function writeJson(outPath, payload) {
   fs.writeFileSync(outPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 
+function comparablePayload(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return payload;
+  }
+
+  const { generatedAt: _generatedAt, ...rest } = payload;
+  if (
+    !rest.clipSync ||
+    typeof rest.clipSync !== "object" ||
+    Array.isArray(rest.clipSync)
+  ) {
+    return rest;
+  }
+
+  const { recentSyncedAt: _recentSyncedAt, ...clipSync } = rest.clipSync;
+  return { ...rest, clipSync };
+}
+
+function hasMeaningfulPayloadChange(outPath, payload) {
+  if (!fs.existsSync(outPath)) return true;
+
+  try {
+    const previousPayload = JSON.parse(fs.readFileSync(outPath, "utf8"));
+    return !isDeepStrictEqual(
+      comparablePayload(previousPayload),
+      comparablePayload(payload)
+    );
+  } catch {
+    return true;
+  }
+}
+
 function chunkArray(values, size) {
   const chunks = [];
   for (let index = 0; index < values.length; index += size) {
@@ -311,6 +344,10 @@ async function main() {
       },
       clips,
     };
+    if (!hasMeaningfulPayloadChange(args.out, payload)) {
+      console.log(`Skipped unchanged clip export to ${args.out}`);
+      return;
+    }
     writeJson(args.out, payload);
     console.log(`Exported ${clips.length} clips to ${args.out}`);
   } finally {
