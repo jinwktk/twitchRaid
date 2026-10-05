@@ -473,6 +473,8 @@ describe("generateMentionChatReply", () => {
     );
     expect(body.system).toContain("話題や単語だけで一律に拒否せず");
     expect(body.system).toContain("露骨な性的描写や性的ロールプレイは生成しない");
+    expect(body.system).toContain("用語の意味を聞かれたら最初の文で定義を説明");
+    expect(body.system).toContain("質問を繰り返したり、聞き返しだけで終わらない");
     expect(body.prompt).toContain("viewer");
     expect(body.prompt).toContain("こんにちは");
     expect(body.prompt).toContain("るっかるん本人として");
@@ -494,6 +496,8 @@ describe("generateMentionChatReply", () => {
     );
     expect(systemPrompt).toContain("話題や単語だけで一律に拒否せず");
     expect(systemPrompt).toContain("露骨な性的描写や性的ロールプレイは生成しない");
+    expect(systemPrompt).toContain("用語の意味を聞かれたら最初の文で定義を説明");
+    expect(systemPrompt).toContain("質問を繰り返したり、聞き返しだけで終わらない");
     expect(systemPrompt).toContain("最大320文字以内");
   });
 
@@ -511,6 +515,8 @@ describe("generateMentionChatReply", () => {
     );
     expect(prompt).toContain("話題や単語だけで一律に拒否せず");
     expect(prompt).toContain("露骨な性的描写や性的ロールプレイは生成しない");
+    expect(prompt).toContain("用語の意味を聞かれたら最初の文で定義を説明");
+    expect(prompt).toContain("質問を繰り返したり、聞き返しだけで終わらない");
   });
 
   it("leaves fixed adult-topic instructions to the channel system prompt", () => {
