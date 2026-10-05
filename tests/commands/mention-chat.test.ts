@@ -502,6 +502,198 @@ describe("generateMentionChatReply", () => {
     expect(reply).toBe("私はそんなことしてないよD！");
   });
 
+  it("repairs an unresolved choice reply once while preserving conversation context", async () => {
+    const diagnosticSpy = vi.spyOn(logger, "log");
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          response: "一番映えそうなやつで決めてもらうね、みんなの意見も聞かせてD！",
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "アボカドワッパーを選ぶD！" }),
+      });
+
+    const reply = await generateMentionChatReply({
+      enabled: true,
+      baseUrl: "http://127.0.0.1:11434",
+      model: "gemma4:e4b-it-qat",
+      timeoutMs: 3000,
+      keepAlive: "30m",
+      maxResponseChars: 200,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "1つピックアップして",
+      conversationHistoryText:
+        "ユーザー viewer: バーキンのメニューでおすすめをどれか決めてほしい！\nるっかるん: マッシュルームワッパーかアボカドワッパーが候補D！",
+      promptReplyLogEnabled: true,
+      requestId: "mention-choice-repair",
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const initialBody = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
+    const repairBody = JSON.parse(fetchImpl.mock.calls[1][1].body as string);
+    expect(initialBody.prompt).toContain("具体的な候補名を1つ");
+    expect(repairBody.prompt).toContain("具体的な候補名を1つ");
+    expect(repairBody.prompt).toContain("マッシュルームワッパー");
+    expect(repairBody.prompt).toContain("アボカドワッパー");
+    expect(
+      diagnosticSpy.mock.calls.some(
+        ([level, message]) =>
+          level === "success" &&
+          String(message).includes("requestId=mention-choice-repair-repair")
+      )
+    ).toBe(true);
+    expect(reply).toBe("アボカドワッパーを選ぶD！");
+  });
+
+  it("fails closed after one choice repair when the reply still uses a placeholder", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "〇〇がいいと思うD！" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "やっぱり〇〇を選ぶD！" }),
+      });
+
+    await expect(
+      generateMentionChatReply({
+        enabled: true,
+        baseUrl: "http://127.0.0.1:11434",
+        model: "gemma4:e4b-it-qat",
+        timeoutMs: 3000,
+        keepAlive: "30m",
+        maxResponseChars: 200,
+        channel: "#rukalun",
+        userName: "viewer",
+        promptText: "どれか決めて",
+        conversationHistoryText:
+          "ユーザー viewer: マッシュルームワッパーとアボカドワッパーで迷ってる",
+        fetchImpl,
+      })
+    ).resolves.toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not reject a placeholder quoted by an ordinary meaning question", () => {
+    expect(
+      formatMentionChatProviderReply({
+        generated: "〇〇は名前を伏せる時に使う記号だよD！",
+        maxResponseChars: 200,
+        promptText: "〇〇ってなに",
+        userName: "viewer",
+      })
+    ).toBe("〇〇は名前を伏せる時に使う記号だよD！");
+  });
+
+  it.each([
+    "ええ、私が選びます",
+    "今は食べたいものがありません",
+    "にめいやさんの好みで決めてね",
+    "これがいいですね",
+    "それにしようD！",
+    "選んでおきましたD！",
+    "マッシュルームとアボカドがいいD！",
+  ])("rejects a choice reply without a concrete candidate: %s", (generated) => {
+    expect(
+      formatMentionChatProviderReply({
+        generated,
+        maxResponseChars: 200,
+        promptText: "どれか1つ選んで",
+        userName: "viewer",
+      })
+    ).toBeNull();
+  });
+
+  it("keeps a quoted proper name containing と as one concrete choice", () => {
+    expect(
+      formatMentionChatProviderReply({
+        generated: "「美女と野獣」を選ぶD！",
+        maxResponseChars: 200,
+        promptText: "どれか1つ選んで",
+        userName: "viewer",
+      })
+    ).toBe("「美女と野獣」を選ぶD！");
+  });
+
+  it("keeps a single menu name with an AとBの modifier", () => {
+    expect(
+      formatMentionChatProviderReply({
+        generated: "トマトとチーズのワッパーがいいですね",
+        maxResponseChars: 200,
+        promptText: "どれか1つ選んで",
+        userName: "viewer",
+      })
+    ).toBe("トマトとチーズのワッパーがいいですね");
+  });
+
+  it("repairs a multiple-candidate choice into one concrete candidate", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "マッシュルームとアボカドがいいD！" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "アボカドワッパーを選ぶD！" }),
+      });
+
+    await expect(
+      generateMentionChatReply({
+        enabled: true,
+        baseUrl: "http://127.0.0.1:11434",
+        model: "gemma4:e4b-it-qat",
+        timeoutMs: 3000,
+        keepAlive: "30m",
+        maxResponseChars: 200,
+        channel: "#rukalun",
+        userName: "viewer",
+        promptText: "どれか1つ選んで",
+        conversationHistoryText:
+          "ユーザー viewer: マッシュルームワッパーとアボカドワッパーで迷ってる",
+        fetchImpl,
+      })
+    ).resolves.toBe("アボカドワッパーを選ぶD！");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not add a second choice repair to a song selection request", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "俺なら明るい曲を選ぶかな？" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "【歌】明るい空へ歩いていこうD！" }),
+      });
+
+    await expect(
+      generateMentionChatReply({
+        enabled: true,
+        baseUrl: "http://127.0.0.1:11434",
+        model: "gemma4:e4b-it-qat",
+        timeoutMs: 3000,
+        keepAlive: "30m",
+        maxResponseChars: 200,
+        channel: "#rukalun",
+        userName: "viewer",
+        promptText: "曲をどれか1つ選んで歌って",
+        fetchImpl,
+      })
+    ).resolves.toBe("【歌】明るい空へ歩いていこうD！");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("does not return a reply when first-person repair still self-identifies as masculine", async () => {
     const fetchImpl = vi
       .fn()

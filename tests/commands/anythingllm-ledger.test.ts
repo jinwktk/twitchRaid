@@ -261,6 +261,44 @@ describe("AnythingLlmLedger", () => {
     }
   });
 
+  it("lists the latest unembedded comments inside an explicit time window in chronological order", () => {
+    const ledger = new AnythingLlmLedger(makeDbPath());
+    try {
+      const comments = [
+        ["old", "2026-10-05T04:15:59.999Z", "期限外"],
+        ["lower-bound", "2026-10-05T04:16:00.000Z", "期限境界"],
+        ["recent-1", "2026-10-05T04:30:00.000Z", "最近1"],
+        ["recent-2", "2026-10-05T04:45:00.000Z", "最近2"],
+        ["upper-bound", "2026-10-05T04:46:00.000Z", "現在境界"],
+        ["future", "2026-10-05T04:46:00.001Z", "未来"],
+      ] as const;
+      for (const [eventId, occurredAt, body] of comments) {
+        ledger.acceptComment(makeComment({ eventId, occurredAt, body }));
+      }
+      ledger.acceptComment(
+        makeComment({
+          eventId: "other-channel",
+          channel: "other-channel",
+          occurredAt: "2026-10-05T04:45:30.000Z",
+          body: "別チャンネル",
+        })
+      );
+
+      expect(
+        ledger
+          .listRecentUnembeddedComments(
+            "#RUKALUN",
+            "2026-10-05T04:16:00.000Z",
+            "2026-10-05T04:46:00.000Z",
+            3
+          )
+          .map(({ eventId }) => eventId)
+      ).toEqual(["recent-1", "recent-2", "upper-bound"]);
+    } finally {
+      ledger.close();
+    }
+  });
+
   it("keeps the latest AI topic isolated per requester across restart", () => {
     const dbPath = makeDbPath();
     const first = new AnythingLlmLedger(dbPath);

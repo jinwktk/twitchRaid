@@ -1085,6 +1085,93 @@ describe("Bot mention chat", () => {
     );
   });
 
+  it("keeps the current choice context when AnythingLLM repairs a placeholder reply", async () => {
+    const diagnosticSpy = vi.spyOn(logger, "log");
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: [
+        "アボカドワッパーがおすすめD！",
+        "俺が選ぶなら〇〇がいいなD！",
+        "マッシュルームワッパーを選ぶD！",
+      ],
+    });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "utility-choice-repair.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+      chatAiPromptReplyLogEnabled: true,
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat バーキンのメニューでおすすめをどれか決めてほしい！",
+      makeChatMessage("choice-repair-message-01")
+    );
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat 1つピックアップして",
+      makeChatMessage("choice-repair-message-02")
+    );
+
+    expect(state.chatMessages).toHaveLength(3);
+    expect(state.chatMessages[1]).toContain("直近会話");
+    expect(state.chatMessages[1]).toContain(
+      "バーキンのメニューでおすすめをどれか決めてほしい！"
+    );
+    expect(state.chatMessages[1]).toContain("アボカドワッパーがおすすめD！");
+    expect(state.chatMessages[2]).toContain("直近会話");
+    expect(state.chatMessages[2]).toContain("アボカドワッパーがおすすめD！");
+    expect(state.chatMessages[2]).toContain("具体的な候補名を1つ");
+    expect(state.chatMessages[2]).toContain("俺が選ぶなら〇〇がいいなD！");
+    expect(state.directOllamaCalls).toBe(0);
+    expect(
+      diagnosticSpy.mock.calls.some(
+        ([level, message]) =>
+          level === "success" &&
+          String(message).includes("AIメンション会話プロンプト/Success") &&
+          String(message).includes("-repair")
+      )
+    ).toBe(true);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "マッシュルームワッパーを選ぶD！"
+    );
+  });
+
+  it("repairs an AnythingLLM choice that only points at a candidate", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: ["これがいいですね", "アボカドワッパーを選ぶD！"],
+    });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "utility-demonstrative-choice-repair.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat どれか1つ選んで",
+      makeChatMessage("demonstrative-choice-repair-message-01")
+    );
+
+    expect(state.chatMessages).toHaveLength(2);
+    expect(state.chatMessages[1]).toContain("修正前候補");
+    expect(state.chatMessages[1]).toContain("これがいいですね");
+    expect(state.directOllamaCalls).toBe(0);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "アボカドワッパーを選ぶD！"
+    );
+  });
+
   it("does not send an AnythingLLM reply when the single repair still uses a masculine first person", async () => {
     const { state } = installAnythingLlmFetchMock({
       chatReplies: [
@@ -4095,6 +4182,56 @@ describe("Bot mention chat", () => {
     expect(historyLog).toContain("items=2");
     expect(historyLog).not.toContain("AとBなにがすき？");
     expect(historyLog).not.toContain("Bがすきだよ！");
+  });
+
+  it("uses only the same requester's last AI exchange for a short choice follow-up", async () => {
+    const { bot, say } = makeBot({ chatAiCooldownSeconds: 0 });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "アボカドワッパーを選ぶD！" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "猫を選ぶD！" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: "マッシュルームワッパーにするD！" }),
+      } as Response);
+
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun バーキンのメニューでおすすめをどれか決めてほしい！",
+      100
+    );
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "other_viewer",
+      "@rukalun 犬と猫ならどっちか決めて",
+      101
+    );
+    await bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 1つピックアップして",
+      102
+    );
+
+    const thirdBody = JSON.parse(fetchSpy.mock.calls[2][1].body as string);
+    expect(thirdBody.prompt).toContain("直近会話");
+    expect(thirdBody.prompt).toContain(
+      "バーキンのメニューでおすすめをどれか決めてほしい！"
+    );
+    expect(thirdBody.prompt).toContain("アボカドワッパーを選ぶD！");
+    expect(thirdBody.prompt).not.toContain("犬と猫ならどっちか決めて");
+    expect(thirdBody.prompt).not.toContain("猫を選ぶD！");
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "マッシュルームワッパーにするD！"
+    );
   });
 
   it("finds Apple Watch charging results when a follow-up omits the subject", async () => {

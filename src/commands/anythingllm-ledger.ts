@@ -610,6 +610,69 @@ export class AnythingLlmLedger {
     return rows.map(mapEventRow);
   }
 
+  listRecentUnembeddedComments(
+    channel: string,
+    occurredAtFrom: string,
+    occurredAtThrough: string,
+    limit = 100
+  ): AnythingLlmLedgerComment[] {
+    const effectiveLimit = Math.max(
+      1,
+      Math.min(1_000, Math.floor(limit))
+    );
+    const normalizedChannel = normalizeChannel(channel);
+    const normalizedFrom = normalizeTimestamp(
+      occurredAtFrom,
+      "recent comment start timestamp"
+    );
+    const normalizedThrough = normalizeTimestamp(
+      occurredAtThrough,
+      "recent comment end timestamp"
+    );
+    if (normalizedFrom > normalizedThrough) return [];
+
+    const rows = this.db
+      .prepare(
+        `
+          SELECT * FROM (
+            SELECT events.*
+            FROM anythingllm_comment_events AS events
+            WHERE
+              events.batch_id IS NULL
+              AND events.channel = ?
+              AND events.body_purged_at IS NULL
+              AND events.occurred_at >= ?
+              AND events.occurred_at <= ?
+            UNION ALL
+            SELECT events.*
+            FROM anythingllm_ingestion_batches AS batches
+            CROSS JOIN anythingllm_comment_events AS events
+              ON events.batch_id = batches.batch_id
+            WHERE
+              batches.status IN ('pending', 'uploaded', 'failed')
+              AND batches.cleanup_status <> 'body_purged'
+              AND events.channel = ?
+              AND events.body_purged_at IS NULL
+              AND events.occurred_at >= ?
+              AND events.occurred_at <= ?
+          )
+          ORDER BY accepted_sequence DESC
+          LIMIT ?
+        `
+      )
+      .all(
+        normalizedChannel,
+        normalizedFrom,
+        normalizedThrough,
+        normalizedChannel,
+        normalizedFrom,
+        normalizedThrough,
+        effectiveLimit
+      ) as unknown as CommentEventRow[];
+    rows.reverse();
+    return rows.map(mapEventRow);
+  }
+
   getIngestionQueueStats(
     now = new Date().toISOString()
   ): AnythingLlmIngestionQueueStats {

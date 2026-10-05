@@ -27,6 +27,7 @@ const DEFAULT_RETRY_MAX_MS = 15 * 60_000;
 const DEFAULT_RETRY_POLL_MS = 5_000;
 const DEFAULT_PENDING_CONTEXT_COMMENTS = 20;
 const DEFAULT_PENDING_CONTEXT_CHARS = 2_000;
+const DEFAULT_PENDING_CONTEXT_TTL_MS = 30 * 60_000;
 const DEFAULT_CLEANUP_INTERVAL_MS = 60 * 60_000;
 const DEFAULT_QUEUE_HIGH_WATER_COMMENTS = 5_000;
 const DEFAULT_DISK_MIN_FREE_BYTES = 1_073_741_824;
@@ -279,11 +280,19 @@ export class AnythingLlmChannelMemory {
   buildPendingContext(
     channel: string,
     maxComments = DEFAULT_PENDING_CONTEXT_COMMENTS,
-    maxChars = DEFAULT_PENDING_CONTEXT_CHARS
+    maxChars = DEFAULT_PENDING_CONTEXT_CHARS,
+    now = new Date().toISOString()
   ): string | null {
     this.assertOpen();
-    const events = this.ledger.listUnembeddedComments(
+    const nowMs = Date.parse(now);
+    if (!Number.isFinite(nowMs)) return null;
+    const oldestAllowed = new Date(nowMs - DEFAULT_PENDING_CONTEXT_TTL_MS);
+    if (!Number.isFinite(oldestAllowed.getTime())) return null;
+    const normalizedNow = new Date(nowMs).toISOString();
+    const events = this.ledger.listRecentUnembeddedComments(
       normalizeChannel(channel),
+      oldestAllowed.toISOString(),
+      normalizedNow,
       positiveInteger(maxComments, DEFAULT_PENDING_CONTEXT_COMMENTS)
     );
     if (events.length === 0) return null;

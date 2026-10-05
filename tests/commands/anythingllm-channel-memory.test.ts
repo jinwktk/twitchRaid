@@ -169,7 +169,14 @@ describe("AnythingLlmChannelMemory", () => {
     expect(failedBatch?.documentLocation).toBe(
       "custom-documents/recovered.json"
     );
-    expect(memory.buildPendingContext("#rukalun")).toContain(
+    expect(
+      memory.buildPendingContext(
+        "#rukalun",
+        20,
+        2_000,
+        "2026-07-25T08:00:01.000Z"
+      )
+    ).toContain(
       "さっきのゲーム面白かった"
     );
 
@@ -184,7 +191,14 @@ describe("AnythingLlmChannelMemory", () => {
       })
     );
     expect(ledger.getBatch(batchId)?.status).toBe("embedded");
-    expect(memory.buildPendingContext("#rukalun")).toBeNull();
+    expect(
+      memory.buildPendingContext(
+        "#rukalun",
+        20,
+        2_000,
+        "2026-07-25T08:00:01.000Z"
+      )
+    ).toBeNull();
 
     await memory.close();
   });
@@ -239,7 +253,14 @@ describe("AnythingLlmChannelMemory", () => {
     memory.acceptComment(makeEvent());
 
     await expect(memory.flushBeforeChat(5)).resolves.toBeNull();
-    expect(memory.buildPendingContext("#rukalun")).toContain(
+    expect(
+      memory.buildPendingContext(
+        "#rukalun",
+        20,
+        2_000,
+        "2026-07-25T08:00:01.000Z"
+      )
+    ).toContain(
       "さっきのゲーム面白かった"
     );
 
@@ -248,7 +269,104 @@ describe("AnythingLlmChannelMemory", () => {
       recoveredUpload: false,
     });
     await memory.flushPending();
-    expect(memory.buildPendingContext("#rukalun")).toBeNull();
+    expect(
+      memory.buildPendingContext(
+        "#rukalun",
+        20,
+        2_000,
+        "2026-07-25T08:00:01.000Z"
+      )
+    ).toBeNull();
+    await memory.close();
+  });
+
+  it("keeps stale failed batches retryable without mixing them into current pending context", async () => {
+    const ledger = makeLedger();
+    const memory = new AnythingLlmChannelMemory({
+      ledger,
+      client: makeClient(),
+      workspaceSlug: "twitch-rukalun",
+      batchMaxComments: 200,
+      backgroundFlushEnabled: false,
+    });
+    memory.acceptComment(
+      makeEvent({
+        eventId: "stale-failed",
+        occurredAt: "2026-09-11T00:00:00.000Z",
+        body: "古い未反映コメント",
+      })
+    );
+    const staleBatch = ledger.sealNextBatch({
+      workspaceSlug: "twitch-rukalun",
+      maxComments: 200,
+    });
+    ledger.markBatchFailed(
+      staleBatch?.batchId ?? "",
+      "upload",
+      "ambiguous_response",
+      "2026-10-05T05:00:00.000Z"
+    );
+    expect(
+      memory.buildPendingContext(
+        "#rukalun",
+        20,
+        20_000,
+        "2026-10-05T04:46:00.000Z"
+      )
+    ).toBeNull();
+    for (let index = 0; index < 22; index += 1) {
+      memory.acceptComment(
+        makeEvent({
+          eventId: `recent-${index + 1}`,
+          occurredAt: new Date(
+            Date.parse("2026-10-05T04:20:00.000Z") + index * 60_000
+          ).toISOString(),
+          body: `最近のコメント${index + 1}`,
+        })
+      );
+    }
+    memory.acceptComment(
+      makeEvent({
+        eventId: "other-channel",
+        channel: "other-channel",
+        occurredAt: "2026-10-05T04:44:00.000Z",
+        body: "別チャンネルのコメント",
+      })
+    );
+    memory.acceptComment(
+      makeEvent({
+        eventId: "future-comment",
+        occurredAt: "2026-10-05T04:46:00.001Z",
+        body: "未来時刻のコメント",
+      })
+    );
+
+    const context = memory.buildPendingContext(
+      "#RUKALUN",
+      20,
+      20_000,
+      "2026-10-05T04:46:00.000Z"
+    );
+
+    expect(context).not.toContain("古い未反映コメント");
+    expect(context).not.toContain('"comment_text":"最近のコメント1"');
+    expect(context).not.toContain('"comment_text":"最近のコメント2"');
+    expect(context).toContain('"comment_text":"最近のコメント3"');
+    expect(context).toContain('"comment_text":"最近のコメント22"');
+    expect(context).not.toContain("別チャンネルのコメント");
+    expect(context).not.toContain("未来時刻のコメント");
+    expect(
+      context?.indexOf('"comment_text":"最近のコメント3"')
+    ).toBeLessThan(
+      context?.indexOf('"comment_text":"最近のコメント22"') ?? -1
+    );
+    expect(ledger.getComment("stale-failed")?.body).toBe(
+      "古い未反映コメント"
+    );
+    expect(ledger.getBatch(staleBatch?.batchId ?? "")?.status).toBe(
+      "failed"
+    );
+
     await memory.close();
   });
 

@@ -378,11 +378,19 @@ function isBareMentionChatResearchFollowUp(promptText: string): boolean {
   );
 }
 
+function isShortMentionChatChoiceFollowUp(promptText: string): boolean {
+  const prompt = normalizeMentionChatConversationText(promptText);
+  return /^(?:(?:どれか|どっちか|どちらか|[1１]つ|一つ|ひとつ)(?:を)?)(?:ピックアップして|選んで|選択して|決めて)(?:ほしい|ください|くれる|ちょうだい)?[？?。!！\s]*$/u.test(
+    prompt
+  );
+}
+
 function shouldApplyMentionChatConversationHistory(promptText: string): boolean {
   const prompt = normalizeMentionChatConversationText(promptText);
   if (!prompt) return false;
 
   if (isBareMentionChatResearchFollowUp(prompt)) return true;
+  if (isShortMentionChatChoiceFollowUp(prompt)) return true;
 
   if (
     /^(?:どう思う|どうおもう|どうかな|どうですか|どうだと思う)[？?。!！\s]*$/u.test(
@@ -1069,7 +1077,8 @@ export class Bot {
   private _getMentionChatConversationHistory(
     channel: string,
     now: number,
-    latestMentionUserName: string
+    latestMentionUserName: string,
+    requesterExchangeOnly = false
   ): MentionChatConversationHistoryText | null {
     if (!(this.config.chatAiConversationHistoryEnabled ?? true)) return null;
 
@@ -1090,8 +1099,34 @@ export class Bot {
     }
     if (!freshEntries.length) return null;
 
+    let selectedEntries = freshEntries;
+    if (requesterExchangeOnly) {
+      const normalizedRequester = normalizeMentionChatUserName(
+        latestMentionUserName
+      );
+      let requesterEntryIndex = -1;
+      for (let index = freshEntries.length - 1; index >= 0; index -= 1) {
+        const entry = freshEntries[index];
+        if (
+          entry.role === "user" &&
+          entry.source === "mention" &&
+          normalizeMentionChatUserName(entry.userName) === normalizedRequester
+        ) {
+          requesterEntryIndex = index;
+          break;
+        }
+      }
+      if (requesterEntryIndex < 0) return null;
+      selectedEntries = freshEntries.slice(
+        requesterEntryIndex,
+        freshEntries[requesterEntryIndex + 1]?.role === "bot"
+          ? requesterEntryIndex + 2
+          : requesterEntryIndex + 1
+      );
+    }
+
     return buildMentionChatConversationHistoryText({
-      entries: freshEntries,
+      entries: selectedEntries,
       maxMessages: this.config.chatAiConversationHistoryMaxMessages ?? 6,
       maxChars: this.config.chatAiConversationHistoryMaxChars ?? 1_000,
       latestMentionUserName,
@@ -1294,6 +1329,16 @@ export class Bot {
             ? `${this.config.anythingLlmUtilitySessionId}-${requestId}`
             : undefined,
         });
+        logMentionChatPromptAndReplyDiagnostic({
+          enabled: promptReplyLogEnabled,
+          requestId: `${requestId}-repair`,
+          promptText: request.prompt,
+          builtPrompt: repairPrompt,
+          rawReply: repair.reply,
+          memoryText,
+          conversationHistoryText,
+          searchContextText,
+        });
         sourceCount = repair.sourceCount;
         repaired = true;
         resolvedReply = resolveMentionChatProviderReply({
@@ -1482,7 +1527,8 @@ export class Bot {
         ? this._getMentionChatConversationHistory(
             request.channel,
             now,
-            request.userName
+            request.userName,
+            isShortMentionChatChoiceFollowUp(request.prompt)
           )
         : null;
       const subjectOmittedResearchFollowUp =
