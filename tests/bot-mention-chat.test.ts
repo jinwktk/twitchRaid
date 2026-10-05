@@ -380,6 +380,19 @@ function installAnythingLlmFetchMock(options: {
             ],
           });
         }
+        if (query === "バーガーキング メニュー") {
+          return json({
+            query,
+            results: [
+              {
+                title: "メニュー｜バーガーキング公式サイト",
+                content: "直火焼きのワッパーなどの商品を紹介します。",
+                url: "https://www.burgerking.co.jp/menu/",
+                engine: "bing",
+              },
+            ],
+          });
+        }
         return json({
           query,
           results: [
@@ -1171,6 +1184,274 @@ describe("Bot mention chat", () => {
       "アボカドワッパーを選ぶD！"
     );
   });
+
+  it("grounds a natural branded menu choice in search through the utility workspace", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: ["これがいいですね", "ワッパーを選ぶD！"],
+    });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "utility-grounded-menu-choice.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiSearchEngines: "yahoo japan,bing",
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat バーキンのメニューでおすすめをどれか決めてほしい！",
+      makeChatMessage("grounded-menu-choice-message-01")
+    );
+
+    expect(state.searchQueries).toEqual(["バーガーキング メニュー"]);
+    expect(state.chatMessages).toHaveLength(2);
+    expect(state.chatMessages[0]).toContain("外部検索結果");
+    expect(state.chatMessages[0]).toContain("ワッパー");
+    expect(state.chatMessages[0]).not.toContain("直近の未反映コメント");
+    expect(state.chatMessages[1]).toContain("修正前候補");
+    expect(state.chatSessions).toHaveLength(2);
+    expect(
+      state.chatSessions.every((session) =>
+        session.startsWith("twitchraid-utility-broadcaster-id-v1-mention-")
+      )
+    ).toBe(true);
+    expect(state.directOllamaCalls).toBe(0);
+    expect(say).toHaveBeenLastCalledWith("#rukalun", "ワッパーを選ぶD！");
+  });
+
+  it("reuses the same requester's branded menu search for a short choice follow-up", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: [
+        "ワッパーを選ぶD！",
+        "ダブルワッパーチーズを選ぶD！",
+        "スモーキーワッパーを選ぶD！",
+      ],
+    });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "utility-grounded-menu-follow-up.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiSearchEngines: "yahoo japan,bing",
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat バーキンのメニューからおすすめをどれか1つ選んで",
+      makeChatMessage("grounded-menu-follow-up-message-01")
+    );
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat 1つピックアップして",
+      makeChatMessage("grounded-menu-follow-up-message-02")
+    );
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat １つピックアップして",
+      makeChatMessage("grounded-menu-follow-up-message-03")
+    );
+
+    expect(state.searchQueries).toEqual([
+      "バーガーキング メニュー",
+      "バーガーキング メニュー",
+      "バーガーキング メニュー",
+    ]);
+    expect(state.chatMessages).toHaveLength(3);
+    expect(state.chatMessages[1]).toContain("直近会話");
+    expect(state.chatMessages[1]).toContain("ワッパーを選ぶD！");
+    expect(state.chatMessages[2]).toContain("直近会話");
+    expect(state.chatMessages[2]).toContain("ダブルワッパーチーズを選ぶD！");
+    expect(
+      state.chatSessions.every((session) =>
+        session.startsWith("twitchraid-utility-broadcaster-id-v1-mention-")
+      )
+    ).toBe(true);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "スモーキーワッパーを選ぶD！"
+    );
+  });
+
+  it("does not reuse an older branded menu search across a newer topic", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: [
+        "ワッパーを選ぶD！",
+        "猫が好きD！",
+        "今の話題から1つ選ぶD！",
+      ],
+    });
+    const { bot } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "utility-grounded-menu-new-topic.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiSearchEngines: "yahoo japan,bing",
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat バーキンのメニューからおすすめをどれか1つ選んで",
+      makeChatMessage("grounded-menu-new-topic-message-01")
+    );
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat 犬と猫なら猫が好き",
+      makeChatMessage("grounded-menu-new-topic-message-02")
+    );
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat 1つピックアップして",
+      makeChatMessage("grounded-menu-new-topic-message-03")
+    );
+
+    expect(state.searchQueries).toEqual(["バーガーキング メニュー"]);
+    expect(state.chatSessions[0]).toMatch(
+      /^twitchraid-utility-broadcaster-id-v1-mention-/
+    );
+    expect(state.chatSessions.slice(1)).toEqual([
+      "twitchraid-channel-broadcaster-id-v1",
+      "twitchraid-channel-broadcaster-id-v1",
+    ]);
+  });
+
+  it("does not reuse a branded menu search outside the conversation character limit", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: ["ワッパーを選ぶD！", "今の履歴から1つ選ぶD！"],
+    });
+    const { bot } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "utility-grounded-menu-max-chars.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiSearchEngines: "yahoo japan,bing",
+      chatAiConversationHistoryMaxChars: 30,
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat バーキンのメニューからおすすめをどれか1つ選んで",
+      makeChatMessage("grounded-menu-max-chars-message-01")
+    );
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat 1つピックアップして",
+      makeChatMessage("grounded-menu-max-chars-message-02")
+    );
+
+    expect(state.searchQueries).toEqual(["バーガーキング メニュー"]);
+    expect(state.chatSessions[0]).toMatch(
+      /^twitchraid-utility-broadcaster-id-v1-mention-/
+    );
+    expect(state.chatSessions[1]).toBe("twitchraid-channel-broadcaster-id-v1");
+  });
+
+  it("does not reuse another requester's branded menu search", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: ["ワッパーを選ぶD！", "自分の話題から1つ選ぶD！"],
+    });
+    const { bot } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "utility-grounded-menu-other-requester.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiSearchEngines: "yahoo japan,bing",
+    });
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer-a",
+      "!chat バーキンのメニューからおすすめをどれか1つ選んで",
+      makeChatMessage("grounded-menu-other-requester-message-01")
+    );
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer-b",
+      "!chat 1つピックアップして",
+      makeChatMessage("grounded-menu-other-requester-message-02")
+    );
+
+    expect(state.searchQueries).toEqual(["バーガーキング メニュー"]);
+    expect(state.chatSessions[0]).toMatch(
+      /^twitchraid-utility-broadcaster-id-v1-mention-/
+    );
+    expect(state.chatSessions[1]).toBe("twitchraid-channel-broadcaster-id-v1");
+  });
+
+  it.each([
+    ["no_result", true, true, 1],
+    ["disabled", false, false, 0],
+  ] as const)(
+    "keeps branded menu choice on the normal provider when search is %s",
+    async (_caseName, searchEnabled, emptySearchResults, expectedSearches) => {
+      const { state } = installAnythingLlmFetchMock({
+        chatReplies: ["通常会話からワッパーを選ぶD！"],
+        emptySearchResults,
+      });
+      const { bot, say } = makeBot({
+        chatAiAnythingLlmEnabled: true,
+        anythingLlmLedgerDbPath: path.join(
+          ensureTempDir(),
+          `menu-choice-${_caseName}.sqlite`
+        ),
+        chatAiCooldownSeconds: 0,
+        chatAiSearchEnabled: searchEnabled,
+        chatAiSearchProvider: "searxng",
+        chatAiSearchEndpoint: "http://searxng.test/search",
+        chatAiSearchEngines: "yahoo japan,bing",
+      });
+
+      await bot._handleIncomingChatEvent(
+        "#rukalun",
+        "viewer",
+        "!chat バーキンのメニューでおすすめをどれか決めてほしい！",
+        makeChatMessage(`menu-choice-${_caseName}-message-01`)
+      );
+
+      expect(state.searchQueries).toHaveLength(expectedSearches);
+      expect(state.chatMessages).toHaveLength(1);
+      expect(state.chatSessions).toEqual([
+        "twitchraid-channel-broadcaster-id-v1",
+      ]);
+      expect(say).toHaveBeenLastCalledWith(
+        "#rukalun",
+        "通常会話からワッパーを選ぶD！"
+      );
+    }
+  );
 
   it("does not send an AnythingLLM reply when the single repair still uses a masculine first person", async () => {
     const { state } = installAnythingLlmFetchMock({

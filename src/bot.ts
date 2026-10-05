@@ -116,6 +116,7 @@ import {
   applyMentionChatWeatherReplyContract,
   fetchMentionChatSearchContext,
   fetchMentionChatSearchContextDetailed,
+  isMenuRecommendationSelectionRequest,
   shouldAlwaysSynthesizeMentionChatSearchReply,
   shouldRepairMentionChatReplyFromSearchContext,
   shouldResearchMentionChatReply,
@@ -272,6 +273,7 @@ interface MentionChatConversationHistoryText {
   itemCount: number;
   charCount: number;
   latestMentionUserText: string | null;
+  latestMenuRecommendationTopicText: string | null;
 }
 
 const UNSAFE_MENTION_CHAT_CONVERSATION_CONTEXT_PATTERN =
@@ -310,16 +312,43 @@ function formatMentionChatConversationHistoryEntry(
     : `ユーザー ${entry.userName}: ${text}`;
 }
 
+function selectFullMentionChatConversationEntriesWithinLimits({
+  entries,
+  maxMessages,
+  maxChars,
+}: {
+  entries: MentionChatConversationHistoryEntry[];
+  maxMessages: number;
+  maxChars: number;
+}): MentionChatConversationHistoryEntry[] {
+  const recentEntries = entries.slice(-Math.max(1, Math.floor(maxMessages)));
+  const effectiveMaxChars = Math.max(1, Math.floor(maxChars));
+  const selectedEntries: MentionChatConversationHistoryEntry[] = [];
+
+  for (let index = recentEntries.length - 1; index >= 0; index -= 1) {
+    const candidateEntries = [recentEntries[index], ...selectedEntries];
+    const candidate = candidateEntries
+      .map(formatMentionChatConversationHistoryEntry)
+      .join("\n");
+    if (candidate.length > effectiveMaxChars) break;
+    selectedEntries.unshift(recentEntries[index]);
+  }
+
+  return selectedEntries;
+}
+
 function buildMentionChatConversationHistoryText({
   entries,
   maxMessages,
   maxChars,
   latestMentionUserName,
+  latestMenuRecommendationTopicText = null,
 }: {
   entries: MentionChatConversationHistoryEntry[];
   maxMessages: number;
   maxChars: number;
   latestMentionUserName: string;
+  latestMenuRecommendationTopicText?: string | null;
 }): MentionChatConversationHistoryText | null {
   const effectiveMaxMessages = Math.max(1, Math.floor(maxMessages));
   const effectiveMaxChars = Math.max(1, Math.floor(maxChars));
@@ -367,6 +396,7 @@ function buildMentionChatConversationHistoryText({
         itemCount: selectedLines.length,
         charCount: text.length,
         latestMentionUserText,
+        latestMenuRecommendationTopicText,
       }
     : null;
 }
@@ -383,6 +413,30 @@ function isShortMentionChatChoiceFollowUp(promptText: string): boolean {
   return /^(?:(?:どれか|どっちか|どちらか|[1１]つ|一つ|ひとつ)(?:を)?)(?:ピックアップして|選んで|選択して|決めて)(?:ほしい|ください|くれる|ちょうだい)?[？?。!！\s]*$/u.test(
     prompt
   );
+}
+
+function findLatestMentionChatMenuRecommendationTopic(
+  entries: MentionChatConversationHistoryEntry[],
+  requesterName: string
+): string | null {
+  const normalizedRequester = normalizeMentionChatUserName(requesterName);
+
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (
+      entry.role !== "user" ||
+      entry.source !== "mention" ||
+      normalizeMentionChatUserName(entry.userName) !== normalizedRequester
+    ) {
+      continue;
+    }
+
+    const text = normalizeMentionChatConversationText(entry.text);
+    if (isMenuRecommendationSelectionRequest(text)) return text;
+    if (!isShortMentionChatChoiceFollowUp(text)) return null;
+  }
+
+  return null;
 }
 
 function shouldApplyMentionChatConversationHistory(promptText: string): boolean {
@@ -1099,6 +1153,25 @@ export class Bot {
     }
     if (!freshEntries.length) return null;
 
+    const maxMessages = Math.max(
+      1,
+      this.config.chatAiConversationHistoryMaxMessages ?? 6
+    );
+    const maxChars = Math.max(
+      1,
+      this.config.chatAiConversationHistoryMaxChars ?? 1_000
+    );
+    const boundedFreshEntries =
+      selectFullMentionChatConversationEntriesWithinLimits({
+        entries: freshEntries,
+        maxMessages,
+        maxChars,
+      });
+    const latestMenuRecommendationTopicText =
+      findLatestMentionChatMenuRecommendationTopic(
+        boundedFreshEntries,
+        latestMentionUserName
+      );
     let selectedEntries = freshEntries;
     if (requesterExchangeOnly) {
       const normalizedRequester = normalizeMentionChatUserName(
@@ -1127,9 +1200,10 @@ export class Bot {
 
     return buildMentionChatConversationHistoryText({
       entries: selectedEntries,
-      maxMessages: this.config.chatAiConversationHistoryMaxMessages ?? 6,
-      maxChars: this.config.chatAiConversationHistoryMaxChars ?? 1_000,
+      maxMessages,
+      maxChars,
       latestMentionUserName,
+      latestMenuRecommendationTopicText,
     });
   }
 
@@ -1207,6 +1281,7 @@ export class Bot {
     conversationHistoryText,
     searchContextText,
     pendingCommentContextText,
+    useUtilityFirst = false,
     promptReplyLogEnabled,
     promptReplyConsoleLogMode,
   }: {
@@ -1217,6 +1292,7 @@ export class Bot {
     conversationHistoryText?: string | null;
     searchContextText?: string | null;
     pendingCommentContextText?: string | null;
+    useUtilityFirst?: boolean;
     promptReplyLogEnabled: boolean;
     promptReplyConsoleLogMode: "deferred" | "file_only";
   }): Promise<GenerateMentionChatReplyResult | null> {
@@ -1255,6 +1331,19 @@ export class Bot {
       return null;
     }
 
+    const initialAnythingLlmClient = useUtilityFirst
+      ? this.anythingLlmUtilityClient
+      : anythingLlmChannelMemory;
+    if (!initialAnythingLlmClient) {
+      logger.warn(
+        `AnythingLLM AI会話生成失敗: requestId=${requestId}, reason=utility_provider_not_initialized`
+      );
+      return null;
+    }
+    const effectivePendingCommentContextText = useUtilityFirst
+      ? null
+      : pendingCommentContextText;
+
     const builtPrompt = buildMentionChatPrompt({
       maxResponseChars,
       channel: request.channel,
@@ -1264,8 +1353,8 @@ export class Bot {
       memoryText,
       conversationHistoryText,
       searchContextText,
-      pendingCommentContextText,
-      includeFixedInstructions: false,
+      pendingCommentContextText: effectivePendingCommentContextText,
+      includeFixedInstructions: useUtilityFirst,
     });
     const previousStreamSummaryRequest = isPreviousStreamSummaryRequest(
       request.prompt
@@ -1275,13 +1364,15 @@ export class Bot {
       : builtPrompt;
     const startedAt = Date.now();
     try {
-      const first = await anythingLlmChannelMemory.chat({
+      const first = await initialAnythingLlmClient.chat({
         message: providerMessage,
         mode: previousStreamSummaryRequest ? "query" : "chat",
-        sessionId: previousStreamSummaryRequest
-          ? `${this.config.anythingLlmSessionId}-knowledge`
-          : undefined,
-        reset: previousStreamSummaryRequest,
+        sessionId: useUtilityFirst
+          ? `${this.config.anythingLlmUtilitySessionId}-${requestId}`
+          : previousStreamSummaryRequest
+            ? `${this.config.anythingLlmSessionId}-knowledge`
+            : undefined,
+        reset: useUtilityFirst || previousStreamSummaryRequest,
       });
       logMentionChatPromptAndReplyDiagnostic({
         enabled: promptReplyLogEnabled,
@@ -1312,7 +1403,7 @@ export class Bot {
           memoryText,
           conversationHistoryText,
           searchContextText,
-          pendingCommentContextText,
+          pendingCommentContextText: effectivePendingCommentContextText,
         });
         const repairPrompt = [
           repairBasePrompt,
@@ -1367,6 +1458,7 @@ export class Bot {
       logger.warn(
         `AnythingLLM AI会話生成失敗: requestId=${requestId}, reason=${reason}, elapsedMs=${Math.max(0, Date.now() - startedAt)}`
       );
+      if (useUtilityFirst) return null;
       const fallbackReply = formatGeneratedMentionChatReply(
         this.config.chatAiTimeoutFallbackReply ||
           "今ちょっとAIが混み合ってるD！",
@@ -1546,14 +1638,21 @@ export class Bot {
         conversationHistory?.latestMentionUserText ??
         persistentTopicCursor?.topicText ??
         null;
-      const contextualSearchQuery =
-        latestSafeTopicText &&
-        subjectOmittedResearchFollowUp &&
-        isSafeMentionChatConversationContextText(
-          latestSafeTopicText
-        )
-          ? latestSafeTopicText
+      const latestMenuRecommendationTopicText =
+        isShortMentionChatChoiceFollowUp(request.prompt)
+          ? conversationHistory?.latestMenuRecommendationTopicText ?? null
           : null;
+      const contextualSearchQuery =
+        subjectOmittedResearchFollowUp &&
+        latestSafeTopicText &&
+        isSafeMentionChatConversationContextText(latestSafeTopicText)
+          ? latestSafeTopicText
+          : latestMenuRecommendationTopicText &&
+              isSafeMentionChatConversationContextText(
+                latestMenuRecommendationTopicText
+              )
+            ? latestMenuRecommendationTopicText
+            : null;
       const searchQueryText = contextualSearchQuery ?? request.prompt;
       const searchEnabled = this.config.chatAiSearchEnabled ?? false;
       const searchCandidate =
@@ -1642,6 +1741,11 @@ export class Bot {
       }
       let selectedSearchContextText = searchContext?.text;
       let selectedWeatherForecast = searchContext?.weatherForecast ?? null;
+      const useUtilityFirst = Boolean(
+        this.config.chatAiAnythingLlmEnabled &&
+          searchContext &&
+          isMenuRecommendationSelectionRequest(searchQueryText)
+      );
       let generatedReply =
         await this._generateMentionChatReplyWithConfiguredProvider({
           request,
@@ -1651,6 +1755,7 @@ export class Bot {
           conversationHistoryText: conversationHistory?.text,
           searchContextText: searchContext?.text,
           pendingCommentContextText,
+          useUtilityFirst,
           promptReplyLogEnabled,
           promptReplyConsoleLogMode: "deferred",
         });
@@ -1658,6 +1763,7 @@ export class Bot {
       if (
         generatedReply?.source === "generated" &&
         searchContext &&
+        !useUtilityFirst &&
         !selectedWeatherForecast &&
         (shouldAlwaysSynthesizeMentionChatSearchReply(request.prompt) ||
           shouldRepairMentionChatReplyFromSearchContext(generatedReply.reply))

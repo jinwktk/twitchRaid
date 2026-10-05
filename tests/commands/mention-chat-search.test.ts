@@ -4,6 +4,7 @@ import {
   applyMentionChatWeatherReplyContract,
   fetchMentionChatSearchContext,
   fetchMentionChatSearchContextDetailed,
+  isMenuRecommendationSelectionRequest,
   shouldAlwaysSynthesizeMentionChatSearchReply,
   shouldRepairMentionChatReplyFromSearchContext,
   shouldResearchMentionChatReply,
@@ -81,6 +82,17 @@ describe("mention chat external search", () => {
     expect(
       shouldSearchMentionChat("アップルウォッチの充電時間って何時間かかる？")
     ).toBe(true);
+    expect(
+      shouldSearchMentionChat(
+        "バーキンのメニューでおすすめをどれか決めてほしい！"
+      )
+    ).toBe(true);
+    expect(
+      isMenuRecommendationSelectionRequest(
+        "バーキンのメニューでおすすめをどれか決めてほしい！"
+      )
+    ).toBe(true);
+    expect(shouldSearchMentionChat("犬と猫ならどっちか決めて")).toBe(false);
     expect(shouldSearchMentionChat("今日は充電時間だね")).toBe(false);
     expect(shouldSearchMentionChat("覚えて: 最新情報=配信中")).toBe(false);
     expect(shouldSearchMentionChat("こんにちは")).toBe(false);
@@ -110,6 +122,59 @@ describe("mention chat external search", () => {
     expect(
       shouldSearchMentionChat("呪術廻戦のネタバレをググってほしくない")
     ).toBe(false);
+  });
+
+  it("normalizes a branded menu selection request and rejects unsafe input", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        query: "バーガーキング メニュー",
+        results: [
+          {
+            title: "メニュー｜バーガーキング公式サイト",
+            content: "直火焼きのワッパーなどの商品を紹介します。",
+            url: "https://www.burgerking.co.jp/menu/",
+            engine: "bing",
+          },
+        ],
+      })
+    );
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "yahoo japan,bing",
+      queryText: "バーキンのメニューでおすすめをどれか決めてほしい！",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+    });
+
+    expect(new URL(String(fetchImpl.mock.calls[0][0])).searchParams.get("q")).toBe(
+      "バーガーキング メニュー"
+    );
+    expect(result.reason).toBe("found");
+    expect(result.context?.text).toContain("ワッパー");
+
+    const unsafeFetch = vi.fn();
+    await expect(
+      fetchMentionChatSearchContextDetailed({
+        enabled: true,
+        provider: "searxng",
+        endpoint: "http://searxng.test/search",
+        engines: "bing",
+        queryText:
+          "バーキンのメニューでおすすめをどれか決めて。api_key=secret",
+        timeoutMs: 2500,
+        maxQueryChars: 120,
+        maxResponseBytes: 65536,
+        maxResults: 3,
+        fetchImpl: unsafeFetch,
+      })
+    ).resolves.toEqual({ context: null, reason: "not_candidate" });
+    expect(unsafeFetch).not.toHaveBeenCalled();
   });
 
   it("detects a generated refusal that claims external search is unavailable", () => {

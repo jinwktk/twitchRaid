@@ -164,6 +164,18 @@ function hasExternalFactQuestion(query: string): boolean {
   );
 }
 
+function extractMenuRecommendationBrand(value: string): string | null {
+  const query = singleLine(value).replace(/[。！？!?]+$/gu, "");
+  const match = query.match(
+    /^(.{1,40}?)のメニュー(?:で|から)[^。！？!?]{0,40}おすすめ[^。！？!?]{0,40}(?:どれか|どっちか|どちらか|[1１]つ|一つ|ひとつ)[^。！？!?]{0,24}(?:選んで|選ぶ|選択して|選択する|決めて|決める|ピックアップして)(?:ほしい|ください|くれる|ちょうだい)?$/u
+  );
+  return match?.[1]?.trim() || null;
+}
+
+export function isMenuRecommendationSelectionRequest(value: string): boolean {
+  return extractMenuRecommendationBrand(value) !== null;
+}
+
 export function shouldSearchMentionChat(value: string): boolean {
   const query = singleLine(value);
   return (
@@ -172,7 +184,8 @@ export function shouldSearchMentionChat(value: string): boolean {
     (hasExplicitSearchIntent(query) ||
       hasAboutInformationRequest(query) ||
       hasQuestionWordRequest(query) ||
-      hasExternalFactQuestion(query))
+      hasExternalFactQuestion(query) ||
+      isMenuRecommendationSelectionRequest(query))
   );
 }
 
@@ -293,6 +306,10 @@ function normalizeNaturalLatestInformationRequest(value: string): string {
 
 function normalizeSearchQuery(value: string): string {
   const originalQuery = singleLine(value);
+  const menuRecommendationBrand = extractMenuRecommendationBrand(originalQuery);
+  if (menuRecommendationBrand) {
+    return applyKnownSearchAliases(`${menuRecommendationBrand} メニュー`);
+  }
   const isComparisonQuestion = isCompactComparisonQuestion(originalQuery);
   let query = singleLine(
     originalQuery
@@ -383,7 +400,9 @@ function buildWeatherRetrySearchQuery(searchQuery: string): string | null {
 
 function applyKnownSearchAliases(query: string): string {
   let normalized = singleLine(
-    query.replace(/アップル(?:[・\s]*)ウォッチ/gu, "Apple Watch")
+    query
+      .replace(/アップル(?:[・\s]*)ウォッチ/gu, "Apple Watch")
+      .replace(/(^|\s)バーキン(?=\s|$)/gu, "$1バーガーキング")
   );
   if (/るっかるん/u.test(normalized) && !/\brukalun\b/iu.test(normalized)) {
     normalized = singleLine(`${normalized} rukalun`);
