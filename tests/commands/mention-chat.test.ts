@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import logger from "../../src/utils/logger";
 import {
+  buildAnythingLlmMentionChatSystemPrompt,
+  buildMentionChatPrompt,
   buildMentionChatPrewarmRequest,
   createMentionChatMatcher,
   extractMentionChatPrompt,
@@ -94,6 +96,15 @@ describe("extractMentionChatPrompt", () => {
 });
 
 describe("formatGeneratedMentionChatReply", () => {
+  it("accepts a concise non-explicit explanation of a sexual term", () => {
+    expect(
+      formatGeneratedMentionChatReply(
+        "「性行為」は、性的な関わりを表す言葉だよD！",
+        200
+      )
+    ).toBe("「性行為」は、性的な関わりを表す言葉だよD！");
+  });
+
   it("removes a completed leading think block before policy validation", () => {
     expect(
       formatGeneratedMentionChatReply(
@@ -457,6 +468,11 @@ describe("generateMentionChatReply", () => {
     expect(body.system).toContain("秘密");
     expect(body.system).toContain("Twitchチャット1通");
     expect(body.system).toContain("一語だけ");
+    expect(body.system).toContain(
+      "性に関する用語の意味説明、性教育、恋愛相談、非露骨な軽い下ネタ"
+    );
+    expect(body.system).toContain("話題や単語だけで一律に拒否せず");
+    expect(body.system).toContain("露骨な性的描写や性的ロールプレイは生成しない");
     expect(body.prompt).toContain("viewer");
     expect(body.prompt).toContain("こんにちは");
     expect(body.prompt).toContain("るっかるん本人として");
@@ -468,6 +484,47 @@ describe("generateMentionChatReply", () => {
     expect(body.prompt).not.toContain("配信画面画像");
     expect(body.prompt).not.toContain("TWITCH_ACCESS_TOKEN");
     expect(reply).toBe("こんにちはD！配信たのしんでいってね！");
+  });
+
+  it("builds the AnythingLLM system prompt with the same adult-topic boundary", () => {
+    const systemPrompt = buildAnythingLlmMentionChatSystemPrompt(320);
+
+    expect(systemPrompt).toContain(
+      "性に関する用語の意味説明、性教育、恋愛相談、非露骨な軽い下ネタ"
+    );
+    expect(systemPrompt).toContain("話題や単語だけで一律に拒否せず");
+    expect(systemPrompt).toContain("露骨な性的描写や性的ロールプレイは生成しない");
+    expect(systemPrompt).toContain("最大320文字以内");
+  });
+
+  it("adds the adult-topic boundary to utility prompts with fixed instructions", () => {
+    const prompt = buildMentionChatPrompt({
+      maxResponseChars: 320,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "性に関する言葉の意味を教えて",
+      includeFixedInstructions: true,
+    });
+
+    expect(prompt).toContain(
+      "性に関する用語の意味説明、性教育、恋愛相談、非露骨な軽い下ネタ"
+    );
+    expect(prompt).toContain("話題や単語だけで一律に拒否せず");
+    expect(prompt).toContain("露骨な性的描写や性的ロールプレイは生成しない");
+  });
+
+  it("leaves fixed adult-topic instructions to the channel system prompt", () => {
+    const prompt = buildMentionChatPrompt({
+      maxResponseChars: 320,
+      channel: "#rukalun",
+      userName: "viewer",
+      promptText: "性に関する言葉の意味を教えて",
+      includeFixedInstructions: false,
+    });
+
+    expect(prompt).not.toContain(
+      "性に関する用語の意味説明、性教育、恋愛相談、非露骨な軽い下ネタ"
+    );
   });
 
   it("repairs a masculine first-person reply before returning it", async () => {
