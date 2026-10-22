@@ -490,7 +490,7 @@ describe("Bot help command", () => {
     ]);
   });
 
-  it("keeps manga available despite a legacy OFF flag and deletes the reply after 15 seconds", async () => {
+  it("keeps manga available despite a legacy OFF flag and deletes the reply after 7.5 seconds", async () => {
     vi.useFakeTimers();
     vi.stubEnv("MANGA_COMMAND_ENABLED", "false");
     vi.stubGlobal(
@@ -521,10 +521,7 @@ describe("Bot help command", () => {
     );
     expect(deleteChatMessages).not.toHaveBeenCalled();
 
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(deleteChatMessages).not.toHaveBeenCalled();
-
-    await vi.advanceTimersByTimeAsync(4_999);
+    await vi.advanceTimersByTimeAsync(7_499);
     expect(deleteChatMessages).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1);

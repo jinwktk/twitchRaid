@@ -152,7 +152,7 @@ import {
 import { restartProcess } from "./utils/process-restart";
 
 
-const MANGA_DELETE_DELAY_SECONDS = 15;
+const MANGA_DELETE_DELAY_SECONDS = 7.5;
 const MANGA_COOLDOWN_SECONDS = 60 * 60;
 const DEFAULT_MENTION_CHAT_COOLDOWN_SECONDS = 5;
 const STREAM_SUMMARY_THREAD_RETRY_INITIAL_MS = 60_000;
