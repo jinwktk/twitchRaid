@@ -152,7 +152,11 @@ describe("Bot periodic recommendations", () => {
   it("posts a recommendation only while the stream is live", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-13T00:00:00.000Z"));
-    const bot = new Bot(makeConfig()) as unknown as Bot & {
+    const config = {
+      ...makeConfig(),
+      chatRecommendationIntervalMinutes: 30,
+    } as Config;
+    const bot = new Bot(config) as unknown as Bot & {
       chatClient: { say: ReturnType<typeof vi.fn> };
       streamLive: boolean;
       keepAliveTimer: ReturnType<typeof setInterval> | null;
@@ -165,7 +169,7 @@ describe("Bot periodic recommendations", () => {
     bot.streamLive = true;
 
     bot._startKeepAlive();
-    await vi.advanceTimersByTimeAsync(3_555_000);
+    await vi.advanceTimersByTimeAsync(1_755_000);
     expect(say).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(45_000);
@@ -175,6 +179,14 @@ describe("Bot periodic recommendations", () => {
     );
     expect(say.mock.calls[0][1]).toMatch(/^【定期】/);
     expect(say.mock.calls[0][1]).not.toMatch(/^!/);
+
+    await vi.advanceTimersByTimeAsync(1_800_000);
+    await vi.advanceTimersByTimeAsync(1_800_000);
+    expect(say).toHaveBeenNthCalledWith(
+      3,
+      "#rukalun",
+      "【定期】配信開始から1時間経過しました。るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalunyt"
+    );
   });
 
   it("does not post recommendations while offline", async () => {

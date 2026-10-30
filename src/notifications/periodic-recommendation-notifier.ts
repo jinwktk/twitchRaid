@@ -1,6 +1,7 @@
 export const DEFAULT_RECOMMENDATION_TARGETS = [
   "るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/",
   "るっかるんのグッズはこちら！→ https://rukalun.booth.pm",
+  "るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalunyt",
 ] as const;
 
 type SendRecommendation = (message: string) => Promise<unknown>;

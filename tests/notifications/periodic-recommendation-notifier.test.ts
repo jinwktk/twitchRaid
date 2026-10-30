@@ -6,12 +6,15 @@ import {
 
 describe("PeriodicRecommendationNotifier", () => {
   it("keeps every default recommendation URL-backed", () => {
-    expect(DEFAULT_RECOMMENDATION_TARGETS).toHaveLength(2);
+    expect(DEFAULT_RECOMMENDATION_TARGETS).toHaveLength(3);
     expect(DEFAULT_RECOMMENDATION_TARGETS[0]).toBe(
       "るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/"
     );
     expect(DEFAULT_RECOMMENDATION_TARGETS[1]).toBe(
       "るっかるんのグッズはこちら！→ https://rukalun.booth.pm"
+    );
+    expect(DEFAULT_RECOMMENDATION_TARGETS[2]).toBe(
+      "るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalunyt"
     );
     for (const target of DEFAULT_RECOMMENDATION_TARGETS) {
       expect(target).toMatch(/^るっかるん/);
@@ -42,6 +45,8 @@ describe("PeriodicRecommendationNotifier", () => {
 
     await expect(notifier.notifyIfReady(3700, sender)).resolves.toBe(true);
     await expect(notifier.notifyIfReady(7300, sender)).resolves.toBe(true);
+    await expect(notifier.notifyIfReady(10900, sender)).resolves.toBe(true);
+    await expect(notifier.notifyIfReady(14500, sender)).resolves.toBe(true);
 
     expect(sender).toHaveBeenNthCalledWith(
       1,
@@ -51,6 +56,14 @@ describe("PeriodicRecommendationNotifier", () => {
       2,
       "【定期】配信開始から2時間経過しました。るっかるんのグッズはこちら！→ https://rukalun.booth.pm"
     );
+    expect(sender).toHaveBeenNthCalledWith(
+      3,
+      "【定期】配信開始から3時間経過しました。るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalunyt"
+    );
+    expect(sender).toHaveBeenNthCalledWith(
+      4,
+      "【定期】配信開始から4時間経過しました。るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/"
+    );
     for (const call of sender.mock.calls) {
       expect(call[0]).toMatch(/^【定期】/);
       expect(call[0]).not.toMatch(/^!/);
@@ -58,7 +71,11 @@ describe("PeriodicRecommendationNotifier", () => {
   });
 
   it("does not advance the rotation when chat sending fails", async () => {
-    const failingSender = vi.fn().mockRejectedValue(new Error("chat down"));
+    const sender = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("chat down"));
     const retrySender = vi.fn().mockResolvedValue(undefined);
     const notifier = new PeriodicRecommendationNotifier({
       enabled: true,
@@ -66,13 +83,15 @@ describe("PeriodicRecommendationNotifier", () => {
       initialStreamStartedAt: 100,
     });
 
-    await expect(notifier.notifyIfReady(160, failingSender)).rejects.toThrow(
-      "chat down"
-    );
-    await expect(notifier.notifyIfReady(161, retrySender)).resolves.toBe(true);
+    await expect(notifier.notifyIfReady(160, sender)).resolves.toBe(true);
+    await expect(notifier.notifyIfReady(220, sender)).resolves.toBe(true);
+    await expect(notifier.notifyIfReady(280, sender)).rejects.toThrow("chat down");
+    await expect(notifier.notifyIfReady(281, retrySender)).resolves.toBe(true);
 
     expect(retrySender).toHaveBeenCalledWith(
-      expect.stringContaining("https://rukalun-page.vercel.app/")
+      expect.stringContaining(
+        "YouTubeもチャンネル登録してね！→ https://is.gd/rukalunyt"
+      )
     );
   });
 
