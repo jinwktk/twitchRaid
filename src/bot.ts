@@ -168,7 +168,7 @@ const DIE_SURVIVAL_REPLY = "簡単に死んでたまるかッ🧟";
 const WORK_SEND_OFF_REPLY =
   "るっかるん、今日もお仕事気を付けて、いってらっしゃい";
 const HELP_MESSAGE =
-  "!使えるコマンド: 基本 !help / !age / !goods / !7days / !die / !work / !pvp / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga | 管理 !reset / !shoutout <ユーザー名> / !streamnotify";
+  "!使えるコマンド: 基本 !help / !age / !goods / !7days / !die / !work / !pvp / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga | 管理 !reset / !shoutout <ユーザー名> / !streamnotify / !定期テスト";
 const MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE = "[memory-request]";
 const MENTION_CHAT_MEMORY_KEYWORD_PATTERN =
   /(?:覚えて(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|覚えといて(?:ください|下さい|ね)?|覚えとけ|記憶して(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|記憶しといて(?:ください|下さい|ね)?|メモして(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|メモしといて(?:ください|下さい|ね)?|メモっといて(?:ください|下さい|ね)?|忘れないで(?!いる|いた|います|た|しょ))/u;
@@ -2095,6 +2095,9 @@ export class Bot {
       case "streamnotify":
         await this._handleStreamNotifyCommand(channel, user, msg);
         break;
+      case "定期テスト":
+        await this._handlePeriodicRecommendationTest(channel, user, msg);
+        break;
       default:
         break;
     }
@@ -2404,6 +2407,47 @@ export class Bot {
         ? `✅ @${target} をshoutoutしました。`
         : `⚠️ @${target} のshoutoutに失敗しました。ログを確認してください。`
     );
+  }
+
+  private async _handlePeriodicRecommendationTest(
+    channel: string,
+    user: string,
+    msg: ChatMessage
+  ): Promise<void> {
+    if (
+      !isShoutoutAdmin(
+        user,
+        this.config.shoutoutAdminUsers,
+        msg.userInfo?.isMod === true,
+        msg.userInfo?.isBroadcaster === true
+      )
+    ) {
+      await this.chatClient.say(
+        channel,
+        "⚠️ `定期テスト` は管理者のみ実行できます。"
+      );
+      return;
+    }
+
+    try {
+      const sent = await this.recommendationNotifier.sendTest((message) =>
+        this.chatClient.say(channel, message)
+      );
+      if (!sent) {
+        await this.chatClient.say(
+          channel,
+          "⚠️ 定期テストは送信中です。時間をおいて再試行してください。"
+        );
+      }
+    } catch (error) {
+      logger.error(
+        `❌ 定期テスト送信失敗: reason=${formatSanitizedErrorName(error)}`
+      );
+      await this.chatClient.say(
+        channel,
+        "⚠️ 定期テストの送信に失敗しました。時間をおいて再試行してください。"
+      );
+    }
   }
 
   private async _handleStreamNotifyCommand(

@@ -111,13 +111,95 @@ describe("PeriodicRecommendationNotifier", () => {
 
     const firstSend = notifier.notifyIfReady(160, sender);
     await Promise.resolve();
+    const testSend = await notifier.sendTest(vi.fn());
     const secondSend = await notifier.notifyIfReady(220, sender);
 
+    expect(testSend).toBe(false);
     expect(secondSend).toBe(false);
     expect(sender).toHaveBeenCalledTimes(1);
 
     resolveSend?.();
     await expect(firstSend).resolves.toBe(true);
+  });
+
+  it("sends every recommendation immediately for an admin test without changing the schedule", async () => {
+    const sender = vi.fn().mockResolvedValue(undefined);
+    const notifier = new PeriodicRecommendationNotifier({
+      enabled: false,
+      intervalSeconds: 60,
+      initialStreamStartedAt: 100,
+    });
+
+    await expect(notifier.sendTest(sender)).resolves.toBe(true);
+
+    expect(sender.mock.calls.map((call) => call[0])).toEqual([
+      "【定期】るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/",
+      "【定期】るっかるんのグッズはこちら！→ https://rukalun.booth.pm",
+      "【定期】るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalunyt",
+    ]);
+
+    const scheduledSender = vi.fn().mockResolvedValue(undefined);
+    await expect(notifier.notifyIfReady(160, scheduledSender)).resolves.toBe(
+      false
+    );
+    notifier.reset(100);
+    await expect(notifier.notifyIfReady(160, scheduledSender)).resolves.toBe(
+      false
+    );
+  });
+
+  it("keeps the regular rotation and next send time unchanged after a test", async () => {
+    const testSender = vi.fn().mockResolvedValue(undefined);
+    const scheduledSender = vi.fn().mockResolvedValue(undefined);
+    const notifier = new PeriodicRecommendationNotifier({
+      enabled: true,
+      intervalSeconds: 60,
+      initialStreamStartedAt: 100,
+    });
+
+    await expect(notifier.sendTest(testSender)).resolves.toBe(true);
+    await expect(notifier.notifyIfReady(159, scheduledSender)).resolves.toBe(
+      false
+    );
+    await expect(notifier.notifyIfReady(160, scheduledSender)).resolves.toBe(
+      true
+    );
+
+    expect(scheduledSender).toHaveBeenCalledWith(
+      "【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/"
+    );
+  });
+
+  it("prevents overlapping regular and test sends and unlocks after a failure", async () => {
+    let resolveSend: (() => void) | null = null;
+    const pendingSender = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+        new Promise<void>((resolve) => {
+          resolveSend = resolve;
+        })
+      )
+      .mockResolvedValue(undefined);
+    const notifier = new PeriodicRecommendationNotifier({
+      enabled: true,
+      intervalSeconds: 60,
+      initialStreamStartedAt: 100,
+    });
+
+    const pendingTest = notifier.sendTest(pendingSender);
+    await Promise.resolve();
+    await expect(notifier.sendTest(vi.fn())).resolves.toBe(false);
+    await expect(notifier.notifyIfReady(160, vi.fn())).resolves.toBe(false);
+    resolveSend?.();
+    await expect(pendingTest).resolves.toBe(true);
+
+    const failingSender = vi.fn().mockRejectedValue(new Error("chat down"));
+    await expect(notifier.sendTest(failingSender)).rejects.toThrow("chat down");
+
+    const retrySender = vi.fn().mockResolvedValue(undefined);
+    await expect(notifier.sendTest(retrySender)).resolves.toBe(true);
+    expect(retrySender).toHaveBeenCalledTimes(3);
   });
 
   it("can reset the stream baseline without changing the next message", async () => {

@@ -4,6 +4,8 @@ import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Config } from "../src/config";
 import { Bot } from "../src/bot";
+import type { PeriodicRecommendationNotifier } from "../src/notifications/periodic-recommendation-notifier";
+import logger from "../src/utils/logger";
 
 let tmpDir: string | null = null;
 
@@ -28,6 +30,7 @@ type HelpTestBot = Bot & {
   commandCooldownState: {
     lastUsed: (command: string) => number | null;
   };
+  recommendationNotifier: PeriodicRecommendationNotifier;
   recastNotifiers: Record<
     string,
     {
@@ -189,6 +192,7 @@ describe("Bot help command", () => {
       "!reset",
       "!shoutout",
       "!streamnotify",
+      "!定期テスト",
     ]) {
       expect(message).toContain(command);
     }
@@ -488,6 +492,100 @@ describe("Bot help command", () => {
       "⚠️ `streamnotify` は管理者のみ実行できます。",
       "⚠️ 現在配信中ではないため、配信通知は送信しませんでした。",
     ]);
+  });
+
+  it("lets broadcasters, moderators, and configured admins send every periodic recommendation test", async () => {
+    const { bot, say } = makeBot({
+      chatRecommendationEnabled: false,
+      shoutoutAdminUsers: ["configured_admin"],
+    });
+
+    await bot._handleCommand("#rukalun", "rukalun", "!定期テスト", {
+      userInfo: { isMod: false, isBroadcaster: true },
+    });
+    await bot._handleCommand("#rukalun", "moderator", "!定期テスト", {
+      userInfo: { isMod: true, isBroadcaster: false },
+    });
+    await bot._handleCommand(
+      "#rukalun",
+      "Configured_Admin",
+      "!定期テスト",
+      { userInfo: { isMod: false, isBroadcaster: false } }
+    );
+
+    const expectedMessages = [
+      "【定期】るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/",
+      "【定期】るっかるんのグッズはこちら！→ https://rukalun.booth.pm",
+      "【定期】るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalunyt",
+    ];
+    expect(say.mock.calls.map((call) => call[1])).toEqual([
+      ...expectedMessages,
+      ...expectedMessages,
+      ...expectedMessages,
+    ]);
+  });
+
+  it("rejects viewers and malformed user info from the periodic recommendation test", async () => {
+    const { bot, say } = makeBot();
+
+    await bot._handleCommand("#rukalun", "viewer", "!定期テスト", {
+      userInfo: { isMod: false, isBroadcaster: false },
+    });
+    await bot._handleCommand("#rukalun", "viewer", "!定期テスト", {});
+
+    expect(say.mock.calls.map((call) => call[1])).toEqual([
+      "⚠️ `定期テスト` は管理者のみ実行できます。",
+      "⚠️ `定期テスト` は管理者のみ実行できます。",
+    ]);
+  });
+
+  it("reports a busy or failed periodic recommendation test without leaking error details", async () => {
+    const { bot, say } = makeBot();
+    const adminMessage = {
+      userInfo: { isMod: false, isBroadcaster: true },
+    };
+    let resolveSend: (() => void) | null = null;
+    let testSendCount = 0;
+    const pendingTest = bot.recommendationNotifier.sendTest(() => {
+      testSendCount += 1;
+      if (testSendCount > 1) return Promise.resolve();
+      return (
+        new Promise<void>((resolve) => {
+          resolveSend = resolve;
+        })
+      );
+    });
+    await Promise.resolve();
+
+    await bot._handleCommand(
+      "#rukalun",
+      "rukalun",
+      "!定期テスト",
+      adminMessage
+    );
+    resolveSend?.();
+    await pendingTest;
+
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => logger);
+    say.mockRejectedValueOnce(new Error("secret-token-value"));
+    await bot._handleCommand(
+      "#rukalun",
+      "rukalun",
+      "!定期テスト",
+      adminMessage
+    );
+
+    expect(say.mock.calls.map((call) => call[1])).toEqual([
+      "⚠️ 定期テストは送信中です。時間をおいて再試行してください。",
+      "【定期】るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/",
+      "⚠️ 定期テストの送信に失敗しました。時間をおいて再試行してください。",
+    ]);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "❌ 定期テスト送信失敗: reason=Error"
+    );
+    expect(errorSpy.mock.calls.flat().join(" ")).not.toContain(
+      "secret-token-value"
+    );
   });
 
   it("keeps manga available despite a legacy OFF flag and deletes the reply after 7.5 seconds", async () => {

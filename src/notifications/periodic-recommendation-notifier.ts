@@ -63,4 +63,19 @@ export class PeriodicRecommendationNotifier {
       (this.nextIndex + 1) % DEFAULT_RECOMMENDATION_TARGETS.length;
     return true;
   }
+
+  async sendTest(send: SendRecommendation): Promise<boolean> {
+    if (this.isSending) return false;
+
+    this.isSending = true;
+    try {
+      for (const target of DEFAULT_RECOMMENDATION_TARGETS) {
+        await send(`【定期】${target}`);
+      }
+    } finally {
+      this.isSending = false;
+    }
+
+    return true;
+  }
 }
