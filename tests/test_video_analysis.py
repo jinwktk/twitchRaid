@@ -1,6 +1,7 @@
 import importlib.util
 import http.client
 import json
+import logging
 import socket
 import sys
 import threading
@@ -286,6 +287,151 @@ def test_all_30_timestamped_frames_are_sent_in_six_contiguous_vision_batches(tmp
     assert all(payload["think"] is False for payload in payloads)
     assert all(payload["stream"] is False for payload in payloads)
     assert analysis.startswith("30秒全体では")
+
+
+def test_vision_accepts_pretty_escaped_observation_after_canonicalization(tmp_path):
+    frames = []
+    for second in range(30):
+        path = tmp_path / f"frame-{second:02d}.jpg"
+        path.write_bytes(b"jpeg")
+        frames.append(video_analysis.Frame(path=path, pts_seconds=second + 0.5))
+
+    observation = {
+        "start": "開始画面を確認",
+        "changes": ["登場人物が右へ移動", "画面表示が切り替わる"],
+        "end": "別の画面で停止",
+        "uncertain": ["小さい文字は判読不能"],
+    }
+    pretty_response = json.dumps(observation, ensure_ascii=True, indent=80)
+    canonical_response = json.dumps(
+        observation, ensure_ascii=False, separators=(",", ":")
+    )
+    assert len(pretty_response) > 600
+    assert len(canonical_response) <= 600
+
+    def fake_ollama(payload):
+        if payload.get("images"):
+            response = pretty_response
+        else:
+            response = "画面が切り替わり、登場人物が右へ移動しました。"
+        return {
+            "response": response,
+            "done": True,
+            "done_reason": "stop",
+            "prompt_eval_count": 800,
+            "eval_count": 30,
+        }
+
+    analysis = video_analysis.analyze_frames_with_ollama(
+        frames,
+        transcript="",
+        question="何が起きた？",
+        ollama_generate=fake_ollama,
+        model="gemma4:e4b-it-qat",
+        context_length=4096,
+    )
+
+    assert analysis == "画面が切り替わり、登場人物が右へ移動しました。"
+
+
+def test_vision_bounds_completed_summary_at_sentence_boundary(tmp_path, caplog):
+    frames = []
+    for second in range(30):
+        path = tmp_path / f"frame-{second:02d}.jpg"
+        path.write_bytes(b"jpeg")
+        frames.append(video_analysis.Frame(path=path, pts_seconds=second + 0.5))
+
+    observation = json.dumps(
+        {"start": "start", "changes": ["change"], "end": "end", "uncertain": []}
+    )
+    completed_summary = (
+        "画面上の人物が右へ移動し、メニューを開きました。" * 22
+        + "最後に別の画面へ切り替わりました。"
+    )
+    assert 500 < len(completed_summary) <= 1000
+
+    def fake_ollama(payload):
+        return {
+            "response": observation if payload.get("images") else completed_summary,
+            "done": True,
+            "done_reason": "stop",
+            "prompt_eval_count": 800,
+            "eval_count": 30,
+        }
+
+    with caplog.at_level(logging.INFO, logger="video-analysis"):
+        analysis = video_analysis.analyze_frames_with_ollama(
+            frames,
+            transcript="",
+            question="何が起きた？",
+            ollama_generate=fake_ollama,
+            model="gemma4:e4b-it-qat",
+            context_length=4096,
+        )
+
+    assert len(analysis) <= 500
+    assert analysis.endswith("。（以下省略）")
+    assert any(
+        record.getMessage()
+        == (
+            "vision_summary_bounded "
+            f"input_chars={len(completed_summary)} output_chars={len(analysis)}"
+        )
+        for record in caplog.records
+    )
+    assert completed_summary not in caplog.text
+
+
+def test_vision_bounds_completed_summary_without_boundary_with_omission_marker():
+    summary = "x" * 700
+
+    bounded = video_analysis._bound_completed_summary(summary)
+
+    assert len(bounded) == 500
+    assert bounded.endswith("（以下省略）")
+    assert bounded != summary[:500]
+
+
+@pytest.mark.parametrize(
+    ("invalid_stage", "invalid_response", "reason"),
+    [
+        ("final", "", "vision_invalid_response"),
+        ("batch", "x" * 4097, "vision_response_too_large"),
+        ("batch", "{not-json", "vision_invalid_response"),
+    ],
+)
+def test_vision_rejects_empty_huge_or_malformed_ollama_response(
+    tmp_path, invalid_stage, invalid_response, reason
+):
+    frames = []
+    for second in range(30):
+        path = tmp_path / f"frame-{second:02d}.jpg"
+        path.write_bytes(b"jpeg")
+        frames.append(video_analysis.Frame(path=path, pts_seconds=second + 0.5))
+
+    observation = json.dumps(
+        {"start": "start", "changes": ["change"], "end": "end", "uncertain": []}
+    )
+
+    def fake_ollama(payload):
+        stage = "batch" if payload.get("images") else "final"
+        return {
+            "response": invalid_response if stage == invalid_stage else observation,
+            "done": True,
+            "done_reason": "stop",
+            "prompt_eval_count": 800,
+            "eval_count": 30,
+        }
+
+    with pytest.raises(video_analysis.VideoUnavailable, match=reason):
+        video_analysis.analyze_frames_with_ollama(
+            frames,
+            transcript="",
+            question="何が起きた？",
+            ollama_generate=fake_ollama,
+            model="gemma4:e4b-it-qat",
+            context_length=4096,
+        )
 
 
 def test_vision_rejects_context_or_length_truncated_ollama_response(tmp_path):

@@ -30,6 +30,10 @@ MAX_REQUEST_BODY_BYTES = 8 * 1024
 MAX_QUESTION_CHARS = 500
 MAX_ANALYSIS_CHARS = 4000
 MAX_TRANSCRIPT_CHARS = 2000
+MAX_OLLAMA_RESPONSE_CHARS = 4096
+MAX_BATCH_OBSERVATION_CHARS = 600
+MAX_FINAL_SUMMARY_CHARS = 500
+SUMMARY_OMISSION_MARKER = "（以下省略）"
 FRAME_COUNT = 30
 FRAME_BATCH_SIZE = 5
 DEFAULT_CDN_HOST_SUFFIXES = (".ttvnw.net", ".twitchcdn.net")
@@ -136,7 +140,7 @@ def _read_ollama_response(
     *,
     context_length: int,
     num_predict: int,
-    max_chars: int,
+    max_chars: int = MAX_OLLAMA_RESPONSE_CHARS,
 ) -> str:
     text = response.get("response")
     if not isinstance(text, str) or not text.strip():
@@ -190,7 +194,33 @@ def _read_batch_observation(text: str) -> str:
             )
         ):
             raise VideoUnavailable("vision_invalid_response")
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    canonical = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    if len(canonical) > MAX_BATCH_OBSERVATION_CHARS:
+        raise VideoUnavailable("vision_response_too_large")
+    return canonical
+
+
+def _bound_completed_summary(text: str) -> str:
+    if len(text) <= MAX_FINAL_SUMMARY_CHARS:
+        return text
+
+    content_limit = MAX_FINAL_SUMMARY_CHARS - len(SUMMARY_OMISSION_MARKER)
+    candidate = text[:content_limit]
+    sentence_end = max(candidate.rfind(mark) for mark in "。！？")
+    newline = candidate.rfind("\n")
+    boundary = max(sentence_end + 1, newline)
+    if boundary > 0:
+        candidate = candidate[:boundary]
+    bounded = candidate.rstrip()
+    if not bounded:
+        bounded = text[:content_limit]
+    result = bounded + SUMMARY_OMISSION_MARKER
+    LOGGER.info(
+        "vision_summary_bounded input_chars=%s output_chars=%s",
+        len(text),
+        len(result),
+    )
+    return result
 
 
 def analyze_frames_with_ollama(
@@ -267,7 +297,6 @@ def analyze_frames_with_ollama(
                     ollama_generate(payload),
                     context_length=context_length,
                     num_predict=batch_num_predict,
-                    max_chars=600,
                 )
             )
         )
@@ -308,11 +337,12 @@ def analyze_frames_with_ollama(
     }
     if deadline is not None:
         deadline.remaining()
-    return _read_ollama_response(
-        ollama_generate(final_payload),
-        context_length=context_length,
-        num_predict=final_num_predict,
-        max_chars=500,
+    return _bound_completed_summary(
+        _read_ollama_response(
+            ollama_generate(final_payload),
+            context_length=context_length,
+            num_predict=final_num_predict,
+        )
     )
 
 
