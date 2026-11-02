@@ -2347,7 +2347,7 @@ export class Bot {
       const sent = await this._sendMangaReply(
         channel,
         manga
-          ? `今日のおすすめ漫画：${manga.title} ${manga.url}`
+          ? `るかにゃんこ読書📖おすすめ rukkaEeeee ${manga.title} ${manga.url}`
           : "⚠️ 漫画が見つかりませんでした。"
       );
       if (manga && sent && !isSpecialUser) {
