@@ -35,6 +35,7 @@ MAX_BATCH_OBSERVATION_CHARS = 600
 MAX_FINAL_SUMMARY_CHARS = 500
 SUMMARY_OMISSION_MARKER = "（以下省略）"
 FRAME_COUNT = 30
+SUPPORTED_DURATION_SECONDS = (10, FRAME_COUNT)
 FRAME_BATCH_SIZE = 5
 DEFAULT_CDN_HOST_SUFFIXES = (".ttvnw.net", ".twitchcdn.net")
 MAX_PLAYLIST_BYTES = 2 * 1024 * 1024
@@ -118,6 +119,15 @@ class AnalyzeRequest:
 class Frame:
     path: Path
     pts_seconds: float
+
+
+def _validate_duration_seconds(duration_seconds: object) -> int:
+    if (
+        type(duration_seconds) is not int
+        or duration_seconds not in SUPPORTED_DURATION_SECONDS
+    ):
+        raise VideoUnavailable("invalid_duration", status_code=400)
+    return duration_seconds
 
 
 def _format_pts(seconds: float) -> str:
@@ -232,16 +242,18 @@ def analyze_frames_with_ollama(
     model: str,
     context_length: int,
     batch_size: int = FRAME_BATCH_SIZE,
+    duration_seconds: int = FRAME_COUNT,
     deadline: Deadline | None = None,
 ) -> str:
-    if len(frames) != FRAME_COUNT:
+    expected_frame_count = _validate_duration_seconds(duration_seconds)
+    if len(frames) != expected_frame_count:
         raise VideoUnavailable("frame_count_mismatch")
     previous_pts = -1.0
     for frame in frames:
         if (
             not math.isfinite(frame.pts_seconds)
             or frame.pts_seconds < 0
-            or frame.pts_seconds >= 30.5
+            or frame.pts_seconds >= duration_seconds + 0.5
             or frame.pts_seconds <= previous_pts
             or not frame.path.is_file()
         ):
@@ -251,7 +263,7 @@ def analyze_frames_with_ollama(
     if batch_size < 1 or batch_size > FRAME_COUNT:
         raise VideoUnavailable("invalid_vision_batch_size")
     observations: list[str] = []
-    for batch_start in range(0, FRAME_COUNT, batch_size):
+    for batch_start in range(0, expected_frame_count, batch_size):
         if deadline is not None:
             deadline.remaining()
         batch = frames[batch_start : batch_start + batch_size]
@@ -260,7 +272,7 @@ def analyze_frames_with_ollama(
             for index, frame in enumerate(batch)
         )
         prompt = (
-            "これはTwitch配信の30秒区間から1fpsで抽出した連続画像の一部です。"
+            f"これはTwitch配信の{duration_seconds}秒区間から1fpsで抽出した連続画像の一部です。"
             "各画像を時刻順に観察し、画面に直接確認できる変化だけを日本語で記述してください。"
             "ゲーム画面ではロビー、メニュー、キャラクター選択、実戦を区別し、ロビーや実戦は十分な視覚根拠がある場合だけ記述してください。"
             "最初と最後の画面状態、および途中で確認できる変化を根拠となる時刻とともに記述してください。"
@@ -301,6 +313,9 @@ def analyze_frames_with_ollama(
             )
         )
 
+    if expected_frame_count == 10 and len(observations) == 1:
+        return observations[0]
+
     joined = "\n".join(
         f"区間{index + 1}: {observation}"
         for index, observation in enumerate(observations)
@@ -308,8 +323,9 @@ def analyze_frames_with_ollama(
     if len(joined) > 3000:
         raise VideoUnavailable("vision_context_exhausted")
     final_prompt = (
-        f"次の{len(observations)}個の時系列観測は30秒区間の全30フレームを連続順に解析した結果です。"
-        "音声文字起こしと質問も参照し、30秒全体について画面と音声から直接確認できる事実だけを"
+        f"次の{len(observations)}個の時系列観測は{duration_seconds}秒区間の"
+        f"全{expected_frame_count}フレームを連続順に解析した結果です。"
+        f"音声文字起こしと質問も参照し、{duration_seconds}秒全体について画面と音声から直接確認できる事実だけを"
         "300〜500文字を目安とし、最大500文字の日本語で統合してください。"
         "判読できない小さな文字、数値、固有名詞を推測して出力しないでください。"
         "配信アバター、コメント欄、配信オーバーレイの数値はゲーム進行の根拠にしないでください。"
@@ -360,7 +376,9 @@ def extract_timestamped_frames(
         ..., subprocess.CompletedProcess[str]
     ] = _default_command_runner,
     timeout_seconds: float = 60.0,
+    frame_count: int = FRAME_COUNT,
 ) -> list[Frame]:
+    _validate_duration_seconds(frame_count)
     pattern = output_dir / "frame-%03d.jpg"
     args = [
         "ffmpeg",
@@ -372,7 +390,7 @@ def extract_timestamped_frames(
         "-vf",
         "fps=1,scale=640:-2,showinfo",
         "-frames:v",
-        str(FRAME_COUNT),
+        str(frame_count),
         "-q:v",
         "3",
         "-y",
@@ -397,7 +415,7 @@ def extract_timestamped_frames(
         )
     ]
     frame_paths = sorted(output_dir.glob("frame-*.jpg"))
-    if len(frame_paths) != FRAME_COUNT or len(pts_values) != FRAME_COUNT:
+    if len(frame_paths) != frame_count or len(pts_values) != frame_count:
         raise VideoUnavailable("frame_count_mismatch")
     return [
         Frame(path=path, pts_seconds=pts)
@@ -411,9 +429,11 @@ class VideoAnalysisEngine:
         *,
         temp_root: Path,
         capture_window: Callable[[AnalyzeRequest, Path, Deadline], Path],
-        decode_media: Callable[[Path, Path, Deadline], tuple[Sequence[Frame], Path]],
+        decode_media: Callable[
+            [Path, Path, Deadline, int], tuple[Sequence[Frame], Path]
+        ],
         transcribe_audio: Callable[[Path, str, Deadline], str],
-        analyze_vision: Callable[[Sequence[Frame], str, str, Deadline], str],
+        analyze_vision: Callable[[Sequence[Frame], str, str, Deadline, int], str],
         capture_slots: int = 2,
         gpu_slots: int = 1,
         queue_timeout_seconds: float = 5.0,
@@ -433,6 +453,7 @@ class VideoAnalysisEngine:
         self.temp_root.mkdir(parents=True, exist_ok=True)
 
     def analyze(self, request: AnalyzeRequest) -> dict[str, Any]:
+        _validate_duration_seconds(request.duration_seconds)
         total_started = self.monotonic()
         deadline = Deadline(total_started + self.total_timeout_seconds, self.monotonic)
         capture_started = total_started
@@ -452,8 +473,10 @@ class VideoAnalysisEngine:
 
             deadline.remaining()
             decode_started = self.monotonic()
-            frames, audio_path = self.decode_media(video_path, work_dir, deadline)
-            if len(frames) != FRAME_COUNT:
+            frames, audio_path = self.decode_media(
+                video_path, work_dir, deadline, request.duration_seconds
+            )
+            if len(frames) != request.duration_seconds:
                 raise VideoUnavailable("frame_count_mismatch")
             decode_ms = round((self.monotonic() - decode_started) * 1000)
 
@@ -474,7 +497,11 @@ class VideoAnalysisEngine:
                 vision_started = self.monotonic()
                 deadline.remaining()
                 analysis = self.analyze_vision(
-                    frames, transcript, request.question, deadline
+                    frames,
+                    transcript,
+                    request.question,
+                    deadline,
+                    request.duration_seconds,
                 )
                 vision_ms = round((self.monotonic() - vision_started) * 1000)
             finally:
@@ -582,8 +609,7 @@ def parse_analyze_request(body: bytes, *, allowed_channel: str) -> AnalyzeReques
         raise VideoUnavailable("channel_not_allowed", status_code=403)
     if not isinstance(stream_id, str) or not re.fullmatch(r"[0-9]{1,32}", stream_id):
         raise VideoUnavailable("invalid_request", status_code=400)
-    if duration_seconds != 30:
-        raise VideoUnavailable("invalid_duration", status_code=400)
+    duration_seconds = _validate_duration_seconds(duration_seconds)
     if not isinstance(question, str) or len(question) > MAX_QUESTION_CHARS:
         raise VideoUnavailable("invalid_request", status_code=400)
     if not isinstance(requested_at, str):
@@ -1174,7 +1200,9 @@ def materialize_hls_window(
     work_dir: Path,
     fetch_segment: Callable[[str, int], bytes],
     deadline: Deadline,
+    duration_seconds: int = FRAME_COUNT,
 ) -> Path:
+    _validate_duration_seconds(duration_seconds)
     if len(window.segments) > MAX_MEDIA_SEGMENTS:
         raise VideoUnavailable("too_many_segments")
     concat_lines: list[str] = []
@@ -1213,7 +1241,7 @@ def materialize_hls_window(
             "-ss",
             f"{window.trim_offset_seconds:.6f}",
             "-t",
-            "30.000",
+            f"{duration_seconds:.3f}",
             "-vf",
             "scale=640:-2",
             "-c:v",
@@ -1239,6 +1267,7 @@ def materialize_hls_window(
     deadline.remaining()
     _verify_media_duration(
         output_path,
+        expected_seconds=duration_seconds,
         timeout_seconds=deadline.remaining(cap_seconds=15),
     )
     return output_path
@@ -1248,11 +1277,14 @@ def decode_media_files(
     video_path: Path,
     work_dir: Path,
     deadline: Deadline,
+    duration_seconds: int = FRAME_COUNT,
 ) -> tuple[list[Frame], Path]:
+    _validate_duration_seconds(duration_seconds)
     frames = extract_timestamped_frames(
         video_path,
         work_dir,
         timeout_seconds=deadline.remaining(cap_seconds=60),
+        frame_count=duration_seconds,
     )
     audio_path = work_dir / "audio.wav"
     _run_command(
@@ -1269,7 +1301,7 @@ def decode_media_files(
             "-ar",
             "16000",
             "-t",
-            "30.000",
+            f"{duration_seconds:.3f}",
             "-y",
             str(audio_path),
         ],
@@ -1374,6 +1406,7 @@ def build_engine(config: ServiceConfig) -> VideoAnalysisEngine:
                 timeout_seconds=deadline.remaining(cap_seconds=15),
             ),
             deadline=deadline,
+            duration_seconds=request.duration_seconds,
         )
 
     def transcribe(audio_path: Path, request_id: str, deadline: Deadline) -> str:
@@ -1394,6 +1427,7 @@ def build_engine(config: ServiceConfig) -> VideoAnalysisEngine:
         transcript: str,
         question: str,
         deadline: Deadline,
+        duration_seconds: int,
     ) -> str:
         return analyze_frames_with_ollama(
             frames,
@@ -1408,6 +1442,7 @@ def build_engine(config: ServiceConfig) -> VideoAnalysisEngine:
             model=config.ollama_model,
             context_length=config.context_length,
             batch_size=config.vision_batch_size,
+            duration_seconds=duration_seconds,
             deadline=deadline,
         )
 

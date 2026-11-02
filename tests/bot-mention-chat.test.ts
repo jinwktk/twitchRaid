@@ -606,17 +606,17 @@ function makeVideoAnalysisResponse(
     JSON.stringify({
       status: "ok",
       ...request,
-      windowEnd: new Date(Date.parse(request.requestedAt) + 30_000).toISOString(),
-      durationSeconds: 30,
-      frameCount: 30,
+      windowEnd: new Date(Date.parse(request.requestedAt) + 10_000).toISOString(),
+      durationSeconds: 10,
+      frameCount: 10,
       analysis: "画面中央でボスと戦っている。",
       transcript: "危ない、と話している。",
       timings: {
-        captureMs: 30_000,
+        captureMs: 10_000,
         decodeMs: 100,
         visionMs: 2_000,
         transcribeMs: 500,
-        totalMs: 32_600,
+        totalMs: 12_600,
       },
       ...overrides,
     }),
@@ -685,7 +685,7 @@ describe("Bot mention chat", () => {
       channel: "rukalun",
       streamId: "stream-live-1",
       requestedAt: (msg.date as Date).toISOString(),
-      durationSeconds: 30,
+      durationSeconds: 10,
       question: "今の場面どうなってる？",
     });
     expect(say).toHaveBeenCalledWith(
@@ -1584,6 +1584,7 @@ describe("Bot mention chat", () => {
     expect(state.chatMessages[1]).toContain(
       "映像と音声の観測と外部検索結果を区別"
     );
+    expect(state.chatMessages[1]).toContain("この10秒の動画観測");
     expect(state.chatMessages[1]).toContain(
       "場面の説明は動画解析で観測できた内容だけ"
     );

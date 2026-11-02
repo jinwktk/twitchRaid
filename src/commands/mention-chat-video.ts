@@ -1,5 +1,5 @@
-const VIDEO_DURATION_SECONDS = 30;
-const VIDEO_FRAME_COUNT = 30;
+const VIDEO_DURATION_SECONDS = 10;
+const VIDEO_FRAME_COUNT = 10;
 const VIDEO_QUESTION_MAX_CHARS = 500;
 const VIDEO_ANALYSIS_MAX_CHARS = 4_000;
 const VIDEO_TRANSCRIPT_MAX_CHARS = 2_000;
@@ -27,8 +27,8 @@ export interface MentionChatVideoAnalysis {
   streamId: string;
   requestedAt: string;
   windowEnd: string;
-  durationSeconds: 30;
-  frameCount: 30;
+  durationSeconds: 10;
+  frameCount: 10;
   analysis: string;
   transcript: string;
   timings: {
@@ -229,7 +229,7 @@ export function formatMentionChatVideoContext(
   result: MentionChatVideoAnalysis
 ): string {
   const lines = [
-    `観測時間: ${result.requestedAt} から ${result.windowEnd} までの30秒`,
+    `観測時間: ${result.requestedAt} から ${result.windowEnd} までの10秒`,
     result.analysis.trim() ? `映像観測: ${result.analysis.trim()}` : null,
     result.transcript.trim() ? `音声文字起こし: ${result.transcript.trim()}` : null,
   ].filter((line): line is string => line !== null);

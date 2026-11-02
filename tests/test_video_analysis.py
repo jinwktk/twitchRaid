@@ -24,7 +24,16 @@ sys.modules[SPEC.name] = video_analysis
 SPEC.loader.exec_module(video_analysis)
 
 
-def test_hls_window_starts_at_requested_instant_and_covers_full_30_seconds():
+@pytest.mark.parametrize(
+    ("duration_seconds", "expected_sequences", "expected_coverage"),
+    [
+        (10, [100, 101], 15.0),
+        (30, [100, 101, 102, 103], 35.0),
+    ],
+)
+def test_hls_window_starts_at_requested_instant_and_covers_full_duration(
+    duration_seconds, expected_sequences, expected_coverage
+):
     playlist = """#EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-MEDIA-SEQUENCE:100
@@ -49,12 +58,12 @@ https://video-weaver.tyo01.hls.ttvnw.net/segment-103.ts
     window = video_analysis.select_exact_window(
         segments,
         requested_at=datetime(2026, 11, 3, 12, 0, 5, tzinfo=timezone.utc),
-        duration_seconds=30,
+        duration_seconds=duration_seconds,
     )
 
-    assert [segment.sequence for segment in window.segments] == [100, 101, 102, 103]
+    assert [segment.sequence for segment in window.segments] == expected_sequences
     assert window.trim_offset_seconds == 5.0
-    assert window.coverage_seconds == 35.0
+    assert window.coverage_seconds == expected_coverage
 
 
 def test_hls_window_rejects_cumulative_program_time_drift_and_overlap():
@@ -77,7 +86,10 @@ def test_hls_window_rejects_cumulative_program_time_drift_and_overlap():
         )
 
 
-def test_api_request_contract_accepts_only_the_allowed_channel_and_30_seconds():
+@pytest.mark.parametrize("duration_seconds", [10, 30])
+def test_api_request_contract_accepts_only_the_allowed_channel_and_supported_duration(
+    duration_seconds,
+):
     request = video_analysis.parse_analyze_request(
         json.dumps(
             {
@@ -85,7 +97,7 @@ def test_api_request_contract_accepts_only_the_allowed_channel_and_30_seconds():
                 "channel": "rukalun",
                 "streamId": "316500000001",
                 "requestedAt": "2026-11-03T12:00:05.000Z",
-                "durationSeconds": 30,
+                "durationSeconds": duration_seconds,
                 "question": "今の場面はどうなってる？",
             }
         ).encode("utf-8"),
@@ -95,7 +107,25 @@ def test_api_request_contract_accepts_only_the_allowed_channel_and_30_seconds():
     assert request.request_id == "mention-123"
     assert request.channel == "rukalun"
     assert request.requested_at == datetime(2026, 11, 3, 12, 0, 5, tzinfo=timezone.utc)
-    assert request.duration_seconds == 30
+    assert request.duration_seconds == duration_seconds
+
+
+@pytest.mark.parametrize("duration_seconds", [0, 9, 11, 20, 31, True, 10.0, "10"])
+def test_api_request_contract_rejects_unsupported_duration(duration_seconds):
+    with pytest.raises(video_analysis.VideoUnavailable, match="invalid_duration"):
+        video_analysis.parse_analyze_request(
+            json.dumps(
+                {
+                    "requestId": "mention-123",
+                    "channel": "rukalun",
+                    "streamId": "316500000001",
+                    "requestedAt": "2026-11-03T12:00:05.000Z",
+                    "durationSeconds": duration_seconds,
+                    "question": "何が起きた？",
+                }
+            ).encode("utf-8"),
+            allowed_channel="rukalun",
+        )
 
 
 @pytest.mark.parametrize(
@@ -289,6 +319,71 @@ def test_all_30_timestamped_frames_are_sent_in_six_contiguous_vision_batches(tmp
     assert analysis.startswith("30秒全体では")
 
 
+def test_vision_returns_single_validated_observation_for_all_10_frames(tmp_path):
+    frames = []
+    for second in range(10):
+        path = tmp_path / f"frame-{second:02d}.jpg"
+        path.write_bytes(b"jpeg")
+        frames.append(video_analysis.Frame(path=path, pts_seconds=second + 0.5))
+
+    payloads = []
+
+    def fake_ollama(payload):
+        payloads.append(payload)
+        assert payload.get("images")
+        response = json.dumps(
+            {
+                "start": "開始",
+                "changes": ["変化"],
+                "end": "終了",
+                "uncertain": [],
+            },
+            ensure_ascii=False,
+        )
+        return {
+            "response": response,
+            "done": True,
+            "done_reason": "stop",
+            "prompt_eval_count": 800,
+            "eval_count": 30,
+        }
+
+    analysis = video_analysis.analyze_frames_with_ollama(
+        frames,
+        transcript="音声",
+        question="何が起きた？",
+        ollama_generate=fake_ollama,
+        model="gemma4:e4b-it-qat",
+        context_length=4096,
+        batch_size=15,
+        duration_seconds=10,
+    )
+
+    assert len(payloads) == 1
+    assert len(payloads[0]["images"]) == 10
+    assert "10秒区間" in payloads[0]["prompt"]
+    assert "00:00.500" in payloads[0]["prompt"]
+    assert "00:09.500" in payloads[0]["prompt"]
+    assert json.loads(analysis) == {
+        "start": "開始",
+        "changes": ["変化"],
+        "end": "終了",
+        "uncertain": [],
+    }
+    with pytest.raises(video_analysis.VideoUnavailable, match="frame_count_mismatch"):
+        video_analysis.analyze_frames_with_ollama(
+            frames[:-1],
+            transcript="音声",
+            question="何が起きた？",
+            ollama_generate=fake_ollama,
+            model="gemma4:e4b-it-qat",
+            context_length=4096,
+            batch_size=15,
+            duration_seconds=10,
+        )
+    assert len(payloads) == 1
+
+
 def test_vision_accepts_pretty_escaped_observation_after_canonicalization(tmp_path):
     frames = []
     for second in range(30):
@@ -458,17 +553,21 @@ def test_vision_rejects_context_or_length_truncated_ollama_response(tmp_path):
         )
 
 
-def test_frame_pts_are_read_from_ffmpeg_showinfo_not_inferred_from_filenames(tmp_path):
+@pytest.mark.parametrize("frame_count", [10, 30])
+def test_frame_pts_are_read_from_ffmpeg_showinfo_not_inferred_from_filenames(
+    tmp_path, frame_count
+):
     video_path = tmp_path / "window.mp4"
     video_path.write_bytes(b"mp4")
 
     def fake_run(args, **kwargs):
         output_pattern = Path(args[-1])
-        for index in range(1, 31):
+        assert args[args.index("-frames:v") + 1] == str(frame_count)
+        for index in range(1, frame_count + 1):
             Path(str(output_pattern).replace("%03d", f"{index:03d}")).write_bytes(
                 b"jpg"
             )
-        pts = [0.25 + index for index in range(30)]
+        pts = [0.25 + index for index in range(frame_count)]
         stderr = "\n".join(
             f"[Parsed_showinfo_2] n:{index} pts:{index} pts_time:{value:.3f}"
             for index, value in enumerate(pts)
@@ -479,11 +578,78 @@ def test_frame_pts_are_read_from_ffmpeg_showinfo_not_inferred_from_filenames(tmp
         video_path,
         tmp_path,
         command_runner=fake_run,
+        frame_count=frame_count,
     )
 
-    assert len(frames) == 30
+    assert len(frames) == frame_count
     assert frames[0].pts_seconds == 0.25
-    assert frames[-1].pts_seconds == 29.25
+    assert frames[-1].pts_seconds == frame_count - 0.75
+
+
+def test_10_second_media_pipeline_trims_probes_decodes_audio_and_extracts_10_frames(
+    tmp_path, monkeypatch
+):
+    command_args = []
+    probed = {}
+
+    def fake_run(args, *, timeout_seconds, reason):
+        command_args.append(list(args))
+        Path(args[-1]).write_bytes(b"media")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    def fake_verify(video_path, *, expected_seconds, timeout_seconds):
+        probed.update(
+            video_path=video_path,
+            expected_seconds=expected_seconds,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def fake_extract(video_path, output_dir, *, frame_count, timeout_seconds):
+        assert video_path == tmp_path / "window.mp4"
+        assert output_dir == tmp_path
+        assert frame_count == 10
+        return [
+            video_analysis.Frame(output_dir / f"frame-{second:03d}.jpg", second + 0.5)
+            for second in range(frame_count)
+        ]
+
+    monkeypatch.setattr(video_analysis, "_run_command", fake_run)
+    monkeypatch.setattr(video_analysis, "_verify_media_duration", fake_verify)
+    monkeypatch.setattr(video_analysis, "extract_timestamped_frames", fake_extract)
+
+    deadline = video_analysis.Deadline(time.monotonic() + 30)
+    window = video_analysis.HlsWindow(
+        segments=(
+            video_analysis.HlsSegment(
+                sequence=1,
+                start=datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc),
+                duration_seconds=10,
+                url="https://video-weaver.tyo01.hls.ttvnw.net/segment.ts",
+            ),
+        ),
+        trim_offset_seconds=0,
+        coverage_seconds=10,
+    )
+    video_path = video_analysis.materialize_hls_window(
+        window,
+        work_dir=tmp_path,
+        fetch_segment=lambda _url, _limit: b"segment",
+        deadline=deadline,
+        duration_seconds=10,
+    )
+    frames, audio_path = video_analysis.decode_media_files(
+        video_path,
+        tmp_path,
+        deadline,
+        duration_seconds=10,
+    )
+
+    assert command_args[0][command_args[0].index("-t") + 1] == "10.000"
+    assert command_args[1][command_args[1].index("-t") + 1] == "10.000"
+    assert probed["video_path"] == video_path
+    assert probed["expected_seconds"] == 10
+    assert len(frames) == 10
+    assert audio_path == tmp_path / "audio.wav"
 
 
 def test_engine_removes_temporary_video_when_whisper_fails(tmp_path):
@@ -495,7 +661,7 @@ def test_engine_removes_temporary_video_when_whisper_fails(tmp_path):
         path.write_bytes(b"private-video")
         return path
 
-    def decode(_video_path, work_dir, _deadline):
+    def decode(_video_path, work_dir, _deadline, _duration_seconds):
         audio = work_dir / "audio.wav"
         audio.write_bytes(b"wav")
         frames = []
@@ -539,7 +705,7 @@ def test_engine_success_matches_bot_api_schema_and_iso_milliseconds(tmp_path):
         path.write_bytes(b"mp4")
         return path
 
-    def decode(_video_path, work_dir, _deadline):
+    def decode(_video_path, work_dir, _deadline, _duration_seconds):
         audio = work_dir / "audio.wav"
         audio.write_bytes(b"wav")
         frames = []
@@ -554,7 +720,7 @@ def test_engine_success_matches_bot_api_schema_and_iso_milliseconds(tmp_path):
         capture_window=capture,
         decode_media=decode,
         transcribe_audio=lambda _path, _request_id, _deadline: "音声",
-        analyze_vision=lambda _frames, _transcript, _question, _deadline: "映像解析",
+        analyze_vision=lambda _frames, _transcript, _question, _deadline, _duration: "映像解析",
     )
     request = video_analysis.AnalyzeRequest(
         request_id="mention-123",
@@ -583,6 +749,71 @@ def test_engine_success_matches_bot_api_schema_and_iso_milliseconds(tmp_path):
     assert list(work_root.iterdir()) == []
 
 
+def test_engine_propagates_10_second_request_through_decode_vision_and_response(
+    tmp_path,
+):
+    work_root = tmp_path / "work"
+    work_root.mkdir()
+    observed = {}
+
+    def capture(request, work_dir, _deadline):
+        observed["capture_duration"] = request.duration_seconds
+        path = work_dir / "window.mp4"
+        path.write_bytes(b"mp4")
+        return path
+
+    def decode(_video_path, work_dir, _deadline, duration_seconds):
+        observed["decode_duration"] = duration_seconds
+        audio = work_dir / "audio.wav"
+        audio.write_bytes(b"wav")
+        frames = []
+        for second in range(duration_seconds):
+            path = work_dir / f"frame-{second:03d}.jpg"
+            path.write_bytes(b"jpg")
+            frames.append(video_analysis.Frame(path, second + 0.5))
+        return frames, audio
+
+    def vision(_frames, _transcript, _question, _deadline, duration_seconds):
+        observed["vision_duration"] = duration_seconds
+        return "映像解析"
+
+    engine = video_analysis.VideoAnalysisEngine(
+        temp_root=work_root,
+        capture_window=capture,
+        decode_media=decode,
+        transcribe_audio=lambda _path, _request_id, _deadline: "音声",
+        analyze_vision=vision,
+    )
+    status, result = video_analysis.process_analyze_body(
+        json.dumps(
+            {
+                "requestId": "mention-10s",
+                "channel": "rukalun",
+                "streamId": "316500000001",
+                "requestedAt": "2026-11-03T12:00:05.000Z",
+                "durationSeconds": 10,
+                "question": "何が起きた？",
+            }
+        ).encode("utf-8"),
+        allowed_channel="rukalun",
+        engine=engine,
+    )
+
+    assert status == 200
+    assert observed == {
+        "capture_duration": 10,
+        "decode_duration": 10,
+        "vision_duration": 10,
+    }
+    assert result["requestedAt"] == "2026-11-03T12:00:05.000Z"
+    assert result["windowEnd"] == "2026-11-03T12:00:15.000Z"
+    assert result["durationSeconds"] == 10
+    assert result["frameCount"] == 10
+    assert result["analysis"] == "映像解析"
+    assert result["transcript"] == "音声"
+    assert list(work_root.iterdir()) == []
+
+
 def test_engine_shared_deadline_stops_before_starting_the_next_stage(tmp_path):
     clock = {"now": 0.0}
     decode_called = False
@@ -593,7 +824,7 @@ def test_engine_shared_deadline_stops_before_starting_the_next_stage(tmp_path):
         clock["now"] = 2.0
         return path
 
-    def decode(_video_path, _work_dir, _deadline):
+    def decode(_video_path, _work_dir, _deadline, _duration_seconds):
         nonlocal decode_called
         decode_called = True
         raise AssertionError("decode must not start after the shared deadline")
@@ -630,7 +861,7 @@ def test_engine_rechecks_shared_deadline_after_final_vision(tmp_path):
         path.write_bytes(b"mp4")
         return path
 
-    def decode(_video_path, work_dir, _deadline):
+    def decode(_video_path, work_dir, _deadline, _duration_seconds):
         audio = work_dir / "audio.wav"
         audio.write_bytes(b"wav")
         frames = []
@@ -640,7 +871,7 @@ def test_engine_rechecks_shared_deadline_after_final_vision(tmp_path):
             frames.append(video_analysis.Frame(path, second + 0.5))
         return frames, audio
 
-    def vision(_frames, _transcript, _question, _deadline):
+    def vision(_frames, _transcript, _question, _deadline, _duration_seconds):
         clock["now"] = 2.0
         return "期限後の回答"
 

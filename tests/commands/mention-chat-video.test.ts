@@ -18,24 +18,24 @@ function okBody(overrides: Record<string, unknown> = {}) {
     status: "ok",
     ...baseInput,
     question: undefined,
-    windowEnd: "2026-11-03T01:02:33.000Z",
-    durationSeconds: 30,
-    frameCount: 30,
+    windowEnd: "2026-11-03T01:02:13.000Z",
+    durationSeconds: 10,
+    frameCount: 10,
     analysis: "画面中央でボスと戦っている。",
     transcript: "危ない、と話している。",
     timings: {
-      captureMs: 30_000,
+      captureMs: 10_000,
       decodeMs: 100,
       visionMs: 2_000,
       transcribeMs: 500,
-      totalMs: 32_600,
+      totalMs: 12_600,
     },
     ...overrides,
   };
 }
 
 describe("MentionChatVideoClient", () => {
-  it("starts the exact 30-second request immediately and validates the response", async () => {
+  it("starts the exact 10-second request immediately and validates the response", async () => {
     const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) =>
       new Response(JSON.stringify(okBody()), { status: 200 })
     );
@@ -54,13 +54,13 @@ describe("MentionChatVideoClient", () => {
     );
     expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({
       ...baseInput,
-      durationSeconds: 30,
+      durationSeconds: 10,
     });
     await expect(job.promise).resolves.toMatchObject({
       status: "ok",
-      durationSeconds: 30,
-      frameCount: 30,
-      windowEnd: "2026-11-03T01:02:33.000Z",
+      durationSeconds: 10,
+      frameCount: 10,
+      windowEnd: "2026-11-03T01:02:13.000Z",
     });
   });
 
@@ -69,9 +69,9 @@ describe("MentionChatVideoClient", () => {
     ["channel", "other_channel"],
     ["streamId", "other-stream"],
     ["requestedAt", "2026-11-03T01:02:04.000Z"],
-    ["windowEnd", "2026-11-03T01:02:34.000Z"],
-    ["frameCount", 29],
-    ["durationSeconds", 29],
+    ["windowEnd", "2026-11-03T01:02:33.000Z"],
+    ["frameCount", 30],
+    ["durationSeconds", 30],
   ])("rejects a mismatched %s", async (key, value) => {
     const client = new MentionChatVideoClient({
       enabled: true,
@@ -190,7 +190,7 @@ describe("MentionChatVideoClient", () => {
   it("formats bounded observations without embedding frames", () => {
     const result = okBody() as never;
     const context = formatMentionChatVideoContext(result);
-    expect(context).toContain("30秒");
+    expect(context).toContain("10秒");
     expect(context).toContain("映像観測");
     expect(context).toContain("音声文字起こし");
     expect(context).not.toContain("base64");
