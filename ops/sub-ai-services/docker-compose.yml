@@ -161,6 +161,47 @@ services:
         order: stop-first
         failure_action: rollback
 
+  video-analysis:
+    image: ${TWITCHRAID_VIDEO_IMAGE:-localhost:5050/twitchraid-video-analysis:local}
+    user: "10001:10001"
+    read_only: true
+    environment:
+      VIDEO_SERVICE_PORT: "8090"
+      VIDEO_ALLOWED_CHANNEL: rukalun
+      VIDEO_OLLAMA_ENDPOINT: http://sub-ai_ollama:11434/api/generate
+      VIDEO_OLLAMA_MODEL: gemma4:e4b-it-qat
+      VIDEO_OLLAMA_CONTEXT_LENGTH: "4096"
+      VIDEO_VISION_BATCH_SIZE: "5"
+      VIDEO_TOTAL_TIMEOUT_SECONDS: "165"
+      VIDEO_WHISPER_ENDPOINT: http://sub-ai_whisper-api:5001/transcribe
+      VIDEO_TEMP_ROOT: /tmp/video-analysis
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      TZ: Asia/Tokyo
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=268435456,mode=1777
+    networks:
+      dokploy-network:
+        aliases:
+          - video-analysis
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+      restart_policy:
+        condition: any
+        delay: 5s
+      placement:
+        constraints:
+          - node.role == manager
+      update_config:
+        order: stop-first
+        failure_action: rollback
+      rollback_config:
+        order: stop-first
+
   memory-web:
     image: ${TWITCHRAID_BOT_IMAGE:-localhost:5050/twitch-raid-apcz9n:local}
     command:

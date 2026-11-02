@@ -44,6 +44,10 @@ const DEFAULT_CHAT_AI_SEARCH_TIMEOUT_MS = 2_500;
 const DEFAULT_CHAT_AI_SEARCH_MAX_QUERY_CHARS = 120;
 const DEFAULT_CHAT_AI_SEARCH_MAX_RESPONSE_BYTES = 65_536;
 const DEFAULT_CHAT_AI_SEARCH_MAX_RESULTS = 3;
+const DEFAULT_CHAT_AI_VIDEO_ENDPOINT =
+  "http://video-analysis:8090";
+const DEFAULT_CHAT_AI_VIDEO_TIMEOUT_MS = 180_000;
+const DEFAULT_CHAT_AI_VIDEO_MAX_PENDING = 2;
 
 type ChatAiSearchProvider = "duckduckgo" | "searxng";
 
@@ -191,6 +195,10 @@ export class Config {
   readonly chatAiIgnoredUsers: string[];
   readonly chatAiStreamImageEnabled: boolean;
   readonly chatAiVisionModel: string;
+  readonly chatAiVideoEnabled: boolean;
+  readonly chatAiVideoEndpoint: string;
+  readonly chatAiVideoTimeoutMs: number;
+  readonly chatAiVideoMaxPending: number;
   readonly chatAiSearchEnabled: boolean;
   readonly chatAiSearchProvider: ChatAiSearchProvider;
   readonly chatAiSearchEndpoint: string;
@@ -499,6 +507,24 @@ export class Config {
     );
     this.chatAiVisionModel =
       env["CHAT_AI_VISION_MODEL"]?.trim() || this.chatAiModel;
+    this.chatAiVideoEnabled = parseEnabledFlag(
+      env["CHAT_AI_VIDEO_ENABLED"] ?? "false"
+    );
+    this.chatAiVideoEndpoint =
+      env["CHAT_AI_VIDEO_ENDPOINT"]?.trim() ||
+      DEFAULT_CHAT_AI_VIDEO_ENDPOINT;
+    this.chatAiVideoTimeoutMs = parseBoundedInt(
+      env["CHAT_AI_VIDEO_TIMEOUT_MS"],
+      DEFAULT_CHAT_AI_VIDEO_TIMEOUT_MS,
+      1_000,
+      300_000
+    );
+    this.chatAiVideoMaxPending = parseBoundedInt(
+      env["CHAT_AI_VIDEO_MAX_PENDING"],
+      DEFAULT_CHAT_AI_VIDEO_MAX_PENDING,
+      1,
+      8
+    );
     this.chatAiSearchEnabled = parseEnabledFlag(
       env["CHAT_AI_SEARCH_ENABLED"] ?? "0"
     );

@@ -326,6 +326,10 @@ CHAT_AI_COOLDOWN_SECONDS=30
 CHAT_AI_IGNORED_USERS=＠RukalunBot,nightbot
 CHAT_AI_STREAM_IMAGE_ENABLED=true
 CHAT_AI_VISION_MODEL=qwen2.5vl:7b
+CHAT_AI_VIDEO_ENABLED=true
+CHAT_AI_VIDEO_ENDPOINT=http://video-analysis.internal:8090/v1/analyze-live
+CHAT_AI_VIDEO_TIMEOUT_MS=120000
+CHAT_AI_VIDEO_MAX_PENDING=3
 CHAT_AI_MEMORY_ENABLED=true
 CHAT_AI_MEMORY_STORE=sqlite
 CHAT_AI_MEMORY_PATH=data/custom-chat-ai-memory.json
@@ -436,6 +440,12 @@ BOT_REQUEST_NOTES_DIGEST_DISCORD_ENABLED=true
     expect(config.chatAiIgnoredUsers).toEqual(["rukalunbot", "nightbot"]);
     expect(config.chatAiStreamImageEnabled).toBe(true);
     expect(config.chatAiVisionModel).toBe("qwen2.5vl:7b");
+    expect(config.chatAiVideoEnabled).toBe(true);
+    expect(config.chatAiVideoEndpoint).toBe(
+      "http://video-analysis.internal:8090/v1/analyze-live"
+    );
+    expect(config.chatAiVideoTimeoutMs).toBe(120000);
+    expect(config.chatAiVideoMaxPending).toBe(3);
     expect(config).not.toHaveProperty("chatAiMemoryEnabled");
     expect(config).not.toHaveProperty("chatAiMem0Enabled");
     expect(config).not.toHaveProperty("chatAiAutoLearnEnabled");
@@ -586,6 +596,12 @@ OLLAMA_MODEL=qwen2.5:7b
     expect(config.chatAiIgnoredUsers).toEqual(["nyme_ia2"]);
     expect(config.chatAiStreamImageEnabled).toBe(false);
     expect(config.chatAiVisionModel).toBe("qwen2.5:7b");
+    expect(config.chatAiVideoEnabled).toBe(false);
+    expect(config.chatAiVideoEndpoint).toBe(
+      "http://video-analysis:8090"
+    );
+    expect(config.chatAiVideoTimeoutMs).toBe(180000);
+    expect(config.chatAiVideoMaxPending).toBe(2);
     expect(config).not.toHaveProperty("chatAiMemoryEnabled");
     expect(config).not.toHaveProperty("chatAiMem0Enabled");
     expect(config).not.toHaveProperty("chatAiAutoLearnEnabled");

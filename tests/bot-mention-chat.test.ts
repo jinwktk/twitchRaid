@@ -61,7 +61,10 @@ const TENKI_TOMORROW_FORECAST_HTML = `${TENKI_TODAY_FORECAST_HTML.replaceAll(
 </section>`;
 
 type MentionChatTestBot = Bot & {
-  chatClient: { say: ReturnType<typeof vi.fn> };
+  chatClient: {
+    say: ReturnType<typeof vi.fn>;
+    quit: ReturnType<typeof vi.fn>;
+  };
   apiClient: {
     streams: {
       getStreamByUserName: ReturnType<typeof vi.fn>;
@@ -100,6 +103,10 @@ type MentionChatTestBot = Bot & {
     gameName?: string;
     startDate: Date;
   }) => Promise<boolean>;
+  stop: () => Promise<void>;
+  currentAnythingLlmStreamId: string | null;
+  mentionChatInFlight: boolean;
+  mentionChatQueue: unknown[];
 };
 
 let activeBot: MentionChatTestBot | null = null;
@@ -195,6 +202,10 @@ function makeConfig(
     chatAiIgnoredUsers: ["rukalun"],
     chatAiStreamImageEnabled: false,
     chatAiVisionModel: "qwen2.5vl:7b",
+    chatAiVideoEnabled: false,
+    chatAiVideoEndpoint: "http://video-analysis:8090",
+    chatAiVideoTimeoutMs: 180000,
+    chatAiVideoMaxPending: 2,
     chatAiMemoryEnabled: false,
     chatAiMemoryStore: "json",
     chatAiMemoryPath: path.join(dir, "chat-ai-memory.json"),
@@ -269,7 +280,7 @@ function makeBot(
 } {
   const bot = new Bot(makeConfig(overrides)) as unknown as MentionChatTestBot;
   const say = vi.fn().mockResolvedValue(undefined);
-  bot.chatClient = { say };
+  bot.chatClient = { say, quit: vi.fn() };
   activeBot = bot;
   return { bot, say };
 }
@@ -440,6 +451,10 @@ function installAnythingLlmFetchMock(options: {
       if (url.hostname === "ja.wikipedia.org") {
         return new Response("", { status: 404 });
       }
+      if (url.hostname === "video-analysis") {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return makeVideoAnalysisResponse(body as never);
+      }
       if (url.hostname !== "anythingllm.test") {
         throw new Error(`unexpected fetch: ${url.toString()}`);
       }
@@ -578,6 +593,37 @@ function makeChatMessage(
   };
 }
 
+function makeVideoAnalysisResponse(
+  request: {
+    requestId: string;
+    channel: string;
+    streamId: string;
+    requestedAt: string;
+  },
+  overrides: Record<string, unknown> = {}
+): Response {
+  return new Response(
+    JSON.stringify({
+      status: "ok",
+      ...request,
+      windowEnd: new Date(Date.parse(request.requestedAt) + 30_000).toISOString(),
+      durationSeconds: 30,
+      frameCount: 30,
+      analysis: "画面中央でボスと戦っている。",
+      transcript: "危ない、と話している。",
+      timings: {
+        captureMs: 30_000,
+        decodeMs: 100,
+        visionMs: 2_000,
+        transcribeMs: 500,
+        totalMs: 32_600,
+      },
+      ...overrides,
+    }),
+    { status: 200, headers: { "content-type": "application/json" } }
+  );
+}
+
 afterEach(async () => {
   await activeBot?.anythingLlmChannelMemory?.close();
   activeBot?.anythingLlmLedger?.close();
@@ -598,6 +644,373 @@ afterEach(async () => {
 });
 
 describe("Bot mention chat", () => {
+  it("starts live !chat video capture at the ChatMessage timestamp before generation", async () => {
+    const callOrder: string[] = [];
+    const videoBodies: Array<Record<string, unknown>> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      if (url.includes("video-analysis")) {
+        callOrder.push("video");
+        videoBodies.push(body);
+        return makeVideoAnalysisResponse(body as never);
+      }
+      if (url.endsWith("/api/generate")) {
+        callOrder.push("generate");
+        expect(String(body.prompt)).toContain("動画解析結果");
+        expect(String(body.prompt)).toContain("ボスと戦っている");
+        return new Response(
+          JSON.stringify({ response: "ボス戦の最中で危ない場面だよD！" }),
+          { status: 200 }
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const { bot, say } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiVideoEnabled: true,
+    });
+    bot.currentAnythingLlmStreamId = "stream-live-1";
+    const msg = makeChatMessage("video-start-07");
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat 今の場面どうなってる？",
+      msg
+    );
+
+    expect(callOrder).toEqual(["video", "generate"]);
+    expect(videoBodies[0]).toMatchObject({
+      channel: "rukalun",
+      streamId: "stream-live-1",
+      requestedAt: (msg.date as Date).toISOString(),
+      durationSeconds: 30,
+      question: "今の場面どうなってる？",
+    });
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "ボス戦の最中で危ない場面だよD！"
+    );
+  });
+
+  it("starts capture before an existing AI queue can drain", async () => {
+    const videoStarted = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (!String(input).includes("video-analysis")) {
+        throw new Error("generation must remain queued");
+      }
+      videoStarted();
+      const body = JSON.parse(String(init?.body));
+      return makeVideoAnalysisResponse(body);
+    });
+    const { bot } = makeBot({ chatAiVideoEnabled: true });
+    bot.currentAnythingLlmStreamId = "stream-live-queue";
+    bot.mentionChatInFlight = true;
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat 今の場面は？",
+      makeChatMessage("video-queue-08")
+    );
+
+    expect(videoStarted).toHaveBeenCalledTimes(1);
+    expect(bot.mentionChatQueue).toHaveLength(1);
+    bot.mentionChatQueue.splice(0);
+    bot.mentionChatInFlight = false;
+  });
+
+  it("does not record while offline or for a normal Bot mention", async () => {
+    const videoFetch = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input).includes("video-analysis")) videoFetch();
+      return new Response(JSON.stringify({ response: "普通の文章回答D！" }), {
+        status: 200,
+      });
+    });
+    const offline = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiVideoEnabled: true,
+    });
+    await offline.bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat 質問です",
+      makeChatMessage("video-offline-09")
+    );
+    offline.bot.clipCacheStore.close();
+
+    const mention = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiVideoEnabled: true,
+    });
+    mention.bot.currentAnythingLlmStreamId = "stream-live-mention";
+    await mention.bot._handleRegularMessage(
+      "#rukalun",
+      "viewer",
+      "@rukalun 質問です",
+      100
+    );
+
+    expect(videoFetch).not.toHaveBeenCalled();
+  });
+
+  it("returns an explicit failure without generation when live video analysis fails", async () => {
+    const generateFetch = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("video-analysis")) {
+        const body = JSON.parse(String(init?.body));
+        return new Response(
+          JSON.stringify({
+            status: "unavailable",
+            reason: "capture_failed",
+            requestId: body.requestId,
+          }),
+          { status: 503 }
+        );
+      }
+      generateFetch();
+      throw new Error("generation must not run");
+    });
+    const { bot, say } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiVideoEnabled: true,
+    });
+    bot.currentAnythingLlmStreamId = "stream-live-failure";
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat この場面は？",
+      makeChatMessage("video-failure-10")
+    );
+
+    expect(generateFetch).not.toHaveBeenCalled();
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "映像を解析できなかったので、この場面については答えられないD！"
+    );
+  });
+
+  it("discards a completed capture after the live stream identity changes", async () => {
+    const deferred = createDeferred<Response>();
+    const generateFetch = vi.fn();
+    let requestBody!: Record<string, unknown>;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (String(input).includes("video-analysis")) {
+        requestBody = JSON.parse(String(init?.body));
+        return await deferred.promise;
+      }
+      generateFetch();
+      throw new Error("generation must not run");
+    });
+    const { bot, say } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiVideoEnabled: true,
+    });
+    bot.currentAnythingLlmStreamId = "stream-old";
+    const command = bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat 今の場面は？",
+      makeChatMessage("video-stale-11")
+    );
+    await vi.waitFor(() => expect(requestBody).toBeDefined());
+    bot.currentAnythingLlmStreamId = "stream-new";
+    deferred.resolve(makeVideoAnalysisResponse(requestBody));
+    await command;
+
+    expect(generateFetch).not.toHaveBeenCalled();
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "映像を解析できなかったので、この場面については答えられないD！"
+    );
+  });
+
+  it("does not send a generated reply when the stream changes after capture", async () => {
+    const generation = createDeferred<Response>();
+    const generationStarted = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      if (String(input).includes("video-analysis")) {
+        return makeVideoAnalysisResponse(body as never);
+      }
+      generationStarted();
+      return await generation.promise;
+    });
+    const { bot, say } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiVideoEnabled: true,
+    });
+    bot.currentAnythingLlmStreamId = "stream-before-generation";
+    const command = bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat 今の場面は？",
+      makeChatMessage("video-stale-generation-12")
+    );
+    await vi.waitFor(() => expect(generationStarted).toHaveBeenCalledTimes(1));
+
+    bot.currentAnythingLlmStreamId = "stream-after-generation";
+    generation.resolve(
+      new Response(JSON.stringify({ response: "古い映像を見た回答D！" }), {
+        status: 200,
+      })
+    );
+    await command;
+
+    expect(say).not.toHaveBeenCalled();
+  });
+
+  it("does not send a generated reply when the Bot stops after capture", async () => {
+    const generation = createDeferred<Response>();
+    const generationStarted = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      if (String(input).includes("video-analysis")) {
+        return makeVideoAnalysisResponse(body as never);
+      }
+      generationStarted();
+      return await generation.promise;
+    });
+    const { bot, say } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiVideoEnabled: true,
+    });
+    bot.currentAnythingLlmStreamId = "stream-stop-after-capture";
+    const command = bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat 今の場面は？",
+      makeChatMessage("video-stop-after-capture-13")
+    );
+    await vi.waitFor(() => expect(generationStarted).toHaveBeenCalledTimes(1));
+
+    await bot.stop();
+    generation.resolve(
+      new Response(JSON.stringify({ response: "停止後の古い回答D！" }), {
+        status: 200,
+      })
+    );
+    await command;
+    activeBot = null;
+
+    expect(say).not.toHaveBeenCalled();
+  });
+
+  it("aborts an active video capture on Bot stop without sending a reply", async () => {
+    const videoStarted = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input, init) => {
+        if (!String(input).includes("video-analysis")) {
+          throw new Error("generation must not run");
+        }
+        videoStarted();
+        return await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("aborted", "AbortError"));
+          });
+        });
+      }
+    );
+    const { bot, say } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiVideoEnabled: true,
+    });
+    bot.currentAnythingLlmStreamId = "stream-stop";
+    const command = bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat 今の場面は？",
+      makeChatMessage("video-stop-12")
+    );
+    await vi.waitFor(() => expect(videoStarted).toHaveBeenCalledTimes(1));
+
+    await bot.stop();
+    await command;
+    activeBot = null;
+
+    expect(say).not.toHaveBeenCalled();
+  });
+
+  it("passes live video observations through the production AnythingLLM path", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: ["画面中央でボスと戦っているD！"],
+    });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "anythingllm-video-main.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+      chatAiVideoEnabled: true,
+    });
+    bot.currentAnythingLlmStreamId = "stream-video-anythingllm-main";
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat 今の場面は？",
+      makeChatMessage("video-anythingllm-main-01")
+    );
+
+    expect(state.chatMessages).toHaveLength(1);
+    expect(state.chatMessages[0]).toContain("動画解析結果");
+    expect(state.chatMessages[0]).toContain(
+      "映像観測: 画面中央でボスと戦っている。"
+    );
+    expect(state.chatMessages[0]).toContain(
+      "音声文字起こし: 危ない、と話している。"
+    );
+    expect(state.directOllamaCalls).toBe(0);
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "画面中央でボスと戦っているD！"
+    );
+  });
+
+  it("keeps live video observations during AnythingLLM research regeneration", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: [
+        "それはちょっと分からないD！",
+        "映像ではボス戦中で、タン塩と塩タンは同じ料理名だよ。",
+      ],
+    });
+    const { bot } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "anythingllm-video-research.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiVideoEnabled: true,
+    });
+    bot.currentAnythingLlmStreamId = "stream-video-research";
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat タン塩？塩タン？",
+      makeChatMessage("video-research-01")
+    );
+
+    expect(state.chatMessages).toHaveLength(2);
+    expect(state.chatMessages[0]).toContain(
+      "映像観測: 画面中央でボスと戦っている。"
+    );
+    expect(state.chatMessages[1]).toContain("外部検索結果");
+    expect(state.chatMessages[1]).toContain(
+      "映像観測: 画面中央でボスと戦っている。"
+    );
+    expect(state.directOllamaCalls).toBe(0);
+  });
+
   it("answers an unknown fact through free search and a fresh utility session", async () => {
     const { state } = installAnythingLlmFetchMock({
       chatReplies: ["それはちょっと分からないD！", "タン塩と塩タンは同じ塩味の牛タンだよ。"],
@@ -1138,6 +1551,53 @@ describe("Bot mention chat", () => {
     );
   });
 
+  it("keeps video observations distinct from search facts during utility repair", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: [
+        "えー、ネタバレとかやだ〜！見てない人いるでしょ、絶対無理だよそれ！",
+        "映像ではボス戦中で、検索では物語の結末が確認できるD！",
+      ],
+    });
+    const { bot } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "anythingllm-video-search-repair.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiSearchEngines: "bing",
+      chatAiVideoEnabled: true,
+    });
+    bot.currentAnythingLlmStreamId = "stream-video-search-repair";
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat 呪術廻戦のネタバレを調べて",
+      makeChatMessage("video-search-repair-message-01")
+    );
+
+    expect(state.chatMessages).toHaveLength(2);
+    expect(state.chatMessages[1]).toContain(
+      "映像と音声の観測と外部検索結果を区別"
+    );
+    expect(state.chatMessages[1]).toContain(
+      "場面の説明は動画解析で観測できた内容だけ"
+    );
+    expect(state.chatMessages[1]).toContain(
+      "一般的な事実は外部検索結果を参照"
+    );
+    expect(state.chatMessages[1]).not.toContain(
+      "検索結果に書かれた事実だけを使い"
+    );
+    expect(state.chatMessages[1]).not.toContain(
+      "検索結果から確認できない事実は推測せず"
+    );
+  });
+
   it("repairs an invalid generated reply through the no-memory AnythingLLM utility session", async () => {
     const { state } = installAnythingLlmFetchMock({
       chatReplies: [
@@ -1175,6 +1635,42 @@ describe("Bot mention chat", () => {
       "#rukalun",
       "今夜はカレーがいいD！"
     );
+  });
+
+  it("keeps live video observations during AnythingLLM policy repair", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: [
+        "tonightはボス戦が続いているD！",
+        "今夜もボス戦が続いているD！",
+      ],
+    });
+    const { bot } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "anythingllm-video-policy-repair.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+      chatAiVideoEnabled: true,
+    });
+    bot.currentAnythingLlmStreamId = "stream-video-policy-repair";
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat 今の場面はどう？",
+      makeChatMessage("video-policy-repair-01")
+    );
+
+    expect(state.chatMessages).toHaveLength(2);
+    expect(state.chatMessages[0]).toContain(
+      "映像観測: 画面中央でボスと戦っている。"
+    );
+    expect(state.chatMessages[1]).toContain("修正前候補");
+    expect(state.chatMessages[1]).toContain(
+      "映像観測: 画面中央でボスと戦っている。"
+    );
+    expect(state.directOllamaCalls).toBe(0);
   });
 
   it("repairs an AnythingLLM reply that uses a masculine first person before sending", async () => {

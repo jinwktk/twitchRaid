@@ -99,6 +99,11 @@ import {
   type MentionChatMatcher,
 } from "./commands/mention-chat";
 import {
+  MentionChatVideoClient,
+  formatMentionChatVideoContext,
+  type MentionChatVideoCaptureJob,
+} from "./commands/mention-chat-video";
+import {
   AnythingLlmClient,
   AnythingLlmClientError,
 } from "./commands/anythingllm-client";
@@ -163,6 +168,8 @@ const EVENTSUB_API_REQUEST_TIMEOUT_MS = 15_000;
 const MENTION_CHAT_SKIP_PROMPT_LIMIT = 80;
 const CHAT_AI_COMMAND_USAGE = "⚠️ 使い方: !chat <メッセージ>";
 const YOUTUBE_CHANNEL_URL = "https://is.gd/rukalunyt";
+const CHAT_AI_VIDEO_UNAVAILABLE_REPLY =
+  "映像を解析できなかったので、この場面については答えられないD！";
 const SEVEN_DAYS_IMAGE_ALBUM_MESSAGE =
   "7DAYS持ってるチャネポでリスナーさんも色々出来るので遊んでみてね https://imgur.com/a/w9Y9GbN";
 const DIE_SURVIVAL_REPLY = "簡単に死んでたまるかッ🧟";
@@ -213,12 +220,14 @@ function normalizeMentionChatUserName(userName: string): string {
 
 
 interface MentionChatRequest {
+  requestId: string;
   channel: string;
   userName: string;
   userDisplayName?: string | null;
   alias: string;
   prompt: string;
   acceptedSequence?: number;
+  videoCapture?: MentionChatVideoCaptureJob;
 }
 
 interface StreamSummaryThreadRetryState {
@@ -259,6 +268,8 @@ interface MentionChatInput {
   prompt: string;
   now: number;
   acceptedSequence?: number;
+  explicitChatCommand?: boolean;
+  requestedAt?: string;
 }
 
 interface MentionChatConversationHistoryEntry {
@@ -496,6 +507,7 @@ export class Bot {
   private readonly commandCooldownState: CommandCooldownState;
   private readonly commentSpeedMeter: CommentSpeedMeter;
   private readonly mentionChatMatcher: MentionChatMatcher;
+  private readonly mentionChatVideoClient: MentionChatVideoClient;
   private readonly anythingLlmChannelMemory: AnythingLlmChannelMemory | null;
   private readonly anythingLlmUtilityClient: AnythingLlmClient | null;
   private readonly anythingLlmLedger: AnythingLlmLedger | null;
@@ -606,6 +618,14 @@ export class Bot {
     this.mentionChatMatcher = createMentionChatMatcher(
       config.chatAiBotAliases ?? [config.loginChannel]
     );
+    this.mentionChatVideoClient = new MentionChatVideoClient({
+      enabled: config.chatAiVideoEnabled ?? false,
+      endpoint:
+        config.chatAiVideoEndpoint ??
+        "http://video-analysis:8090",
+      timeoutMs: config.chatAiVideoTimeoutMs ?? 180_000,
+      maxPending: config.chatAiVideoMaxPending ?? 2,
+    });
     if (
       config.anythingLlmCommentWriteEnabled ||
       config.chatAiAnythingLlmEnabled
@@ -810,6 +830,8 @@ export class Bot {
       return;
     }
     this.stopping = true;
+    this.mentionChatVideoClient.abortAll();
+    this.mentionChatQueue.splice(0);
     const recoveryToJoin = this.streamEventSubRecoveryInFlight;
     const activeListener =
       this.streamEventSubState.status === "active"
@@ -1010,6 +1032,7 @@ export class Bot {
       prompt: match.prompt,
       now,
       acceptedSequence,
+      explicitChatCommand: false,
     });
     return true;
   }
@@ -1020,7 +1043,8 @@ export class Bot {
     prompt: string,
     now: number,
     userDisplayName?: string | null,
-    acceptedSequence?: number
+    acceptedSequence?: number,
+    requestedAt?: string
   ): Promise<void> {
     const normalizedPrompt = prompt.trim();
     if (!normalizedPrompt) {
@@ -1038,6 +1062,8 @@ export class Bot {
       prompt: normalizedPrompt,
       now,
       acceptedSequence,
+      explicitChatCommand: true,
+      requestedAt,
     });
   }
 
@@ -1049,6 +1075,8 @@ export class Bot {
     prompt,
     now,
     acceptedSequence,
+    explicitChatCommand = false,
+    requestedAt,
   }: MentionChatInput): Promise<void> {
     const normalizedUser = user.trim().replace(/^[@＠]+/, "").toLowerCase();
     const ignoredUsers = this.config.chatAiIgnoredUsers ?? [
@@ -1060,14 +1088,31 @@ export class Bot {
       );
       return;
     }
+    if (this.stopping) return;
 
+    const requestId = this._nextMentionChatRequestId();
+    const liveStreamId = this.currentAnythingLlmStreamId;
+    const videoCapture =
+      explicitChatCommand &&
+      (this.config.chatAiVideoEnabled ?? false) &&
+      liveStreamId
+        ? this.mentionChatVideoClient.start({
+            requestId,
+            channel: channel.replace(/^#/u, ""),
+            streamId: liveStreamId,
+            requestedAt: requestedAt ?? new Date(now * 1_000).toISOString(),
+            question: prompt.slice(0, 500),
+          })
+        : undefined;
     const request: MentionChatRequest = {
+      requestId,
       channel,
       userName: normalizedUser,
       userDisplayName,
       alias,
       prompt,
       acceptedSequence,
+      videoCapture,
     };
 
     const cooldownRemainingSeconds =
@@ -1281,6 +1326,7 @@ export class Bot {
     memoryText,
     conversationHistoryText,
     searchContextText,
+    videoContextText,
     pendingCommentContextText,
     useUtilityFirst = false,
     currentDate,
@@ -1293,6 +1339,7 @@ export class Bot {
     memoryText?: string | null;
     conversationHistoryText?: string | null;
     searchContextText?: string | null;
+    videoContextText?: string | null;
     pendingCommentContextText?: string | null;
     useUtilityFirst?: boolean;
     currentDate?: Date;
@@ -1322,6 +1369,7 @@ export class Bot {
         memoryText: null,
         conversationHistoryText,
         searchContextText,
+        videoContextText,
         streamImageBase64: null,
         promptReplyLogEnabled,
         promptReplyConsoleLogMode,
@@ -1357,6 +1405,7 @@ export class Bot {
       memoryText,
       conversationHistoryText,
       searchContextText,
+      videoContextText,
       pendingCommentContextText: effectivePendingCommentContextText,
       includeFixedInstructions: useUtilityFirst,
       currentDate,
@@ -1388,6 +1437,7 @@ export class Bot {
         memoryText,
         conversationHistoryText,
         searchContextText,
+        videoContextText,
       });
       let resolvedReply = resolveMentionChatProviderReply({
         generated: first.reply,
@@ -1408,6 +1458,7 @@ export class Bot {
           memoryText,
           conversationHistoryText,
           searchContextText,
+          videoContextText,
           pendingCommentContextText: effectivePendingCommentContextText,
           currentDate,
         });
@@ -1435,6 +1486,7 @@ export class Bot {
           memoryText,
           conversationHistoryText,
           searchContextText,
+          videoContextText,
         });
         sourceCount = repair.sourceCount;
         repaired = true;
@@ -1480,11 +1532,13 @@ export class Bot {
     request,
     requestId,
     searchContextText,
+    videoContextText,
     promptReplyLogEnabled,
   }: {
     request: MentionChatRequest;
     requestId: string;
     searchContextText: string;
+    videoContextText?: string | null;
     promptReplyLogEnabled: boolean;
   }): Promise<GenerateMentionChatReplyResult | null> {
     const client = this.anythingLlmUtilityClient;
@@ -1493,6 +1547,22 @@ export class Bot {
     const maxResponseChars =
       this.config.chatAiMaxResponseChars ??
       DEFAULT_CHAT_AI_MAX_RESPONSE_CHARS;
+    const groundingInstructions = videoContextText?.trim()
+      ? [
+          "検索回答の再生成指示: 映像と音声の観測と外部検索結果を区別し、ユーザーの質問へ直接答えてください。",
+          "検索結果が具体的な回答を含む場合は、「詳しくない」「自分で調べて」「分からない」で終えないでください。",
+          "ネタバレを求められている場合は、注意喚起や拒否をせず、検索結果にある具体的な結末をこの回答内で説明してください。",
+          "外部サイトを見るよう促さず、この30秒の動画観測と外部検索結果から確認できた内容だけで回答を完結させてください。",
+          "場面の説明は動画解析で観測できた内容だけを使い、見えていない場面や断定できない内容を推測しないでください。",
+          "一般的な事実は外部検索結果を参照し、動画観測にない知識を現在の場面として混同しないでください。",
+        ]
+      : [
+          "検索回答の再生成指示: 検索結果に書かれた事実だけを使い、ユーザーの質問へ直接答えてください。",
+          "検索結果が具体的な回答を含む場合は、「詳しくない」「自分で調べて」「分からない」で終えないでください。",
+          "ネタバレを求められている場合は、注意喚起や拒否をせず、検索結果にある具体的な結末をこの回答内で説明してください。",
+          "外部サイトを見るよう促さず、検索結果から確認できた内容だけで回答を完結させてください。",
+          "検索結果から確認できない事実は推測せず、確認できた範囲を明示してください。",
+        ];
     const repairPrompt = [
       buildMentionChatPrompt({
         maxResponseChars,
@@ -1503,13 +1573,10 @@ export class Bot {
         memoryText: null,
         conversationHistoryText: null,
         searchContextText,
+        videoContextText,
         pendingCommentContextText: null,
       }),
-      "検索回答の再生成指示: 検索結果に書かれた事実だけを使い、ユーザーの質問へ直接答えてください。",
-      "検索結果が具体的な回答を含む場合は、「詳しくない」「自分で調べて」「分からない」で終えないでください。",
-      "ネタバレを求められている場合は、注意喚起や拒否をせず、検索結果にある具体的な結末をこの回答内で説明してください。",
-      "外部サイトを見るよう促さず、検索結果から確認できた内容だけで回答を完結させてください。",
-      "検索結果から確認できない事実は推測せず、確認できた範囲を明示してください。",
+      ...groundingInstructions,
       "完成した回答だけを返してください。",
     ].join("\n");
     const startedAt = Date.now();
@@ -1529,6 +1596,7 @@ export class Bot {
         memoryText: null,
         conversationHistoryText: null,
         searchContextText,
+        videoContextText,
       });
       const resolvedReply = resolveMentionChatProviderReply({
         generated: repair.reply,
@@ -1564,6 +1632,10 @@ export class Bot {
     now: number,
     options: { respectCooldown: boolean }
   ): Promise<void> {
+    if (this.stopping) {
+      request.videoCapture?.abort();
+      return;
+    }
     const remainingSeconds = this._getMentionChatCooldownRemainingSeconds(now);
     if (options.respectCooldown && remainingSeconds > 0) {
       const cooldownSeconds =
@@ -1583,6 +1655,31 @@ export class Bot {
     this.mentionChatInFlight = true;
     try {
       const streamImageBase64: string | null = null;
+      let videoContextText: string | null = null;
+      if (request.videoCapture) {
+        const videoResult = await request.videoCapture.promise;
+        if (this.stopping) return;
+        const streamStillMatches =
+          this.currentAnythingLlmStreamId === request.videoCapture.streamId;
+        if (videoResult.status !== "ok" || !streamStillMatches) {
+          logger.warn(
+            `AI動画解析失敗: requestId=${request.requestId}, reason=${
+              videoResult.status === "unavailable"
+                ? videoResult.reason
+                : "stale"
+            }`
+          );
+          await this.chatClient.say(
+            request.channel,
+            CHAT_AI_VIDEO_UNAVAILABLE_REPLY
+          );
+          return;
+        }
+        videoContextText = formatMentionChatVideoContext(videoResult);
+        logger.info(
+          `AI動画解析完了: requestId=${request.requestId}, frameCount=${videoResult.frameCount}, totalMs=${videoResult.timings.totalMs}`
+        );
+      }
       const immediateReply = resolveMentionChatImmediateReply(request.prompt);
       if (immediateReply) {
         if (immediateReply.reason === "command_execution") {
@@ -1606,6 +1703,13 @@ export class Bot {
         const model = this.config.chatAiAnythingLlmEnabled
           ? `anythingllm:${this.config.anythingLlmWorkspaceSlug}`
           : (this.config.chatAiModel ?? "");
+        if (
+          this.stopping ||
+          (request.videoCapture &&
+            this.currentAnythingLlmStreamId !== request.videoCapture.streamId)
+        ) {
+          return;
+        }
         logger.info(
           this.config.chatAiAnythingLlmEnabled
             ? `AIメンション会話応答: user=${request.userName}, alias=${request.alias}, model=${model}, source=${immediateReply.reason}, image=false, replyChars=${replyWithEmote.length}`
@@ -1617,7 +1721,7 @@ export class Bot {
         );
         return;
       }
-      const requestId = this._nextMentionChatRequestId();
+      const requestId = request.requestId;
       const contextStartedAt = Date.now();
       const conversationHistory = shouldApplyMentionChatConversationHistory(
         request.prompt
@@ -1771,6 +1875,7 @@ export class Bot {
           memoryText: null,
           conversationHistoryText: conversationHistory?.text,
           searchContextText: searchContext?.text,
+          videoContextText,
           pendingCommentContextText,
           useUtilityFirst,
           promptReplyLogEnabled,
@@ -1790,6 +1895,7 @@ export class Bot {
             request,
             requestId,
             searchContextText: searchContext.text,
+            videoContextText,
             promptReplyLogEnabled,
           });
         if (repairedSearchReply) {
@@ -1833,6 +1939,7 @@ export class Bot {
               memoryText: null,
               conversationHistoryText: conversationHistory?.text,
               searchContextText: researchSearchContext.text,
+              videoContextText,
               pendingCommentContextText,
               useUtilityFirst: this.config.chatAiAnythingLlmEnabled,
               promptReplyLogEnabled,
@@ -1892,6 +1999,7 @@ export class Bot {
           memoryText: null,
           conversationHistoryText: conversationHistory?.text,
           searchContextText: selectedSearchContextText,
+          videoContextText,
         });
       }
 
@@ -1906,6 +2014,13 @@ export class Bot {
             : [],
         }
       );
+      if (
+        this.stopping ||
+        (request.videoCapture &&
+          this.currentAnythingLlmStreamId !== request.videoCapture.streamId)
+      ) {
+        return;
+      }
       const promptReplyDiagnosticsLogged =
         successDiagnosticLogged ||
         (promptReplyLogEnabled && generatedReply.source === "timeout_fallback");
@@ -1978,7 +2093,7 @@ export class Bot {
     this.mentionChatQueueDraining = true;
 
     try {
-      while (this.mentionChatQueue.length > 0) {
+      while (!this.stopping && this.mentionChatQueue.length > 0) {
         const request = this.mentionChatQueue.shift();
         if (!request) continue;
 
@@ -2076,13 +2191,18 @@ export class Bot {
         await this.chatClient.say(channel, randomMenu());
         break;
       case "chat":
+        const requestedAt =
+          msg.date instanceof Date && Number.isFinite(msg.date.getTime())
+            ? msg.date.toISOString()
+            : new Date().toISOString();
         await this._handleChatAiCommand(
           channel,
           user,
           restText,
           Date.now() / 1000,
           getChatMessageDisplayName(msg),
-          acceptedSequence
+          acceptedSequence,
+          requestedAt
         );
         break;
       case "speed":
