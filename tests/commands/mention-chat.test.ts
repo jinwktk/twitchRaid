@@ -533,6 +533,29 @@ describe("generateMentionChatReply", () => {
     );
   });
 
+  it("anchors calendar questions to the current Japanese date even without fixed instructions", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-02T20:54:46Z"));
+    try {
+      for (const includeFixedInstructions of [true, false]) {
+        const prompt = buildMentionChatPrompt({
+          maxResponseChars: 500,
+          channel: "#rukalun",
+          userName: "viewer",
+          promptText: "明日は何の日？",
+          includeFixedInstructions,
+        });
+        expect(prompt).toContain("2026年11月4日");
+        expect(prompt).toContain("日本時間");
+        expect(prompt).toContain("国民の祝日");
+        expect(prompt).toContain("記念日");
+        expect(prompt).toContain("推測");
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("repairs a masculine first-person reply before returning it", async () => {
     const fetchImpl = vi
       .fn()

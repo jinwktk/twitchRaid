@@ -288,6 +288,7 @@ function installAnythingLlmFetchMock(options: {
   failAnythingLlm?: boolean;
   directOllamaReply?: string;
   emptySearchResults?: boolean;
+  failUtility?: boolean;
 } = {}): {
   fetchSpy: ReturnType<typeof vi.spyOn>;
   state: AnythingLlmFetchMockState;
@@ -338,6 +339,26 @@ function installAnythingLlmFetchMock(options: {
         state.searchQueries.push(query);
         if (options.emptySearchResults) {
           return json({ query, results: [] });
+        }
+        if (query === "11月4日 何の日") {
+          return json({
+            query,
+            results: [{
+              title: "11月4日は何の日？",
+              content: "11月4日はユネスコ憲章記念日です。1946年のこの日に憲章が発効しました。",
+              url: "https://example.test/calendar/1104",
+            }],
+          });
+        }
+        if (query === "2026年11月3日 日本 祝日") {
+          return json({
+            query,
+            results: [{
+              title: "2026年の国民の祝日",
+              content: "2026年11月3日は文化の日で、日本の国民の祝日です。",
+              url: "https://www8.cao.go.jp/chosei/shukujitsu/gaiyou.html",
+            }],
+          });
         }
         if (query === "今日の天気") {
           return json({
@@ -513,6 +534,9 @@ function installAnythingLlmFetchMock(options: {
         state.chatMessages.push(body.message);
         state.chatModes.push(body.mode);
         state.chatSessions.push(body.sessionId);
+        if (options.failUtility && url.pathname.includes("twitch-rukalun-utility")) {
+          return json({ error: "unavailable" }, 503);
+        }
         if (url.pathname.includes("twitch-rukalun-utility")) {
           expect(body.sessionId).toMatch(
             /^twitchraid-utility-broadcaster-id-v1-mention-\d+-\d+$/u
@@ -574,6 +598,94 @@ afterEach(async () => {
 });
 
 describe("Bot mention chat", () => {
+  it("answers an unknown fact through free search and a fresh utility session", async () => {
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: ["それはちょっと分からないD！", "タン塩と塩タンは同じ塩味の牛タンだよ。"],
+    });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+    });
+    await bot._handleIncomingChatEvent("#rukalun", "viewer", "!chat タン塩？塩タン？", makeChatMessage("unknown-fact-01"));
+    expect(state.searchQueries).toEqual(["タン塩 塩タン 違い"]);
+    expect(state.chatMessages).toHaveLength(2);
+    expect(state.chatMessages[0]).not.toContain("外部検索結果");
+    expect(state.chatMessages[1]).toContain("外部検索結果");
+    expect(state.chatMessages[1]).toContain("牛タン");
+    expect(state.chatSessions[0]).toBe("twitchraid-channel-broadcaster-id-v1");
+    expect(state.chatSessions[1]).toMatch(/^twitchraid-utility-broadcaster-id-v1-mention-/u);
+    expect(state.directOllamaCalls).toBe(0);
+    expect(say).toHaveBeenCalledExactlyOnceWith("#rukalun", "タン塩と塩タンは同じ塩味の牛タンだよ。");
+  });
+
+  it("keeps an honest unknown reply when search-based utility generation fails", async () => {
+    const unknownReply = "それはちょっと分からないD！";
+    const { state } = installAnythingLlmFetchMock({ chatReplies: [unknownReply], failUtility: true });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+    });
+    await bot._handleIncomingChatEvent("#rukalun", "viewer", "!chat タン塩？塩タン？", makeChatMessage("unknown-failure-01"));
+    expect(state.searchQueries).toEqual(["タン塩 塩タン 違い"]);
+    expect(state.chatMessages).toHaveLength(2);
+    expect(state.chatSessions[1]).toMatch(/^twitchraid-utility-broadcaster-id-v1-mention-/u);
+    expect(say).toHaveBeenCalledExactlyOnceWith("#rukalun", unknownReply);
+  });
+
+  it.each([
+    ["明日は何の日？", "11月4日 何の日", "2026年11月4日", "明日11月4日はユネスコ憲章記念日だよ。"],
+    ["今日なんの祝日？", "2026年11月3日 日本 祝日", "2026年11月3日", "今日11月3日は文化の日で、日本の祝日だよ。"],
+  ])("answers a calendar question from a dated search in one utility call: %s", async (question, query, targetDate, answer) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-02T20:54:46Z"));
+    const { state } = installAnythingLlmFetchMock({ chatReplies: [answer] });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+    });
+
+    await bot._handleIncomingChatEvent("#rukalun", "viewer", `!chat ${question}`, makeChatMessage("calendar-01"));
+
+    expect(state.searchQueries).toEqual([query]);
+    expect(state.chatMessages).toHaveLength(1);
+    expect(state.chatMessages[0]).toContain(targetDate);
+    expect(state.chatMessages[0]).toContain("外部検索結果");
+    expect(state.chatSessions[0]).toMatch(/^twitchraid-utility-broadcaster-id-v1-mention-/u);
+    expect(state.directOllamaCalls).toBe(0);
+    expect(say).toHaveBeenCalledExactlyOnceWith("#rukalun", answer);
+  });
+
+  it("keeps the calendar subject explicit when the same requester says search after another viewer interrupts", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-02T20:54:46Z"));
+    const answer = "明日11月4日はユネスコ憲章記念日だよ。";
+    const { state } = installAnythingLlmFetchMock({ chatReplies: [answer, answer] });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+    });
+    await bot._handleIncomingChatEvent("#rukalun", "viewer", "!chat 明日は何の日？", makeChatMessage("calendar-followup-01"));
+    await bot._handleIncomingChatEvent("#rukalun", "other_viewer", "今日はお休みだね", makeChatMessage("calendar-followup-02"));
+    await bot._handleIncomingChatEvent("#rukalun", "viewer", "!chat 調べて", makeChatMessage("calendar-followup-03"));
+
+    expect(state.searchQueries).toEqual(["11月4日 何の日", "11月4日 何の日"]);
+    expect(state.chatMessages).toHaveLength(2);
+    expect(state.chatMessages[1]).toContain("ユーザーの発言: 明日は何の日？");
+    expect(state.chatMessages[1]).toContain("2026年11月4日");
+    expect(state.chatSessions.every((session) => session.startsWith("twitchraid-utility-broadcaster-id-v1-mention-"))).toBe(true);
+    expect(say).toHaveBeenLastCalledWith("#rukalun", answer);
+  });
+
   it("masks memory requests in command detection logs", () => {
     expect(
       formatCommandDetectionLogText("!chat 覚えて: APIキー=sk-proj-1234567890")

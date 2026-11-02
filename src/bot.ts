@@ -117,6 +117,7 @@ import {
   fetchMentionChatSearchContext,
   fetchMentionChatSearchContextDetailed,
   isMenuRecommendationSelectionRequest,
+  resolveMentionChatCalendarQuestion,
   shouldAlwaysSynthesizeMentionChatSearchReply,
   shouldRepairMentionChatReplyFromSearchContext,
   shouldResearchMentionChatReply,
@@ -1282,6 +1283,7 @@ export class Bot {
     searchContextText,
     pendingCommentContextText,
     useUtilityFirst = false,
+    currentDate,
     promptReplyLogEnabled,
     promptReplyConsoleLogMode,
   }: {
@@ -1293,6 +1295,7 @@ export class Bot {
     searchContextText?: string | null;
     pendingCommentContextText?: string | null;
     useUtilityFirst?: boolean;
+    currentDate?: Date;
     promptReplyLogEnabled: boolean;
     promptReplyConsoleLogMode: "deferred" | "file_only";
   }): Promise<GenerateMentionChatReplyResult | null> {
@@ -1309,6 +1312,7 @@ export class Bot {
         keepAlive: this.config.chatAiKeepAlive ?? "30m",
         contextLength: this.config.chatAiContextLength ?? 4096,
         requestId,
+        currentDate,
         maxResponseChars,
         channel: request.channel,
         userName: request.userName,
@@ -1355,6 +1359,7 @@ export class Bot {
       searchContextText,
       pendingCommentContextText: effectivePendingCommentContextText,
       includeFixedInstructions: useUtilityFirst,
+      currentDate,
     });
     const previousStreamSummaryRequest = isPreviousStreamSummaryRequest(
       request.prompt
@@ -1404,6 +1409,7 @@ export class Bot {
           conversationHistoryText,
           searchContextText,
           pendingCommentContextText: effectivePendingCommentContextText,
+          currentDate,
         });
         const repairPrompt = [
           repairBasePrompt,
@@ -1654,6 +1660,14 @@ export class Bot {
             ? latestMenuRecommendationTopicText
             : null;
       const searchQueryText = contextualSearchQuery ?? request.prompt;
+      const currentDate = new Date();
+      const calendarQuestion = resolveMentionChatCalendarQuestion(
+        searchQueryText,
+        currentDate
+      );
+      const generationRequest = calendarQuestion && contextualSearchQuery
+        ? { ...request, prompt: contextualSearchQuery }
+        : request;
       const searchEnabled = this.config.chatAiSearchEnabled ?? false;
       const searchCandidate =
         contextualSearchQuery !== null ||
@@ -1667,6 +1681,7 @@ export class Bot {
           this.config.chatAiSearchEndpoint ?? "https://api.duckduckgo.com/",
         engines: this.config.chatAiSearchEngines ?? "",
         queryText: searchQueryText,
+        currentDate,
         force: contextualSearchQuery !== null,
         timeoutMs: this.config.chatAiSearchTimeoutMs ?? 2_500,
         maxQueryChars: this.config.chatAiSearchMaxQueryChars ?? 120,
@@ -1744,12 +1759,14 @@ export class Bot {
       const useUtilityFirst = Boolean(
         this.config.chatAiAnythingLlmEnabled &&
           searchContext &&
-          isMenuRecommendationSelectionRequest(searchQueryText)
+          (isMenuRecommendationSelectionRequest(searchQueryText) ||
+            calendarQuestion !== null)
       );
       let generatedReply =
         await this._generateMentionChatReplyWithConfiguredProvider({
-          request,
+          request: generationRequest,
           requestId,
+          currentDate,
           promptLogValue,
           memoryText: null,
           conversationHistoryText: conversationHistory?.text,
@@ -1795,6 +1812,7 @@ export class Bot {
             this.config.chatAiSearchEndpoint ?? "https://api.duckduckgo.com/",
           engines: this.config.chatAiSearchEngines ?? "",
           queryText: searchQueryText,
+          currentDate,
           force: true,
           timeoutMs: this.config.chatAiSearchTimeoutMs ?? 2_500,
           maxQueryChars: this.config.chatAiSearchMaxQueryChars ?? 120,
@@ -1808,13 +1826,15 @@ export class Bot {
           );
           const researchedReply =
             await this._generateMentionChatReplyWithConfiguredProvider({
-              request,
+              request: generationRequest,
               requestId,
+              currentDate,
               promptLogValue,
               memoryText: null,
               conversationHistoryText: conversationHistory?.text,
               searchContextText: researchSearchContext.text,
               pendingCommentContextText,
+              useUtilityFirst: this.config.chatAiAnythingLlmEnabled,
               promptReplyLogEnabled,
               promptReplyConsoleLogMode: "file_only",
             });

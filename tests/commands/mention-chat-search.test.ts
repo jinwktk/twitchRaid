@@ -5,6 +5,7 @@ import {
   fetchMentionChatSearchContext,
   fetchMentionChatSearchContextDetailed,
   isMenuRecommendationSelectionRequest,
+  resolveMentionChatCalendarQuestion,
   shouldAlwaysSynthesizeMentionChatSearchReply,
   shouldRepairMentionChatReplyFromSearchContext,
   shouldResearchMentionChatReply,
@@ -65,6 +66,316 @@ function jsonResponse(value: unknown, headers: Record<string, string> = {}): Res
 }
 
 describe("mention chat external search", () => {
+  it("detects only explicit today/tomorrow calendar questions", () => {
+    expect(shouldSearchMentionChat("明日は何の日？")).toBe(true);
+    expect(shouldSearchMentionChat("明日は何の日か教えて")).toBe(true);
+    expect(shouldSearchMentionChat("明日は何の日か調べて")).toBe(true);
+    expect(shouldSearchMentionChat("今日なんの祝日？")).toBe(true);
+    expect(shouldSearchMentionChat("あしたって記念日？")).toBe(true);
+    expect(shouldSearchMentionChat("明日なにしてる？")).toBe(false);
+    expect(shouldSearchMentionChat("明日香村はどこ？")).toBe(false);
+  });
+
+  it("resolves calendar questions to an absolute JST date, including rollover", () => {
+    expect(
+      resolveMentionChatCalendarQuestion(
+        "明日は何の日？",
+        new Date("2026-11-03T14:59:59.000Z")
+      )
+    ).toEqual({
+      kind: "anniversary",
+      targetDate: "2026-11-04",
+      dateLabel: "2026年11月4日",
+      searchQuery: "11月4日 何の日",
+    });
+    expect(
+      resolveMentionChatCalendarQuestion(
+        "明日は何の日か教えて",
+        new Date("2026-11-03T12:00:00+09:00")
+      )
+    ).toMatchObject({
+      targetDate: "2026-11-04",
+      searchQuery: "11月4日 何の日",
+    });
+    expect(
+      resolveMentionChatCalendarQuestion(
+        "今日なんの祝日？",
+        new Date("2026-11-02T15:00:00.000Z")
+      )
+    ).toEqual({
+      kind: "holiday",
+      targetDate: "2026-11-03",
+      dateLabel: "2026年11月3日",
+      searchQuery: "2026年11月3日 日本 祝日",
+    });
+    expect(
+      resolveMentionChatCalendarQuestion(
+        "明日は何の日？",
+        new Date("2026-11-03T15:00:00.000Z")
+      )
+    ).toMatchObject({
+      targetDate: "2026-11-05",
+      dateLabel: "2026年11月5日",
+      searchQuery: "11月5日 何の日",
+    });
+    expect(
+      resolveMentionChatCalendarQuestion(
+        "あすは記念日？",
+        new Date("2026-12-31T14:59:59.000Z")
+      )
+    ).toEqual({
+      kind: "anniversary",
+      targetDate: "2027-01-01",
+      dateLabel: "2027年1月1日",
+      searchQuery: "1月1日 何の日",
+    });
+    expect(
+      resolveMentionChatCalendarQuestion("明日は何の日？", new Date("invalid"))
+    ).toBeNull();
+    expect(
+      resolveMentionChatCalendarQuestion(
+        "明日香村はどこ？",
+        new Date("2026-11-03T12:00:00+09:00")
+      )
+    ).toBeNull();
+  });
+
+  it("searches an absolute calendar date and excludes other dates", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        results: [
+          {
+            title: "11月5日は別の記念日",
+            content: "11月5日の記念日と由来を紹介します。",
+            url: "https://example.test/november-5",
+          },
+          {
+            title: "11月4日は何の日",
+            content: "11月4日の記念日と、その由来を紹介します。",
+            url: "https://example.test/november-4",
+          },
+          {
+            title: "111月4日の記録",
+            content: "対象外の文字列です。",
+            url: "https://example.test/not-a-date",
+          },
+        ],
+      })
+    );
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      engines: "yahoo japan,bing",
+      queryText: "明日は何の日？",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+      currentDate: new Date("2026-11-03T12:00:00+09:00"),
+    });
+
+    const searchUrl = new URL(String(fetchImpl.mock.calls[0][0]));
+    expect(searchUrl.searchParams.get("q")).toBe("11月4日 何の日");
+    expect(result.reason).toBe("found");
+    expect(result.context?.resultCount).toBe(1);
+    expect(result.context?.text).toContain("暦質問の対象日: 2026年11月4日（JST）");
+    expect(result.context?.text).toContain("11月4日は何の日");
+    expect(result.context?.text).not.toContain("11月5日");
+    expect(result.context?.text).not.toContain("111月4日");
+    expect(result.context?.text).toContain("国民の祝日と混同しない");
+  });
+
+  it("rejects a holiday result for another year", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        results: [
+          {
+            title: "2025年11月3日は文化の日",
+            content: "2025年の国民の祝日です。",
+            url: "https://example.test/2025-holiday",
+          },
+          {
+            title: "2026年11月3日は文化の日",
+            content: "1948年に制定された日本の国民の祝日です。",
+            url: "https://example.test/2026-holiday",
+          },
+        ],
+      })
+    );
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      queryText: "今日なんの祝日？",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+      currentDate: new Date("2026-11-03T05:00:00+09:00"),
+    });
+
+    expect(result.reason).toBe("found");
+    expect(result.context?.resultCount).toBe(1);
+    expect(result.context?.text).toContain("2026年11月3日は文化の日");
+    expect(result.context?.text).not.toContain("2025年11月3日");
+    expect(result.context?.text).toContain("日本の国民の祝日かどうか");
+  });
+
+  it("validates calendar dates for DuckDuckGo-compatible results too", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        Results: [
+          {
+            Text: "11月5日は何の日 - 11月5日の記念日を紹介します。",
+            FirstURL: "https://example.test/november-5",
+          },
+          {
+            Text: "11月4日は何の日 - 11月4日の記念日と由来を紹介します。",
+            FirstURL: "https://example.test/november-4",
+          },
+        ],
+      })
+    );
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "duckduckgo",
+      endpoint: "https://api.duckduckgo.test/",
+      queryText: "明日は何の日か教えて",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+      currentDate: new Date("2026-11-03T12:00:00+09:00"),
+    });
+
+    expect(result.reason).toBe("found");
+    expect(result.context?.resultCount).toBe(1);
+    expect(result.context?.text).toContain("11月4日は何の日");
+    expect(result.context?.text).not.toContain("11月5日");
+  });
+
+  it("rejects a holiday result whose title names only another calendar year", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        results: [
+          {
+            title: "2025年の祝日",
+            content: "1月12日は祝日ではありません。",
+            url: "https://example.test/2025-holidays",
+          },
+          {
+            title: "2026年の祝日",
+            content: "1月12日は成人の日で、日本の国民の祝日です。",
+            url: "https://example.test/2026-holidays",
+          },
+        ],
+      })
+    );
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      queryText: "今日なんの祝日？",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+      currentDate: new Date("2026-01-12T05:00:00+09:00"),
+    });
+
+    expect(result.reason).toBe("found");
+    expect(result.context?.resultCount).toBe(1);
+    expect(result.context?.text).toContain("2026年の祝日");
+    expect(result.context?.text).not.toContain("2025年の祝日");
+  });
+
+  it("keeps calendar lookup disabled without making a request", async () => {
+    const fetchImpl = vi.fn();
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: false,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      queryText: "明日は何の日？",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+      currentDate: new Date("2026-11-03T12:00:00+09:00"),
+    });
+
+    expect(result).toEqual({ context: null, reason: "disabled" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("returns no_result when neither SearXNG nor Wikipedia matches the date", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          results: [
+            {
+              title: "11月5日は何の日",
+              content: "11月5日の記念日です。",
+              url: "https://example.test/november-5",
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          title: "11月6日",
+          extract: "11月6日の出来事を紹介します。",
+          content_urls: {
+            desktop: { page: "https://ja.wikipedia.org/wiki/11月6日" },
+          },
+        })
+      );
+
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      queryText: "明日は何の日？",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl,
+      currentDate: new Date("2026-11-03T12:00:00+09:00"),
+    });
+
+    expect(result).toEqual({ context: null, reason: "no_result" });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports a calendar search transport failure", async () => {
+    const result = await fetchMentionChatSearchContextDetailed({
+      enabled: true,
+      provider: "searxng",
+      endpoint: "http://searxng.test/search",
+      queryText: "今日なんの祝日？",
+      timeoutMs: 2500,
+      maxQueryChars: 120,
+      maxResponseBytes: 65536,
+      maxResults: 3,
+      fetchImpl: vi.fn().mockRejectedValue(new Error("offline")),
+      currentDate: new Date("2026-11-03T05:00:00+09:00"),
+    });
+
+    expect(result).toEqual({ context: null, reason: "failed" });
+  });
+
   it("detects search-like mention prompts", () => {
     expect(shouldSearchMentionChat("TwitchConの日程を調べて")).toBe(true);
     expect(shouldSearchMentionChat("呪術廻戦のネタバレして")).toBe(true);
@@ -193,6 +504,43 @@ describe("mention chat external search", () => {
         "外部検索で確認した結果、宿儺との最終決戦後の話だよ。"
       )
     ).toBe(false);
+  });
+
+  it.each([
+    "その記念日の由来は覚えていないな。",
+    "その話は覚えてないよ。",
+    "それは初耳だよ。",
+    "その出来事は聞いたことがないな。",
+    "その作品は見たことがないから詳しく答えられない。",
+    "その説は自信がないな。",
+    "その日付だったか確信がない。",
+    "その情報が確かではないんだよね。",
+    "詳しく覚えていないから、正確には答えられない。",
+    "その画像の元ネタは知らない。",
+    "この映画の映像技術は初耳だよ。",
+    "画像を見たことがない作品の発売日は知らない。",
+    "その由来は分かりません。",
+    "その話はわかりません。",
+    "その祝日は知りません。",
+    "正確な日付は覚えていません。",
+    "手元に詳しい情報がありません。",
+  ])("researches another natural unknown-fact reply: %s", (reply) => {
+    expect(shouldResearchMentionChatReply(reply)).toBe(true);
+  });
+
+  it.each([
+    "分からなくはないよ。",
+    "知らないわけではないよ。",
+    "分からないわけではないけど、今は説明しないよ。",
+    "自信がない時は、検索して確認した方がいいよ。",
+    "確信がない場合は断定しない方がいいね。",
+    "確かではない情報は引用しないでね。",
+    "覚えていない時はメモを見るといいよ。",
+    "画面を見たことがないから、今映っているものは答えられないよ。",
+    "画面は見えてないから分からないよ。",
+    "配信画面は見ていないよ。",
+  ])("does not research a negated, advisory, or screen-visibility reply: %s", (reply) => {
+    expect(shouldResearchMentionChatReply(reply)).toBe(false);
   });
 
   it("repairs uncertain wording only after search context was already found", () => {
