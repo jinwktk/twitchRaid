@@ -198,6 +198,7 @@ describe("Bot help command", () => {
     }
     expect(message).not.toContain("!mangaon");
     expect(message).not.toContain("!mangaoff");
+    expect(message).toContain("!chat [--video] <メッセージ>");
   });
 
   it("ignores the removed manga toggle commands", async () => {

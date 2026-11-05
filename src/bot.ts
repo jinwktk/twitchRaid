@@ -166,7 +166,7 @@ const STREAM_SUMMARY_THREAD_RETRY_MAX_MS = 15 * 60_000;
 const STREAM_STATUS_POLL_INTERVAL_MS = 60_000;
 const EVENTSUB_API_REQUEST_TIMEOUT_MS = 15_000;
 const MENTION_CHAT_SKIP_PROMPT_LIMIT = 80;
-const CHAT_AI_COMMAND_USAGE = "⚠️ 使い方: !chat <メッセージ>";
+const CHAT_AI_COMMAND_USAGE = "⚠️ 使い方: !chat [--video] <メッセージ>";
 const YOUTUBE_CHANNEL_URL = "https://is.gd/rukalunyt";
 const CHAT_AI_VIDEO_UNAVAILABLE_REPLY =
   "映像を解析できなかったので、この場面については答えられないD！";
@@ -176,7 +176,7 @@ const DIE_SURVIVAL_REPLY = "簡単に死んでたまるかッ🧟";
 const WORK_SEND_OFF_REPLY =
   "るっかるん、今日もお仕事気を付けて、いってらっしゃい";
 const HELP_MESSAGE =
-  "!使えるコマンド: 基本 !help / !age / !goods / !7days / !die / !work / !pvp / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga | 管理 !reset / !shoutout <ユーザー名> / !streamnotify / !定期テスト";
+  "!使えるコマンド: 基本 !help / !age / !goods / !7days / !die / !work / !pvp / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat [--video] <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga | 管理 !reset / !shoutout <ユーザー名> / !streamnotify / !定期テスト";
 const MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE = "[memory-request]";
 const MENTION_CHAT_MEMORY_KEYWORD_PATTERN =
   /(?:覚えて(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|覚えといて(?:ください|下さい|ね)?|覚えとけ|記憶して(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|記憶しといて(?:ください|下さい|ね)?|メモして(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|メモしといて(?:ください|下さい|ね)?|メモっといて(?:ください|下さい|ね)?|忘れないで(?!いる|いた|います|た|しょ))/u;
@@ -227,6 +227,7 @@ interface MentionChatRequest {
   alias: string;
   prompt: string;
   acceptedSequence?: number;
+  videoRequested: boolean;
   videoCapture?: MentionChatVideoCaptureJob;
 }
 
@@ -268,7 +269,7 @@ interface MentionChatInput {
   prompt: string;
   now: number;
   acceptedSequence?: number;
-  explicitChatCommand?: boolean;
+  videoRequested?: boolean;
   requestedAt?: string;
 }
 
@@ -1032,7 +1033,6 @@ export class Bot {
       prompt: match.prompt,
       now,
       acceptedSequence,
-      explicitChatCommand: false,
     });
     return true;
   }
@@ -1047,11 +1047,16 @@ export class Bot {
     requestedAt?: string
   ): Promise<void> {
     const normalizedPrompt = prompt.trim();
-    if (!normalizedPrompt) {
+    const videoFlagMatch = normalizedPrompt.match(/^--video(?:\s+|$)/iu);
+    const videoRequested = videoFlagMatch !== null;
+    const chatPrompt = videoRequested
+      ? normalizedPrompt.slice(videoFlagMatch[0].length).trim()
+      : normalizedPrompt;
+    if (!chatPrompt) {
       await this.chatClient.say(channel, CHAT_AI_COMMAND_USAGE);
       return;
     }
-    this._scheduleBotRequestNoteSave(user, normalizedPrompt);
+    this._scheduleBotRequestNoteSave(user, chatPrompt);
     if (!(this.config.chatAiEnabled ?? false)) return;
 
     await this._enqueueMentionChatRequest({
@@ -1059,10 +1064,10 @@ export class Bot {
       user,
       userDisplayName,
       alias: "!chat",
-      prompt: normalizedPrompt,
+      prompt: chatPrompt,
       now,
       acceptedSequence,
-      explicitChatCommand: true,
+      videoRequested,
       requestedAt,
     });
   }
@@ -1075,7 +1080,7 @@ export class Bot {
     prompt,
     now,
     acceptedSequence,
-    explicitChatCommand = false,
+    videoRequested = false,
     requestedAt,
   }: MentionChatInput): Promise<void> {
     const normalizedUser = user.trim().replace(/^[@＠]+/, "").toLowerCase();
@@ -1090,10 +1095,10 @@ export class Bot {
     }
     if (this.stopping) return;
 
-    const requestId = this._nextMentionChatRequestId();
     const liveStreamId = this.currentAnythingLlmStreamId;
+    const requestId = this._nextMentionChatRequestId();
     const videoCapture =
-      explicitChatCommand &&
+      videoRequested &&
       (this.config.chatAiVideoEnabled ?? false) &&
       liveStreamId
         ? this.mentionChatVideoClient.start({
@@ -1112,6 +1117,7 @@ export class Bot {
       alias,
       prompt,
       acceptedSequence,
+      videoRequested,
       videoCapture,
     };
 
@@ -1656,6 +1662,13 @@ export class Bot {
     try {
       const streamImageBase64: string | null = null;
       let videoContextText: string | null = null;
+      if (request.videoRequested && !request.videoCapture) {
+        await this.chatClient.say(
+          request.channel,
+          CHAT_AI_VIDEO_UNAVAILABLE_REPLY
+        );
+        return;
+      }
       if (request.videoCapture) {
         const videoResult = await request.videoCapture.promise;
         if (this.stopping) return;

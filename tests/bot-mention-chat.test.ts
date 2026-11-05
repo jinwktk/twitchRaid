@@ -644,6 +644,40 @@ afterEach(async () => {
 });
 
 describe("Bot mention chat", () => {
+  it("uses the text-only path for a live plain !chat command", async () => {
+    const videoFetch = vi.fn();
+    const generateFetch = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("video-analysis")) {
+        videoFetch();
+        throw new Error("plain !chat must not start video analysis");
+      }
+      generateFetch();
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(String(body.prompt)).not.toContain("動画解析結果");
+      return new Response(JSON.stringify({ response: "文章だけで答えるD！" }), {
+        status: 200,
+      });
+    });
+    const { bot, say } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiVideoEnabled: true,
+    });
+    bot.currentAnythingLlmStreamId = "stream-live-text-only";
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat 普通の質問です",
+      makeChatMessage("video-text-only-06")
+    );
+
+    expect(videoFetch).not.toHaveBeenCalled();
+    expect(generateFetch).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith("#rukalun", "文章だけで答えるD！");
+  });
+
   it("starts live !chat video capture at the ChatMessage timestamp before generation", async () => {
     const callOrder: string[] = [];
     const videoBodies: Array<Record<string, unknown>> = [];
@@ -676,7 +710,7 @@ describe("Bot mention chat", () => {
     await bot._handleCommand(
       "#rukalun",
       "viewer",
-      "!chat 今の場面どうなってる？",
+      "!chat --video 今の場面どうなってる？",
       msg
     );
 
@@ -711,7 +745,7 @@ describe("Bot mention chat", () => {
     await bot._handleCommand(
       "#rukalun",
       "viewer",
-      "!chat 今の場面は？",
+      "!chat --video 今の場面は？",
       makeChatMessage("video-queue-08")
     );
 
@@ -756,6 +790,102 @@ describe("Bot mention chat", () => {
     expect(videoFetch).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["video analysis is disabled", false, "stream-live-disabled"],
+    ["the stream is offline", true, null],
+  ])(
+    "returns an explicit failure without generation when %s",
+    async (_caseName, chatAiVideoEnabled, streamId) => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+      const { bot, say } = makeBot({
+        chatAiCooldownSeconds: 0,
+        chatAiVideoEnabled,
+      });
+      bot.currentAnythingLlmStreamId = streamId;
+
+      await bot._handleCommand(
+        "#rukalun",
+        "viewer",
+        "!chat --video 今の場面は？",
+        makeChatMessage("video-unavailable-09")
+      );
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(say).toHaveBeenCalledWith(
+        "#rukalun",
+        "映像を解析できなかったので、この場面については答えられないD！"
+      );
+    }
+  );
+
+  it("keeps an explicit video request silent when chat AI is disabled", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const { bot, say } = makeBot({
+      chatAiEnabled: false,
+      chatAiVideoEnabled: false,
+    });
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat --video 今の場面は？",
+      makeChatMessage("video-ai-disabled-09")
+    );
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(say).not.toHaveBeenCalled();
+  });
+
+  it("queues an unavailable video request behind an in-flight AI reply", async () => {
+    const { bot, say } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiVideoEnabled: false,
+    });
+    bot.mentionChatInFlight = true;
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat --video 今の場面は？",
+      makeChatMessage("video-unavailable-queue-09")
+    );
+
+    expect(say).not.toHaveBeenCalled();
+    expect(bot.mentionChatQueue).toHaveLength(1);
+    bot.mentionChatQueue.splice(0);
+    bot.mentionChatInFlight = false;
+  });
+
+  it("keeps a non-flag --video prefix in the text prompt", async () => {
+    const videoFetch = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (String(input).includes("video-analysis")) {
+        videoFetch();
+        throw new Error("--video-prefixed words must stay text-only");
+      }
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(String(body.prompt)).toContain("--videographyについて教えて");
+      return new Response(JSON.stringify({ response: "文章で答えるD！" }), {
+        status: 200,
+      });
+    });
+    const { bot, say } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiVideoEnabled: true,
+    });
+    bot.currentAnythingLlmStreamId = "stream-live-token-boundary";
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat --videographyについて教えて",
+      makeChatMessage("video-token-boundary-09")
+    );
+
+    expect(videoFetch).not.toHaveBeenCalled();
+    expect(say).toHaveBeenCalledWith("#rukalun", "文章で答えるD！");
+  });
+
   it("returns an explicit failure without generation when live video analysis fails", async () => {
     const generateFetch = vi.fn();
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -783,7 +913,7 @@ describe("Bot mention chat", () => {
     await bot._handleCommand(
       "#rukalun",
       "viewer",
-      "!chat この場面は？",
+      "!chat --video この場面は？",
       makeChatMessage("video-failure-10")
     );
 
@@ -814,7 +944,7 @@ describe("Bot mention chat", () => {
     const command = bot._handleCommand(
       "#rukalun",
       "viewer",
-      "!chat 今の場面は？",
+      "!chat --video 今の場面は？",
       makeChatMessage("video-stale-11")
     );
     await vi.waitFor(() => expect(requestBody).toBeDefined());
@@ -848,7 +978,7 @@ describe("Bot mention chat", () => {
     const command = bot._handleCommand(
       "#rukalun",
       "viewer",
-      "!chat 今の場面は？",
+      "!chat --video 今の場面は？",
       makeChatMessage("video-stale-generation-12")
     );
     await vi.waitFor(() => expect(generationStarted).toHaveBeenCalledTimes(1));
@@ -883,7 +1013,7 @@ describe("Bot mention chat", () => {
     const command = bot._handleCommand(
       "#rukalun",
       "viewer",
-      "!chat 今の場面は？",
+      "!chat --video 今の場面は？",
       makeChatMessage("video-stop-after-capture-13")
     );
     await vi.waitFor(() => expect(generationStarted).toHaveBeenCalledTimes(1));
@@ -923,7 +1053,7 @@ describe("Bot mention chat", () => {
     const command = bot._handleCommand(
       "#rukalun",
       "viewer",
-      "!chat 今の場面は？",
+      "!chat --video 今の場面は？",
       makeChatMessage("video-stop-12")
     );
     await vi.waitFor(() => expect(videoStarted).toHaveBeenCalledTimes(1));
@@ -953,7 +1083,7 @@ describe("Bot mention chat", () => {
     await bot._handleIncomingChatEvent(
       "#rukalun",
       "viewer",
-      "!chat 今の場面は？",
+      "!chat --video 今の場面は？",
       makeChatMessage("video-anythingllm-main-01")
     );
 
@@ -996,7 +1126,7 @@ describe("Bot mention chat", () => {
     await bot._handleIncomingChatEvent(
       "#rukalun",
       "viewer",
-      "!chat タン塩？塩タン？",
+      "!chat --video タン塩？塩タン？",
       makeChatMessage("video-research-01")
     );
 
@@ -1576,7 +1706,7 @@ describe("Bot mention chat", () => {
     await bot._handleIncomingChatEvent(
       "#rukalun",
       "viewer",
-      "!chat 呪術廻戦のネタバレを調べて",
+      "!chat --video 呪術廻戦のネタバレを調べて",
       makeChatMessage("video-search-repair-message-01")
     );
 
@@ -1659,7 +1789,7 @@ describe("Bot mention chat", () => {
     await bot._handleIncomingChatEvent(
       "#rukalun",
       "viewer",
-      "!chat 今の場面はどう？",
+      "!chat --video 今の場面はどう？",
       makeChatMessage("video-policy-repair-01")
     );
 
@@ -2444,7 +2574,24 @@ describe("Bot mention chat", () => {
     await bot._handleCommand("#rukalun", "viewer", "!chat", {});
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(say).toHaveBeenCalledWith("#rukalun", "⚠️ 使い方: !chat <メッセージ>");
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "⚠️ 使い方: !chat [--video] <メッセージ>"
+    );
+  });
+
+  it("shows usage for a video flag without a message", async () => {
+    const { bot, say } = makeBot({ chatAiVideoEnabled: true });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    bot.currentAnythingLlmStreamId = "stream-live-empty-video";
+
+    await bot._handleCommand("#rukalun", "viewer", "!chat --video", {});
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(say).toHaveBeenCalledWith(
+      "#rukalun",
+      "⚠️ 使い方: !chat [--video] <メッセージ>"
+    );
   });
 
   it("does not send chat message when AI returns null", async () => {
