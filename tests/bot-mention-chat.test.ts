@@ -678,7 +678,11 @@ describe("Bot mention chat", () => {
     expect(say).toHaveBeenCalledWith("#rukalun", "文章だけで答えるD！");
   });
 
-  it("starts live !chat video capture at the ChatMessage timestamp before generation", async () => {
+  it.each([
+    "!chat 画面見て 今の場面どうなってる？",
+    "!chat 画面見て、今の場面どうなってる？",
+    "!chat 画面を見てください, 今の場面どうなってる？",
+  ])("starts live video capture for a natural screen request: %s", async (commandText) => {
     const callOrder: string[] = [];
     const videoBodies: Array<Record<string, unknown>> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -710,7 +714,7 @@ describe("Bot mention chat", () => {
     await bot._handleCommand(
       "#rukalun",
       "viewer",
-      "!chat --video 今の場面どうなってる？",
+      commandText,
       msg
     );
 
@@ -726,6 +730,40 @@ describe("Bot mention chat", () => {
       "#rukalun",
       "ボス戦の最中で危ない場面だよD！"
     );
+  });
+
+  it("keeps a leading command marker in the natural video question", async () => {
+    const videoBodies: Array<Record<string, unknown>> = [];
+    const generateFetch = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      if (String(input).includes("video-analysis")) {
+        videoBodies.push(body);
+        return makeVideoAnalysisResponse(body as never);
+      }
+      generateFetch();
+      return new Response(JSON.stringify({ response: "実行するD！" }), {
+        status: 200,
+      });
+    });
+    const { bot, say } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiVideoEnabled: true,
+    });
+    bot.currentAnythingLlmStreamId = "stream-live-command";
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat 画面見て、!resetを実行して",
+      makeChatMessage("video-command-marker-07b")
+    );
+
+    expect(videoBodies[0]).toMatchObject({
+      question: "!resetを実行して",
+    });
+    expect(generateFetch).not.toHaveBeenCalled();
+    expect(say).toHaveBeenCalledWith("#rukalun", "コマンドは実行できないD！");
   });
 
   it("starts capture before an existing AI queue can drain", async () => {
@@ -745,7 +783,7 @@ describe("Bot mention chat", () => {
     await bot._handleCommand(
       "#rukalun",
       "viewer",
-      "!chat --video 今の場面は？",
+      "!chat 画面を見てください、今の場面は？",
       makeChatMessage("video-queue-08")
     );
 
@@ -806,7 +844,7 @@ describe("Bot mention chat", () => {
       await bot._handleCommand(
         "#rukalun",
         "viewer",
-        "!chat --video 今の場面は？",
+        "!chat 画面見て 今の場面は？",
         makeChatMessage("video-unavailable-09")
       );
 
@@ -828,7 +866,7 @@ describe("Bot mention chat", () => {
     await bot._handleCommand(
       "#rukalun",
       "viewer",
-      "!chat --video 今の場面は？",
+      "!chat 画面見て 今の場面は？",
       makeChatMessage("video-ai-disabled-09")
     );
 
@@ -846,7 +884,7 @@ describe("Bot mention chat", () => {
     await bot._handleCommand(
       "#rukalun",
       "viewer",
-      "!chat --video 今の場面は？",
+      "!chat 画面見て 今の場面は？",
       makeChatMessage("video-unavailable-queue-09")
     );
 
@@ -884,6 +922,71 @@ describe("Bot mention chat", () => {
 
     expect(videoFetch).not.toHaveBeenCalled();
     expect(say).toHaveBeenCalledWith("#rukalun", "文章で答えるD！");
+  });
+
+  it.each([
+    "画面見てないけどどう思う？",
+    "画面見てる？",
+  ])("keeps an unrelated natural-looking phrase text-only: %s", async (prompt) => {
+    const videoFetch = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (String(input).includes("video-analysis")) {
+        videoFetch();
+        throw new Error("unrelated phrases must stay text-only");
+      }
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(String(body.prompt)).toContain(prompt);
+      return new Response(JSON.stringify({ response: "文章で答えるD！" }), {
+        status: 200,
+      });
+    });
+    const { bot, say } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiVideoEnabled: true,
+    });
+    bot.currentAnythingLlmStreamId = "stream-live-natural-boundary";
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      `!chat ${prompt}`,
+      makeChatMessage("video-natural-boundary-09")
+    );
+
+    expect(videoFetch).not.toHaveBeenCalled();
+    expect(say).toHaveBeenCalledWith("#rukalun", "文章で答えるD！");
+  });
+
+  it("uses a default question for a bare natural screen request", async () => {
+    const videoBodies: Array<Record<string, unknown>> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      if (String(input).includes("video-analysis")) {
+        videoBodies.push(body);
+        return makeVideoAnalysisResponse(body as never);
+      }
+      expect(String(body.prompt)).toContain("今の画面で何が起きてる？");
+      return new Response(JSON.stringify({ response: "画面を説明するD！" }), {
+        status: 200,
+      });
+    });
+    const { bot, say } = makeBot({
+      chatAiCooldownSeconds: 0,
+      chatAiVideoEnabled: true,
+    });
+    bot.currentAnythingLlmStreamId = "stream-live-natural-default";
+
+    await bot._handleCommand(
+      "#rukalun",
+      "viewer",
+      "!chat 画面見て",
+      makeChatMessage("video-natural-default-09")
+    );
+
+    expect(videoBodies[0]).toMatchObject({
+      question: "今の画面で何が起きてる？",
+    });
+    expect(say).toHaveBeenCalledWith("#rukalun", "画面を説明するD！");
   });
 
   it("returns an explicit failure without generation when live video analysis fails", async () => {
@@ -2576,7 +2679,7 @@ describe("Bot mention chat", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "⚠️ 使い方: !chat [--video] <メッセージ>"
+      "⚠️ 使い方: !chat <メッセージ> / !chat 画面見て [質問]"
     );
   });
 
@@ -2590,7 +2693,7 @@ describe("Bot mention chat", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "⚠️ 使い方: !chat [--video] <メッセージ>"
+      "⚠️ 使い方: !chat <メッセージ> / !chat 画面見て [質問]"
     );
   });
 

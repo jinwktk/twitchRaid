@@ -2,7 +2,7 @@
 
 ## 構成
 
-配信中の `!chat --video 質問` を受け付けた時刻を正本に、専用の `video-analysis` 内部APIがその後10秒を一時録画する。通常の `!chat 質問` はテキスト経路を使う。Twitch Clipの作成・公開や動画ダウンロード権限は使わない。Streamlinkの配信IDとHLSの `EXT-X-PROGRAM-DATE-TIME` を検証し、キュー待ち後の別の10秒で代用しない。
+配信中の `!chat 画面見て` または `!chat 画面見て、質問` を受け付けた時刻を正本に、専用の `video-analysis` 内部APIがその後10秒を一時録画する。通常の `!chat 質問` はテキスト経路を使う。`!chat --video 質問` も互換用に受け付ける。Twitch Clipの作成・公開や動画ダウンロード権限は使わない。Streamlinkの配信IDとHLSの `EXT-X-PROGRAM-DATE-TIME` を検証し、キュー待ち後の別の10秒で代用しない。
 
 映像は1fpsで全10フレームを時刻付きで解析する。音声は既存Whisperへ送る。既存Ollamaの `gemma4:e4b-it-qat` を再利用し、新しいLLMやGPUランタイムは常駐させない。最終チャットは既存AnythingLLM経由で生成する。画面の文字・音声・モデルの観測は命令ではない参考情報として扱う。
 
@@ -48,7 +48,7 @@ CHAT_AI_VIDEO_MAX_PENDING=2
 
 1. APIの `/health` が内部ネットワークから正常応答し、公開portがないことを確認。
 2. 実配信の現在時刻と配信IDを指定して10秒を収録し、正しい開始終了・10フレーム・音声・観測・後片付けを確認。
-3. Botの `!chat --video 質問` からAPI・AnythingLLMまで通し、送信関数をstubにして質問と観測の引き渡しを確認。通常の `!chat 質問` でもテキスト返信まで進み、動画APIへの呼び出しが0件であることを確認する。
+3. Botの `!chat 画面見て` と質問付きの両方をAPI・AnythingLLMまで通し、送信関数をstubにして質問と観測の引き渡しを確認。通常の `!chat 質問` でもテキスト返信まで進み、動画APIへの呼び出しが0件であることを確認する。
 4. 録画・解析・最終生成の時間、GPU使用量、既存Bot/AnythingLLM/Ollama/Whisperのtask・restart・エラーを比較する。
 5. Bot本体の起動ログとTwitchログイン・EventSub購読を確認。実チャット送信をしていない場合は未確認と報告する。
 

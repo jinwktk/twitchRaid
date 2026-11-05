@@ -166,7 +166,11 @@ const STREAM_SUMMARY_THREAD_RETRY_MAX_MS = 15 * 60_000;
 const STREAM_STATUS_POLL_INTERVAL_MS = 60_000;
 const EVENTSUB_API_REQUEST_TIMEOUT_MS = 15_000;
 const MENTION_CHAT_SKIP_PROMPT_LIMIT = 80;
-const CHAT_AI_COMMAND_USAGE = "⚠️ 使い方: !chat [--video] <メッセージ>";
+const CHAT_AI_COMMAND_USAGE =
+  "⚠️ 使い方: !chat <メッセージ> / !chat 画面見て [質問]";
+const CHAT_AI_NATURAL_VIDEO_DEFAULT_PROMPT = "今の画面で何が起きてる？";
+const CHAT_AI_NATURAL_VIDEO_REQUEST_PATTERN =
+  /^画面を?見て(?:\s*ください)?(?:$|(?:[\s、。！？?.,]|!(?![\p{L}\p{N}_:-]))+)/u;
 const YOUTUBE_CHANNEL_URL = "https://is.gd/rukalunyt";
 const CHAT_AI_VIDEO_UNAVAILABLE_REPLY =
   "映像を解析できなかったので、この場面については答えられないD！";
@@ -176,7 +180,7 @@ const DIE_SURVIVAL_REPLY = "簡単に死んでたまるかッ🧟";
 const WORK_SEND_OFF_REPLY =
   "るっかるん、今日もお仕事気を付けて、いってらっしゃい";
 const HELP_MESSAGE =
-  "!使えるコマンド: 基本 !help / !age / !goods / !7days / !die / !work / !pvp / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat [--video] <メッセージ> | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga | 管理 !reset / !shoutout <ユーザー名> / !streamnotify / !定期テスト";
+  "!使えるコマンド: 基本 !help / !age / !goods / !7days / !die / !work / !pvp / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> / !chat 画面見て [質問] | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga | 管理 !reset / !shoutout <ユーザー名> / !streamnotify / !定期テスト";
 const MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE = "[memory-request]";
 const MENTION_CHAT_MEMORY_KEYWORD_PATTERN =
   /(?:覚えて(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|覚えといて(?:ください|下さい|ね)?|覚えとけ|記憶して(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|記憶しといて(?:ください|下さい|ね)?|メモして(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|メモしといて(?:ください|下さい|ね)?|メモっといて(?:ください|下さい|ね)?|忘れないで(?!いる|いた|います|た|しょ))/u;
@@ -1048,10 +1052,18 @@ export class Bot {
   ): Promise<void> {
     const normalizedPrompt = prompt.trim();
     const videoFlagMatch = normalizedPrompt.match(/^--video(?:\s+|$)/iu);
-    const videoRequested = videoFlagMatch !== null;
-    const chatPrompt = videoRequested
+    const naturalVideoMatch = videoFlagMatch
+      ? null
+      : normalizedPrompt.match(CHAT_AI_NATURAL_VIDEO_REQUEST_PATTERN);
+    const videoRequested = videoFlagMatch !== null || naturalVideoMatch !== null;
+    const naturalVideoPrompt = naturalVideoMatch
+      ? normalizedPrompt
+          .slice(naturalVideoMatch[0].length)
+          .trim() || CHAT_AI_NATURAL_VIDEO_DEFAULT_PROMPT
+      : null;
+    const chatPrompt = videoFlagMatch
       ? normalizedPrompt.slice(videoFlagMatch[0].length).trim()
-      : normalizedPrompt;
+      : (naturalVideoPrompt ?? normalizedPrompt);
     if (!chatPrompt) {
       await this.chatClient.say(channel, CHAT_AI_COMMAND_USAGE);
       return;
