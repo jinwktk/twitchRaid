@@ -9,6 +9,7 @@ import {
   shouldAlwaysSynthesizeMentionChatSearchReply,
   shouldRepairMentionChatReplyFromSearchContext,
   shouldResearchMentionChatReply,
+  shouldResearchMentionChatReplyAfterMediaObservation,
   shouldSearchMentionChat,
 } from "../../src/commands/mention-chat-search";
 
@@ -541,6 +542,54 @@ describe("mention chat external search", () => {
     "配信画面は見ていないよ。",
   ])("does not research a negated, advisory, or screen-visibility reply: %s", (reply) => {
     expect(shouldResearchMentionChatReply(reply)).toBe(false);
+  });
+
+  it("removes only media-grounded limitations before deciding on research", () => {
+    expect(
+      shouldResearchMentionChatReplyAfterMediaObservation(
+        "うーん、今の映像だとメニューとかキャラクターは見えてるんだけど、具体的に「おいしそう」って言えるような食べ物とかは映ってないかな🤔 ちょっと情報が足りないかも！"
+      )
+    ).toBe(false);
+    expect(
+      shouldResearchMentionChatReplyAfterMediaObservation(
+        "画面の文字は見えないよ。タン塩と塩タンの違いは分からないD！"
+      )
+    ).toBe(true);
+    expect(
+      shouldResearchMentionChatReplyAfterMediaObservation(
+        "画面の文字は見えないけど、タン塩と塩タンの違いは分からないD！"
+      )
+    ).toBe(true);
+    expect(
+      shouldResearchMentionChatReplyAfterMediaObservation(
+        "発音や歌手は確認できない。詳しくないD！"
+      )
+    ).toBe(true);
+    expect(
+      shouldResearchMentionChatReplyAfterMediaObservation(
+        "音声では誰が話しているか聞き取れない。"
+      )
+    ).toBe(false);
+    expect(
+      shouldResearchMentionChatReplyAfterMediaObservation(
+        "画面は見えるけど、発売日の情報が足りない。"
+      )
+    ).toBe(true);
+    expect(
+      shouldResearchMentionChatReplyAfterMediaObservation(
+        "この声優については情報が足りない。"
+      )
+    ).toBe(true);
+    expect(
+      shouldResearchMentionChatReplyAfterMediaObservation(
+        "声優は確認できないD！"
+      )
+    ).toBe(true);
+    expect(
+      shouldResearchMentionChatReplyAfterMediaObservation(
+        "発売時期は分からないし、画面の文字も見えないD！"
+      )
+    ).toBe(true);
   });
 
   it("repairs uncertain wording only after search context was already found", () => {

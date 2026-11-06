@@ -1205,6 +1205,60 @@ describe("Bot mention chat", () => {
     );
   });
 
+  it("keeps an honest video observation limitation without forced search", async () => {
+    const honestReply =
+      "うーん、今の映像だとメニューとかキャラクターは見えてるんだけど、具体的に「おいしそう」って言えるような食べ物とかは映ってないかな🤔 ちょっと情報が足りないかも！";
+    const expectedFinalReply =
+      "うーん、今の映像だとメニューとかキャラクターは見えてるんだけど、具体的に「おいしそう」って言えるような食べ物とかは映ってないかな ちょっと情報が足りないかも！";
+    const { state } = installAnythingLlmFetchMock({
+      chatReplies: [honestReply, "検索後の一般的な回答D！"],
+    });
+    const { bot, say } = makeBot({
+      chatAiAnythingLlmEnabled: true,
+      anythingLlmLedgerDbPath: path.join(
+        ensureTempDir(),
+        "anythingllm-video-observation-limitation.sqlite"
+      ),
+      chatAiCooldownSeconds: 0,
+      chatAiSearchEnabled: true,
+      chatAiSearchProvider: "searxng",
+      chatAiSearchEndpoint: "http://searxng.test/search",
+      chatAiVideoEnabled: true,
+    });
+    bot.currentAnythingLlmStreamId = "stream-video-observation-limitation";
+    const infoSpy = vi.spyOn(logger, "info");
+
+    await bot._handleIncomingChatEvent(
+      "#rukalun",
+      "viewer",
+      "!chat 画面見て おいしそうなのはどれ？",
+      makeChatMessage("video-observation-limitation-01")
+    );
+
+    expect(state.searchQueries).toEqual([]);
+    expect(state.chatMessages).toHaveLength(1);
+    expect(state.chatMessages[0]).toContain(
+      "映像観測: 画面中央でボスと戦っている。"
+    );
+    expect(state.chatMessages[0]).toContain(
+      "音声文字起こし: 危ない、と話している。"
+    );
+    expect(say).toHaveBeenCalledExactlyOnceWith(
+      "#rukalun",
+      expectedFinalReply
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /AI動画解析完了: requestId=mention-[^,]+, frameCount=10, captureMs=10000, decodeMs=100, transcribeMs=500, visionMs=2000, transcriptChars=11, totalMs=12600/u
+      )
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^✅ AIメンション会話を送信: requestId=mention-[^,]+, user=viewer, alias=!chat$/u
+      )
+    );
+  });
+
   it("keeps live video observations during AnythingLLM research regeneration", async () => {
     const { state } = installAnythingLlmFetchMock({
       chatReplies: [

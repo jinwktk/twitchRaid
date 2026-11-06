@@ -99,6 +99,8 @@ const NON_RESEARCH_UNCERTAINTY_PATTERN =
   /(?:(?:わからない|分からない|知らない)(?:わけ(?:では|じゃ)ない|とは限らない)|(?:わからなく|分からなく)はない|(?:自信|確信)(?:が|は)?ない(?:時|場合|なら)|確か(?:では|じゃ)ない(?:時|場合|情報|こと)|(?:覚えて(?:い)?ない|初耳|聞いたこと(?:が)?ない|見たこと(?:が)?ない|詳しく覚えて(?:い)?ない)(?:時|場合|なら))/gu;
 const SCREEN_VISIBILITY_REPLY_PATTERN =
   /(?:^|[。！？!?]\s*)[^。！？!?]{0,24}(?:配信画面|画面|画像|映像|スクリーンショット)(?:を|は|が)?[^。！？!?]{0,24}(?:見え(?:て)?(?:い)?ない|見られない|見ること(?:が)?できない|見て(?:い)?ない|見たこと(?:が)?ない|確認できない)(?:(?:[^。！？!?]{0,12})(?:から|ので|ため)[^。！？!?]{0,32}|(?:よ|です|んだ|んです)?(?=$|[。！？!?]))/gu;
+const MEDIA_OBSERVATION_LIMITATION_CLAUSE_PATTERN =
+  /(?:配信画面|画面|画像|映像|スクリーンショット|音声|声(?:が|は|を|も|だと|では|には))[^。！？!?]{0,180}?(?:(?:映|写)って(?:い)?ない|見え(?:て)?(?:い)?ない|見られない|聞こえ(?:て)?(?:い)?ない|聞き取れない)(?:(?!(?:けど|けれど|だが|ですが|ものの))[^。！？!?]){0,48}/gu;
 const SEARCH_CONTEXT_REPAIR_REPLY_PATTERN =
   /(?:(?:みたいな|ような)感じ(?:なの)?かな|(?:あまり|あんまり)[^\n。！？!?]{0,20}(?:追って|見て)(?:い)?ない|得意(?:では|じゃ)ない|把握して(?:い)?るわけ(?:では|じゃ)ない|断言(?:すること)?(?:は|が)?(?:できない|出来ない)|ネタバレ(?:とか)?(?:は)?(?:ちょっと)?(?:難しいかな|怖いよ))/iu;
 const WIKIPEDIA_SUMMARY_ENDPOINT =
@@ -248,6 +250,17 @@ export function shouldAlwaysSynthesizeMentionChatSearchReply(
 
 export function shouldResearchMentionChatReply(value: string): boolean {
   return hasResearchRetryReply(value);
+}
+
+export function shouldResearchMentionChatReplyAfterMediaObservation(
+  value: string
+): boolean {
+  return hasResearchRetryReply(
+    singleLine(value).replace(
+      MEDIA_OBSERVATION_LIMITATION_CLAUSE_PATTERN,
+      " "
+    )
+  );
 }
 
 function hasResearchRetryReply(value: string): boolean {

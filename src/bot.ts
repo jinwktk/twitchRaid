@@ -126,6 +126,7 @@ import {
   shouldAlwaysSynthesizeMentionChatSearchReply,
   shouldRepairMentionChatReplyFromSearchContext,
   shouldResearchMentionChatReply,
+  shouldResearchMentionChatReplyAfterMediaObservation,
   shouldSearchMentionChat,
 } from "./commands/mention-chat-search";
 import {
@@ -1702,7 +1703,7 @@ export class Bot {
         }
         videoContextText = formatMentionChatVideoContext(videoResult);
         logger.info(
-          `AI動画解析完了: requestId=${request.requestId}, frameCount=${videoResult.frameCount}, totalMs=${videoResult.timings.totalMs}`
+          `AI動画解析完了: requestId=${request.requestId}, frameCount=${videoResult.frameCount}, captureMs=${videoResult.timings.captureMs}, decodeMs=${videoResult.timings.decodeMs}, transcribeMs=${videoResult.timings.transcribeMs}, visionMs=${videoResult.timings.visionMs}, transcriptChars=${videoResult.transcript.length}, totalMs=${videoResult.timings.totalMs}`
         );
       }
       const immediateReply = resolveMentionChatImmediateReply(request.prompt);
@@ -1742,7 +1743,7 @@ export class Bot {
         );
         await this.chatClient.say(request.channel, replyWithEmote);
         logger.info(
-          `✅ AIメンション会話を送信: user=${request.userName}, alias=${request.alias}`
+          `✅ AIメンション会話を送信: requestId=${request.requestId}, user=${request.userName}, alias=${request.alias}`
         );
         return;
       }
@@ -1934,7 +1935,11 @@ export class Bot {
         searchEnabled &&
         (!subjectOmittedResearchFollowUp || contextualSearchQuery !== null) &&
         searchOutcome.result.reason !== "failed" &&
-        shouldResearchMentionChatReply(generatedReply.reply)
+        (videoContextText && !searchCandidate
+          ? shouldResearchMentionChatReplyAfterMediaObservation(
+              generatedReply.reply
+            )
+          : shouldResearchMentionChatReply(generatedReply.reply))
       ) {
         const researchSearchContext = await fetchMentionChatSearchContext({
           enabled: true,
@@ -2063,7 +2068,7 @@ export class Bot {
       }
       await this.chatClient.say(request.channel, replyWithEmote);
       logger.info(
-        `✅ AIメンション会話を送信: user=${request.userName}, alias=${request.alias}`
+        `✅ AIメンション会話を送信: requestId=${requestId}, user=${request.userName}, alias=${request.alias}`
       );
       if (generatedReply.source === "generated") {
         this._recordMentionChatConversationHistory(

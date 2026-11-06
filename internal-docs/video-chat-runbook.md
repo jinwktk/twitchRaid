@@ -52,6 +52,8 @@ CHAT_AI_VIDEO_MAX_PENDING=2
 4. 録画・解析・最終生成の時間、GPU使用量、既存Bot/AnythingLLM/Ollama/Whisperのtask・restart・エラーを比較する。
 5. Bot本体の起動ログとTwitchログイン・EventSub購読を確認。実チャット送信をしていない場合は未確認と報告する。
 
+Botの動画解析完了ログに録画・デコード・文字起こし・映像解析の時間と、文字起こしの文字数を記録する。本文を出さずに、同じ `requestId` の生成と送信までを追跡できる。
+
 通常テストは `npm test`、`npm run build`、`npm run lint` と `python -m pytest tests/test_video_analysis.py -q`。旧Python Configテストはmainのimport時再起動を抑止した隔離実行を使い、検証のためにBotを起動しない。
 
 ## 切り戻し
