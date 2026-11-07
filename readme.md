@@ -126,7 +126,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!pvp` | 今日と明日のフロントラインルールを表示 | 2026-04-29 JST基準の8日周期を毎日0:00 JSTに切替。返信は `今日のフロントライン：正式ルール名 / 明日：正式ルール名`。ローテーションは[FFXIV フロントライン カレンダー](https://ffxiv-frontline-calendar.tuyurukai.info/)を参照 |
 | `!site` | Clip検索サイトのURLを表示 | [rukalun-page.vercel.app](https://rukalun-page.vercel.app/) |
 | `!x` | XアカウントのURLを表示 | [x.com/rukalunlol](https://x.com/rukalunlol) |
-| `!youtube` | YouTubeチャンネルのURLを表示 | [is.gd/rukalunyt](https://is.gd/rukalunyt) |
+| `!youtube` | YouTubeチャンネルのURLを表示 | [is.gd/rukalun_youtube](https://is.gd/rukalun_youtube) |
 | `!定期テスト` | 定期案内3種類を即時送信 | 配信者・モデレーター・設定管理者のみ |
 | `!game` | ランダムなゲーム候補を表示 | Twitchに残っている過去アーカイブVODで配信したゲームからランダム、権限不要、クールダウンなし |
 | `!weight` | ランダムな体重を表示（15〜200kg） | ネタ枠 |
@@ -154,7 +154,7 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 ```text
 【定期】配信開始から1時間経過しました。るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/
 【定期】配信開始から2時間経過しました。るっかるんのグッズはこちら！→ https://rukalun.booth.pm
-【定期】配信開始から3時間経過しました。るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalunyt
+【定期】配信開始から3時間経過しました。るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalun_youtube
 ```
 
 - 送信失敗時はローテーション位置を進めず、次回の定期処理で同じコメントを再試行する。送信中に次の45秒キープアライブが来ても重複送信しない
@@ -454,6 +454,7 @@ internal-docs/
 
 ## 更新履歴
 
+- **2026-11-08**: `!youtube` と定期案内の短縮URLを、正しいるっかるんYouTubeチャンネルへ転送する `https://is.gd/rukalun_youtube` に変更した。
 - **2026-11-07**: `!chat 画面見て` で映像・音声を確認しても答えられない細部は、観測できた範囲で返し、自動検索と再生成の待ち時間を減らした。
 - **2026-11-05**: 通常の `!chat` から動画待ちを外した。配信の映像・音声を使いたい場合は `!chat 画面見て` と書くか、その後に質問を続ける。
 - **2026-11-03**: 配信中の `!chat` の解析区間を発言後30秒から10秒へ短縮。収録待ちを20秒減らし、解析する映像も30フレームから10フレームへ変更した。1回の映像解析で収まる場合は中間要約を省く。
@@ -604,8 +605,8 @@ internal-docs/
 - **2026-06-20**: Dokploy移行後のコンテナ起動で `TWITCH_CLIENT_ID` などが空扱いになり、Twitch token refresh が `missing client id` で失敗していた問題を修正。`Config` は `.env` の parsed 値を優先しつつ、`.env` が無いコンテナでは `process.env` をfallbackとして読む
 - **2026-06-20**: OllamaMemoryHub連携を廃止し、AIメンション会話の記憶保存・参照を `CHAT_AI_MEMORY_PATH` のローカルJSONに一本化した。`CHAT_AI_MEMORY_HUB_*` は読み込まず、`!chat` とBot宛てメンションはHub APIへ接続しない。明示メモ依頼のログ伏せ字は自動学習が無効でも適用する
 - **2026-06-20**: `CHAT_AI_PROMPT_REPLY_LOG_ENABLED=true` を追加。AIメンション会話の成功時に、Ollamaへ送った構築済みprompt全文と生成返信をログへ出せるようにした。現在は `prompt[1/N]` / `reply[1/N]` の複数SUCCESSログ形式で、既定は無効
-- **2026-06-19**: Twitchチャットで日本語ハンドルURLがリンク化されず、ASCIIエンコードURLも読み上げが長くなるため、`!youtube` の返却URLを作成済み短縮URL `https://is.gd/rukalunyt` へ変更した。短縮URLは指定YouTubeチャンネルへ301リダイレクトすることを確認済み
-- **2026-06-19**: `!youtube` の返却URLを短縮表記 `https://youtube.com/@るっかるんるっか` へ変更した
+- **2026-06-19**: Twitchチャットで日本語ハンドルURLがリンク化されず、ASCIIエンコードURLも読み上げが長くなるため、`!youtube` の返却URLに短縮URLを導入した。この初回短縮URLは2026-11-08に誤転送が判明し、現行URLへ差し替えた
+- **2026-06-19**: `!youtube` の返却URLをYouTubeハンドルURLの短縮表記へ変更した。現在の案内先は2026-11-08の更新に従う
 - **2026-06-19**: `!youtube` コマンドを追加し、指定YouTubeチャンネルURLをチャットへ返せるようにした。`!help` の一覧にも `!youtube` を追加
 - **2026-06-19**: `!boom 7` のように日数を指定できるようにした。省略時は従来どおり30日、指定値はTwitch VOD保存期間に合わせて1〜60の整数だけ受け付け、期間別に5分キャッシュして `!boom 7` と `!boom` の結果が混ざらないようにした
 - **2026-06-19**: AIメンション外部検索で `夏尾さんについて` のような `〜について` 質問が検索対象にならない問題を調査。この作業PCの `logs/` とPM2ログには実運用の夏尾発言は見つからず、`.env` では `CHAT_AI_SEARCH_ENABLED` 未設定のため検索無効だった。コード上も検索トリガーに `について` がなく、`tests/commands/mention-chat-search.test.ts` に失敗テストを追加して再現後、語尾の `〜について` と `について教えて/知りたい` を検索対象へ追加した。追加調査で `夏尾さんについて知ってる？` も検索候補にし、検索候補なのに検索無効または結果なし/失敗で未適用だった場合の理由ログを追加した

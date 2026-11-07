@@ -172,7 +172,7 @@ const CHAT_AI_COMMAND_USAGE =
 const CHAT_AI_NATURAL_VIDEO_DEFAULT_PROMPT = "今の画面で何が起きてる？";
 const CHAT_AI_NATURAL_VIDEO_REQUEST_PATTERN =
   /^画面を?見て(?:\s*ください)?(?:$|(?:[\s、。！？?.,]|!(?![\p{L}\p{N}_:-]))+)/u;
-const YOUTUBE_CHANNEL_URL = "https://is.gd/rukalunyt";
+const YOUTUBE_CHANNEL_URL = "https://is.gd/rukalun_youtube";
 const CHAT_AI_VIDEO_UNAVAILABLE_REPLY =
   "映像を解析できなかったので、この場面については答えられないD！";
 const SEVEN_DAYS_IMAGE_ALBUM_MESSAGE =

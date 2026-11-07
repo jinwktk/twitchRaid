@@ -321,7 +321,7 @@ describe("Bot help command", () => {
     expect(say).toHaveBeenCalledTimes(1);
     expect(say).toHaveBeenCalledWith(
       "#rukalun",
-      "https://is.gd/rukalunyt"
+      "https://is.gd/rukalun_youtube"
     );
 
     const message = say.mock.calls[0][1] as string;
@@ -519,7 +519,7 @@ describe("Bot help command", () => {
     const expectedMessages = [
       "【定期】るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/",
       "【定期】るっかるんのグッズはこちら！→ https://rukalun.booth.pm",
-      "【定期】るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalunyt",
+      "【定期】るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalun_youtube",
     ];
     expect(say.mock.calls.map((call) => call[1])).toEqual([
       ...expectedMessages,

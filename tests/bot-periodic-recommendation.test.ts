@@ -185,7 +185,7 @@ describe("Bot periodic recommendations", () => {
     expect(say).toHaveBeenNthCalledWith(
       3,
       "#rukalun",
-      "【定期】配信開始から1時間経過しました。るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalunyt"
+      "【定期】配信開始から1時間経過しました。るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalun_youtube"
     );
   });
 

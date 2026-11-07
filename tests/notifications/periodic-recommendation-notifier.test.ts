@@ -14,7 +14,7 @@ describe("PeriodicRecommendationNotifier", () => {
       "るっかるんのグッズはこちら！→ https://rukalun.booth.pm"
     );
     expect(DEFAULT_RECOMMENDATION_TARGETS[2]).toBe(
-      "るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalunyt"
+      "るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalun_youtube"
     );
     for (const target of DEFAULT_RECOMMENDATION_TARGETS) {
       expect(target).toMatch(/^るっかるん/);
@@ -58,7 +58,7 @@ describe("PeriodicRecommendationNotifier", () => {
     );
     expect(sender).toHaveBeenNthCalledWith(
       3,
-      "【定期】配信開始から3時間経過しました。るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalunyt"
+      "【定期】配信開始から3時間経過しました。るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalun_youtube"
     );
     expect(sender).toHaveBeenNthCalledWith(
       4,
@@ -90,7 +90,7 @@ describe("PeriodicRecommendationNotifier", () => {
 
     expect(retrySender).toHaveBeenCalledWith(
       expect.stringContaining(
-        "YouTubeもチャンネル登録してね！→ https://is.gd/rukalunyt"
+        "YouTubeもチャンネル登録してね！→ https://is.gd/rukalun_youtube"
       )
     );
   });
@@ -135,7 +135,7 @@ describe("PeriodicRecommendationNotifier", () => {
     expect(sender.mock.calls.map((call) => call[0])).toEqual([
       "【定期】るっかるんのClip検索サイトはこちら！→ https://rukalun-page.vercel.app/",
       "【定期】るっかるんのグッズはこちら！→ https://rukalun.booth.pm",
-      "【定期】るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalunyt",
+      "【定期】るっかるんのYouTubeもチャンネル登録してね！→ https://is.gd/rukalun_youtube",
     ]);
 
     const scheduledSender = vi.fn().mockResolvedValue(undefined);

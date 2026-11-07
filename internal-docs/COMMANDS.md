@@ -12,7 +12,7 @@
 | `!pvp` | 今日と明日のフロントラインルールを表示 | 2026-04-29 JST基準の8日周期。毎日0:00 JST切替。`今日のフロントライン：正式ルール名 / 明日：正式ルール名` |
 | `!site` | Clip検索サイトURLを表示 | `https://rukalun-page.vercel.app/` |
 | `!x` | XアカウントURLを表示 | `https://x.com/rukalunlol` |
-| `!youtube` | YouTubeチャンネルURLを表示 | `https://is.gd/rukalunyt` |
+| `!youtube` | YouTubeチャンネルURLを表示 | `https://is.gd/rukalun_youtube` |
 | `!game` | ゲーム候補を表示 | Twitchに残っている過去アーカイブVODで配信したゲームからランダム。候補一覧は5分キャッシュ |
 | `!weight` | ランダム体重を表示 | 15から200kg |
 | `!height` | ランダム身長を表示 | 120から220cm |
