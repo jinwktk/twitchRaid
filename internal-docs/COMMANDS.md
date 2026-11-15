@@ -75,9 +75,13 @@
 
 | コマンド | 機能 | 権限 |
 |---|---|---|
-| `!manga` | DLsiteの男性向け・女性向けコミック日間ランキングからランダム1作品のタイトルとURLを表示 | 常時利用可能。一般ユーザー共通で1時間に1回、`CLIP_SPECIAL_USERS` は無制限 |
+| `!manga` | DLsiteの男性向け・女性向けコミック日間ランキングからランダム1作品のタイトルとURLを表示 | 常時利用可能。一般ユーザー共通で1時間に1回、`MANGA_SPECIAL_USERS` は無制限 |
+| `!mangaadmin <ユーザー名>` | Mangaのリキャスト免除を付与し、再実行で剥奪 | broadcaster / mod / `CLIP_SPECIAL_USERS` |
 
-- `!manga` の返信はBot APIで送信できた場合、10秒後にTwitch chat message delete APIで削除する。
+- `!mangaadmin viewer` と `!mangaadmin @Viewer` は同じ対象を切り替える。Twitchのログイン名を1人だけ指定し、表示名やURLは使わない。
+- Mangaの免除は `MANGA_SPECIAL_USERS` に永続化する。未設定時だけ `CLIP_SPECIAL_USERS` を引き継ぎ、明示的な空欄は免除なしとして保持する。保存失敗時は既存の権限を維持する。
+- Mangaの免除だけではClipの免除や管理権限を付与しない。剥奪時は一般ユーザー共通の残りリキャストを適用し、既存の共有時刻はリセットしない。
+- `!manga` の返信はBot APIで送信できた場合、7.5秒後にTwitch chat message delete APIで削除する。
 - 一般ユーザーの成功時刻は `LAST_MANGA_TIME` に保存し再起動後も引き継ぐ。特別ユーザーの利用、取得失敗、送信不達、候補なしでは待ち時間を消費・延長しない。
 - Bot API送信に失敗した場合は `chatClient.say` へフォールバックする。
 
