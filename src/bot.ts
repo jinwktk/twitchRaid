@@ -181,7 +181,7 @@ const DIE_SURVIVAL_REPLY = "簡単に死んでたまるかッ🧟";
 const WORK_SEND_OFF_REPLY =
   "るっかるん、今日もお仕事気を付けて、いってらっしゃい";
 const HELP_MESSAGE =
-  "!使えるコマンド: 基本 !help / !age / !goods / !7days / !die / !work / !pvp / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> / !chat 画面見て [質問] | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga | 管理 !reset / !shoutout <ユーザー名> / !streamnotify / !定期テスト";
+  "!使えるコマンド: 基本 !help / !age / !goods / !7days / !die / !work / !pvp / !site / !x / !youtube / !game / !weight / !height / !mood / !menu | AI !chat <メッセージ> / !chat 画面見て [質問] | Clip !clip / !myclip / !clipsearch <キーワード> | 統計 !speed / !commentcount / !boom [日数] | 漫画 !manga | 管理 !mangaadmin <ユーザー名> / !reset / !shoutout <ユーザー名> / !streamnotify / !定期テスト";
 const MENTION_CHAT_MEMORY_REQUEST_LOG_VALUE = "[memory-request]";
 const MENTION_CHAT_MEMORY_KEYWORD_PATTERN =
   /(?:覚えて(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|覚えといて(?:ください|下さい|ね)?|覚えとけ|記憶して(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|記憶しといて(?:ください|下さい|ね)?|メモして(?!る|ない|なかった|ます|た|い(?:る|た|ない|ます)?)|メモしといて(?:ください|下さい|ね)?|メモっといて(?:ください|下さい|ね)?|忘れないで(?!いる|いた|います|た|しょ))/u;
@@ -2256,6 +2256,9 @@ export class Bot {
       case "manga":
         await this._handleMangaCommand(channel, user);
         break;
+      case "mangaadmin":
+        await this._handleMangaAdminCommand(channel, user, restText, msg);
+        break;
       case "reset":
         await this._handleCommandCooldownReset(channel, user);
         break;
@@ -2463,7 +2466,7 @@ export class Bot {
     channel: string,
     user: string
   ): Promise<void> {
-    const isSpecialUser = this.config.clipSpecialUsers.includes(
+    const isSpecialUser = this.config.mangaSpecialUsers.includes(
       user.toLowerCase()
     );
     const now = Date.now() / 1000;
@@ -2512,6 +2515,60 @@ export class Bot {
     } finally {
       if (!isSpecialUser) this.mangaCommandInFlight = false;
     }
+  }
+
+  private async _handleMangaAdminCommand(
+    channel: string,
+    user: string,
+    rawTarget: string,
+    msg: ChatMessage
+  ): Promise<void> {
+    const canManage =
+      this.config.clipSpecialUsers.includes(user.toLowerCase()) ||
+      msg.userInfo?.isMod ||
+      msg.userInfo?.isBroadcaster;
+    if (!canManage) {
+      await this.chatClient.say(
+        channel,
+        "⚠️ `mangaadmin` は配信者・モデレーター・管理者のみ実行できます。"
+      );
+      return;
+    }
+
+    const target = rawTarget.trim().replace(/^[@＠]+/, "").toLowerCase();
+    if (!/^[a-z0-9_]{1,25}$/.test(target)) {
+      await this.chatClient.say(
+        channel,
+        "⚠️ 使い方: !mangaadmin <ユーザー名>（Twitchのログイン名、@付きでも可）"
+      );
+      return;
+    }
+
+    const wasExempt = this.config.mangaSpecialUsers.includes(target);
+    const nextUsers = wasExempt
+      ? this.config.mangaSpecialUsers.filter((name) => name !== target)
+      : [...this.config.mangaSpecialUsers, target];
+
+    try {
+      this.config.updateMangaSpecialUsers(nextUsers);
+    } catch (error) {
+      logger.error(`Mangaのリキャスト免除設定の保存に失敗: ${error}`);
+      await this.chatClient.say(
+        channel,
+        "⚠️ Mangaの権限を保存できませんでした。変更は反映していません。"
+      );
+      return;
+    }
+
+    logger.info(
+      `Mangaのリキャスト免除を${wasExempt ? "剥奪" : "付与"}: operator=${user}, target=${target}`
+    );
+    await this.chatClient.say(
+      channel,
+      wasExempt
+        ? `✅ @${target} のMangaのリキャスト免除を剥奪しました。通常の1時間リキャストが適用されます。`
+        : `✅ @${target} にMangaのリキャスト免除を付与しました。もう一度 !mangaadmin ${target} で剥奪できます。`
+    );
   }
 
   private async _handleCommandCooldownReset(

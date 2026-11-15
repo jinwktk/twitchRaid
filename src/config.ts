@@ -86,6 +86,14 @@ function parseNameList(raw: string | undefined, fallback: string[]): string[] {
     .filter(Boolean);
 }
 
+function normalizeMangaSpecialUsers(users: string[]): string[] {
+  return [...new Set(
+    users
+      .map((user) => user.trim().replace(/^[@＠]+/, "").toLowerCase())
+      .filter((user) => /^[a-z0-9_]{1,25}$/.test(user))
+  )];
+}
+
 function restorePackedDokployEnvironment(
   processEnv: NodeJS.ProcessEnv
 ): NodeJS.ProcessEnv {
@@ -226,6 +234,7 @@ export class Config {
 
   // 特別ユーザー設定
   readonly clipSpecialUsers: string[];
+  mangaSpecialUsers: string[];
   readonly shoutoutAdminUsers: string[];
 
   // スコープ管理
@@ -608,6 +617,12 @@ export class Config {
       .split(",")
       .map((u) => u.trim().toLowerCase())
       .filter(Boolean);
+    const mangaSpecialUsersStr = env["MANGA_SPECIAL_USERS"];
+    this.mangaSpecialUsers = normalizeMangaSpecialUsers(
+      mangaSpecialUsersStr === undefined
+        ? this.clipSpecialUsers
+        : mangaSpecialUsersStr.split(",")
+    );
 
     const shoutoutAdminStr = env["SHOUTOUT_ADMIN_USERS"] ?? "rukalun";
     this.shoutoutAdminUsers = shoutoutAdminStr
@@ -669,6 +684,14 @@ export class Config {
     this.lastMangaTime = timestamp;
     process.env["LAST_MANGA_TIME"] = String(timestamp);
     updateEnvFile(this.envFile, { LAST_MANGA_TIME: String(timestamp) });
+  }
+
+  updateMangaSpecialUsers(users: string[]): void {
+    const normalizedUsers = normalizeMangaSpecialUsers(users);
+    const value = normalizedUsers.join(",");
+    updateEnvFile(this.envFile, { MANGA_SPECIAL_USERS: value });
+    this.mangaSpecialUsers = normalizedUsers;
+    process.env["MANGA_SPECIAL_USERS"] = value;
   }
 
   updateLastStreamTitle(title: string): void {

@@ -105,6 +105,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     ollamaShoutoutTimeoutMs: 8000,
     ollamaShoutoutKeepAlive: "5m",
     clipSpecialUsers: [],
+    mangaSpecialUsers: [...(overrides.clipSpecialUsers ?? [])],
     shoutoutAdminUsers: [],
     activeAuthScopes: [],
     updateAccessToken: vi.fn(),
@@ -116,6 +117,9 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     updateLastClipTime: vi.fn(),
     updateLastMyclipTime: vi.fn(),
     updateLastMangaTime: vi.fn(),
+    updateMangaSpecialUsers: vi.fn(function (this: Config, users: string[]) {
+      this.mangaSpecialUsers = [...users];
+    }),
     updateLastStreamTitle: vi.fn(),
     getLastStreamTitle: vi.fn(() => ""),
     ...overrides,
@@ -189,6 +193,7 @@ describe("Bot help command", () => {
       "!commentcount",
       "!boom",
       "!manga",
+      "!mangaadmin",
       "!reset",
       "!shoutout",
       "!streamnotify",
@@ -739,6 +744,215 @@ describe("Bot help command", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(4);
     expect(config.updateLastMangaTime).not.toHaveBeenCalled();
+  });
+
+  it("toggles Manga exemption without consuming or resetting the shared cooldown", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(4_000_000);
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () =>
+        '<a href="/maniax/work/=/product_id/RJ123456.html">作品A</a>',
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const { bot, say, config } = makeBot({
+      clipSpecialUsers: ["manager"],
+      mangaSpecialUsers: ["existing"],
+      lastMangaTime: 3_900,
+    });
+
+    await bot._handleCommand("#rukalun", "MANAGER", "!MaNgAaDmIn @Viewer", {});
+
+    expect(config.updateMangaSpecialUsers).toHaveBeenLastCalledWith([
+      "existing",
+      "viewer",
+    ]);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      expect.stringContaining("@viewer にMangaのリキャスト免除を付与")
+    );
+
+    await bot._handleCommand("#rukalun", "VIEWER", "!manga", {});
+    await bot._handleCommand("#rukalun", "viewer", "!manga", {});
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    expect(config.updateLastMangaTime).not.toHaveBeenCalled();
+    expect(bot.commandCooldownState.lastUsed("manga")).toBe(3_900);
+
+    await bot._handleCommand("#rukalun", "ordinary", "!manga", {});
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      expect.stringContaining("1時間に1回")
+    );
+
+    await bot._handleCommand("#rukalun", "manager", "!mangaadmin ＠ViEwEr", {});
+    expect(config.updateMangaSpecialUsers).toHaveBeenLastCalledWith(["existing"]);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      expect.stringContaining("@viewer のMangaのリキャスト免除を剥奪")
+    );
+
+    await bot._handleCommand("#rukalun", "viewer", "!manga", {});
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      expect.stringContaining("1時間に1回")
+    );
+    expect(config.mangaSpecialUsers).toEqual(["existing"]);
+    expect(config.clipSpecialUsers).toEqual(["manager"]);
+    expect(config.updateLastMangaTime).not.toHaveBeenCalled();
+    expect(bot.commandCooldownState.lastUsed("manga")).toBe(3_900);
+  });
+
+  it.each([
+    { user: "broadcaster", isBroadcaster: true, isMod: false, admins: [] },
+    { user: "moderator", isBroadcaster: false, isMod: true, admins: [] },
+    { user: "MiXeD_Admin", isBroadcaster: false, isMod: false, admins: ["mixed_admin"] },
+  ])("allows $user to manage Manga exemptions", async ({ user, isBroadcaster, isMod, admins }) => {
+    const { bot, config } = makeBot({
+      clipSpecialUsers: admins,
+      mangaSpecialUsers: [],
+    });
+
+    await bot._handleCommand("#rukalun", user, "!mangaadmin viewer", {
+      userInfo: { isBroadcaster, isMod },
+    });
+
+    expect(config.updateMangaSpecialUsers).toHaveBeenCalledWith(["viewer"]);
+    expect(config.mangaSpecialUsers).toEqual(["viewer"]);
+  });
+
+  it("does not let ordinary viewers grant themselves Manga exemption", async () => {
+    const { bot, say, config } = makeBot();
+
+    await bot._handleCommand("#rukalun", "viewer", "!mangaadmin viewer", {
+      userInfo: { isBroadcaster: false, isMod: false },
+    });
+
+    expect(config.updateMangaSpecialUsers).not.toHaveBeenCalled();
+    expect(config.mangaSpecialUsers).toEqual([]);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      expect.stringContaining("のみ実行できます")
+    );
+  });
+
+  it.each([
+    "",
+    "@",
+    "viewer other",
+    "https://twitch.tv/viewer",
+    "日本語表示名",
+    "viewer-name",
+    "a".repeat(26),
+    "viewer\nOTHER=1",
+  ])("rejects an invalid Manga exemption target %j without changing permissions", async (target) => {
+    const { bot, say, config } = makeBot({
+      clipSpecialUsers: ["manager"],
+      mangaSpecialUsers: ["existing"],
+    });
+
+    await bot._handleCommand("#rukalun", "manager", `!mangaadmin ${target}`, {});
+
+    expect(config.updateMangaSpecialUsers).not.toHaveBeenCalled();
+    expect(config.mangaSpecialUsers).toEqual(["existing"]);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      expect.stringContaining("使い方: !mangaadmin")
+    );
+  });
+
+  it.each([{ initialUsers: [] }, { initialUsers: ["viewer"] }])("leaves Manga exemptions $initialUsers unchanged when saving the toggle fails", async ({ initialUsers }) => {
+    const updateMangaSpecialUsers = vi.fn(() => {
+      throw new Error("simulated storage failure");
+    });
+    const { bot, say, config } = makeBot({
+      clipSpecialUsers: ["manager"],
+      mangaSpecialUsers: [...initialUsers],
+      updateMangaSpecialUsers,
+    });
+
+    await bot._handleCommand("#rukalun", "manager", "!mangaadmin viewer", {});
+
+    expect(updateMangaSpecialUsers).toHaveBeenCalledTimes(1);
+    expect(config.mangaSpecialUsers).toEqual(initialUsers);
+    expect(say).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      expect.stringContaining("権限を保存できませんでした")
+    );
+    expect(say.mock.calls[0][1]).not.toContain("✅");
+  });
+
+  it("does not grant Clip, reset, or permission-management rights with Manga exemption", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(4_000_000);
+    const { bot, say, config } = makeBot({
+      clipSpecialUsers: ["manager"],
+      mangaSpecialUsers: [],
+      lastClipTime: 3_900,
+      lastMyclipTime: 3_900,
+      lastMangaTime: 3_900,
+    });
+    const viewerMessage = { userInfo: { isBroadcaster: false, isMod: false } };
+
+    await bot._handleCommand("#rukalun", "manager", "!mangaadmin viewer", {});
+    expect(config.mangaSpecialUsers).toEqual(["viewer"]);
+    vi.mocked(config.updateMangaSpecialUsers).mockClear();
+
+    for (const command of ["clip", "myclip"]) {
+      await bot._handleCommand("#rukalun", "viewer", `!${command}`, viewerMessage);
+      expect(say).toHaveBeenLastCalledWith(
+        "#rukalun",
+        expect.stringContaining(`\`${command}\` コマンドは 30分に1回`)
+      );
+    }
+
+    await bot._handleCommand("#rukalun", "viewer", "!reset", viewerMessage);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      "⚠️ `reset` は管理者のみ実行できます。"
+    );
+
+    await bot._handleCommand("#rukalun", "viewer", "!mangaadmin other", viewerMessage);
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      expect.stringContaining("のみ実行できます")
+    );
+    expect(config.updateMangaSpecialUsers).not.toHaveBeenCalled();
+    expect(config.updateLastClipTime).not.toHaveBeenCalled();
+    expect(config.updateLastMyclipTime).not.toHaveBeenCalled();
+    expect(config.updateLastMangaTime).not.toHaveBeenCalled();
+    expect(config.clipSpecialUsers).toEqual(["manager"]);
+    expect(config.mangaSpecialUsers).toEqual(["viewer"]);
+  });
+
+  it("can revoke a legacy special user's Manga exemption while preserving reset rights", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(4_000_000);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const { bot, say, config } = makeBot({
+      clipSpecialUsers: ["nyme_ia"],
+      lastMangaTime: 3_900,
+    });
+
+    await bot._handleCommand("#rukalun", "nyme_ia", "!mangaadmin @nyme_ia", {});
+    expect(config.mangaSpecialUsers).toEqual([]);
+    expect(config.clipSpecialUsers).toEqual(["nyme_ia"]);
+
+    await bot._handleCommand("#rukalun", "nyme_ia", "!manga", {});
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(say).toHaveBeenLastCalledWith(
+      "#rukalun",
+      expect.stringContaining("1時間に1回")
+    );
+
+    await bot._handleCommand("#rukalun", "nyme_ia", "!reset", {});
+    expect(config.updateLastMangaTime).toHaveBeenCalledWith(0);
+    expect(bot.commandCooldownState.lastUsed("manga")).toBeNull();
+    expect(config.mangaSpecialUsers).toEqual([]);
   });
 
   it("does not consume manga cooldown when the ranking is empty or failed", async () => {

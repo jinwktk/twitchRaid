@@ -137,7 +137,8 @@ npm run docs:export-clips # data/clips.sqlite から公開Clip検索JSONを生�
 | `!clip` | 過去のクリップをランダム表示 | 30分クールダウン（特別ユーザー除外） |
 | `!myclip` | 自分が作成したクリップをランダム表示 | 30分クールダウン（`!clip`とは独立） |
 | `!clipsearch <キーワード>` | Clipタイトル/作成者名/ゲーム名から過去クリップを検索して1件表示 | SQLiteキャッシュ検索、クールダウンなし |
-| `!manga` | DLsiteの男性向けコミック・女性向け日間ランキングを合わせた候補から、`るかにゃんこ読書📖おすすめ rukkaEeeee 作品名 URL` を表示 | 常時利用可能。一般ユーザー共通で1時間に1回、`CLIP_SPECIAL_USERS` は無制限。7.5秒後自動削除 |
+| `!manga` | DLsiteの男性向けコミック・女性向け日間ランキングを合わせた候補から、`るかにゃんこ読書📖おすすめ rukkaEeeee 作品名 URL` を表示 | 常時利用可能。一般ユーザー共通で1時間に1回、`MANGA_SPECIAL_USERS` は無制限。7.5秒後自動削除 |
+| `!mangaadmin <ユーザー名>` | 指定ユーザーのMangaリキャスト免除を付与・剥奪（同じコマンドで切替） | 配信者 / モデレーター / `CLIP_SPECIAL_USERS` のみ。`@ユーザー名` も可。再起動後も保存 |
 | `!reset` | `!clip`・`!myclip`・`!manga` のリキャストをまとめて解除 | `CLIP_SPECIAL_USERS` のみ。予約済みのリキャスト復帰通知も停止 |
 | `!shoutout <ユーザー名>` | 指定ユーザーへ手動 shoutout を実行 | broadcaster / mod / `SHOUTOUT_ADMIN_USERS` のみ |
 | `!speed` | コメント風速を表示（直近60秒＋配信全体平均） | コマンドは計測対象外 |
@@ -304,7 +305,9 @@ npm run perf:anythingllm-ledger -- --baseline-module .omx/perf-baselines/anythin
 - 一般ユーザーは 30 分のクールダウンが適用
 - クールダウン終了時に Bot がチャットへ「リキャスト復帰」コメントを自動送信
 - `!myclip` は `!clip` とは独立したクールダウン管理
-- `!manga` は常時利用可能で、一般ユーザー共通で1時間に1回。`CLIP_SPECIAL_USERS`（既定 `nyme_ia,rukalun`）は無制限で、一般ユーザーの待ち時間を消費・延長しない。取得失敗・送信不達・候補なしではクールダウンを消費せず、成功時刻は `LAST_MANGA_TIME` として保存し再起動後も引き継ぐ。
+- `!manga` は常時利用可能で、一般ユーザー共通で1時間に1回。`MANGA_SPECIAL_USERS` に含まれるユーザーは無制限で、一般ユーザーの待ち時間を消費・延長しない。取得失敗・送信不達・候補なしではクールダウンを消費せず、成功時刻は `LAST_MANGA_TIME` として保存し再起動後も引き継ぐ。
+- `!mangaadmin viewer` で `viewer` にMangaのリキャスト免除を付与し、もう一度同じコマンドで剥奪する。配信者・モデレーター・`CLIP_SPECIAL_USERS` が操作でき、対象はTwitchのログイン名（`@` 付き可、大文字小文字を区別しない）で指定する。付与先にClipの免除や管理コマンドの権限は追加しない。剥奪後は、その時点の一般ユーザー共通リキャストが適用される。
+- 免除リストは `.env` または `TWITCH_RUNTIME_ENV_FILE` の `MANGA_SPECIAL_USERS` に保存する。未設定時だけ従来の `CLIP_SPECIAL_USERS`（既定 `nyme_ia,rukalun`）を引き継ぎ、明示的な空欄は免除なしとして保持する。保存に失敗した場合は現在の権限を維持して失敗を通知する。
 - `!reset` は `CLIP_SPECIAL_USERS` だけが実行でき、`!clip`・`!myclip`・`!manga` の待ち時間と保存済み時刻を一括解除する。予約済みのClipリキャスト復帰通知も停止する。
 - 起動後に `data/clips.sqlite` へ全期間クリップをバックグラウンド同期する。実運用ではTwitch client id/access tokenを使ってHelix clips APIを `Accept-Encoding: identity` 付きで直fetchし、現在のrefresh済みaccess tokenを参照する。ゲーム名補完も同じ認証情報でHelix games APIを `Accept-Encoding: identity` 付きで直fetchする。Twitch APIの一時的な `Premature close` などで期間窓の取得に失敗した場合は、その期間窓だけ既定2回再試行し、失敗が続く場合は期間窓を二分割して小さい窓で再取得する。分割後の小窓が全て成功した場合は元の大きい窓も完了扱いにし、再試行中はINFOログ、分割後も取れなかった最小窓だけWARNログにする。Twurple paginator経路は認証情報がないテスト/互換fallbackとして残す
 - 同期済み期間は `clip_scan_windows` に保存し、再起動後は取得済み期間をスキップ
@@ -454,6 +457,7 @@ internal-docs/
 
 ## 更新履歴
 
+- **2026-11-15**: `!mangaadmin <ユーザー名>` でManga専用のリキャスト免除を付与・剥奪できるようにした。操作は配信者・モデレーター・既存の特別ユーザーに限定し、設定を保存して再起動後も引き継ぐ。
 - **2026-11-08**: `!youtube` と定期案内の短縮URLを、正しいるっかるんYouTubeチャンネルへ転送する `https://is.gd/rukalun_youtube` に変更した。
 - **2026-11-07**: `!chat 画面見て` で映像・音声を確認しても答えられない細部は、観測できた範囲で返し、自動検索と再生成の待ち時間を減らした。
 - **2026-11-05**: 通常の `!chat` から動画待ちを外した。配信の映像・音声を使いたい場合は `!chat 画面見て` と書くか、その後に質問を続ける。

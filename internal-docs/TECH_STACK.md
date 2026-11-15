@@ -60,7 +60,8 @@ npm run pm2:logs
 | `CLIP_SEARCH_AUTO_PUBLISH_ENABLED` | Clip検索JSONの自動公開を有効化 |
 | `CLIP_SEARCH_DATA_PATH` | 公開JSON出力先。RukalunPage分離後は `RukalunPage\clip-search-data.json` |
 | `CLIP_SEARCH_PUBLISH_REPO_DIR` | 公開JSONのgit add/commit/pushを行うrepo。RukalunPage分離後は `RukalunPage` |
-| `CLIP_SPECIAL_USERS` | `!clip` / `!myclip` / `!manga` クールダウン免除ユーザーと `!reset` 実行権限 |
+| `CLIP_SPECIAL_USERS` | `!clip` / `!myclip` クールダウン免除ユーザー、`!reset` / `!mangaadmin` 実行権限、Manga免除リスト未設定時の初期値 |
+| `MANGA_SPECIAL_USERS` | `!manga` 専用のリキャスト免除ユーザー。`!mangaadmin` で保存。未設定時は `CLIP_SPECIAL_USERS` を引き継ぎ、空欄は免除なし |
 | `LAST_MANGA_TIME` | 常時利用可能な `!manga` の一般ユーザー共通1時間クールダウンの保存時刻 |
 | `SHOUTOUT_ADMIN_USERS` | `!shoutout` / `!streamnotify` の追加管理者 |
 

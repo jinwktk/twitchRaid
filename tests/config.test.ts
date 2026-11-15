@@ -1,7 +1,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Config } from "../src/config";
 
 let tempDir: string | null = null;
@@ -512,6 +512,114 @@ LAST_MANGA_TIME=123.5
         process.env.LAST_MANGA_TIME = previous;
       }
     }
+  });
+
+  describe("manga cooldown exemptions", () => {
+    beforeEach(() => {
+      vi.stubEnv("TWITCH_CLIENT_ID", "config-test-client");
+      vi.stubEnv("TWITCH_RUNTIME_ENV_FILE", undefined);
+      vi.stubEnv("CLIP_SPECIAL_USERS", undefined);
+      vi.stubEnv("MANGA_SPECIAL_USERS", undefined);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.unstubAllEnvs();
+    });
+
+    it.each([
+      { contents: "", expected: ["nyme_ia", "rukalun"] },
+      {
+        contents: "CLIP_SPECIAL_USERS=Rukalun,Custom_Admin",
+        expected: ["rukalun", "custom_admin"],
+      },
+    ])("inherits an independent copy of clip exemptions when unset: $contents", ({ contents, expected }) => {
+      const config = new Config(writeEnvFile(contents));
+
+      expect(config.mangaSpecialUsers).toEqual(expected);
+      expect(config.mangaSpecialUsers).not.toBe(config.clipSpecialUsers);
+    });
+
+    it("keeps an explicitly empty list instead of restoring clip exemptions", () => {
+      const config = new Config(writeEnvFile(
+        "CLIP_SPECIAL_USERS=legacy_admin\nMANGA_SPECIAL_USERS="
+      ));
+
+      expect(config.mangaSpecialUsers).toEqual([]);
+      expect(config.clipSpecialUsers).toEqual(["legacy_admin"]);
+    });
+
+    it("normalizes configured names and excludes invalid or duplicate entries", () => {
+      const config = new Config(writeEnvFile(
+        "MANGA_SPECIAL_USERS= @Viewer ,＠VIEWER,Other_123,,bad-user," + "x".repeat(26)
+      ));
+
+      expect(config.mangaSpecialUsers).toEqual(["viewer", "other_123"]);
+    });
+
+    it("persists normalized grants and an empty revocation across restarts", () => {
+      const envPath = writeEnvFile("CLIP_SPECIAL_USERS=legacy_admin");
+      const config = new Config(envPath);
+
+      config.updateMangaSpecialUsers([
+        " @Viewer ", "＠VIEWER", "Other_123", "", "bad-user",
+        "x".repeat(26), "bad\nINJECTED=1", "a,b",
+      ]);
+
+      expect(config.mangaSpecialUsers).toEqual(["viewer", "other_123"]);
+      expect(process.env.MANGA_SPECIAL_USERS).toBe("viewer,other_123");
+      expect(fs.readFileSync(envPath, "utf8")).toBe(
+        "CLIP_SPECIAL_USERS=legacy_admin\nMANGA_SPECIAL_USERS=viewer,other_123"
+      );
+      delete process.env.MANGA_SPECIAL_USERS;
+      const restarted = new Config(envPath);
+      expect(restarted.mangaSpecialUsers).toEqual(["viewer", "other_123"]);
+      expect(restarted.clipSpecialUsers).toEqual(["legacy_admin"]);
+
+      restarted.updateMangaSpecialUsers([]);
+
+      expect(restarted.mangaSpecialUsers).toEqual([]);
+      expect(process.env.MANGA_SPECIAL_USERS).toBe("");
+      expect(fs.readFileSync(envPath, "utf8")).toMatch(/^MANGA_SPECIAL_USERS=$/m);
+      delete process.env.MANGA_SPECIAL_USERS;
+      expect(new Config(envPath).mangaSpecialUsers).toEqual([]);
+    });
+
+    it.each(["persisted_user", ""])(
+      "prefers the runtime list over process and base-file settings: %s",
+      (runtimeUsers) => {
+        const envPath = writeEnvFile("MANGA_SPECIAL_USERS=file_user");
+        const runtimePath = path.join(path.dirname(envPath), "runtime.env");
+        fs.writeFileSync(runtimePath, `MANGA_SPECIAL_USERS=${runtimeUsers}`, "utf8");
+        vi.stubEnv("TWITCH_RUNTIME_ENV_FILE", runtimePath);
+        vi.stubEnv("MANGA_SPECIAL_USERS", "stale_process_user");
+        const config = new Config(envPath);
+
+        expect(config.mangaSpecialUsers).toEqual(runtimeUsers ? [runtimeUsers] : []);
+
+        config.updateMangaSpecialUsers(["new_viewer"]);
+
+        expect(fs.readFileSync(runtimePath, "utf8")).toBe("MANGA_SPECIAL_USERS=new_viewer");
+        expect(fs.readFileSync(envPath, "utf8")).toBe("MANGA_SPECIAL_USERS=file_user");
+        vi.stubEnv("MANGA_SPECIAL_USERS", "stale_process_user");
+        expect(new Config(envPath).mangaSpecialUsers).toEqual(["new_viewer"]);
+      }
+    );
+
+    it("keeps saved, in-memory and process exemptions unchanged if saving fails", () => {
+      const envPath = writeEnvFile("MANGA_SPECIAL_USERS=existing_viewer");
+      vi.stubEnv("MANGA_SPECIAL_USERS", "existing_viewer");
+      const config = new Config(envPath);
+      vi.spyOn(fs, "renameSync").mockImplementationOnce(() => {
+        throw new Error("simulated save failure");
+      });
+
+      expect(() => config.updateMangaSpecialUsers([])).toThrow("simulated save failure");
+      expect(config.mangaSpecialUsers).toEqual(["existing_viewer"]);
+      expect(process.env.MANGA_SPECIAL_USERS).toBe("existing_viewer");
+      expect(fs.readFileSync(envPath, "utf8")).toBe("MANGA_SPECIAL_USERS=existing_viewer");
+      expect(new Config(envPath).mangaSpecialUsers).toEqual(["existing_viewer"]);
+    });
   });
 
   it("keeps chat AI disabled by default", () => {
